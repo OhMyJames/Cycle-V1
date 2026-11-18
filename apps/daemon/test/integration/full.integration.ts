@@ -1,5 +1,5 @@
 // The whole backend, as a user would run it: a client reaches the daemon over ssh (a stand-in for
-// ssh, which runs the command here), `cycle-daemon proxy` starts the daemon, the daemon starts the
+// ssh, which runs the command here), `cycle proxy` starts the daemon, the daemon starts the
 // Claude adapter, which runs the real Agent SDK against a mock of the Anthropic API.
 // Run with `bun run test:integration` in apps/daemon. The pre-commit gate does not run it.
 import { afterAll, beforeAll, expect, test } from "bun:test";

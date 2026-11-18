@@ -16,7 +16,7 @@ import { canLaunch, launch } from "./launch.ts";
 
 const token = process.env.CYCLE_REAL_MODEL_TOKEN;
 const bin = new URL(
-  `../../../daemon/dist/cycle-daemon-${process.platform}-${process.arch}/cycle-daemon`,
+  `../../../daemon/dist/cycle-${process.platform}-${process.arch}/cycle`,
   import.meta.url,
 ).pathname;
 const enabled = canLaunch && token !== undefined && token !== "" && existsSync(bin);

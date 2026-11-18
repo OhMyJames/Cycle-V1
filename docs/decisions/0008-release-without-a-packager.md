@@ -6,10 +6,10 @@
 
 - **应用**:macOS,只发 Apple 芯片(arm64),不发 Intel。名字 `Cycle`,bundle id `dev.cycle.app`。
 - **不用 electron-builder / Forge**:`apps/desktop/scripts/package.ts` 拷贝 Electron 自己的发行版,去掉 `default_app.asar`,把我们的文件放进 `Contents/Resources/app`(没有 asar,Electron 直接读这个文件夹),改 `Info.plist`。Info.plist 的修改是纯文本处理(`scripts/plist.ts`),所以布局可以在 Linux 上构建和测试。
-- **应用自带 daemon 和 Claude**:`bin/cycle-daemon`(`bun build --compile`,不读 `.env` 和 `bunfig.toml`)和旁边的 `bin/claude`(SDK 的 darwin-arm64 平台包里的二进制)。"This computer"在 Mac 上照常可用。打包后的应用**只用**它们,不回退到 Bun 和源码(用户的 Mac 上没有 Bun),缺了就报出缺什么。以 `build.json` 为"已打包"的标记,不用 `app.isPackaged`(保留 `Contents/MacOS/Electron` 这个名字,它会判错)。
+- **应用自带 daemon 和 Claude**:`bin/cycle`(`bun build --compile`,不读 `.env` 和 `bunfig.toml`)和旁边的 `bin/claude`(SDK 的 darwin-arm64 平台包里的二进制)。"This computer"在 Mac 上照常可用。打包后的应用**只用**它们,不回退到 Bun 和源码(用户的 Mac 上没有 Bun),缺了就报出缺什么。以 `build.json` 为"已打包"的标记,不用 `app.isPackaged`(保留 `Contents/MacOS/Electron` 这个名字,它会判错)。
 - **签名**:`@electron/osx-sign`(由内到外,hardened runtime,安全时间戳,默认 entitlements)然后 `@electron/notarize`(App Store Connect API key)并 staple。工作流把证书导入临时钥匙串,用完删除。`spctl` 通过才继续。
-- **签名前后都检查包里的二进制**:`cycle-daemon status`、`claude --version`、用包里的 daemon 跑后端集成测试。因为 hardened runtime 可能让一个未签名时能跑的 Bun 可执行文件起不来,这要在公证花几分钟之前发现。
-- **Linux daemon**:单独的发布产物 `cycle-daemon-linux-x64.tar.gz` 加 `.sha256`,装在远端机器上(见 docs/daemon.md)。目前只有 x64。
+- **签名前后都检查包里的二进制**:`cycle status`、`claude --version`、用包里的 daemon 跑后端集成测试。因为 hardened runtime 可能让一个未签名时能跑的 Bun 可执行文件起不来,这要在公证花几分钟之前发现。
+- **Linux daemon**:单独的发布产物 `cycle-linux-x64.tar.gz` 加 `.sha256`,装在远端机器上(见 docs/daemon.md)。目前只有 x64。
 - **发布**:推 `v<version>` 标签才发布;标签必须等于 `apps/desktop/package.json` 的版本。手动运行只上传 artifact,不发布;`sign` 选项默认关,此时只做 ad hoc 签名,不需要任何密钥,第一次在 macOS runner 上就这样跑。
 - **密钥**:六个 Actions secret,名字和旧项目一致(`APPLE_CERTIFICATE_P12`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_API_KEY`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER`、`APPLE_TEAM_ID`)。GitHub secret 写入后读不回来,所以要在持有原件的机器上用 `scripts/set-apple-secrets.sh` 写进新仓库;值不进仓库、不进 shell 历史。
 

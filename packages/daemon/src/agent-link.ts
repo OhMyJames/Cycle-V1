@@ -31,7 +31,7 @@ export class AgentLink {
 
   static async connect(definition: AgentDefinition, handlers: LinkHandlers): Promise<AgentLink> {
     const launched = await definition.launch();
-    const app = client({ name: "cycle-daemon" })
+    const app = client({ name: "cycle" })
       .onNotification(methods.client.session.update, ({ params }) => {
         handlers.update(params.update);
       })
@@ -46,7 +46,7 @@ export class AgentLink {
     try {
       await connection.agent.request(methods.agent.initialize, {
         protocolVersion: 2,
-        info: { name: "cycle-daemon", version: "0.0.0" },
+        info: { name: "cycle", version: "0.0.0" },
         capabilities: {},
       } as never);
     } catch (error) {

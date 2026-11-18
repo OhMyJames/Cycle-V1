@@ -86,7 +86,7 @@ test.skipIf(!ready)(
     const proc = Bun.spawn(
       linux ? ["xvfb-run", "-a", packaged.executable, ...flags] : [packaged.executable, ...flags],
       {
-        env: { PATH: "/usr/bin:/bin", HOME: root, CYCLE_V1_HOME: data },
+        env: { PATH: "/usr/bin:/bin", HOME: root, CYCLE_HOME: data },
         stdout: "ignore",
         stderr: "ignore",
       },
@@ -109,10 +109,10 @@ test.skipIf(!ready)(
       // And the daemon that serves it is the one inside the app.
       const pid = Number((await Bun.file(join(data, "daemon.pid")).text()).trim());
       if (linux)
-        expect(await readlink(`/proc/${pid}/exe`)).toBe(join(packaged.appDir, "bin/cycle-daemon"));
+        expect(await readlink(`/proc/${pid}/exe`)).toBe(join(packaged.appDir, "bin/cycle"));
       else {
         const ps = Bun.spawnSync(["ps", "-p", String(pid), "-o", "command="]);
-        expect(ps.stdout.toString()).toContain(join(packaged.appDir, "bin/cycle-daemon"));
+        expect(ps.stdout.toString()).toContain(join(packaged.appDir, "bin/cycle"));
       }
       process.kill(pid, "SIGTERM");
     } finally {

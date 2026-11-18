@@ -10,7 +10,7 @@ export const MAC_BUNDLE = `${APP_NAME}.app`;
 /** Present only in a packaged app: its presence is how the main process knows it is one. */
 export const BUILD_FILE = "build.json";
 /** The daemon, compiled to one executable, with `claude` beside it (the daemon looks there). */
-export const DAEMON_BIN = "bin/cycle-daemon";
+export const DAEMON_BIN = "bin/cycle";
 export const CLAUDE_BIN = "bin/claude";
 /** The built main process, preload and page, laid out as `apps/desktop/dist` is. */
 export const DIST_DIR = "dist";
@@ -40,10 +40,7 @@ export const daemonCommand = (options: {
     return [bundled];
   }
   if (env.CYCLE_DAEMON_BIN !== undefined) return [env.CYCLE_DAEMON_BIN];
-  const built = join(
-    here,
-    `../../daemon/dist/cycle-daemon-${options.platform}-${options.arch}/cycle-daemon`,
-  );
+  const built = join(here, `../../daemon/dist/cycle-${options.platform}-${options.arch}/cycle`);
   if (exists(built)) return [built];
   return [env.CYCLE_BUN ?? "bun", env.CYCLE_DAEMON_MAIN ?? join(here, "../../daemon/src/main.ts")];
 };

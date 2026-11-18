@@ -61,7 +61,7 @@ export const commandChannel = (options: CommandOptions): Channel => {
 export type SshOptions = {
   /** What `ssh` takes: `host`, `user@host`, or an alias from ~/.ssh/config. */
   host: string;
-  /** What to run on the far side. It must speak ACP on stdin and stdout: `cycle-daemon proxy`. */
+  /** What to run on the far side. It must speak ACP on stdin and stdout: `cycle proxy`. */
   command: string[];
   /** The ssh program. Replaceable for tests. */
   ssh?: string;

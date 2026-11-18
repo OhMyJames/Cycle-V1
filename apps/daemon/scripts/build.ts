@@ -1,14 +1,14 @@
 // Builds the daemon into one directory you can copy to a machine and run:
 //
-//   dist/cycle-daemon-<os>-<arch>/cycle-daemon   the daemon, one executable (Bun inside)
-//   dist/cycle-daemon-<os>-<arch>/claude         the Claude Code binary the adapter drives
+//   dist/cycle-<os>-<arch>/cycle   the daemon, one executable (Bun inside)
+//   dist/cycle-<os>-<arch>/claude         the Claude Code binary the adapter drives
 //
 // plus a .tar.gz of it. The machine needs nothing else: no Bun, no Node, no `claude` on PATH.
 import { chmod, cp, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 const root = new URL("..", import.meta.url).pathname;
-const name = `cycle-daemon-${process.platform}-${process.arch}`;
+const name = `cycle-${process.platform}-${process.arch}`;
 const out = join(root, "dist", name);
 await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
@@ -28,7 +28,7 @@ if (binary === undefined) throw new Error(`no Claude binary in ${platformDir}`);
 const result = await Bun.build({
   entrypoints: [join(root, "src/main.ts")],
   // The daemon runs from whatever directory it was started in; it must not read a .env or bunfig.toml there.
-  compile: { outfile: join(out, "cycle-daemon"), autoloadDotenv: false, autoloadBunfig: false },
+  compile: { outfile: join(out, "cycle"), autoloadDotenv: false, autoloadBunfig: false },
   minify: false,
 });
 if (!result.success) {
@@ -39,7 +39,7 @@ await cp(join(platformDir, binary), join(out, "claude"));
 await cp(join(root, "scripts/install.sh"), join(out, "install.sh"));
 await chmod(join(out, "install.sh"), 0o755);
 await chmod(join(out, "claude"), 0o755);
-await chmod(join(out, "cycle-daemon"), 0o755);
+await chmod(join(out, "cycle"), 0o755);
 
 if (Bun.argv.includes("--no-tarball")) {
   console.log(`built ${out}`);
@@ -53,5 +53,5 @@ const tar = Bun.spawn(["tar", "-czf", `${name}.tar.gz`, name], {
 if ((await tar.exited) !== 0) process.exit(1);
 const size = async (p: string) => ((await stat(p)).size / 1e6).toFixed(0);
 console.log(
-  `built ${out}  (cycle-daemon ${await size(join(out, "cycle-daemon"))} MB, claude ${await size(join(out, "claude"))} MB, tarball ${await size(join(root, "dist", `${name}.tar.gz`))} MB)`,
+  `built ${out}  (cycle ${await size(join(out, "cycle"))} MB, claude ${await size(join(out, "claude"))} MB, tarball ${await size(join(root, "dist", `${name}.tar.gz`))} MB)`,
 );

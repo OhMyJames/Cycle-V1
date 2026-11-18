@@ -14,7 +14,7 @@ export type HostConfig =
       kind: "ssh";
       /** What `ssh` takes: `host`, `user@host`, or an alias from ~/.ssh/config. */
       host: string;
-      /** What to run on the far side. Default: `cycle-daemon proxy`. */
+      /** What to run on the far side. Default: `cycle proxy`. */
       command?: string[];
     };
 

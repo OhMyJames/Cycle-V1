@@ -2,7 +2,7 @@
 // copy of Electron with its default app replaced by a folder, `app`, which is where Electron looks
 // when there is no asar.
 //
-//   Cycle.app/Contents/Resources/app/{package.json, build.json, dist/, bin/cycle-daemon, bin/claude}
+//   Cycle.app/Contents/Resources/app/{package.json, build.json, dist/, bin/cycle, bin/claude}
 //
 // On macOS the copy is a bundle with its Info.plist changed and an ad hoc signature, so that it runs
 // at all on Apple silicon; a release then signs it with a Developer ID and notarizes it (sign.ts).
@@ -76,14 +76,14 @@ export const packageApp = (outDir = BUILD_DIR): Packaged => {
   // The main process, preload and page; and the daemon with Claude beside it, for this platform.
   run([process.execPath, "scripts/build.ts"], DESKTOP);
   run([process.execPath, "scripts/build.ts", "--no-tarball"], join(ROOT, "apps/daemon"));
-  const daemonDir = join(ROOT, "apps/daemon/dist", `cycle-daemon-${platform}-${arch}`);
+  const daemonDir = join(ROOT, "apps/daemon/dist", `cycle-${platform}-${arch}`);
 
   mkdirSync(outDir, { recursive: true });
   const staging = join(outDir, ".app-staging");
   rmSync(staging, { recursive: true, force: true });
   mkdirSync(join(staging, dirname(DAEMON_BIN)), { recursive: true });
   cpSync(join(DESKTOP, "dist"), join(staging, DIST_DIR), { recursive: true });
-  cpSync(join(daemonDir, "cycle-daemon"), join(staging, DAEMON_BIN));
+  cpSync(join(daemonDir, "cycle"), join(staging, DAEMON_BIN));
   cpSync(join(daemonDir, "claude"), join(staging, CLAUDE_BIN));
   chmodSync(join(staging, DAEMON_BIN), 0o755);
   chmodSync(join(staging, CLAUDE_BIN), 0o755);

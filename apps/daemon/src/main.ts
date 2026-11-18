@@ -9,7 +9,7 @@ import { proxy } from "./proxy.ts";
 import { claudeExecutable } from "./self.ts";
 import { serve } from "./serve.ts";
 
-const USAGE = `cycle-daemon <command> [options]
+const USAGE = `cycle <command> [options]
 
   serve   Run the daemon in the foreground.
   proxy   Join stdin and stdout to the daemon's socket, starting the daemon if needed.
@@ -22,7 +22,7 @@ const USAGE = `cycle-daemon <command> [options]
   adapter claude   (internal) Run the Claude adapter on stdin and stdout.
 
 Options:
-  --data-dir <dir>   Where sessions and settings live. Default: $CYCLE_V1_HOME or ~/.cycle-v1
+  --data-dir <dir>   Where sessions and settings live. Default: $CYCLE_HOME or ~/.cycle
   --socket <path>    The unix socket. Default: <data-dir>/daemon.sock
 `;
 
@@ -49,7 +49,7 @@ const paths = pathsFor(values["data-dir"] ?? defaultDataDir(), values.socket);
 
 if (command === "serve") {
   try {
-    const running = await serve(paths, (line) => console.error(`[cycle-daemon] ${line}`));
+    const running = await serve(paths, (line) => console.error(`[cycle] ${line}`));
     const stop = async () => {
       await running.close();
       process.exit(0);
@@ -69,7 +69,7 @@ if (command === "serve") {
   const config = await loadConfig(paths.config);
   const executable = claudeExecutable() ?? Bun.which("claude");
   if (executable === null || executable === undefined) {
-    console.error("No Claude binary: it is meant to sit beside cycle-daemon, or be on PATH.");
+    console.error("No Claude binary: it is meant to sit beside cycle, or be on PATH.");
     process.exit(1);
   }
   const rest =

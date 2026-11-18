@@ -38,7 +38,7 @@
 - **`session/list` 的分页和过滤**。
 - **日志里的敏感字段过滤**。
 - **一个 session 一个 agent 进程**:没有复用。
-- **daemon 的打包和安装**:现在是 `bun apps/daemon/src/main.ts`;没有 `cycle-daemon` 可执行文件,也没有远端机器上的安装步骤。ssh 通道里的命令得由调用方写全。
+- **daemon 的打包和安装**:现在是 `bun apps/daemon/src/main.ts`;没有 `cycle` 可执行文件,也没有远端机器上的安装步骤。ssh 通道里的命令得由调用方写全。
 - **daemon 退出时对客户端的通知**:客户端靠连接断开发现,然后重连。
 - **多个 daemon 版本之间的升级**:daemon 重启会丢掉进行中的 turn(agent 是它的子进程),这一点没变。
 - **空闲退出和 session 的内存回收**:已加载的 session 一直在内存里。
@@ -51,7 +51,7 @@ bun apps/daemon/src/main.ts serve  [--data-dir <dir>] [--socket <path>]   # 前�
 bun apps/daemon/src/main.ts proxy  [--data-dir <dir>] [--socket <path>]   # stdin/stdout 接到 socket;daemon 没在运行就先启动它
 ```
 
-- 数据目录默认 `$CYCLE_V1_HOME` 或 `~/.cycle-v1`;socket 默认 `<数据目录>/daemon.sock`。
+- 数据目录默认 `$CYCLE_HOME` 或 `~/.cycle`;socket 默认 `<数据目录>/daemon.sock`。
 - `proxy` 启动的 daemon 是脱离的(`detached`),不随 ssh 连接结束,所以连接断了 session 照常运行。
 - 同一个 socket 上只能有一个 daemon(`serve` 发现已有进程在监听就以退出码 3 退出);进程异常退出留下的 socket 文件会被清掉。
 - daemon 在数据目录里写 `daemon.pid`。
@@ -63,23 +63,23 @@ bun apps/daemon/src/main.ts proxy  [--data-dir <dir>] [--socket <path>]   # stdi
 bun run --cwd apps/daemon build
 ```
 
-产出 `apps/daemon/dist/cycle-daemon-<os>-<arch>/`(和同名 `.tar.gz`,约 220 MB):
+产出 `apps/daemon/dist/cycle-<os>-<arch>/`(和同名 `.tar.gz`,约 220 MB):
 
-- `cycle-daemon`:daemon 本身,一个可执行文件(`bun build --compile`,约 110 MB,里面带着 Bun 和 Claude 适配)。
+- `cycle`:daemon 本身,一个可执行文件(`bun build --compile`,约 110 MB,里面带着 Bun 和 Claude 适配)。
 - `claude`:Claude Code 的二进制(约 370 MB,取自 SDK 的平台包),放在它旁边,适配通过 `claudeExecutable` 找到它。
 
-机器上不需要 Bun、Node,也不需要装 `claude`。适配器作为同一个可执行文件的子命令(`cycle-daemon adapter claude`)运行,所以只有这一个文件加 `claude`。
+机器上不需要 Bun、Node,也不需要装 `claude`。适配器作为同一个可执行文件的子命令(`cycle adapter claude`)运行,所以只有这一个文件加 `claude`。
 
 ```bash
-cycle-daemon status   # 在运行返回 0,不在运行返回 1
-cycle-daemon stop     # 发 SIGTERM,等 socket 关闭
-cycle-daemon login    # 为这个 daemon 登录 Claude(跑 claude auth login),在 daemon 所在的机器上执行
-cycle-daemon claude auth status   # 用同样的环境跑 claude 的其他命令
+cycle status   # 在运行返回 0,不在运行返回 1
+cycle stop     # 发 SIGTERM,等 socket 关闭
+cycle login    # 为这个 daemon 登录 Claude(跑 claude auth login),在 daemon 所在的机器上执行
+cycle claude auth status   # 用同样的环境跑 claude 的其他命令
 ```
 
 **登录**:`login` 和 `claude` 用的环境和目录,正是 daemon 给它启动的 Claude 的那份(`config.json` 里的 `configDir`,默认 `<数据目录>/claude`;`HOME` 回落到它),所以登录落在 Claude 以后会去找的地方,不会碰 `~/.claude`。全新的数据目录里 `claude auth status` 报 `loggedIn: false`(已验证)。**登录流程本身没有验证过**:它要在浏览器里完成 OAuth,我没法替你做。验证过的做法是把 OAuth token 或 API key 写进 `config.json` 的 `claude.env`。构建目录里缺 `claude` 时,`agents/list` 里 Claude 是 `available: false`,不是等到第一个 prompt 才失败。
 
-**装到远端机器**:解开 tarball,把目录放到 `$PATH` 上(或在桌面端 "Add host" 里把命令写成绝对路径,如 `/opt/cycle/cycle-daemon proxy`)。`<os>-<arch>` 要和那台机器一致:在哪个平台构建就产出哪个平台的;跨平台要在对应平台构建。凭证写进那台机器上的 `<数据目录>/config.json`(见下)。
+**装到远端机器**:解开 tarball,把目录放到 `$PATH` 上(或在桌面端 "Add host" 里把命令写成绝对路径,如 `/opt/cycle/cycle proxy`)。`<os>-<arch>` 要和那台机器一致:在哪个平台构建就产出哪个平台的;跨平台要在对应平台构建。凭证写进那台机器上的 `<数据目录>/config.json`(见下)。
 
 ## 配置:`<数据目录>/config.json`
 
@@ -105,7 +105,7 @@ cycle-daemon claude auth status   # 用同样的环境跑 claude 的其他命令
 ## 验证
 
 - `bun test`(门禁里):对一个进程内的假 ACP agent,覆盖上面"已做"的每一项。
-- `CYCLE_DAEMON_BIN=<构建出的 cycle-daemon> bun run test:integration`(在 `apps/daemon` 下)把同一个端到端测试换成跑构建出的可执行文件,通过。
+- `CYCLE_DAEMON_BIN=<构建出的 cycle> bun run test:integration`(在 `apps/daemon` 下)把同一个端到端测试换成跑构建出的可执行文件,通过。
 - `CYCLE_REAL_MODEL_TOKEN=… bun run test:real`(在 `apps/daemon` 下,先 `build`):只用构建出的可执行文件、**空的环境**(PATH 只有 `/usr/bin:/bin`,没有 bun、node、token,token 只写在 `config.json` 里),经 `proxy` 起 daemon,真实模型一轮带权限审批,再 `status`、`stop`。通过,约 7 秒。
 - `bun run test:integration`(在 `apps/daemon` 下):**整个后端**。客户端用 `CycleClient` 经过 ssh(用一个在本机执行命令的替身)连上;没有 daemon 在运行,`proxy` 把它启动起来;daemon 启动 Claude 适配进程,跑真实 SDK,对本地模拟 API。一个 turn 之后客户端断开,daemon 仍在运行且 pid 不变;新客户端再连上,拿到历史,继续对话,模型的请求里有前一个 turn 的上下文。
 - `packages/transport` 和 `packages/client` 的测试在门禁里:8MB 的消息、500 条消息保序、socket 权限、单实例、残留 socket、桥接、ssh 参数;客户端断线重连不丢不重、断线时错过的内容回来后补上、断线时挂起的权限请求在重连后重新问、`start` 失败、`close` 后不再重试。

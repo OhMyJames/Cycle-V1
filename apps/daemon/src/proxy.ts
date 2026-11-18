@@ -12,7 +12,7 @@ export const startDetached = (paths: Paths): void => {
 };
 
 /**
- * `cycle-daemon proxy`: what a client runs over ssh. It joins its stdin and stdout to the daemon's
+ * `cycle proxy`: what a client runs over ssh. It joins its stdin and stdout to the daemon's
  * socket, and starts the daemon first if none is running.
  */
 export const proxy = async (

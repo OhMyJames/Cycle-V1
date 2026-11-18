@@ -1,4 +1,4 @@
-// What `cycle-daemon proxy` does, as a script for the ssh test.
+// What `cycle proxy` does, as a script for the ssh test.
 import { bridgeStdio } from "../src/server.ts";
 
 const path = process.argv[2];

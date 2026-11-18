@@ -181,7 +181,7 @@ export type HostDialogProps = OpenProps & { onSave: (host: HostConfig) => void |
 export function HostDialog({ open, onOpenChange, onSave }: HostDialogProps) {
   const [name, setName] = useState("");
   const [host, setHost] = useState("");
-  const [command, setCommand] = useState("cycle-daemon proxy");
+  const [command, setCommand] = useState("cycle proxy");
   const save = async () => {
     if (host.trim() === "") return;
     const id = `ssh-${host.trim().replace(/[^a-zA-Z0-9]+/g, "-")}`;

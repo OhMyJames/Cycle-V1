@@ -15,7 +15,7 @@
       "name": "@cycle/daemon-app",
       "version": "0.0.0",
       "bin": {
-        "cycle-daemon": "./src/main.ts",
+        "cycle": "./src/main.ts",
       },
       "dependencies": {
         "@cycle/adapter-claude": "workspace:*",

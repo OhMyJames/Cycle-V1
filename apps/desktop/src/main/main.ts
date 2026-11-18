@@ -41,7 +41,7 @@ const main = async () => {
       ...(env.HOME !== undefined ? { HOME: env.HOME } : {}),
       ...(env.LANG !== undefined ? { LANG: env.LANG } : {}),
       // Where the daemon keeps its data, if the user chose.
-      ...(env.CYCLE_V1_HOME !== undefined ? { CYCLE_V1_HOME: env.CYCLE_V1_HOME } : {}),
+      ...(env.CYCLE_HOME !== undefined ? { CYCLE_HOME: env.CYCLE_HOME } : {}),
     },
   });
 };

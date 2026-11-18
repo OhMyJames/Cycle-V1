@@ -17,10 +17,8 @@ import { commandChannel } from "@cycle/transport/client";
 
 const token = process.env.CYCLE_REAL_MODEL_TOKEN;
 const model = process.env.CYCLE_REAL_MODEL ?? "haiku";
-const bin = new URL(
-  `../../dist/cycle-daemon-${process.platform}-${process.arch}/cycle-daemon`,
-  import.meta.url,
-).pathname;
+const bin = new URL(`../../dist/cycle-${process.platform}-${process.arch}/cycle`, import.meta.url)
+  .pathname;
 const enabled = token !== undefined && token !== "" && existsSync(bin);
 
 let root: string;

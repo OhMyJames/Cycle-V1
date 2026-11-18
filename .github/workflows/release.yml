@@ -58,18 +58,18 @@ jobs:
       - run: bun run --cwd apps/daemon build
       - name: The built daemon runs, with nothing around it
         run: |
-          D=apps/daemon/dist/cycle-daemon-linux-x64
-          ! env -i PATH=/usr/bin:/bin "$D/cycle-daemon" status --data-dir "$RUNNER_TEMP/d"
+          D=apps/daemon/dist/cycle-linux-x64
+          ! env -i PATH=/usr/bin:/bin "$D/cycle" status --data-dir "$RUNNER_TEMP/d"
           env -i PATH=/usr/bin:/bin "$D/claude" --version
       - name: Checksum
         working-directory: apps/daemon/dist
-        run: sha256sum cycle-daemon-linux-x64.tar.gz > cycle-daemon-linux-x64.tar.gz.sha256
+        run: sha256sum cycle-linux-x64.tar.gz > cycle-linux-x64.tar.gz.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: daemon-linux-x64
           path: |
-            apps/daemon/dist/cycle-daemon-linux-x64.tar.gz
-            apps/daemon/dist/cycle-daemon-linux-x64.tar.gz.sha256
+            apps/daemon/dist/cycle-linux-x64.tar.gz
+            apps/daemon/dist/cycle-linux-x64.tar.gz.sha256
 
   macos:
     needs: check
@@ -101,9 +101,9 @@ jobs:
       - name: The bundled daemon and Claude run (ad hoc)
         run: |
           set +e
-          "$BUNDLE/bin/cycle-daemon" status --data-dir "$RUNNER_TEMP/d1"; test $? -eq 1 || exit 1
+          "$BUNDLE/bin/cycle" status --data-dir "$RUNNER_TEMP/d1"; test $? -eq 1 || exit 1
           "$BUNDLE/bin/claude" --version || exit 1
-          CYCLE_DAEMON_BIN="$PWD/$BUNDLE/bin/cycle-daemon" bun run --cwd apps/daemon test:integration
+          CYCLE_DAEMON_BIN="$PWD/$BUNDLE/bin/cycle" bun run --cwd apps/daemon test:integration
 
       - name: The app opens a window that connects to its own daemon
         run: CYCLE_PACKAGED_APP="$PWD/apps/desktop/build/Cycle.app" bun test ./apps/desktop/test/integration/packaged.integration.ts
@@ -174,9 +174,9 @@ jobs:
           /usr/sbin/spctl --assess --type execute --verbose=4 apps/desktop/build/Cycle.app
           codesign --verify --deep --strict --verbose=2 apps/desktop/build/Cycle.app
           set +e
-          "$BUNDLE/bin/cycle-daemon" status --data-dir "$RUNNER_TEMP/d2"; test $? -eq 1 || exit 1
+          "$BUNDLE/bin/cycle" status --data-dir "$RUNNER_TEMP/d2"; test $? -eq 1 || exit 1
           "$BUNDLE/bin/claude" --version || exit 1
-          CYCLE_DAEMON_BIN="$PWD/$BUNDLE/bin/cycle-daemon" bun run --cwd apps/daemon test:integration
+          CYCLE_DAEMON_BIN="$PWD/$BUNDLE/bin/cycle" bun run --cwd apps/daemon test:integration
 
       - name: The signed app still opens and connects
         if: env.SIGN == 'true'

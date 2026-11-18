@@ -10,7 +10,7 @@ export type AppOptions = {
   /** Where the built page is: index.html, renderer.js, app.css. */
   rendererDir: string;
   preloadPath: string;
-  /** How to run `cycle-daemon proxy` for the local host. */
+  /** How to run `cycle proxy` for the local host. */
   localCommand: string[];
   /** The whole environment of that command. Nothing is inherited from the app. */
   localEnv: Record<string, string>;
@@ -31,7 +31,7 @@ const isWeb = (url: string): boolean => {
 const channelFor = (options: AppOptions) => (host: HostConfig) => async () => {
   if (host.kind === "local")
     return commandChannel({ command: options.localCommand, env: options.localEnv });
-  return sshChannel({ host: host.host, command: host.command ?? ["cycle-daemon", "proxy"] });
+  return sshChannel({ host: host.host, command: host.command ?? ["cycle", "proxy"] });
 };
 
 /**

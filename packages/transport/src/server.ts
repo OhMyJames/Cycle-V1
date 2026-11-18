@@ -77,7 +77,7 @@ export const listenUnix = async (options: {
 
 /**
  * Copies bytes between this process's stdin and stdout and a daemon's socket, untouched. This is
- * what `ssh host cycle-daemon proxy` runs on the far side. Resolves when either side closes.
+ * what `ssh host cycle proxy` runs on the far side. Resolves when either side closes.
  */
 export const bridgeStdio = async (
   path: string,

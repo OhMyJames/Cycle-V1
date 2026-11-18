@@ -10,7 +10,7 @@ const has =
 test("packaged: the bundled daemon, and never Bun or the source", () => {
   const files = has(
     "/App/Resources/app/build.json",
-    "/App/Resources/app/bin/cycle-daemon",
+    "/App/Resources/app/bin/cycle",
     "/App/Resources/app/bin/claude",
   );
   expect(
@@ -20,7 +20,7 @@ test("packaged: the bundled daemon, and never Bun or the source", () => {
       env: { CYCLE_DAEMON_BIN: "/elsewhere" },
       exists: files,
     }),
-  ).toEqual(["/App/Resources/app/bin/cycle-daemon"]);
+  ).toEqual(["/App/Resources/app/bin/cycle"]);
 });
 
 test("packaged but missing a part: an error that names it, not a quiet fall back", () => {
@@ -28,7 +28,7 @@ test("packaged but missing a part: an error that names it, not a quiet fall back
   expect(() =>
     daemonCommand({ ...base, here: "/App/Resources/app/dist", env: {}, exists: noDaemon }),
   ).toThrow(/missing its daemon/);
-  const noClaude = has("/App/Resources/app/build.json", "/App/Resources/app/bin/cycle-daemon");
+  const noClaude = has("/App/Resources/app/build.json", "/App/Resources/app/bin/cycle");
   expect(() =>
     daemonCommand({ ...base, here: "/App/Resources/app/dist", env: {}, exists: noClaude }),
   ).toThrow(/Claude binary/);
@@ -44,9 +44,9 @@ test("in development: the named binary, then the built one, then the source with
       ...base,
       here,
       env: {},
-      exists: has("/repo/apps/daemon/dist/cycle-daemon-darwin-arm64/cycle-daemon"),
+      exists: has("/repo/apps/daemon/dist/cycle-darwin-arm64/cycle"),
     }),
-  ).toEqual(["/repo/apps/daemon/dist/cycle-daemon-darwin-arm64/cycle-daemon"]);
+  ).toEqual(["/repo/apps/daemon/dist/cycle-darwin-arm64/cycle"]);
   expect(daemonCommand({ ...base, here, env: {}, exists: has() })).toEqual([
     "bun",
     "/repo/apps/daemon/src/main.ts",

@@ -384,7 +384,7 @@ export class Daemon {
       if (holder.value === undefined) throw new Error("connection not ready");
       return holder.value;
     };
-    const app = acpAgent({ name: "cycle-daemon" });
+    const app = acpAgent({ name: "cycle" });
 
     app.onRequest(methods.agent.initialize, async ({ params }) => {
       const requested = (params._meta as Record<string, unknown> | null | undefined)?.[
@@ -401,7 +401,7 @@ export class Daemon {
       }
       return {
         protocolVersion: 2,
-        info: { name: "cycle-daemon", version: "0.0.0" },
+        info: { name: "cycle", version: "0.0.0" },
         capabilities: { session: {} },
         _meta: {
           [META.protocolVersion]: CYCLE_PROTOCOL_VERSION,
