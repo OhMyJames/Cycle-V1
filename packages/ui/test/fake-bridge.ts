@@ -38,7 +38,7 @@ export const fakeBridge = (
     connected?: boolean;
     update?: UpdateState;
     /** What the daemon says it can do. Default: all of it. */
-    capabilities?: { queue: boolean; files: boolean };
+    capabilities?: { queue: boolean; files: boolean; folders: boolean };
     /** More environments than the local one, and how each stands (by id; the local one's is `connected`). */
     environments?: EnvironmentConfig[];
     states?: Record<string, ConnectionState>;
@@ -70,7 +70,9 @@ export const fakeBridge = (
             environmentId: h.id,
             state,
             ...(state === "connected"
-              ? { capabilities: options.capabilities ?? { queue: true, files: true } }
+              ? {
+                  capabilities: options.capabilities ?? { queue: true, files: true, folders: true },
+                }
               : {}),
           };
         }),
@@ -100,6 +102,13 @@ export const fakeBridge = (
     prompt: record("prompt", async () => {}),
     cancel: record("cancel", async () => {}),
     dequeue: record("dequeue", async () => []),
+    listFolders: record("listFolders", async () => ({
+      path: "/home/me",
+      parent: "/home",
+      home: "/home/me",
+      folders: [{ name: "app" }, { name: "docs" }],
+      truncated: false,
+    })),
     searchFiles: record("searchFiles", async () => ({
       root: "/work",
       entries: [],

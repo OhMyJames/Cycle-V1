@@ -17,6 +17,7 @@ import {
   CycleErrorCode,
   checkPrompt,
   filesSearch,
+  foldersList,
   META,
   NOTIFICATIONS,
   promptDequeue,
@@ -49,6 +50,7 @@ import {
   UNSUPPORTED_VERSION,
 } from "./errors.ts";
 import { searchFiles } from "./files.ts";
+import { listFolders } from "./folders.ts";
 import { type SessionEntry, SessionIndex } from "./index-file.ts";
 import { BlobLogStore } from "./log/blobs.ts";
 import { JsonlLogStore } from "./log/jsonl.ts";
@@ -887,6 +889,7 @@ export class Daemon {
             sessionOps: ["archive", "rename", "delete", "markRead"],
             queue: true,
             files: true,
+            folders: true,
           },
         },
       } as never;
@@ -1257,6 +1260,7 @@ export class Daemon {
       const found = await searchFiles(session.entry.cwd, params.query, params.limit);
       return { root: session.entry.cwd, ...found };
     });
+    cycle(foldersList, (params) => listFolders(params.path, params.hidden === true));
     cycle(sessionArchive, (params) =>
       change(async (session) => {
         if (session.status() === "running" || session.status() === "requires_action")

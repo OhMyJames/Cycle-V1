@@ -36,7 +36,7 @@ export type EnvironmentStatus = {
    * What the daemon on the environment can do beyond what every daemon does (docs/protocol.md §3). Absent until it has said: a
    * client that needs one of them waits, and does not assume.
    */
-  capabilities?: { queue: boolean; files: boolean };
+  capabilities?: { queue: boolean; files: boolean; folders: boolean };
   /** What the daemon on the environment says it is. Not for the local one, which the app carries. */
   daemon?: {
     version: string;
@@ -88,6 +88,18 @@ export type FileHit = { path: string; kind: "file" | "folder" };
 
 /** `root` is the session's folder as the daemon knows it; `path` is relative to it. */
 export type FileSearch = { root: string; entries: FileHit[]; truncated: boolean };
+
+/** What an environment's machine has in a folder: names of folders only. `path` is the real path (links resolved). */
+export type FolderListing = {
+  path: string;
+  parent: string | null;
+  home: string;
+  folders: { name: string }[];
+  truncated: boolean;
+};
+
+/** Lists the folders of one environment's folder (the environment is already chosen). */
+export type ListFolders = (path?: string, hidden?: boolean) => Promise<FolderListing>;
 
 export type PermissionOption = { optionId: string; name: string; kind: string };
 
@@ -189,6 +201,11 @@ export type AppApi = {
   cancel(environmentId: string, sessionId: string): Promise<void>;
   /** Files and folders of the session's folder, on the machine of the daemon, that fit what was typed after an @. */
   searchFiles(environmentId: string, sessionId: string, query: string): Promise<FileSearch>;
+  /**
+   * The folders in a folder on that environment's machine, for choosing where a session works. Without a path: its
+   * home. Fails with the daemon's reason (not a folder, cannot be read) or when the daemon is too old.
+   */
+  listFolders(environmentId: string, path?: string, hidden?: boolean): Promise<FolderListing>;
   /** Takes a prompt back out of the queue, to be edited. Answers with its blocks; fails if it has gone. */
   dequeue(environmentId: string, sessionId: string, queueId: string): Promise<PromptBlock[]>;
   setSessionConfig(
@@ -241,6 +258,7 @@ export const API_METHODS = [
   "cancel",
   "dequeue",
   "searchFiles",
+  "listFolders",
   "setSessionConfig",
   "renameSession",
   "archiveSession",

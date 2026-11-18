@@ -71,6 +71,29 @@ export const filesSearch = cycleMethod(
   z.object({ root: z.string(), entries: z.array(FileEntrySchema), truncated: z.boolean() }),
 );
 
+/** What `_cycle/folders/list` gives (docs/protocol.md §8): the names of folders, never files or contents. */
+export const FolderListSchema = z.object({
+  /** The real path (links resolved) of what was listed. */
+  path: z.string(),
+  /** One level up; null at the root. */
+  parent: z.string().nullable(),
+  home: z.string(),
+  folders: z.array(z.object({ name: z.string() })),
+  truncated: z.boolean(),
+});
+export type FolderList = z.infer<typeof FolderListSchema>;
+
+export const foldersList = cycleMethod(
+  "_cycle/folders/list",
+  z.object({
+    /** Absolute. Absent: the daemon's user's home. */
+    path: z.string().min(1).max(4096).optional(),
+    /** Names that start with a dot are given only when asked for. */
+    hidden: z.boolean().optional(),
+  }),
+  FolderListSchema,
+);
+
 /**
  * Says the client has seen the session up to `seq`. `readSeq` only moves forward; `seq` beyond the
  * session's last record is refused. See docs/protocol.md §6 "已读".

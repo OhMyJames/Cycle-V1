@@ -22,7 +22,7 @@ const mount = async (
   options: {
     snapshot?: () => SessionSnapshot;
     configure?: (script: ReturnType<typeof fakeBridge>) => void;
-    capabilities?: { queue: boolean; files: boolean };
+    capabilities?: { queue: boolean; files: boolean; folders: boolean };
   } = {},
 ) => {
   const script = fakeBridge({
@@ -199,7 +199,7 @@ test("a permission request is shown with its options, and the click answers it",
     type: "environment-status",
     environmentId: "local",
     state: "connected",
-    capabilities: { queue: true, files: false },
+    capabilities: { queue: true, files: false, folders: true },
   });
   await waitFor(() => expect(deny.disabled).toBe(false));
   await write(box, "next message");
@@ -909,7 +909,9 @@ test("a mention taken back from the queue is a mention again", async () => {
 });
 
 test("a daemon that does not queue is not sent a message while the agent works, and says why", async () => {
-  const { user, emit, named } = await mount({ capabilities: { queue: false, files: false } });
+  const { user, emit, named } = await mount({
+    capabilities: { queue: false, files: false, folders: true },
+  });
   await openFirstSession(user);
   const box = await screen.findByRole("textbox", { name: "Message" });
   await ready(box);
@@ -935,7 +937,9 @@ test("a daemon that does not queue is not sent a message while the agent works, 
 });
 
 test("a daemon that does not find files is not asked for them", async () => {
-  const { user, bridge, named } = await mount({ capabilities: { queue: true, files: false } });
+  const { user, bridge, named } = await mount({
+    capabilities: { queue: true, files: false, folders: true },
+  });
   bridge.searchFiles = async () => {
     throw new Error("must not be asked");
   };

@@ -7,6 +7,7 @@ import type {
   EnvironmentConfig,
   EnvironmentStatus,
   FileSearch,
+  FolderListing,
   NewSession,
   PermissionRequest,
   PromptBlock,
@@ -341,6 +342,10 @@ export class AppStore {
       return undefined;
     }
   };
+
+  /** The folders in a folder on an environment's machine. Not a banner when it fails: the one who asked says why. */
+  listFolders = (environmentId: string, path?: string, hidden?: boolean): Promise<FolderListing> =>
+    this.#bridge.listFolders(environmentId, path, hidden);
 
   /** Takes a queued prompt back to edit it. Undefined if it had gone to the agent, or came back, meanwhile. */
   dequeue = async (queueId: string): Promise<PromptBlock[] | undefined> => {

@@ -98,6 +98,7 @@ test.skipIf(!ready)(
           "removeEnvironment",
           "renameSession",
           "saveEnvironment",
+          "listFolders",
           "searchFiles",
           "sessions",
           "setAgentDefaults",

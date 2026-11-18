@@ -74,7 +74,7 @@ type Environment = {
 
 设置文件 `settings.json` 是 `{ "environments": [{ id, name, kind: "local" | "remote", transport?: { type: "ssh", host, command? } }] }`。旧格式 `{ "hosts": [{ id, name, kind: "ssh", host, command? }] }` 读作 remote 加 ssh transport,id 不变(会话和草稿都按 id 认);只有保存时才写新格式;这个版本读不懂的条目(更新的版本写的)不显示,但保存时原样写回。
 
-还没做:远程 workspace 的"New workspace…"选文件夹(daemon 还没有对应的方法)、搜索按 workspace 分组。
+还没做:界面文案里的 "host" 改成 environment(文案决定:保留"环境"这个词,去掉 host)。
 
 ### workspace
 
@@ -100,7 +100,6 @@ type Environment = {
 
 ### 待定
 
-- 远程环境上选文件夹的界面:要在那个环境的文件系统里浏览,daemon 还没有对应的方法。
 - Switcher 分组:同一个 workspace 里有 session 在别的环境的情况不会出现(workspace 属于一个环境),所以不需要处理。如果以后同一个仓库要在本地和远程之间对应起来,那是另一个决定。
 
 ## 页面的安全设置
