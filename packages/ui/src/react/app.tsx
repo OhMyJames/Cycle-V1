@@ -83,6 +83,7 @@ export function App() {
       ? views[viewKey(selectedHost, selectedSession)]
       : undefined;
   const hostState = selectedHost !== undefined ? status[selectedHost]?.state : undefined;
+  const hostError = selectedHost !== undefined ? status[selectedHost]?.error : undefined;
   const readDefaults = useCallback(
     (agent: string) =>
       selectedHost !== undefined
@@ -164,6 +165,11 @@ export function App() {
             {hostState === "connected"
               ? "Choose a session, or start a new one."
               : "Not connected to this host."}
+            {hostState !== "connected" && hostError !== undefined ? (
+              <span data-slot="hint" role="alert">
+                {hostError}
+              </span>
+            ) : null}
           </div>
         )}
         <div data-slot="permissions">

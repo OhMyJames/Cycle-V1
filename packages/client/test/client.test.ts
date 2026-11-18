@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionUpdate } from "@cycle/acp";
 import { Daemon } from "@cycle/daemon";
-import { type Channel, connectUnix } from "@cycle/transport/client";
+import { type Channel, commandChannel, connectUnix } from "@cycle/transport/client";
 import { listenUnix } from "@cycle/transport/server";
 import { fakeAgent } from "../../daemon/test/fake-agent.ts";
 import { CycleClient, type PermissionAnswer } from "../src/index.ts";
@@ -233,4 +233,18 @@ test("reads and sets an agent's defaults, and hears of a change made by someone 
   expect(await a.agentDefaults("fake")).toEqual({ mode: "plan" });
   await until(() => heard.length === 1, "the change");
   expect(heard).toEqual(["fake"]);
+});
+
+test("a command that cannot run fails with what it said, not only that the connection ended", async () => {
+  const client = new CycleClient({
+    connect: async () =>
+      commandChannel({
+        command: [
+          "/bin/sh",
+          "-c",
+          "echo 'sh: /home/u/.local/bin/cycle-daemon: No such file or directory' >&2; exit 127",
+        ],
+      }),
+  });
+  await expect(client.start()).rejects.toThrow(/cycle-daemon: No such file or directory/);
 });

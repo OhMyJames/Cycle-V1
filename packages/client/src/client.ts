@@ -277,8 +277,12 @@ export class CycleClient {
           unknown
         >) ?? {};
     } catch (error) {
+      // Whatever the far side said is the reason; the protocol's own error is only that it hung up.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const said = channel.diagnostics?.() ?? "";
       channel.close();
-      throw error;
+      if (said === "") throw error;
+      throw new Error(said, { cause: error });
     }
     this.#channel = channel;
     this.#agent = connection.agent;

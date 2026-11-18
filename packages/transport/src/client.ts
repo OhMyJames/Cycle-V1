@@ -40,14 +40,22 @@ export const commandChannel = (options: CommandOptions): Channel => {
   const [program, ...args] = options.command;
   if (program === undefined) throw new Error("No command to run");
   const child = spawn(program, args, {
-    stdio: ["pipe", "pipe", "inherit"],
+    stdio: ["pipe", "pipe", "pipe"],
     ...(options.env !== undefined ? { env: options.env } : {}),
     ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
   });
   // A command that cannot start (no such program) ends the stream rather than crashing the process.
   child.on("error", () => child.stdin.destroy());
   child.stdin.on("error", () => undefined);
+  // What it says on standard error is the reason it failed (ssh: "Permission denied", the shell: "No such
+  // file"). The last of it is kept for whoever has to tell the user, and it still reaches this process's own.
+  let said = "";
+  child.stderr.on("data", (chunk: Buffer) => {
+    said = `${said}${chunk.toString()}`.slice(-2000);
+    process.stderr.write(chunk);
+  });
   return {
+    diagnostics: () => said.trim(),
     stream: ndJsonStream(
       Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
       Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>,

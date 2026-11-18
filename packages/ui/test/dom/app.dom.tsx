@@ -291,6 +291,18 @@ test("a remote host whose daemon is older shows what to run on it, and a current
   expect(screen.queryByText(/older than this app/)).toBeNull();
 });
 
+test("a host that cannot be reached says why, not only that it is not connected", async () => {
+  const { emit } = await mount();
+  await emit({
+    type: "host-status",
+    hostId: "local",
+    state: "closed",
+    error: "bash: /home/james/.local/bin/cycle-daemon: No such file or directory",
+  });
+  expect(screen.getByText("Not connected to this host.")).toBeTruthy();
+  expect(screen.getByRole("alert").textContent).toContain("No such file or directory");
+});
+
 test("a development run says updates are for the installed app and offers no check", async () => {
   const { emit } = await mount();
   await emit({
