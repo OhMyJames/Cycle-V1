@@ -76,10 +76,11 @@ test.skipIf(!ready)(
     );
     server = Bun.spawn([sshd as string, "-D", "-e", "-f", config], {
       stdout: "ignore",
-      stderr: "pipe",
+      stderr: Bun.file(join(root, "sshd.log")),
     });
-    for (let i = 0; i < 100; i++) {
-      const ok = await Bun.connect({
+    let up = false;
+    for (let i = 0; i < 100 && !up; i++) {
+      up = await Bun.connect({
         hostname: "127.0.0.1",
         port,
         socket: {
@@ -92,9 +93,11 @@ test.skipIf(!ready)(
         () => true,
         () => false,
       );
-      if (ok) break;
-      await Bun.sleep(50);
+      if (!up) await Bun.sleep(50);
     }
+    // An sshd that cannot start (no privilege separation directory, say) is a failure to explain, not to skip past.
+    if (!up)
+      throw new Error(`sshd did not start: ${await Bun.file(join(root, "sshd.log")).text()}`);
 
     const mock = startMock(() => textReply("Hello over ssh."));
     const dataDir = join(root, "data");

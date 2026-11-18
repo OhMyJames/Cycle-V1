@@ -12,6 +12,8 @@ export type ProcessAgentOptions = {
    */
   env: Record<string, string>;
   cwd?: string;
+  /** Whether it can run at all, checked when clients ask which agents there are. */
+  available?: () => boolean | Promise<boolean>;
 };
 
 /** An agent that is a child process speaking ACP v2 on its stdin and stdout. */
@@ -19,6 +21,7 @@ export const processAgent = (options: ProcessAgentOptions): AgentDefinition => (
   id: options.id,
   name: options.name,
   configSchema: options.configSchema ?? { type: "object", properties: {} },
+  ...(options.available !== undefined ? { available: options.available } : {}),
   launch: async () => {
     const proc = Bun.spawn(options.command, {
       env: options.env,

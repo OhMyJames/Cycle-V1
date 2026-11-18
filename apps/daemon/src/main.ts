@@ -3,8 +3,10 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { runAdapter } from "@cycle/adapter-claude/run";
 import { AlreadyRunningError, isListening } from "@cycle/transport/server";
-import { defaultDataDir, pathsFor } from "./config.ts";
+import { claudeEnv } from "./agents.ts";
+import { defaultDataDir, loadConfig, pathsFor } from "./config.ts";
 import { proxy } from "./proxy.ts";
+import { claudeExecutable } from "./self.ts";
 import { serve } from "./serve.ts";
 
 const USAGE = `cycle-daemon <command> [options]
@@ -14,6 +16,9 @@ const USAGE = `cycle-daemon <command> [options]
           This is what a client runs over ssh.
   status  Say whether the daemon is running (exit 0) or not (exit 1).
   stop    Stop the daemon if it is running.
+  login   Sign in to Claude for this daemon: "claude auth login" with the environment and
+          config directory the daemon gives Claude. Run it on the machine the daemon is on.
+  claude <args>   Run the Claude binary with that same environment (e.g. claude auth status).
   adapter claude   (internal) Run the Claude adapter on stdin and stdout.
 
 Options:
@@ -35,7 +40,7 @@ if (command === "adapter" && positionals[1] === "claude") {
   await runAdapter();
   process.exit(0);
 }
-const commands = ["serve", "proxy", "status", "stop"];
+const commands = ["serve", "proxy", "status", "stop", "login", "claude"];
 if (values.help || command === undefined || !commands.includes(command)) {
   console.error(USAGE);
   process.exit(command === undefined || values.help ? 0 : 2);
@@ -58,6 +63,24 @@ if (command === "serve") {
     }
     throw error;
   }
+} else if (command === "login" || command === "claude") {
+  // Claude's own sign-in, in the one place its login is kept: the same config directory and
+  // environment the daemon gives the Claude it runs (config.json), and nothing else of this shell's.
+  const config = await loadConfig(paths.config);
+  const executable = claudeExecutable() ?? Bun.which("claude");
+  if (executable === null || executable === undefined) {
+    console.error("No Claude binary: it is meant to sit beside cycle-daemon, or be on PATH.");
+    process.exit(1);
+  }
+  const rest =
+    command === "login" ? ["auth", "login", ...positionals.slice(1)] : positionals.slice(1);
+  const child = Bun.spawn([executable, ...rest], {
+    env: claudeEnv(config.claude, paths.dataDir, process.env),
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  process.exit(await child.exited);
 } else if (command === "status") {
   const up = await isListening(paths.socket);
   console.log(up ? `running, listening on ${paths.socket}` : `not running (${paths.socket})`);

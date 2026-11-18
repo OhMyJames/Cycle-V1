@@ -75,6 +75,7 @@ test.skipIf(!enabled)(
         },
       },
     });
+    let stopped = "";
     try {
       await client.start();
       expect((await run("status")).code).toBe(0);
@@ -95,9 +96,10 @@ test.skipIf(!enabled)(
       expect(existsSync(join(cwd, "made-by-the-binary.txt"))).toBe(true);
     } finally {
       await client.close();
+      // Whatever happened above, no daemon is left running.
+      stopped = (await run("stop")).out;
     }
-    const stopped = await run("stop");
-    expect(stopped.out).toContain("stopped");
+    expect(stopped).toContain("stopped");
     expect((await run("status")).code).toBe(1);
   },
   150_000,

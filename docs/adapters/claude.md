@@ -63,7 +63,7 @@
 
 ## 还没验证
 
-- 真实模型:已验证,见文末。真实的登录流程(用户在专用的 `CLAUDE_CONFIG_DIR` 里 `claude login`)没验证,验证用的是显式传入的 OAuth token。
+- 真实模型:已验证,见文末。真实的登录流程没验证:现在有 `cycle-daemon login`(在 daemon 的 Claude 配置目录里跑 `claude auth login`,见 [daemon.md](../daemon.md)),全新目录里 `auth status` 报未登录已验证,但 OAuth 要在浏览器里完成,没有走完。验证用的是显式传入的 OAuth token。
 - 云端 sandbox:适配进程本身是自包含的(配置全部由外部传入),但没有在 sandbox 里实际跑过。
 - 恢复时 `cwd` 变了的情况:Claude 的 transcript 按 cwd 存放,cwd 变了可能找不到。
 

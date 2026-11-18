@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { type AgentDefinition, processAgent } from "@cycle/daemon";
 import type { Config } from "./config.ts";
@@ -42,6 +43,8 @@ export const agentsFor = (
     id: "claude",
     name: "Claude",
     configSchema: CLAUDE_CONFIG_SCHEMA,
+    // In the executable, the Claude binary shipped beside it must be there: say so now, not on the first prompt.
+    available: () => claudeExecutable() === undefined || existsSync(claudeExecutable() as string),
     command: [...selfCommand(), "adapter", "claude"],
     env: {
       PATH: inherited.PATH ?? "",

@@ -56,7 +56,7 @@ CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd packages/daemon test:real    
 - `check`:每次 push 和 PR。`bun install --frozen-lockfile --ignore-scripts`,然后 `bun run check`。同一个分支的新提交会取消上一次还在跑的。10 分钟上限。
 - `integration`:手动触发和每晚一次。装 xvfb 和 Electron 需要的库,下载 Electron 二进制(bun 不跑它的 postinstall),`bun run test:integration`。20 分钟上限。不需要任何密钥:模型是模拟的。
 
-**这个工作流还没有在 GitHub 上跑过**:本机没法验证 Actions。第一次运行时可能要调整 apt 包名(随 Ubuntu 版本变)和缓存路径。
+`check` 已经在 GitHub 上跑过:最近几次 push 全部通过,约 20 秒。**`integration`(每晚和手动)还没跑过**:装 xvfb 和 Electron 的库、真实 sshd 能否在 runner 上启动,要等第一次运行才知道,可能要调整 apt 包名。
 
 ## 还没做的
 
