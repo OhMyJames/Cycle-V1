@@ -9,7 +9,7 @@ import {
   type SessionConfigOption,
   type SessionUpdate,
 } from "@cycle/acp";
-import { type StopReason, stopReasonOf, TurnTranslator, toolKind } from "./translate.ts";
+import { PlanState, type StopReason, stopReasonOf, TurnTranslator, toolKind } from "./translate.ts";
 
 export type QueryFn = (params: { prompt: string; options: Options }) => Query;
 
@@ -45,6 +45,8 @@ type SessionState = {
   mode: PermissionMode;
   model: string | undefined;
   turn: Turn | undefined;
+  /** The task list, which outlives a turn. */
+  plan: PlanState;
 };
 
 const textOf = (blocks: ContentBlock[]): string =>
@@ -93,7 +95,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     turn: Turn,
     prompt: string,
   ) => {
-    const translator = new TurnTranslator();
+    const translator = new TurnTranslator(session.plan);
     let stop: StopReason = { stopReason: "end_turn" };
     try {
       // A cancel can arrive before the query starts: then there is nothing to interrupt.
@@ -147,7 +149,11 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       for await (const message of query as AsyncIterable<SDKMessage>) {
         if (message.type === "system" && message.subtype === "init") session.started = true;
         for (const update of translator.feed(message)) await notify(client, session.id, update);
-        if (message.type === "result") stop = stopReasonOf(message);
+        if (message.type === "result") {
+          const usage = translator.usageOf(message);
+          if (usage !== undefined) await notify(client, session.id, usage);
+          stop = stopReasonOf(message);
+        }
       }
     } catch (error) {
       stop = turn.cancelled
@@ -187,6 +193,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         mode: "default",
         model: undefined,
         turn: undefined,
+        plan: new PlanState(),
       };
       sessions.set(id, session);
       return { sessionId: id, configOptions: configOptions(session) };
@@ -208,6 +215,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           mode: "default",
           model: undefined,
           turn: undefined,
+          plan: new PlanState(),
         } satisfies SessionState);
       sessions.set(session.id, session);
       // ACP v2: a successful resume sends the current state before it answers.

@@ -15,19 +15,21 @@
 
 ## 已做(v1 核心)
 
-| 能力             | 状态 | 说明                                                                    |
-| ---------------- | ---- | ----------------------------------------------------------------------- |
-| `initialize`     | 做了 | 只声明最少的能力                                                        |
-| `session/new`    | 做了 | 采用 daemon 通过 `_meta["cycle/sessionId"]` 提议的 UUID,否则自己生成    |
-| `session/prompt` | 做了 | 立即返回 `messageId`,turn 在后台跑,以 idle 的 `state_update` 结束       |
-| 流式消息与思考   | 做了 | `agent_message_chunk`、`agent_thought_chunk`                            |
-| tool call        | 做了 | `tool_call_update`:pending、in_progress、completed 或 failed            |
-| 权限审批         | 做了 | `canUseTool` 对应 `session/request_permission`,选项为允许一次和拒绝一次 |
-| `session/cancel` | 做了 | 中断 SDK、取消待决的权限请求,以 `cancelled` 结束                        |
-| `session/resume` | 做了 | 不重放(daemon 管历史);响应前先发状态快照                                |
-| 权限模式配置     | 做了 | `session/set_config_option` 的 `mode`:default、acceptEdits、plan        |
-| 模型配置         | 部分 | 能通过 `set_config_option` 设 `model`,但没有可选模型列表                |
-| `session/close`  | 做了 |                                                                         |
+| 能力                 | 状态 | 说明                                                                                                                                                                             |
+| -------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `initialize`         | 做了 | 只声明最少的能力                                                                                                                                                                 |
+| `session/new`        | 做了 | 采用 daemon 通过 `_meta["cycle/sessionId"]` 提议的 UUID,否则自己生成                                                                                                             |
+| `session/prompt`     | 做了 | 立即返回 `messageId`,turn 在后台跑,以 idle 的 `state_update` 结束                                                                                                                |
+| 流式消息与思考       | 做了 | `agent_message_chunk`、`agent_thought_chunk`                                                                                                                                     |
+| tool call            | 做了 | `tool_call_update`:pending、in_progress、completed 或 failed                                                                                                                     |
+| 权限审批             | 做了 | `canUseTool` 对应 `session/request_permission`,选项为允许一次和拒绝一次                                                                                                          |
+| `session/cancel`     | 做了 | 中断 SDK、取消待决的权限请求,以 `cancelled` 结束                                                                                                                                 |
+| `session/resume`     | 做了 | 不重放(daemon 管历史);响应前先发状态快照                                                                                                                                         |
+| 权限模式配置         | 做了 | `session/set_config_option` 的 `mode`:default、acceptEdits、plan                                                                                                                 |
+| 模型配置             | 部分 | 能通过 `set_config_option` 设 `model`,但没有可选模型列表                                                                                                                         |
+| `session/close`      | 做了 |                                                                                                                                                                                  |
+| 计划(`plan_update`)  | 做了 | Claude 的任务列表:`TaskCreate`/`TaskUpdate`(以及启用时的 `TodoWrite`)。每次变化发整张列表,列表属于 session,跨回合保留;适配进程重启后,之前建的任务不记得,但再更新其中一个仍会显示 |
+| 用量(`usage_update`) | 做了 | 每个回合结束前发一条:已用的上下文(主线程最后一次调用的 token 总和,子 agent 不算)、窗口大小、累计费用(USD)                                                                        |
 
 ## 未做(显式列出,不要悄悄补)
 
@@ -35,7 +37,7 @@
 - `config_option_update` 通知:配置变更只在 `set_config_option` 的响应里返回,没有主动通知。
 - `session/list`、`session/delete`:daemon 管理 session 列表和历史。
 - 图片和资源类型的 prompt 内容:只取文本块。
-- 子 agent 输出、`compaction`、`usage_update`、`plan_update`、`available_commands_update`、标题。
+- 子 agent 输出、`compaction`、`available_commands_update`、标题。
 - MCP 服务器、系统提示、`additionalDirectories`:`session/new` 的这些参数目前被忽略。
 - `bypassPermissions` 模式:有意不提供。
 - `elicitation`、`terminal`。
@@ -83,4 +85,9 @@ Claude Agent SDK 0.3.327,模型 haiku,账号的 OAuth token(`CLAUDE_CODE_OAUTH_T
 | 通过 daemon,中间重启 daemon              | 通过。Claude 进程随 daemon 消失,只剩磁盘;历史从 JSONL 读回;再 prompt,Claude 恢复,模型记得口令                                          |
 | 真实更新里有没有我们没处理的种类         | 没有。整段真实历史喂给界面的会话模型,`ignored` 为 0                                                                                    |
 
-这次真实运行里没有出现的:`usage_update`、`plan_update`、`notice`、`compaction_update`、子 agent(适配器本来就没发)。图片、长输出、很长的会话没试过。
+真实运行里的用量和计划(2026-11-18):
+
+- **用量**:真实结果里有 `modelUsage[…].contextWindow` 和 `total_cost_usd`,界面头部显示"2% of context · $0.002"(重载后从历史里重算,仍在)。
+- **计划**:SDK 里 Claude **默认没有任务列表工具**(`TodoWrite` 和 `TaskCreate` 都被 `ToolSearch` 报"没有匹配");要设 `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` 才出现,而且出现的是 `TaskCreate`/`TaskUpdate`,不是 `TodoWrite`。daemon 现在给 Claude 的环境里默认带上它(`config.json` 的 `claude.env` 可覆盖)。`TaskCreate` 的任务 id 只在结果里(`tool_use_result.task.id`),所以要等结果再进列表。真实运行:建两个任务、更新一个,界面里出现这两项。
+
+这次真实运行里没有出现的:`notice`、`compaction_update`、子 agent(适配器本来就没发)。图片、长输出、很长的会话没试过。

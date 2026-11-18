@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { stopReasonOf, TurnTranslator } from "../src/index.ts";
+import { PlanState, stopReasonOf, TurnTranslator } from "../src/index.ts";
 import { textTurn } from "./fake-query.ts";
 
 const feedAll = (messages: SDKMessage[]) => {
@@ -111,4 +111,145 @@ test("maps how a turn ended", () => {
   expect(stopReasonOf(result({ subtype: "error_during_execution" }))).toMatchObject({
     stopReason: "error",
   });
+});
+
+test("TodoWrite becomes a plan: the whole list, with the statuses ACP knows", () => {
+  const updates = feedAll([
+    {
+      type: "assistant",
+      message: {
+        id: "m",
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "TodoWrite",
+            input: {
+              todos: [
+                { content: "Read it", status: "completed", activeForm: "Reading" },
+                { content: "Fix it", status: "in_progress", activeForm: "Fixing" },
+                { content: "Test it", status: "something-new", activeForm: "Testing" },
+              ],
+            },
+          },
+        ],
+      },
+    } as unknown as SDKMessage,
+  ]);
+  const plan = updates.find((u) => u.sessionUpdate === "plan_update") as unknown as {
+    plan: { type: string; planId: string; entries: { content: string; status: string }[] };
+  };
+  expect(plan.plan.type).toBe("items");
+  expect(plan.plan.entries.map((e) => [e.content, e.status])).toEqual([
+    ["Read it", "completed"],
+    ["Fix it", "in_progress"],
+    ["Test it", "pending"],
+  ]);
+});
+
+test("a turn ends with the context used, the window, and the cost; a sub-agent's calls do not count", () => {
+  const translator = new TurnTranslator();
+  const call = (usage: object, parent: string | null) =>
+    ({
+      type: "assistant",
+      parent_tool_use_id: parent,
+      message: { id: "m", content: [], usage },
+    }) as unknown as SDKMessage;
+  translator.feed(
+    call(
+      {
+        input_tokens: 10,
+        cache_read_input_tokens: 90,
+        cache_creation_input_tokens: 5,
+        output_tokens: 20,
+      },
+      null,
+    ),
+  );
+  translator.feed(call({ input_tokens: 99999, output_tokens: 1 }, "toolu_sub"));
+  const usage = translator.usageOf({
+    type: "result",
+    subtype: "success",
+    total_cost_usd: 0.0123,
+    modelUsage: { "claude-haiku": { contextWindow: 200000 } },
+  } as unknown as SDKMessage);
+  expect(usage).toEqual({
+    sessionUpdate: "usage_update",
+    used: 125,
+    size: 200000,
+    cost: { amount: 0.0123, currency: "USD" },
+  } as never);
+  // Nothing to say without a window to say it against.
+  expect(
+    new TurnTranslator().usageOf({ type: "result", subtype: "success" } as unknown as SDKMessage),
+  ).toBeUndefined();
+});
+
+test("TaskCreate and TaskUpdate keep one plan across turns", () => {
+  const plan = new PlanState();
+  const use = (id: string, name: string, input: object) =>
+    ({
+      type: "assistant",
+      message: { id: `m${id}`, content: [{ type: "tool_use", id, name, input }] },
+    }) as unknown as SDKMessage;
+  const result = (id: string, text: string, structured: object) =>
+    ({
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: id, content: text }] },
+      tool_use_result: structured,
+    }) as unknown as SDKMessage;
+  const entries = (updates: { sessionUpdate: string }[]) =>
+    (
+      updates.filter((u) => u.sessionUpdate === "plan_update").at(-1) as unknown as
+        | { plan: { entries: { content: string; status: string }[] } }
+        | undefined
+    )?.plan.entries.map((e) => [e.content, e.status]);
+
+  const first = new TurnTranslator(plan);
+  expect(
+    entries(first.feed(use("a", "TaskCreate", { subject: "first", description: "d" }))),
+  ).toBeUndefined(); // the id is only in the result
+  expect(
+    entries(
+      first.feed(
+        result("a", "Task #1 created successfully: first", { task: { id: "1", subject: "first" } }),
+      ),
+    ),
+  ).toEqual([["first", "pending"]]);
+  first.feed(use("b", "TaskCreate", { subject: "second", description: "d" }));
+  expect(
+    entries(
+      first.feed(
+        result("b", "Task #2 created successfully: second", {
+          task: { id: "2", subject: "second" },
+        }),
+      ),
+    ),
+  ).toEqual([
+    ["first", "pending"],
+    ["second", "pending"],
+  ]);
+
+  // A later turn, a new translator, the same session's plan.
+  const later = new TurnTranslator(plan);
+  later.feed(use("c", "TaskUpdate", { taskId: "1", status: "completed" }));
+  expect(
+    entries(later.feed(result("c", "Updated task #1 status", { success: true, taskId: "1" }))),
+  ).toEqual([
+    ["first", "completed"],
+    ["second", "pending"],
+  ]);
+  later.feed(use("d", "TaskUpdate", { taskId: "2", status: "deleted" }));
+  expect(
+    entries(later.feed(result("d", "Updated task #2", { success: true, taskId: "2" }))),
+  ).toEqual([["first", "completed"]]);
+  // A failed update changes nothing.
+  later.feed(use("e", "TaskUpdate", { taskId: "1", status: "pending" }));
+  const failed = {
+    type: "user",
+    message: {
+      content: [{ type: "tool_result", tool_use_id: "e", is_error: true, content: "no such task" }],
+    },
+  } as unknown as SDKMessage;
+  expect(entries(later.feed(failed))).toBeUndefined();
 });

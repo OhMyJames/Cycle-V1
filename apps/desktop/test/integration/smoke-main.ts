@@ -252,6 +252,41 @@ const main = async () => {
       });
     }
 
+    if (real) {
+      // The header says how full the context is; a plan appears when Claude keeps a todo list.
+      await waitFor(
+        "the usage in the header",
+        `document.querySelector('[data-slot="usage"]')`,
+        10_000,
+      );
+      out({
+        step: "usage",
+        text: await run(`document.querySelector('[data-slot="usage"]').textContent`),
+      });
+      await focusComposer();
+      await type(
+        "Use your task tools (TaskCreate and TaskUpdate; load them with ToolSearch if needed) to create exactly two tasks, named first and second, then mark first completed. Then say: listed",
+      );
+      await press("Enter");
+      await waitFor(
+        "the turn to start",
+        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => b.textContent.trim() === "Stop")`,
+      );
+      await waitFor(
+        "the turn to end",
+        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => b.textContent.trim() === "Send")`,
+        90_000,
+      );
+      out({
+        step: "plan",
+        tail: (await run<string>(conversationText())).slice(-400),
+        text: await run(`document.querySelector('[data-slot="plan"]')?.textContent ?? null`),
+        tools: await run(
+          `[...document.querySelectorAll('[data-slot="tool-name"]')].map((e) => e.textContent).join(",")`,
+        ),
+      });
+    }
+
     // The page reloads: it is given the session whole, not an empty one.
     await run("location.reload()").catch(() => undefined);
     await waitFor(

@@ -33,6 +33,22 @@ export type ToolItem = {
   locations?: { path: string; line?: number | null }[];
 };
 export type PlanEntry = { content: string; priority: string; status: string };
+export type Usage = { used: number; size: number; cost?: { amount: number; currency: string } };
+
+/** What the header says: how full the context is, and what the session has cost. */
+export const usageLabel = (usage: Usage): string => {
+  const percent = usage.size > 0 ? Math.min(100, Math.round((usage.used / usage.size) * 100)) : 0;
+  const parts = [`${percent}% of context`];
+  if (usage.cost !== undefined) {
+    parts.push(
+      usage.cost.currency === "USD"
+        ? `$${usage.cost.amount.toFixed(usage.cost.amount < 0.1 ? 3 : 2)}`
+        : `${usage.cost.amount} ${usage.cost.currency}`,
+    );
+  }
+  return parts.join(" · ");
+};
+
 export type PlanItem = { kind: "plan"; id: string; entries: PlanEntry[] };
 export type NoticeItem = { kind: "notice"; id: string; severity: string; title: string };
 
@@ -53,7 +69,7 @@ export type Conversation = {
   lastStop: StopReason | undefined;
   /** True from the start of a replay until `replay_complete`. */
   replaying: boolean;
-  usage: { used: number; size: number } | undefined;
+  usage: Usage | undefined;
   /** Updates of a kind this version does not draw. */
   ignored: number;
 };
@@ -220,8 +236,19 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
         ],
       };
     }
-    case "usage_update":
-      return { ...c, usage: { used: Number(u.used), size: Number(u.size) } };
+    case "usage_update": {
+      // The cost: omitted keeps the last one, null clears it, a value replaces it.
+      const given = u.cost as { amount: number; currency: string } | null | undefined;
+      const cost = given === undefined ? c.usage?.cost : (given ?? undefined);
+      return {
+        ...c,
+        usage: {
+          used: Number(u.used),
+          size: Number(u.size),
+          ...(cost !== undefined ? { cost } : {}),
+        },
+      };
+    }
     case "replay_complete":
       return { ...c, replaying: false };
     case "available_commands_update":

@@ -53,6 +53,9 @@ test.skipIf(!enabled)(
       expect(String(step("answer")?.text).toLowerCase().split("pong").length).toBeGreaterThan(2);
       expect(String(step("permission")?.text)).toContain("touch made-by-the-agent.txt");
       expect(String(step("allowed")?.text).toLowerCase()).toContain("finished");
+      expect(String(step("usage")?.text)).toMatch(/\d+% of context/);
+      expect(String(step("plan")?.text)).toContain("first");
+      expect(String(step("plan")?.text)).toContain("second");
       expect(step("reloaded")?.ok).toBe(true);
       expect(existsSync(join(cwd, "made-by-the-agent.txt"))).toBe(true);
       expect(existsSync(join(home, "shot.png"))).toBe(true);

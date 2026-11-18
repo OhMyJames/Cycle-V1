@@ -3682,6 +3682,13 @@ body {
   margin: 0;
   padding-left: 1.5rem;
 }
+[data-slot="usage"] {
+  color: var(--ui-muted-foreground);
+  font-size: 0.8em;
+}
+[data-slot="plan"] li[data-status="in_progress"] {
+  font-weight: 600;
+}
 [data-slot="plan"] li[data-status="completed"] {
   text-decoration: line-through;
   color: var(--ui-muted-foreground);

@@ -10,6 +10,7 @@ import {
   reduce,
   type ToolItem,
   textOf,
+  usageLabel,
 } from "../src/model/index.ts";
 
 const blocksOf = (item: Item | undefined): Block[] => (item as { blocks: Block[] }).blocks;
@@ -251,4 +252,33 @@ test("a whole history replayed gives the conversation that was built live", () =
     replaying: true,
   });
   expect({ ...replayed, replaying: live.replaying }).toEqual(live);
+});
+
+test("usage keeps its cost until a new one comes, and null clears it", () => {
+  const at = (...updates: object[]) =>
+    updates.reduce<Conversation>((c, x) => applyUpdate(c, x as never), emptyConversation());
+  const cost = { amount: 0.5, currency: "USD" };
+  expect(at({ sessionUpdate: "usage_update", used: 1, size: 10, cost }).usage?.cost).toEqual(cost);
+  expect(
+    at(
+      { sessionUpdate: "usage_update", used: 1, size: 10, cost },
+      { sessionUpdate: "usage_update", used: 2, size: 10 },
+    ).usage,
+  ).toEqual({ used: 2, size: 10, cost });
+  expect(
+    at(
+      { sessionUpdate: "usage_update", used: 1, size: 10, cost },
+      { sessionUpdate: "usage_update", used: 2, size: 10, cost: null },
+    ).usage,
+  ).toEqual({ used: 2, size: 10 });
+});
+
+test("the header's words for usage", () => {
+  expect(usageLabel({ used: 25_000, size: 200_000 })).toBe("13% of context");
+  expect(usageLabel({ used: 1, size: 10, cost: { amount: 0.0123, currency: "USD" } })).toBe(
+    "10% of context · $0.012",
+  );
+  expect(usageLabel({ used: 1, size: 10, cost: { amount: 1.5, currency: "USD" } })).toBe(
+    "10% of context · $1.50",
+  );
 });

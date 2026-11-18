@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@ui-sdk/react/dialog";
 import { useCallback, useState } from "react";
+import { usageLabel } from "../model/index.ts";
 import { viewKey } from "../store/index.ts";
 import { Composer } from "./composer.tsx";
 import { ConfigForm } from "./config-form.tsx";
@@ -128,6 +129,9 @@ export function App() {
             <div data-slot="stack">
               <h1>{sessionTitle(session)}</h1>
               <span data-slot="hint">{session.cwd}</span>
+              {view?.conversation.usage !== undefined ? (
+                <span data-slot="usage">{usageLabel(view.conversation.usage)}</span>
+              ) : null}
             </div>
             <div data-slot="row">
               <Button data-variant="outline" onClick={() => setPanel("settings")}>
