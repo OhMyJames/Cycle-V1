@@ -27,7 +27,8 @@ if (binary === undefined) throw new Error(`no Claude binary in ${platformDir}`);
 
 const result = await Bun.build({
   entrypoints: [join(root, "src/main.ts")],
-  compile: { outfile: join(out, "cycle-daemon") },
+  // The daemon runs from whatever directory it was started in; it must not read a .env or bunfig.toml there.
+  compile: { outfile: join(out, "cycle-daemon"), autoloadDotenv: false, autoloadBunfig: false },
   minify: false,
 });
 if (!result.success) {
@@ -38,6 +39,10 @@ await cp(join(platformDir, binary), join(out, "claude"));
 await chmod(join(out, "claude"), 0o755);
 await chmod(join(out, "cycle-daemon"), 0o755);
 
+if (Bun.argv.includes("--no-tarball")) {
+  console.log(`built ${out}`);
+  process.exit(0);
+}
 const tar = Bun.spawn(["tar", "-czf", `${name}.tar.gz`, name], {
   cwd: join(root, "dist"),
   stdout: "inherit",

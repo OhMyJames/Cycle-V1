@@ -1,6 +1,6 @@
 {
   "name": "@cycle/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -23,6 +23,7 @@
   "main": "dist/main.mjs",
   "scripts": {
     "build": "bun scripts/build.ts",
+    "package": "bun scripts/package.ts",
     "start": "bun scripts/start.ts",
     "test:real": "bun test ./test/integration/real-ui.integration.ts",
     "test:integration": "bun test ./test/integration/smoke.integration.ts"

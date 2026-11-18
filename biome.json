@@ -5,6 +5,7 @@
       "**",
       "!**/node_modules",
       "!**/dist",
+      "!apps/desktop/build",
       "!bun.lock",
       "!**/.claude/skills",
       "!**/skills-lock.json",
