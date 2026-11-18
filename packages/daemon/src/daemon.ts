@@ -296,6 +296,8 @@ export class Daemon {
           ...(additionalDirectories !== undefined ? { additionalDirectories } : {}),
           ...(mcpServers !== undefined ? { mcpServers } : {}),
           ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+          // So that an agent that finds no record of a session that had turns says so.
+          ...(session.entry.hadTurn === true ? { _meta: { [META.hadTurn]: true } } : {}),
         } as never);
       } catch (error) {
         throw new RpcError(CycleErrorCode.ResumeFailed, "The agent could not resume the session", {
@@ -556,10 +558,21 @@ export class Daemon {
   #learn(session: Session, update: SessionUpdate): boolean {
     const u = update as {
       sessionUpdate: string;
+      state?: string;
+      stopReason?: string;
       title?: string | null;
       configOptions?: { configId?: string; currentValue?: unknown }[];
     };
-    if (u.sessionUpdate === "config_option_update" && Array.isArray(u.configOptions)) {
+    if (
+      u.sessionUpdate === "state_update" &&
+      u.state === "idle" &&
+      u.stopReason === "end_turn" &&
+      session.entry.hadTurn !== true
+    ) {
+      // A turn that was answered: the agent has a record of the session now. (A turn that failed, or was
+      // cut off, may never have reached it; those prove nothing.)
+      this.#remember(session, { hadTurn: true }, false);
+    } else if (u.sessionUpdate === "config_option_update" && Array.isArray(u.configOptions)) {
       // The agent changed a setting itself (a plan approved, say): on record, so a restart keeps it.
       const config = { ...(session.entry.config ?? {}) };
       for (const option of u.configOptions) {

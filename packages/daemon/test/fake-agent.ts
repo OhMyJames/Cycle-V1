@@ -5,6 +5,8 @@ import type { AgentDefinition } from "../src/index.ts";
 type Script = {
   /** Called when a prompt arrives: what the agent does with it. */
   onPrompt?: (ctx: Turn) => Promise<unknown>;
+  /** How every turn ends. Default `end_turn`. */
+  stopReason?: string;
 };
 
 export type Turn = {
@@ -128,7 +130,11 @@ export const fakeAgent = (
           }
           // A script that ended the turn itself (an error, say) is not given a second ending.
           if (!ended)
-            await say({ sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" });
+            await say({
+              sessionUpdate: "state_update",
+              state: "idle",
+              stopReason: script.stopReason ?? "end_turn",
+            });
         })().catch(() => {});
         return { messageId };
       });

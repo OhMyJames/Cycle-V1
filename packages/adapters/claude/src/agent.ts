@@ -94,6 +94,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The key the daemon uses to propose the agent's own session id (docs/protocol.md §6). */
 const PROPOSED_ID = "cycle/sessionId";
+/** In `session/resume`: a turn of the session was answered, so Claude must have a record of it (`META.hadTurn`). */
+const HAD_TURN = "cycle/hadTurn";
 
 type Turn = {
   translator: TurnTranslator;
@@ -231,6 +233,33 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     live.end();
     if (hard) live.abort.abort();
     else setTimeout(() => live.abort.abort(), 2_000).unref?.();
+  };
+
+  /**
+   * Whether Claude has this session on disk, so that the next process resumes it (it has the id) instead of
+   * starting it (it would refuse an id it already knows, or has none to resume). Claude writes the session
+   * when it takes the first prompt, not when Cycle makes the session: one that has had no prompt has nothing to
+   * resume. If it should have a record (a turn was answered) and has none, the history is lost, and that is said
+   * rather than a new conversation begun under the old name. Where there is no way to look (no config
+   * directory given to Claude), or looking fails, the session is taken to be there, as it was before.
+   */
+  const recordOf = async (sessionId: string, cwd: string, hadTurn: boolean): Promise<boolean> => {
+    if (config.sessionInfo === undefined) return true;
+    let found: boolean;
+    try {
+      found = (await config.sessionInfo(sessionId, cwd)) !== undefined;
+    } catch {
+      return true;
+    }
+    if (found) return true;
+    if (hadTurn) {
+      throw new RequestError(
+        -32603,
+        "Claude has no record of this session any more: its history can be read, but it cannot be continued",
+        { sessionId },
+      );
+    }
+    return false;
   };
 
   /** Tells the client the title Claude gave the session, once per change. Never throws. */
@@ -753,13 +782,16 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           replayFrom: params.replayFrom,
         });
       }
+      const known = sessions.get(params.sessionId);
+      const hadTurn =
+        (params._meta as Record<string, unknown> | null | undefined)?.[HAD_TURN] === true;
       const session =
-        sessions.get(params.sessionId) ??
+        known ??
         ({
           id: params.sessionId,
           cwd: params.cwd,
-          // The id is on disk in the Claude config directory: resume it.
-          started: true,
+          // Whether Claude has this session on disk (see `recordOf`): it is resumed if so, and made if not.
+          started: await recordOf(params.sessionId, params.cwd, hadTurn),
           subagents: new Subagents(),
           commandsKey: undefined,
           mode: "default",

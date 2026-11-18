@@ -35,6 +35,11 @@ export const SessionEntrySchema = z.object({
    */
   readSeq: z.number().int().nonnegative().optional(),
   attentionSeq: z.number().int().nonnegative().optional(),
+  /**
+   * True once a turn of the session has been answered (it ended with `end_turn`): from then on the agent has a
+   * record of its own, which a restarted agent must find. Sent to it as `cycle/hadTurn`.
+   */
+  hadTurn: z.boolean().optional(),
   /** What was asked of the agent with `session/set_config_option`, applied again when it is restarted. */
   config: z.record(z.string(), z.string()).optional(),
   createdAt: z.string(),
