@@ -666,3 +666,80 @@ test("a message that could not be sent is back in the box", async () => {
   await screen.findByRole("alert");
   await waitFor(() => expect(boxText(box)).toBe("do it"));
 });
+
+const withCommands = (...names: string[]) =>
+  history(
+    u({
+      sessionUpdate: "available_commands_update",
+      availableCommands: names.map((name) => ({
+        type: "command",
+        name,
+        description: `Does ${name}`,
+        ...(name === "review" ? { input: { type: "text", hint: "PR number" } } : {}),
+      })),
+    }),
+  );
+
+test("a slash at the start lists the commands that fit; the arrows choose, Enter takes it and does not send", async () => {
+  const { user, named } = await mount({
+    snapshot: () => withCommands("init", "review", "compact"),
+  });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "/");
+  const menu = await screen.findByRole("listbox", { name: "Commands" });
+  expect(
+    within(menu)
+      .getAllByRole("option")
+      .map((o) => o.textContent),
+  ).toEqual(["/initDoes init", "/reviewPR numberDoes review", "/compactDoes compact"]);
+  expect(box.getAttribute("aria-expanded")).toBe("true");
+  await write(box, "r");
+  await waitFor(() => expect(within(menu).getAllByRole("option")).toHaveLength(1));
+  await press(box, "ArrowDown");
+  await press(box, "Enter");
+  await waitFor(() => expect(boxText(box)).toBe("/review "));
+  expect(named("prompt")).toHaveLength(0);
+  await waitFor(() => expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull());
+  // The menu is gone, so Enter sends.
+  await write(box, "12");
+  await press(box, "Enter");
+  await waitFor(() =>
+    expect(named("prompt")).toEqual([
+      ["prompt", "local", "s1", [{ type: "text", text: "/review 12" }]],
+    ]),
+  );
+});
+
+test("a slash that is not at the start of the message, or has a space after it, opens nothing", async () => {
+  const { user } = await mount({ snapshot: () => withCommands("init") });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "see /in");
+  await act(async () => {});
+  expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull();
+});
+
+test("Escape closes the menu and Enter then sends what was typed", async () => {
+  const { user, named } = await mount({ snapshot: () => withCommands("init") });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "/zzz");
+  expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull();
+  await write(box, "\b");
+  await press(box, "Enter");
+  await waitFor(() => expect(named("prompt")).toHaveLength(1));
+});
+
+test("a click on a command takes it, and the input keeps the focus", async () => {
+  const { user } = await mount({ snapshot: () => withCommands("init", "compact") });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "/co");
+  await user.click(await screen.findByRole("option", { name: /compact/ }));
+  await waitFor(() => expect(boxText(box)).toBe("/compact "));
+});

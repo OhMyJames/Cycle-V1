@@ -14,6 +14,7 @@ import {
   $getRoot,
   $getSelection,
   $isRangeSelection,
+  $isTextNode,
   COMMAND_PRIORITY_HIGH,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_UP_COMMAND,
@@ -67,6 +68,10 @@ export type MarkdownInputProps = {
   /** Pictures pasted into the input. Other files are not taken. */
   onPasteFiles: (files: File[]) => void;
   handle?: RefObject<InputHandle | null>;
+  /** The document or the caret changed: the menus look again at what is before the caret. */
+  onCaret?: () => void;
+  /** A menu of choices is open below the input: the input says so, and which one is active, to those who cannot see it. */
+  menu?: { id: string; open: boolean; activeId?: string | undefined };
 };
 
 const caretOf = (editor: LexicalEditor): Caret => {
@@ -128,6 +133,7 @@ function Behaviour({ props }: { props: MarkdownInputProps }) {
   useEffect(
     () =>
       editor.registerUpdateListener(({ dirtyElements, dirtyLeaves }) => {
+        latest.current.onCaret?.();
         if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
         const markdown = markdownOf(editor);
         if (markdown === emitted.current) return;
@@ -206,8 +212,15 @@ function Behaviour({ props }: { props: MarkdownInputProps }) {
         editor.update(() => {
           const selection = $getSelection();
           if (!$isRangeSelection(selection)) return;
-          for (let i = 0; i < length; i++) selection.deleteCharacter(true);
-          selection.insertRawText(text);
+          const node = selection.anchor.getNode();
+          // What was typed of a trigger is in the one text node the caret is in, so it is replaced there, without the
+          // browser's own selection (which a test, and a caret that has just moved, may not have).
+          if ($isTextNode(node) && selection.anchor.type === "text") {
+            const end = selection.anchor.offset;
+            node.spliceText(Math.max(0, end - length), Math.min(length, end), text, true);
+          } else {
+            selection.insertRawText(text);
+          }
         }),
     };
     return () => {
@@ -239,6 +252,10 @@ export function MarkdownInput(props: MarkdownInputProps) {
             data-slot="composer-input"
             aria-label={props.label}
             aria-multiline
+            aria-haspopup={props.menu === undefined ? undefined : "listbox"}
+            aria-expanded={props.menu?.open}
+            aria-controls={props.menu?.open ? props.menu.id : undefined}
+            aria-activedescendant={props.menu?.open ? props.menu.activeId : undefined}
             aria-placeholder={props.placeholder}
             placeholder={createElement(
               "div",

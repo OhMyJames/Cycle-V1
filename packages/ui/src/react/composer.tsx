@@ -1,5 +1,5 @@
 import { Button } from "@ui-sdk/react/button";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import {
   ATTACHMENT_LIMITS,
   type AttachmentProblem,
@@ -9,7 +9,9 @@ import {
   isImageType,
 } from "../attachments.ts";
 import { NOT_RECALLING, type Recall, recall, sentTexts } from "../draft.ts";
-import { type QueuedPrompt, textOf } from "../model/index.ts";
+import { type Command, type QueuedPrompt, textOf } from "../model/index.ts";
+import { commandText, filterCommands, slashQuery } from "../slash.ts";
+import { CommandMenu, optionId } from "./command-menu.tsx";
 import { useI18n } from "./i18n.tsx";
 import { AttachIcon, CloseIcon } from "./icons.tsx";
 import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
@@ -58,6 +60,32 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
   const picker = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<InputHandle | null>(null);
+  // The command being typed, and which of the matches is under the arrows. Escape closes the menu until the query changes.
+  const menuId = useId();
+  const [slash, setSlash] = useState<string | undefined>();
+  const [dismissed, setDismissed] = useState<string | undefined>();
+  const [pointed, setPointed] = useState<{ slash: string | undefined; index: number }>({
+    slash: undefined,
+    index: 0,
+  });
+  // A new query starts at the first match.
+  const chosen = pointed.slash === slash ? pointed.index : 0;
+  const setChosen = (index: number) => setPointed({ slash, index });
+  const matches: Command[] =
+    slash === undefined || slash === dismissed
+      ? []
+      : filterCommands(conversation?.commands ?? [], slash);
+  const menuOpen = matches.length > 0;
+  const active = Math.min(chosen, Math.max(matches.length - 1, 0));
+  const lookAtCaret = () => {
+    const caret = input.current?.caret();
+    setSlash(caret === undefined ? undefined : slashQuery(caret.before, caret.first));
+  };
+  const pick = (command: Command) => {
+    // What was typed of it, the slash and the query, is replaced by the whole name and a space.
+    input.current?.replaceBeforeCaret((slash?.length ?? 0) + 1, commandText(command));
+    input.current?.focus();
+  };
   // While the agent works, a message is queued: it goes when the turn ends well (docs/protocol.md §8).
   const canSend = enabled && (text.trim() !== "" || attachments.length > 0);
 
@@ -135,6 +163,22 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
 
   /** The keys the box asks about first. Enter sends (a new line is Shift+Enter); the arrows walk through what was sent. */
   const onKey = (key: InputKey, event: KeyboardEvent): boolean => {
+    // An open menu has the keys first: the arrows choose, Enter and Tab take, Escape closes.
+    if (menuOpen) {
+      if (key === "up" || key === "down") {
+        setChosen((active + (key === "up" ? matches.length - 1 : 1)) % matches.length);
+        return true;
+      }
+      if (key === "enter" || key === "tab") {
+        const command = matches[active];
+        if (command !== undefined) pick(command);
+        return true;
+      }
+      if (key === "escape") {
+        setDismissed(slash);
+        return true;
+      }
+    }
     if (key === "enter") {
       void send();
       return true;
@@ -263,6 +307,15 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
           </>
         ) : null}
         <div data-slot="composer-field">
+          {menuOpen ? (
+            <CommandMenu
+              id={menuId}
+              commands={matches}
+              active={active}
+              onPick={pick}
+              onHover={setChosen}
+            />
+          ) : null}
           <MarkdownInput
             value={text}
             onChange={(markdown) => {
@@ -281,6 +334,12 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
             onKey={onKey}
             onPasteFiles={(files) => void attach(files)}
             handle={input}
+            onCaret={lookAtCaret}
+            menu={{
+              id: menuId,
+              open: menuOpen,
+              activeId: menuOpen ? optionId(menuId, active) : undefined,
+            }}
           />
         </div>
         {working ? (

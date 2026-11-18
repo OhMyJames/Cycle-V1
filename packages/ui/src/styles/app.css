@@ -1066,6 +1066,56 @@ html[data-platform="darwin"]
   white-space: pre;
 }
 
+/* The commands that fit: above the input, which keeps the focus. */
+[data-slot="command-menu"] {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 1;
+  max-height: 14rem;
+  margin: 0;
+  padding: 0.25rem;
+  overflow-y: auto;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-background);
+  list-style: none;
+}
+
+[data-slot="command-menu"] > [role="option"] {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: calc(var(--ui-radius) / 2);
+  cursor: pointer;
+  font-size: var(--cycle-text-ui);
+}
+
+[data-slot="command-menu"] > [role="option"][data-active] {
+  background: var(--ui-muted);
+}
+
+[data-slot="command-name"] {
+  flex: none;
+  font-family: var(--ui-font-mono, ui-monospace, monospace);
+}
+
+[data-slot="command-hint"] {
+  flex: none;
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
+}
+
+[data-slot="command-description"] {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 [data-slot="composer-placeholder"] {
   position: absolute;
   top: 0.5rem;

@@ -46,6 +46,9 @@ export const enUS = {
   "composer.queue": "Queue",
   "composer.stop": "Stop",
 
+  // The commands that fit what is typed after a slash
+  "composer.commands.label": "Commands",
+
   // Messages sent while the agent works, waiting their turn
   "composer.queued.label": "Queued messages",
   "composer.queued.tag": "Queued",
