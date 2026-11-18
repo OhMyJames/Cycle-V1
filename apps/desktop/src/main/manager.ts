@@ -5,7 +5,9 @@ import {
   type AgentInfo,
   type AppApi,
   type AppEvent,
+  type Attention,
   applyUpdate,
+  attentionOf,
   type Conversation,
   emptyConversation,
   type HostConfig,
@@ -28,6 +30,16 @@ export type ManagerOptions = {
   backoff?: { first: number; max: number };
   /** The version of this app, to tell a host whose daemon is older. Without it, nothing is said. */
   appVersion?: string;
+  /** A session changed in a way worth telling (it asks, it is done, its agent is gone). Without it, nothing is said. */
+  attention?: (notice: AttentionNotice) => void;
+};
+
+/** What the main process is told when a session that was changing is in a state that wants the person. */
+export type AttentionNotice = {
+  hostId: string;
+  hostName: string;
+  session: SessionSummary;
+  kind: Attention;
 };
 
 type Pending = { request: PermissionRequest; answer: (answer: PermissionAnswer) => void };
@@ -46,6 +58,8 @@ type Connection = {
   sessions: SessionSummary[];
   watched: Map<string, Watched>;
   opening: Map<string, Promise<void>>;
+  /** The list has been read once: a change from here on is a change, and the first list is not. */
+  listed: boolean;
 };
 
 const messageOf = (error: unknown): string =>
@@ -116,6 +130,7 @@ export class ConnectionManager
       sessions: [],
       watched: new Map(),
       opening: new Map(),
+      listed: false,
     };
     connection.client = new CycleClient({
       connect: this.#options.channelFor(host),
@@ -210,6 +225,16 @@ export class ConnectionManager
           : {}),
       };
     });
+    // What changed since the list before is what the person may want to be told; the first list is no change.
+    if (connection.listed && this.#options.attention !== undefined) {
+      const before = new Map(connection.sessions.map((s) => [s.sessionId, s]));
+      const hostName = this.#hosts.find((h) => h.id === hostId)?.name ?? hostId;
+      for (const session of sessions) {
+        const kind = attentionOf(before.get(session.sessionId), session);
+        if (kind !== undefined) this.#options.attention({ hostId, hostName, session, kind });
+      }
+    }
+    connection.listed = true;
     connection.sessions = sessions;
     this.#options.emit({ type: "sessions", hostId, sessions });
     return sessions;

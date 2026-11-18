@@ -195,3 +195,15 @@ test("an install that main refuses shows its reason, in the words main used", as
   await store.installUpdate();
   expect(store.getState().error).toBe("no room");
 });
+
+test("a notification pressed shows that session, on whichever host", async () => {
+  const script = fakeBridge({ connected: true });
+  const store = new AppStore(script.bridge);
+  await store.start();
+  script.emit({ type: "focus-session", hostId: "local", sessionId: "s1" });
+  // The focus is asked for without waiting (the event handler cannot); the session is opened a moment later.
+  for (let i = 0; i < 100 && script.named("openSession").length === 0; i += 1) await Bun.sleep(5);
+  expect(store.getState().selectedHost).toBe("local");
+  expect(store.getState().selectedSession).toBe("s1");
+  expect(script.named("openSession").at(-1)).toEqual(["openSession", "local", "s1"]);
+});

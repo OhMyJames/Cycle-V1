@@ -98,5 +98,9 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - **界面文字迁入 i18n 目录**:源语言是 en-US(decision 0012);新文字已经走目录,存量约 60 处还在标记里,门禁的棘轮保证不再增加。
 - **当前设置的来源**:session 设置对话框显示的是 daemon 索引里记下的设置;agent 自己改的(比如 Claude 的 plan 模式切换)不会反映回来。
 - **Claude 的 `config.json`**(`configDir`、密钥):没有 UI,因为它会把凭证放上线路。要在 daemon 所在机器上手改。
-- 通知、多窗口、可访问性审查(ui-sdk 的组件有基础的键盘和 ARIA,我们自己的部分没单独审)。
+- 多窗口、可访问性审查(ui-sdk 的组件有基础的键盘和 ARIA,我们自己的部分没单独审)。
 - 真实登录(`claude login`)的验证。真实模型已经验证过(见下)。
+
+## 通知
+
+一个你没在看的会话需要你(等你回答、做完了、agent 没了)时,主进程用系统通知告诉你;设计和限制见 DESIGN.md 第 20 节。主进程在每次重读会话列表时和上一次比较(`ConnectionManager` 的 `attention` 选项),窗口在前面时不显示;点通知回到那个会话(`focus-session` 事件)。macOS 上通知需要应用已签名并经用户允许,这一点没有在 Mac 上验证。

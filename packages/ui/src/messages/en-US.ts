@@ -90,6 +90,11 @@ export const enUS = {
     other: "Show {count} more sessions",
   },
 
+  // What a notification says when a session is not in front of the person
+  "attention.needs-you": "Waiting for your answer",
+  "attention.finished": "Finished",
+  "attention.stopped": "The agent stopped unexpectedly",
+
   // The code colours choice
   "codeTheme.label": "Code colours",
 } as const satisfies Messages;

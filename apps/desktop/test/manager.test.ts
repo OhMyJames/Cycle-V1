@@ -7,7 +7,7 @@ import { type Channel, connectUnix } from "@cycle/transport/client";
 import { listenUnix } from "@cycle/transport/server";
 import { type AppEvent, applyUpdate, emptyConversation, type HostConfig } from "@cycle/ui";
 import { fakeAgent } from "../../../packages/daemon/test/fake-agent.ts";
-import { ConnectionManager } from "../src/main/manager.ts";
+import { type AttentionNotice, ConnectionManager } from "../src/main/manager.ts";
 import { fileSettings, LOCAL_HOST } from "../src/main/settings.ts";
 
 let dir: string;
@@ -46,7 +46,11 @@ const setup = async (fake = fakeAgent(), daemonVersion?: string) => {
     await daemon.close();
   });
   const channels: Channel[] = [];
-  const manager = async (name = "app", appVersion?: string) => {
+  const manager = async (
+    name = "app",
+    appVersion?: string,
+    attention?: (notice: AttentionNotice) => void,
+  ) => {
     const events: AppEvent[] = [];
     const m = new ConnectionManager({
       settings: fileSettings(join(dir, `settings-${name}.json`)),
@@ -58,6 +62,7 @@ const setup = async (fake = fakeAgent(), daemonVersion?: string) => {
       emit: (event) => events.push(event),
       backoff: { first: 10, max: 50 },
       ...(appVersion !== undefined ? { appVersion } : {}),
+      ...(attention !== undefined ? { attention } : {}),
     });
     await m.init();
     cleanup.push(() => m.close());
@@ -357,4 +362,49 @@ test("the local host is not compared: the app carries it", async () => {
   const { m, events } = await manager("app", "0.1.1");
   await m.connect("local");
   expect(connectedStatus(events, "local")?.daemon).toBeUndefined();
+});
+
+test("a session that asks and then finishes is reported to the main process, and the first list is not a change", async () => {
+  const { manager } = await setup(
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        await ask();
+      },
+    }),
+  );
+  const notices: AttentionNotice[] = [];
+  const { m, events } = await manager("app", undefined, (n) => notices.push(n));
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  // Reading the list for the first time, and creating a session, tell nothing.
+  expect(notices).toEqual([]);
+  await m.openSession("local", id);
+  await m.prompt("local", id, "ask");
+  await until(() => of(events, "permission").length === 1, "the request");
+  await until(() => notices.length === 1, "the session to be reported as asking");
+  expect(notices[0]).toMatchObject({
+    hostId: "local",
+    hostName: LOCAL_HOST.name,
+    kind: "needs-you",
+    session: { sessionId: id, state: "requires_action" },
+  });
+  await m.answerPermission(first(of(events, "permission")).request.key, "allow");
+  await until(() => notices.length === 2, "the session to be reported as done");
+  expect(notices[1]).toMatchObject({ kind: "finished", session: { sessionId: id, state: "idle" } });
+});
+
+test("an archived session is not reported, and a manager without an attention hook says nothing", async () => {
+  const { manager } = await setup();
+  const notices: AttentionNotice[] = [];
+  const { m } = await manager("app", undefined, (n) => notices.push(n));
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  await m.openSession("local", id);
+  await m.archiveSession("local", id, true);
+  await m.prompt("local", id, "go").catch(() => undefined);
+  await Bun.sleep(100);
+  expect(notices).toEqual([]);
+  const quiet = await manager("quiet");
+  await quiet.m.connect("local");
+  expect(quiet.events.length).toBeGreaterThan(0);
 });
