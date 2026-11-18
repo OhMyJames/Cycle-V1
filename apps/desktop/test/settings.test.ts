@@ -90,3 +90,63 @@ test("a file that cannot be read says which, instead of starting from nothing", 
   await writeFile(path, "{ not json");
   await expect(fileSettings(path).load()).rejects.toThrow(path);
 });
+
+test("what an entry has that this version does not know, and the other keys of the file, are written back", async () => {
+  const path = await fileIn({
+    theme: "dark",
+    environments: [
+      {
+        id: "far",
+        name: "Far",
+        kind: "remote",
+        icon: "box",
+        transport: { type: "ssh", host: "far", port: 2222 },
+      },
+    ],
+  });
+  const settings = fileSettings(path);
+  const [, far] = await settings.load();
+  // Unchanged: as it was. Renamed: what we know changes, and the rest of the file stays.
+  await settings.save([LOCAL_ENVIRONMENT, far as never]);
+  const same = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  expect(same.theme).toBe("dark");
+  expect((same.environments as unknown[])[0]).toEqual({
+    id: "far",
+    name: "Far",
+    kind: "remote",
+    icon: "box",
+    transport: { type: "ssh", host: "far", port: 2222 },
+  });
+});
+
+test("a command that is not a list of words leaves the entry as it is, and not running something else", async () => {
+  const entry = {
+    id: "far",
+    name: "Far",
+    kind: "remote",
+    transport: { type: "ssh", host: "far", command: "cycle proxy" },
+  };
+  const path = await fileIn({ environments: [entry] });
+  const settings = fileSettings(path);
+  expect(await settings.load()).toEqual([LOCAL_ENVIRONMENT]);
+  await settings.save([LOCAL_ENVIRONMENT]);
+  expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ environments: [entry] });
+});
+
+test("an entry that says it is local but is not this computer is not a second way in", async () => {
+  const laptop = { id: "laptop", name: "Laptop", kind: "local" };
+  const path = await fileIn({ environments: [laptop] });
+  expect((await fileSettings(path).load()).map((e) => e.id)).toEqual(["local"]);
+});
+
+test("an environment saved with the id of an entry that cannot be read is the one that stays", async () => {
+  const path = await fileIn({ environments: [{ id: "ssh-box", name: "Odd", kind: "cloud" }] });
+  const settings = fileSettings(path);
+  await settings.load();
+  await settings.save([
+    LOCAL_ENVIRONMENT,
+    { id: "ssh-box", name: "Box", kind: "remote", transport: { type: "ssh", host: "box" } },
+  ]);
+  const written = JSON.parse(await readFile(path, "utf8")) as { environments: { name: string }[] };
+  expect(written.environments.map((e) => e.name)).toEqual(["Box"]);
+});

@@ -36,7 +36,7 @@ bun run start                          # 启动桌面端
 
 ## 环境、workspace 与侧栏
 
-状态:daemon 一侧(协议 0.2:`updatedAt`、`cycle/unread`、`cycle/background`、`mark_read`)已实现;客户端一侧(environment、workspace、侧栏)是设计,未实现。代码里现在叫 host(`HostConfig`、`hostId`),落地时改叫 environment。设计依据见决定笔记 [2026-11-18-sidebar-workspace-environment](../.agents/notes/2026-11-18-sidebar-workspace-environment.md)。
+状态:daemon 一侧(协议 0.2:`updatedAt`、`cycle/unread`、`cycle/background`、`mark_read`)已实现;客户端一侧(environment、一次一个 workspace 的侧栏、switcher、标记)已实现,哪些还没做见下面"现状"。代码里的名字是 environment(`EnvironmentConfig`、`environmentId`)。设计依据见决定笔记 [2026-11-18-sidebar-workspace-environment](../.agents/notes/2026-11-18-sidebar-workspace-environment.md)。
 
 ### 环境(environment)
 
@@ -64,7 +64,7 @@ type Environment = {
 代码里的名字是 environment(`EnvironmentConfig`、`environmentId`、桥上的 `environments()` 等);界面文案里仍写 "host"(Add host 等),文案是另一个决定:只有一个环境时界面里不该出现"环境"这个词。
 
 - 主进程在启动时连接所有 host,各自独立,连不上的不拖累别的;原因记在它的状态里,侧栏的 host 状态行里显示。
-- 会话是所有 host 的一个汇总,身份是 `(hostId, sessionId)`,按 `updatedAt` 排序;旧 daemon 的会话(没有 `updatedAt`)排在有的之后,彼此按 `lastSeq`,不同 daemon 的不混排。
+- 会话是所有环境的一个汇总,身份是 `(environmentId, sessionId)`,按 `updatedAt` 排序;旧 daemon 的会话(没有 `updatedAt`)排在有的之后,彼此按 `lastSeq`,不同 daemon 的不混排。
 - 侧栏一次只显示一个 workspace(`sessions.ts` 的 `workspacesOf`、`currentWorkspace`)。显示哪个:switcher 里选的(只对选它时打开的那个 session 有效,打开了别的就放弃),然后是打开的 session 所在的,最后是最近有活动的。
 - Switcher 按 host 分组(本机在前,多于一个 host 时才有分组标题,标题带连接状态),组内最近有活动的在前;远程 workspace 带 server 图标,图标的可访问名和 tooltip 是"On <host> · <state>";同名目录跨 host 时名字后带 host 名。Switcher 上的方块数字是**其他** workspace 里最紧急的一类,完整的计数在 aria-label。
 - 当前 workspace 里的会话:Needs you、Running(包括有后台子 agent 的)、Today、Yesterday、Earlier(本地日界线)。older 的每个 workspace 先显示 20 条,有标记的和打开的永远显示。一行只有一个标记:needs-you > running > background > unread;断线 host 和已归档的会话没有标记。

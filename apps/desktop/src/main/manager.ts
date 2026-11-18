@@ -24,7 +24,7 @@ import { LOCAL_ENVIRONMENT, type Settings } from "./settings.ts";
 
 export type ManagerOptions = {
   settings: Settings;
-  /** How to reach a host. The one place that knows about ssh, a local proxy, or a test socket. */
+  /** How to reach an environment. The one place that knows about ssh, a local proxy, or a test socket. */
   channelFor: (environment: EnvironmentConfig) => () => Promise<Channel>;
   emit: (event: AppEvent) => void;
   chooseDirectory?: () => Promise<string | undefined>;
