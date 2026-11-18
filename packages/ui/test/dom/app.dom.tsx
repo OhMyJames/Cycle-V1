@@ -233,7 +233,11 @@ test("starts a session from the defaults of the agent, in the directory typed", 
   });
   await user.click(await screen.findByRole("button", { name: "New session" }));
   const dialog = await screen.findByRole("dialog");
-  await user.type(within(dialog).getByRole("textbox", { name: "Directory" }), "/work/new");
+  // It starts from the folder of the workspace that is shown: the person replaces it.
+  const directory = within(dialog).getByRole("textbox", { name: "Directory" });
+  expect((directory as HTMLInputElement).value).toBe("/work");
+  await user.clear(directory);
+  await user.type(directory, "/work/new");
   await user.click(within(dialog).getByRole("button", { name: "Start" }));
   await waitFor(() => expect(named("createSession")).toHaveLength(1));
   expect(named("createSession")[0]).toEqual([

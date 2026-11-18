@@ -68,6 +68,8 @@ export type NewSessionProps = OpenProps & {
   hosts: HostConfig[];
   /** Where it starts unless the person says: the host of the session that is open, else the first. */
   defaultHost: string | undefined;
+  /** The folder it starts in unless the person says: the workspace that is shown. */
+  defaultCwd?: string | undefined;
   agents: Record<string, AgentInfo[]>;
   readDefaults: (hostId: string, agent: string) => Promise<Record<string, string> | undefined>;
   /** Opens this computer's folder chooser: only what is on this computer can be chosen with it. */
@@ -87,6 +89,7 @@ export function NewSessionDialog({
   onOpenChange,
   hosts,
   defaultHost,
+  defaultCwd,
   agents,
   readDefaults,
   chooseDirectory,
@@ -108,8 +111,10 @@ export function NewSessionDialog({
 
   // Each time it opens it starts again from where the person is; and another host has other agents.
   useEffect(() => {
-    if (open) setChosenHost(null);
-  }, [open]);
+    if (!open) return;
+    setChosenHost(null);
+    setCwd(defaultCwd ?? "");
+  }, [open, defaultCwd]);
 
   // Start each session from what the user set as the agent's defaults, on that host.
   const agentKey = agent?.id;

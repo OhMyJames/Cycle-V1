@@ -115,9 +115,41 @@ export const enUS = {
   // The session list
   "sessions.label": "Sessions",
   "sessions.listLabel": "Session list",
-  "sessions.noFolder": "No folder",
   "sessions.group.needsYou": "Needs you",
-  "sessions.group.working": "Working",
+  "sessions.group.running": "Running",
+  "sessions.group.today": "Today",
+  "sessions.group.yesterday": "Yesterday",
+  "sessions.group.earlier": "Earlier",
+  "sessions.empty": "No sessions in this workspace yet.",
+  // What a row says of its session, in words (the dot is its colour and shape)
+  "mark.needsYou": "Needs you",
+  "mark.running": "Running",
+  "mark.background": "Background work is running",
+  "mark.unread": "Unread",
+
+  // The workspace switcher: a workspace is a folder on one host
+  "workspace.label": "Workspace",
+  "workspace.switch": "Switch workspace",
+  "workspace.none": "No workspace yet",
+  "workspace.on": "On {host}",
+  "workspace.onState": "On {host} · {state}",
+  "workspace.elsewhere.needsYou": {
+    one: "{count} session needs you",
+    other: "{count} sessions need you",
+  },
+  "workspace.elsewhere.running": {
+    one: "{count} session is running",
+    other: "{count} sessions are running",
+  },
+  "workspace.elsewhere.background": {
+    one: "{count} session has background work",
+    other: "{count} sessions have background work",
+  },
+  "workspace.elsewhere.unread": {
+    one: "{count} session is unread",
+    other: "{count} sessions are unread",
+  },
+  "workspace.elsewhere.prefix": "In other workspaces: {what}",
   "sessions.showAll": {
     one: "Show {count} more session",
     other: "Show {count} more sessions",

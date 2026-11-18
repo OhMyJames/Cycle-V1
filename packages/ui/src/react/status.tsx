@@ -1,5 +1,6 @@
 // How a state is drawn: a colour, a shape and a word, so it is never told by colour alone (DESIGN.md section 3).
 import type { ConnectionState, SessionSummary } from "../api.ts";
+import type { Mark } from "../sessions.ts";
 import { CloseIcon } from "./icons.tsx";
 
 export type Tone = "accent" | "attention" | "success" | "danger" | "muted";
@@ -15,6 +16,14 @@ export const HOST_STATE: Record<ConnectionState, { word: string; tone: Tone; sha
   connecting: { word: "Connecting…", tone: "accent", shape: "ring" },
   reconnecting: { word: "Reconnecting…", tone: "attention", shape: "ring" },
   closed: { word: "Not connected", tone: "danger", shape: "cross" },
+};
+
+/** How a row's one mark is drawn (sessions.ts `markOf`): the words are `mark.*` in the messages. */
+export const MARK_STYLE: Record<Mark, { tone: Tone; shape: Shape }> = {
+  "needs-you": { tone: "attention", shape: "square" },
+  running: { tone: "accent", shape: "pulse" },
+  background: { tone: "accent", shape: "ring" },
+  unread: { tone: "accent", shape: "solid" },
 };
 
 /** What a session is doing that the person should see; idle and stopped say nothing. */

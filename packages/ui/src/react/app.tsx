@@ -23,7 +23,13 @@ import {
 } from "@ui-sdk/react/resizable";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { usageLabel } from "../model/index.ts";
-import { sessionKey, sessionList } from "../sessions.ts";
+import {
+  currentWorkspace,
+  elsewhere as elsewhereOf,
+  sessionKey,
+  sessionList,
+  workspacesOf,
+} from "../sessions.ts";
 import { viewKey } from "../store/index.ts";
 import { thinking } from "../thinking.ts";
 import { CodeThemePicker } from "./code-theme-picker.tsx";
@@ -39,6 +45,7 @@ import {
 } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
 import { ErrorCircleIcon, MoreIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
+import { useInFront } from "./in-front.ts";
 import { PermissionCard } from "./permission.tsx";
 import { SearchDialog } from "./search.tsx";
 import type { Away } from "./session-list.tsx";
@@ -108,6 +115,10 @@ export function App() {
   const [showArchived, setShowArchived] = useState(false);
   const [sent, setSent] = useState(0);
   const [showAll, setShowAll] = useState(false);
+  // The workspace chosen in the switcher holds until something else is opened: it is only good for the open session it was chosen on.
+  const [chosen, setChosen] = useState<{ workspace: string; on: string | undefined } | undefined>(
+    undefined,
+  );
 
   // The sessions of every host, in one list; what is open is on the host `selectedHost` names.
   const sessions = useMemo(
@@ -141,18 +152,44 @@ export function App() {
   );
   const close = () => setPanel("none");
   const [layout] = useState(createResizableController);
-  // The list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
+  // The workspaces, and the one the sidebar shows; the list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
+  const hostLabels = useMemo(
+    () => hosts.map((h) => ({ id: h.id, name: h.name, local: h.kind === "local" })),
+    [hosts],
+  );
+  const awayHosts = useMemo(() => new Set(away.keys()), [away]);
+  const workspaces = useMemo(
+    () => workspacesOf(sessions, { hosts: hostLabels, away: awayHosts, showArchived }),
+    [sessions, hostLabels, awayHosts, showArchived],
+  );
+  const openKey = session !== undefined ? sessionKey(session) : undefined;
+  const current = currentWorkspace(workspaces, {
+    chosen: chosen !== undefined && chosen.on === openKey ? chosen.workspace : undefined,
+    open: session,
+  });
+  const elsewhere = useMemo(() => elsewhereOf(workspaces, current), [workspaces, current]);
   const list = useMemo(
     () =>
-      sessionList(sessions, {
-        showArchived,
+      sessionList(current?.sessions ?? [], {
         showAll,
-        selected: session !== undefined ? sessionKey(session) : undefined,
-        hosts: hosts.map((h) => ({ id: h.id, name: h.name, local: h.kind === "local" })),
-        away: new Set(away.keys()),
+        selected: openKey,
+        away: awayHosts,
+        now: new Date(),
       }),
-    [sessions, showArchived, showAll, session, hosts, away],
+    [current, showAll, openKey, awayHosts],
   );
+
+  // What is on screen has been seen: the daemon is told, so the mark goes and stays gone (also on another client).
+  // Only while the app is in front, and only for a daemon that says there is news.
+  const inFront = useInFront();
+  const unreadOpen = session?.unread === true;
+  const openHost = session?.hostId;
+  const openId = session?.sessionId;
+  useEffect(() => {
+    if (!unreadOpen || !inFront || openHost === undefined || openId === undefined) return;
+    if (status[openHost]?.state !== "connected") return;
+    void store.markRead(openHost, openId);
+  }, [unreadOpen, inFront, openHost, openId, status, store]);
 
   const working = view !== undefined && view.conversation.status !== "idle";
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
@@ -225,8 +262,12 @@ export function App() {
           <Sidebar
             hosts={hosts}
             status={status}
+            workspaces={workspaces}
+            current={current}
+            elsewhere={elsewhere}
+            onChooseWorkspace={(workspace) => setChosen({ workspace, on: openKey })}
             list={list}
-            selected={session !== undefined ? sessionKey(session) : undefined}
+            selected={openKey}
             away={away}
             showArchived={showArchived}
             onSelectSession={(chosen) => void store.selectSession(chosen.hostId, chosen.sessionId)}
@@ -401,7 +442,8 @@ export function App() {
         open={panel === "new-session"}
         onOpenChange={(open) => !open && close()}
         hosts={connectedHosts}
-        defaultHost={selectedHost}
+        defaultHost={current?.hostId ?? selectedHost}
+        defaultCwd={current?.cwd}
         agents={agentsByHost}
         readDefaults={readDefaults}
         chooseDirectory={store.chooseDirectory}

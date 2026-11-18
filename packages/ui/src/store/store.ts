@@ -366,6 +366,18 @@ export class AppStore {
     await this.#attempt(() => this.#bridge.archiveSession(hostId, sessionId, archived));
   };
 
+  /**
+   * The person is looking at the session: tell the daemon it has been seen. Nothing to show if it cannot be told (the
+   * mark stays, and is tried again with the next list): a mark is not worth an error banner.
+   */
+  markRead = async (hostId: string, sessionId: string): Promise<void> => {
+    try {
+      await this.#bridge.markRead(hostId, sessionId);
+    } catch {
+      // Not worth a banner.
+    }
+  };
+
   deleteSession = async (sessionId: string): Promise<void> => {
     const hostId = this.#state.selectedHost;
     if (hostId === undefined) return;

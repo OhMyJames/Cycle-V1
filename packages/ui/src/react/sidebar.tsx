@@ -2,16 +2,23 @@ import { Button } from "@ui-sdk/react/button";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
 import type { ReactNode } from "react";
 import type { HostConfig, HostStatus, SessionSummary } from "../api.ts";
-import type { SessionList } from "../sessions.ts";
+import type { Elsewhere, SessionList, Workspace } from "../sessions.ts";
 import { useI18n } from "./i18n.tsx";
 import { MoreIcon, PlusIcon, SearchIcon } from "./icons.tsx";
 import { type Away, SessionListView } from "./session-list.tsx";
 import { HOST_STATE, StatusDot } from "./status.tsx";
+import { WorkspaceSwitcher } from "./workspace-switcher.tsx";
 
 export type SidebarProps = {
   hosts: HostConfig[];
   status: Record<string, HostStatus>;
-  /** What is shown, grouped and ordered (sessions.ts): the sessions of every host. */
+  /** Every workspace, and the one shown (sessions.ts). */
+  workspaces: readonly Workspace[];
+  current: Workspace | undefined;
+  /** What the other workspaces have, for the switcher's badge. */
+  elsewhere: Elsewhere;
+  onChooseWorkspace: (workspaceKey: string) => void;
+  /** What is shown, grouped and ordered (sessions.ts): the sessions of the current workspace. */
   list: SessionList;
   /** The open session, by its `sessionKey`. */
   selected: string | undefined;
@@ -43,7 +50,14 @@ export function Sidebar(props: SidebarProps) {
     <nav data-slot="sidebar" aria-label={t("sessions.label")}>
       <div data-slot="titlebar" aria-hidden="true" />
       <div data-slot="host-bar">
-        <span aria-hidden="true" />
+        <WorkspaceSwitcher
+          workspaces={props.workspaces}
+          current={props.current}
+          elsewhere={props.elsewhere}
+          hosts={props.hosts}
+          status={props.status}
+          onChoose={props.onChooseWorkspace}
+        />
         <Menu
           onAction={(value) => {
             const [action, hostId] = String(value).split(":");
@@ -127,7 +141,7 @@ export function Sidebar(props: SidebarProps) {
           onShowAll={props.onShowAll}
         />
       ) : (
-        <p data-slot="hint">No sessions yet.</p>
+        <p data-slot="hint">{t("sessions.empty")}</p>
       )}
       <Button data-variant="ghost" onClick={props.onToggleArchived}>
         {props.showArchived ? "Hide archived" : "Show archived"}
