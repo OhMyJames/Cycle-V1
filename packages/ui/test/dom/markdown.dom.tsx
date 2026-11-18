@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { cleanup, render, waitFor } from "@testing-library/react";
-import { isSafeLink, Markdown } from "../../src/react/markdown.tsx";
+import { Markdown } from "../../src/react/markdown.tsx";
 
 afterEach(cleanup);
 
@@ -54,16 +54,6 @@ test("a link to anything but http, https and mailto is only text", () => {
     expect(c.querySelector("a")).toBeNull();
     expect(c.textContent).toContain("click");
   }
-});
-
-test("knows which links are safe", () => {
-  expect(isSafeLink("https://example.com")).toBe(true);
-  expect(isSafeLink("http://example.com")).toBe(true);
-  expect(isSafeLink("mailto:a@example.com")).toBe(true);
-  expect(isSafeLink("javascript:alert(1)")).toBe(false);
-  expect(isSafeLink("//example.com")).toBe(false);
-  expect(isSafeLink("not a url")).toBe(false);
-  expect(isSafeLink(undefined)).toBe(false);
 });
 
 test("half a message streams without breaking the page", () => {

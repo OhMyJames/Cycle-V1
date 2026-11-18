@@ -172,5 +172,5 @@ test.skipIf(!ready)(
       mock.stop();
     }
   },
-  240_000,
+  120_000,
 );

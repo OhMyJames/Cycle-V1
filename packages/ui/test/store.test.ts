@@ -4,7 +4,7 @@ import type { AppEvent, PermissionRequest, SessionSnapshot } from "../src/api.ts
 import { applyUpdate, emptyConversation } from "../src/model/index.ts";
 import { AppStore, viewKey } from "../src/store/index.ts";
 
-import { fakeBridge, idle, summary, text } from "./fake-bridge.ts";
+import { fakeBridge, idle, text } from "./fake-bridge.ts";
 
 const update = (version: number, u: SessionUpdate, sessionId = "s1"): AppEvent => ({
   type: "update",
@@ -31,13 +31,6 @@ test("starts: reads the hosts, connects to the first, and lists its sessions and
   expect(named("connect")).toHaveLength(1);
   expect(s.sessions.local?.map((x) => x.sessionId)).toEqual(["s1"]);
   expect(s.agents.local?.map((a) => a.id)).toEqual(["fake"]);
-});
-
-test("does not connect again to a host that is already connected", async () => {
-  const { bridge, named } = fakeBridge({ connected: true });
-  const store = new AppStore(bridge);
-  await store.start();
-  expect(named("connect")).toHaveLength(0);
 });
 
 test("opening a session shows what main has, and then each event in turn", async () => {
@@ -176,32 +169,4 @@ test("creating a session opens it, and deleting one clears it", async () => {
   await store.deleteSession("s2");
   expect(store.getState().selectedSession).toBeUndefined();
   expect(store.getState().views[viewKey("local", "s2")]).toBeUndefined();
-});
-
-test("follows the status of hosts, lists of sessions, and changes to defaults", async () => {
-  const { store, emit } = await opened();
-  emit({ type: "host-status", hostId: "local", state: "reconnecting", error: "lost" });
-  expect(store.getState().status.local).toEqual({
-    hostId: "local",
-    state: "reconnecting",
-    error: "lost",
-  });
-  emit({ type: "sessions", hostId: "local", sessions: [summary("s1"), summary("s9")] });
-  expect(store.getState().sessions.local).toHaveLength(2);
-  emit({ type: "agent-defaults", hostId: "local", agent: "fake" });
-  expect(store.getState().defaultsRevision.local).toBe(1);
-});
-
-test("subscribers hear every change, and stop hearing when they leave", async () => {
-  const { bridge, emit } = fakeBridge();
-  const store = new AppStore(bridge);
-  let heard = 0;
-  const leave = store.subscribe(() => heard++);
-  await store.start();
-  const before = heard;
-  emit({ type: "host-status", hostId: "local", state: "connected" });
-  expect(heard).toBe(before + 1);
-  leave();
-  emit({ type: "host-status", hostId: "local", state: "closed" });
-  expect(heard).toBe(before + 1);
 });

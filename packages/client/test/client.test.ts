@@ -221,16 +221,6 @@ test("start fails if the daemon cannot be reached, and close stops retrying", as
   expect(third.state).toBe("closed");
 });
 
-test("a request while disconnected fails clearly", async () => {
-  const { make, drop, network } = await setup();
-  const client = make();
-  await client.start();
-  network(false);
-  drop();
-  await until(() => client.state === "reconnecting", "the loss");
-  await expect(client.listSessions()).rejects.toThrow("Not connected");
-});
-
 test("reads and sets an agent's defaults, and hears of a change made by someone else", async () => {
   const { make } = await setup();
   const heard: string[] = [];

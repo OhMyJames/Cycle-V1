@@ -14,7 +14,8 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "bun test",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "test:integration": "bun scripts/integration.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.8",

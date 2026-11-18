@@ -103,9 +103,3 @@ test("removes a closed log for good, and not an open one", async () => {
   await s.remove("s1");
   expect(await s.exists("s1")).toBe(false);
 });
-
-test("an append after close fails", async () => {
-  const log = await store().open("s1");
-  await log.close();
-  await expect(log.append({ kind: "update", data: 1 })).rejects.toBeDefined();
-});

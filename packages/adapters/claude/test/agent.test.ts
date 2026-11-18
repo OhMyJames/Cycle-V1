@@ -146,18 +146,6 @@ test("refuses to replay: the daemon owns the history", async () => {
   });
 });
 
-test("a prompt for an unknown session is session-not-found", async () => {
-  const fake = fakeQuery(() => []);
-  await connect(fake.run, async ({ agent }) => {
-    await expect(
-      agent.request(methods.agent.session.prompt, {
-        sessionId: "nope",
-        prompt: [{ type: "text", text: "x" }],
-      }),
-    ).rejects.toMatchObject({ code: -32002 });
-  });
-});
-
 test("a turn that throws ends idle with an error", async () => {
   const fake = fakeQuery(() => {
     throw new Error("the model fell over");

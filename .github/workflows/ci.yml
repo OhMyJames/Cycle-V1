@@ -1,0 +1,66 @@
+# Two jobs, sized for a 2-core, 4 GB machine (GitHub's standard runner is no smaller).
+#
+#  check        every push and pull request. The same `bun run check` as the pre-commit hook: about
+#               7 s of work and under 0.6 GB at its peak, so nearly all of the time is installing.
+#  integration  by hand, and every night. Starts real processes (Claude, a daemon, Electron under
+#               xvfb): serial, a deadline per suite, about 1.5 GB at its peak. It needs no secrets: the
+#               model is a mock, and nothing here may read an API key from the environment.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run check
+
+  integration:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cache/electron
+          key: integration-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: integration-${{ runner.os }}-
+      - name: Libraries Electron needs, and xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libgtk-3-0 libnss3 libgbm1 libasound2t64 libxss1
+      - run: bun install --frozen-lockfile --ignore-scripts
+      # bun does not run Electron's postinstall, which is what downloads the binary.
+      - run: bun node_modules/.bun/electron@*/node_modules/electron/install.js
+      - run: bun run test:integration

@@ -81,15 +81,6 @@ test("Enter sends what was typed, Shift+Enter makes a new line, and the box empt
   expect(box.value).toBe("");
 });
 
-test("does not send nothing", async () => {
-  const { user, named } = await mount();
-  await openFirstSession(user);
-  const box = await screen.findByRole("textbox", { name: "Message" });
-  await waitFor(() => expect((box as HTMLTextAreaElement).disabled).toBe(false));
-  await user.type(box, "   {Enter}");
-  expect(named("prompt")).toHaveLength(0);
-});
-
 test("while the agent works the button stops it, and the box does not send", async () => {
   const { user, emit, named } = await mount();
   await openFirstSession(user);

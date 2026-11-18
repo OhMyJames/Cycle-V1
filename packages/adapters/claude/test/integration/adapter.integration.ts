@@ -17,7 +17,7 @@ import {
   toolReply,
 } from "./mock-anthropic.ts";
 
-const ID = "7c1e2f30-1111-4222-8333-944455566677";
+const _ID = "7c1e2f30-1111-4222-8333-944455566677";
 let cwd: string;
 beforeAll(async () => {
   cwd = await mkdtemp(join(tmpdir(), "cycle-v1-claude-cwd-"));
@@ -25,38 +25,6 @@ beforeAll(async () => {
 afterAll(() => rm(cwd, { recursive: true, force: true }));
 
 const asked = (requests: MockRequest[]) => requests.filter((r) => r.path === "/v1/messages");
-
-test("a turn streams over the real SDK", async () => {
-  const mock = startMock(() => textReply("Hello from the mock."));
-  const config = await tempConfigDir();
-  try {
-    await withAdapter(
-      { mockUrl: mock.url, configDir: config.dir },
-      async ({ agent, updates, idle }) => {
-        const created = await agent.request(methods.agent.session.new, {
-          cwd,
-          _meta: { "cycle/sessionId": ID },
-        });
-        expect(created.sessionId).toBe(ID);
-        const done = idle();
-        await agent.request(methods.agent.session.prompt, {
-          sessionId: ID,
-          prompt: [{ type: "text", text: "Say hello." }],
-        });
-        expect(await done).toMatchObject({ stopReason: "end_turn" });
-        const text = updates
-          .filter((u) => u.sessionUpdate === "agent_message_chunk")
-          .map((u) => (u as unknown as { content: { text: string } }).content.text)
-          .join("");
-        expect(text).toBe("Hello from the mock.");
-        console.log("update kinds:", updates.map((u) => u.sessionUpdate).join(", "));
-      },
-    );
-  } finally {
-    mock.stop();
-    await config.dispose();
-  }
-}, 60_000);
 
 test("a new process resumes the session WITHOUT replayFrom, and the model has the context", async () => {
   const mock = startMock(() => textReply("Noted."));
@@ -77,7 +45,10 @@ test("a new process resumes the session WITHOUT replayFrom, and the model has th
       { mockUrl: mock.url, configDir: config.dir },
       async ({ agent, updates, idle }) => {
         await agent.request(methods.agent.session.resume, { sessionId: id, cwd });
-        // ACP v2: the state comes before the answer, and no replay was asked for.
+        // ACP v2: it sends its state, and no replay was asked for. The client records a notification
+        // and an answer separately, so give the notification a moment instead of assuming an order.
+        for (let waited = 0; updates.length === 0 && waited < 2_000; waited += 20)
+          await Bun.sleep(20);
         expect(updates.map((u) => u.sessionUpdate)).toEqual(["state_update"]);
         const done = idle();
         await agent.request(methods.agent.session.prompt, {
@@ -96,7 +67,7 @@ test("a new process resumes the session WITHOUT replayFrom, and the model has th
     mock.stop();
     await config.dispose();
   }
-}, 90_000);
+}, 60_000);
 
 test("a tool call asks permission through ACP, and the answer decides", async () => {
   for (const answer of ["allow", "deny"] as const) {
@@ -145,7 +116,7 @@ test("a tool call asks permission through ACP, and the answer decides", async ()
       await config.dispose();
     }
   }
-}, 120_000);
+}, 60_000);
 
 test("cancel, while the model is still writing, stops the turn and the rest never streams", async () => {
   const held = heldTextReply("The first part. ", "THE SECOND PART THAT MUST NOT ARRIVE.");

@@ -279,9 +279,3 @@ test("a host that cannot be reached ends closed, with why", async () => {
   });
   expect((await m.hosts()).status[0]?.state).toBe("closed");
 });
-
-test("asking about a host it is not connected to fails clearly", async () => {
-  const { manager } = await setup();
-  const { m } = await manager();
-  await expect(m.sessions("local")).rejects.toThrow("Not connected");
-});

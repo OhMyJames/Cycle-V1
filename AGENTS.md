@@ -27,7 +27,9 @@ cycle-v1 是 ADE(agentic development environment),是 cycle 的重写。这是�
 
 - `bun run check`:门禁,提交前必须通过(pre-commit 钩子会运行它)。依次检查边界、类型、lint、测试。
 - `bun run format`:格式化并修复可自动修复的 lint。
-- `bun run test:integration`(在 `packages/adapters/claude` 下):把适配器作为进程启动,走真实 SDK,对本地模拟 API。不在门禁里,因为每次会启动 Claude 进程。需要真实模型或登录的运行必须显式开启,不要从环境变量里继承密钥。
+- `bun run test:integration`(根目录):集成测试,串行跑 4 个套件(Node 下的客户端、Claude 适配、整个后端、Electron 冒烟),每个套件有自己的时限。它们会启动真实进程(Claude、daemon、xvfb 下的 Electron),最重的约 1.5 GB,所以不在门禁里。`bun run test:integration smoke` 只跑名字里有 smoke 的。需要真实模型或登录的运行必须显式开启,不要从环境变量里继承密钥。
+- 目标机器是 2 核 4 GB:门禁约 7 秒、峰值约 0.5 GB;不要把重的东西加进门禁,也不要并行跑集成套件。
+- 测试里的等待要有上限:单个测试的超时是它该有的时间,不是"够长就行"。挂住的测试几十秒内必须失败。
 - 不要用 `--no-verify`、`@ts-ignore`、`@ts-expect-error` 或 `biome-ignore` 绕过它;修复原因,或有意改规则。
 - 测试放在各包的 `test/` 目录,与 `src/` 并列。
 - `bun install` 会把 `core.hooksPath` 设为 `.githooks`。

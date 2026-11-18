@@ -56,7 +56,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 
 - 门禁里(`bun run check`):会话模型、store(假桥接)、`ConnectionManager`(真 daemon)、页面组件和 Markdown 安全(happy-dom,`*.dom.tsx`,单独一步,因为它们需要浏览器全局,会破坏其他测试)。
 - `packages/client`:`bun run test:integration` 把客户端打成包,用 Electron 自带的 Node 跑,证明它在 Node 下能用(Bun 通过自己的测试说明不了这一点)。
-- `apps/desktop`:`bun run test:integration`(先 `build`)。在 xvfb 下启动真实 Electron,用真实的鼠标和键盘事件操作真实窗口,后面是真 daemon、Claude 适配、真 SDK 和模拟 API:连上 host、点击和打字创建 session、发消息、看到流式回答、出现权限卡片并点击 Allow(工具真的运行了)、重载页面后会话回来。
+- `apps/desktop`:`bun run test:integration smoke`(会先 `build`)。在 xvfb 下启动真实 Electron,用真实的鼠标和键盘事件操作真实窗口,后面是真 daemon、Claude 适配、真 SDK 和模拟 API:连上 host、点击和打字创建 session、发消息、看到流式回答、出现权限卡片并点击 Allow(工具真的运行了)、重载页面后会话回来。
 
 ## 踩过的坑(都在测试里有对应)
 

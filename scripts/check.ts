@@ -65,12 +65,16 @@ const steps: [string, string[]][] = [
   ["test", ["bun", "test"]],
   ["test (dom)", ["bun", "test", "--preload", "./packages/ui/test/dom/setup.ts", ...domTests]],
 ];
+const timings: string[] = [];
 for (const [name, cmd] of steps) {
   console.log(`\n== ${name}`);
+  const started = Date.now();
   const proc = Bun.spawn(cmd, { cwd: root, stdout: "inherit", stderr: "inherit" });
   if ((await proc.exited) !== 0) {
     console.error(`\ncheck failed at ${name}`);
     process.exit(1);
   }
+  timings.push(`${name} ${((Date.now() - started) / 1000).toFixed(1)}s`);
 }
+console.log(`\n${timings.join("  ")}`);
 console.log("\ncheck ok");

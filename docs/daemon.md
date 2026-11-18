@@ -81,9 +81,6 @@ bun apps/daemon/src/main.ts proxy  [--data-dir <dir>] [--socket <path>]   # stdi
 ## 验证
 
 - `bun test`(门禁里):对一个进程内的假 ACP agent,覆盖上面"已做"的每一项。
-- `bun run test:integration`(在 `packages/daemon` 下):客户端、daemon、Claude 适配进程、真实 Agent SDK、本地模拟 API 一起跑:
-  - 一个 turn 的流式输出,客户端断线后按 `cycle/seq` 补发,daemon 重启后历史从磁盘读出来,再 prompt 时 Claude 恢复并带着之前的上下文;
-  - 模型还在输出时取消,剩余文本没有到达客户端。
 - `bun run test:integration`(在 `apps/daemon` 下):**整个后端**。客户端用 `CycleClient` 经过 ssh(用一个在本机执行命令的替身)连上;没有 daemon 在运行,`proxy` 把它启动起来;daemon 启动 Claude 适配进程,跑真实 SDK,对本地模拟 API。一个 turn 之后客户端断开,daemon 仍在运行且 pid 不变;新客户端再连上,拿到历史,继续对话,模型的请求里有前一个 turn 的上下文。
 - `packages/transport` 和 `packages/client` 的测试在门禁里:8MB 的消息、500 条消息保序、socket 权限、单实例、残留 socket、桥接、ssh 参数;客户端断线重连不丢不重、断线时错过的内容回来后补上、断线时挂起的权限请求在重连后重新问、`start` 失败、`close` 后不再重试。
 - 一个由测试发现的问题:agent 恢复时发的状态快照曾被当作历史记进日志,客户端会把它当成 turn 结束。现在丢弃,并有测试(把修复去掉,测试会失败)。

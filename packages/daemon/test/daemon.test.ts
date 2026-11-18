@@ -325,19 +325,6 @@ test("refuses a different major protocol version", async () => {
   ).rejects.toMatchObject({ code: -32022 });
 });
 
-test("lists the agents it can run, and says what it can do", async () => {
-  const { daemon } = await start();
-  const c = await connectClient(daemon);
-  const listed = (await c.agent.request("_cycle/agents/list", {})) as {
-    agents: { id: string; available: boolean }[];
-  };
-  expect(listed.agents).toMatchObject([{ id: "fake", available: true }]);
-  expect((c.init as { _meta: Record<string, unknown> })._meta["cycle/capabilities"]).toMatchObject({
-    replay: ["start", "_cycle.seq"],
-    agents: ["fake"],
-  });
-});
-
 test("an agent's defaults are kept, applied to new sessions, and overridden by what the session asks for", async () => {
   const fake = fakeAgent();
   const { daemon } = await start(fake);

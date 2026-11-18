@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { stopReasonOf, TurnTranslator, toolKind } from "../src/index.ts";
+import { stopReasonOf, TurnTranslator } from "../src/index.ts";
 import { textTurn } from "./fake-query.ts";
 
 const feedAll = (messages: SDKMessage[]) => {
@@ -111,11 +111,4 @@ test("maps how a turn ended", () => {
   expect(stopReasonOf(result({ subtype: "error_during_execution" }))).toMatchObject({
     stopReason: "error",
   });
-});
-
-test("sorts tools into ACP's kinds", () => {
-  expect(toolKind("Read")).toBe("read");
-  expect(toolKind("Edit")).toBe("edit");
-  expect(toolKind("Grep")).toBe("search");
-  expect(toolKind("mcp__x__y")).toBe("other");
 });

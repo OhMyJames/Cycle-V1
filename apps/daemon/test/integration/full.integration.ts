@@ -156,4 +156,4 @@ test("the backend end to end: ssh, proxy, daemon, adapter, SDK, and a drop that 
     if (toStop !== undefined) process.kill(toStop, "SIGTERM");
     mock.stop();
   }
-}, 240_000);
+}, 100_000);
