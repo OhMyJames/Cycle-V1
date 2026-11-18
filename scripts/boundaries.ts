@@ -82,8 +82,10 @@ const tokenize = (text: string): Token[] => {
 /**
  * The module names a file imports: static, side-effect, re-export, dynamic and require. Read from the tokens, so a
  * comment or a string that looks like an import is not one, and several imports on a line are all found.
- * What it does not see: an import behind a template literal that has ${} in it, and a regular expression with a
- * backtick in it, which swallows what follows up to the next backtick.
+ * What it does not see: an import behind a template literal that has ${} in it. It does not parse regular expressions or
+ * JSX text, so a regular expression with a backtick or "/*" in it (or JSX text with an apostrophe, on that line) can hide
+ * what follows: to the next backtick, to the next "*" + "/", or to the end of the line. Imports are at the top of a file, and
+ * the type environments (tsconfig.model.json, tsconfig.renderer.json) do not depend on this reader.
  */
 export const importsOf = (text: string): string[] => {
   const t = tokenize(text);
