@@ -282,6 +282,21 @@ test("the colours of code can be chosen, and the choice is kept", async () => {
   codeTheme.set("github");
 });
 
+test("Ctrl or Cmd+K searches the sessions by what each shows, and Enter opens the one found", async () => {
+  const { user, named } = await mount();
+  await screen.findByRole("option", { name: /work/ });
+  const mod = /Mac/.test(navigator.userAgent) ? "Meta" : "Control";
+  await user.keyboard(`{${mod}>}k{/${mod}}`);
+  const box = await screen.findByRole("combobox", { name: "Search sessions" });
+  // The summary has no title: it is shown by its folder, and found by it.
+  await user.type(box, "zzz");
+  expect(await screen.findByText("No session matches that.")).toBeTruthy();
+  await user.clear(box);
+  await user.type(box, "work");
+  await user.keyboard("{Enter}");
+  await waitFor(() => expect(named("openSession")).toEqual([["openSession", "local", "s1"]]));
+});
+
 test("an update that is found is offered, asks before it restarts, and the footer can check on demand", async () => {
   const { user, emit, named } = await mount();
   expect(await screen.findByText("Cycle 0.1.0")).toBeTruthy();

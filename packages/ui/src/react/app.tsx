@@ -30,11 +30,20 @@ import {
 } from "./dialogs.tsx";
 import { ErrorCircleIcon, MoreIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
 import { PermissionCard } from "./permission.tsx";
+import { SearchDialog } from "./search.tsx";
 import { MOD, Sidebar, sessionTitle } from "./sidebar.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 import { DaemonBanner, UpdateBanner, UpdateFooter } from "./update.tsx";
 
-type Panel = "none" | "new-session" | "add-host" | "defaults" | "rename" | "delete" | "settings";
+type Panel =
+  | "none"
+  | "new-session"
+  | "add-host"
+  | "defaults"
+  | "rename"
+  | "delete"
+  | "settings"
+  | "search";
 
 function SessionSettings({ onClose }: { onClose: () => void }) {
   const store = useAppStore();
@@ -108,6 +117,11 @@ export function App() {
   const working = view !== undefined && view.conversation.status !== "idle";
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
 
+  // A search spans the hosts: read the ones that have not been read.
+  useEffect(() => {
+    if (panel === "search") void store.loadAllSessions();
+  }, [panel, store]);
+
   // Keyboard (DESIGN.md section 10). One handler, so every shortcut is in one place.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -124,7 +138,8 @@ export function App() {
         event.preventDefault();
         action();
       };
-      if (key === "n" && hostState === "connected") run(() => setPanel("new-session"));
+      if (key === "k") run(() => setPanel("search"));
+      else if (key === "n" && hostState === "connected") run(() => setPanel("new-session"));
       else if (key === "b")
         run(() =>
           layout.isCollapsed("sidebar") ? layout.expand("sidebar") : layout.collapse("sidebar"),
@@ -173,6 +188,7 @@ export function App() {
             onSelectHost={(id) => void store.selectHost(id)}
             onSelectSession={(id) => void store.selectSession(id)}
             onNewSession={() => setPanel("new-session")}
+            onSearch={() => setPanel("search")}
             onAddHost={() => setPanel("add-host")}
             onRemoveHost={(id) => void store.removeHost(id)}
             onToggleArchived={() => setShowArchived((v) => !v)}
@@ -291,6 +307,18 @@ export function App() {
         </ResizablePanel>
       </Resizable>
 
+      <SearchDialog
+        open={panel === "search"}
+        onOpenChange={(open) => !open && close()}
+        hosts={hosts}
+        status={status}
+        sessions={sessionsByHost}
+        onPick={async (hostId, sessionId) => {
+          if (hostId !== selectedHost) await store.selectHost(hostId);
+          await store.selectSession(sessionId);
+        }}
+        onNewSession={() => setPanel("new-session")}
+      />
       <NewSessionDialog
         open={panel === "new-session"}
         onOpenChange={(open) => !open && close()}

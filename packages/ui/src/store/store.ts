@@ -247,6 +247,21 @@ export class AppStore {
     });
   };
 
+  /** Reads the sessions of every connected host that has not been read, so that a search can span hosts. */
+  loadAllSessions = async (): Promise<void> => {
+    const hostIds = Object.values(this.#state.status)
+      .filter((s) => s.state === "connected" && this.#state.sessions[s.hostId] === undefined)
+      .map((s) => s.hostId);
+    await Promise.all(
+      hostIds.map((hostId) =>
+        this.#attempt(async () => {
+          const sessions = await this.#bridge.sessions(hostId);
+          this.#set((s) => ({ sessions: { ...s.sessions, [hostId]: sessions } }));
+        }),
+      ),
+    );
+  };
+
   selectSession = async (sessionId: string): Promise<void> => {
     const hostId = this.#state.selectedHost;
     if (hostId === undefined) return;

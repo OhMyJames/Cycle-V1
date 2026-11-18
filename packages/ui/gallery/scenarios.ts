@@ -155,6 +155,20 @@ const click = async (root: HTMLElement, text: string) => {
   throw new Error(`no button "${text}"`);
 };
 
+/** Cmd+K / Ctrl+K, as the keyboard does it (the page reads either). */
+const openSearch = async (root: HTMLElement) => {
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true, bubbles: true }),
+  );
+  for (
+    let i = 0;
+    i < 40 && root.ownerDocument.querySelector('[data-palette="search"]') === null;
+    i++
+  )
+    await new Promise((r) => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 200));
+};
+
 const clickByLabel = async (root: HTMLElement, label: string) => {
   for (let i = 0; i < 50; i++) {
     const found = root.querySelector(`[aria-label="${label}"]`) as HTMLElement | null;
@@ -350,6 +364,55 @@ export const scenarios: Record<string, Scenario> = {
       window.dispatchEvent(
         new KeyboardEvent("keydown", { key: "b", metaKey: true, ctrlKey: true }),
       );
+      await new Promise((r) => setTimeout(r, 300));
+    },
+  },
+  "search-open": {
+    title: "The session search, opened with nothing typed (two hosts, several states)",
+    hosts: [LOCAL, BUILD],
+    status: [UP("local"), UP("build")],
+    sessions: [
+      session("s1", { title: "Fix the remote session", state: "running", lastSeq: 9 }),
+      session("s2", { title: "Clean the build", state: "requires_action", lastSeq: 8 }),
+      session("s3", { cwd: "/home/dev/docs", agent: "claude", lastSeq: 7 }),
+      session("s4", { title: "Old idea", archived: true, lastSeq: 1 }),
+      session("b1", { hostId: "build", title: "Nightly release", cwd: "/srv/release", lastSeq: 6 }),
+    ],
+    after: openSearch,
+  },
+  "search-typed": {
+    title: "The session search with a query that matches by folder and by host",
+    hosts: [LOCAL, BUILD],
+    status: [UP("local"), UP("build")],
+    sessions: [
+      session("s1", { title: "Fix the remote session", lastSeq: 9 }),
+      session("b1", { hostId: "build", title: "Nightly release", cwd: "/srv/release", lastSeq: 6 }),
+      session("b2", { hostId: "build", title: "Cache warm-up", cwd: "/srv/cache", lastSeq: 5 }),
+    ],
+    after: async (root) => {
+      await openSearch(root);
+      const input = document.querySelector(
+        '[data-palette="search"] input',
+      ) as HTMLInputElement | null;
+      if (input === null) throw new Error("no search input");
+      // As a keyboard types: through the input's own value setter, so the framework sees it.
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      set?.call(input, "build");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 300));
+    },
+  },
+  "search-none": {
+    title: "The session search with a query nothing matches",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    after: async (root) => {
+      await openSearch(root);
+      const input = document.querySelector(
+        '[data-palette="search"] input',
+      ) as HTMLInputElement | null;
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      set?.call(input, "zzz");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
       await new Promise((r) => setTimeout(r, 300));
     },
   },

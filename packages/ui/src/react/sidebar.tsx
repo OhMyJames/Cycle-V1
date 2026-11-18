@@ -10,7 +10,8 @@ import {
 } from "@ui-sdk/react/select";
 import type { ReactNode } from "react";
 import type { HostConfig, HostStatus, SessionSummary } from "../api.ts";
-import { MoreIcon, PlusIcon } from "./icons.tsx";
+import { useI18n } from "./i18n.tsx";
+import { MoreIcon, PlusIcon, SearchIcon } from "./icons.tsx";
 import { HOST_STATE, SESSION_STATE, StatusDot } from "./status.tsx";
 
 export const sessionTitle = (session: SessionSummary): string => {
@@ -29,6 +30,7 @@ export type SidebarProps = {
   onSelectHost: (hostId: string) => void;
   onSelectSession: (sessionId: string) => void;
   onNewSession: () => void;
+  onSearch: () => void;
   onAddHost: () => void;
   onRemoveHost: (hostId: string) => void;
   onToggleArchived: () => void;
@@ -44,6 +46,7 @@ export const MOD = /Mac/.test(globalThis.navigator?.userAgent ?? "") ? "⌘" : "
 const place = (cwd: string): string => cwd.split("/").filter(Boolean).at(-1) ?? cwd;
 
 export function Sidebar(props: SidebarProps) {
+  const { t } = useI18n();
   const host = props.hosts.find((h) => h.id === props.selectedHost);
   const state = props.selectedHost !== undefined ? props.status[props.selectedHost] : undefined;
   const hostState = HOST_STATE[state?.state ?? "closed"];
@@ -105,6 +108,16 @@ export function Sidebar(props: SidebarProps) {
       >
         <PlusIcon />
         New session
+      </Button>
+      <Button
+        data-variant="ghost"
+        data-slot="search-button"
+        title={`${t("search.open")}  ${MOD}K`}
+        onClick={props.onSearch}
+      >
+        <SearchIcon />
+        {t("search.open")}
+        <kbd>{MOD}K</kbd>
       </Button>
       {sorted.length > 0 ? (
         <Listbox

@@ -445,6 +445,77 @@ html[data-platform="darwin"]
   user-select: all;
 }
 
+[data-slot="search-button"] {
+  justify-content: flex-start;
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="search-button"] kbd {
+  margin-left: auto;
+}
+
+/* The search palette. ui-sdk's Command is a small bordered box: here it fills the dialog, and the title is for screen readers. */
+[data-palette="search"] {
+  width: min(36rem, calc(100vw - 2rem));
+  padding: 0;
+  overflow: hidden;
+}
+
+[data-palette="search"] [data-slot="dialog-title"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+[data-palette="search"] [data-slot="command"] {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+[data-palette="search"] [data-slot="row"] {
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  padding-inline: 0.75rem;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+[data-palette="search"] [data-slot="command-input"] {
+  flex: 1;
+  padding-inline: 0;
+  border-bottom: 0;
+}
+
+[data-palette="search"] [data-slot="command-list"] {
+  max-height: min(24rem, 60vh);
+}
+
+[data-slot="search-row"] {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+[data-slot="search-title"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+[data-slot="search-meta"] {
+  display: flex;
+  gap: 0.75rem;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--cycle-text-meta);
+  color: var(--ui-muted-foreground);
+}
+
 [data-slot="code-theme"] {
   display: flex;
   flex-direction: column;
