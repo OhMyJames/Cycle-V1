@@ -155,7 +155,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 未读由 daemon 记,不由客户端本地记:同一个 daemon 可以有几个客户端,换客户端、重装后也要一致(决定笔记 `2026-11-18-sidebar-workspace-environment`)。
 
-- daemon 在索引里为每个 session 记两个序号:`readSeq`(客户端标记过已读的位置)和 `attentionSeq`(最近一条"值得看"的记录的 seq)。"值得看"的记录是:daemon 写下的一条 `request` 记录(权限或表单:不管 agent 有没有另发 `requires_action`,Claude 适配就不发),`state_update` 变成 `requires_action`,以及 `state_update` 变成 `idle` 且带 `stopReason`(turn 结束,任何 `stopReason`,出错也算;agent 恢复时发的不带 `stopReason` 的 `idle` 只是状态快照,不算)。`meta` 记录、改标题、用量更新不算,否则它们会造成假的未读。
+- daemon 在索引里为每个 session 记两个序号:`readSeq`(客户端标记过已读的位置)和 `attentionSeq`(最近一条"值得看"的记录的 seq)。"值得看"的记录是:daemon 写下的一条 `request` 记录(权限或表单:不管 agent 有没有另发 `requires_action`,Claude 适配就不发),`state_update` 变成 `requires_action`,以及 `state_update` 变成 `idle` 且带 `stopReason`(turn 结束,任何 `stopReason`,出错也算:agent 中途退出、prompt 因为 agent 起不来或请求失败而被拒绝,daemon 都会写一条 `stopReason: "error"` 的 idle,所以同样算;agent 恢复时发的不带 `stopReason` 的 `idle` 只是状态快照,不算)。`meta` 记录、改标题、用量更新不算,否则它们会造成假的未读。
 - `cycle/unread` = `attentionSeq > readSeq`。规则在 daemon,客户端不重新实现。
 - `_cycle/session/mark_read`,参数 `{sessionId, seq}`,响应 `{}`。`readSeq` 取原值和 `seq` 中大的那个,不会倒退;`seq` 大于该 session 的 `lastSeq` 以 `-32602` 拒绝。session 在工作时也接受。
 - 什么时候发由客户端决定:打开 session 且窗口有焦点时,以及回合结束时仍在看它时,发当时收到的最大 `seq`;不是每条更新都发。

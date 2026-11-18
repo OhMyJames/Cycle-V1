@@ -496,6 +496,51 @@ test("two clients marking at once cannot move the mark back", async () => {
   expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(false);
 });
 
+test("a turn the agent's exit ended is unread, and the list is announced after the mark is there", async () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fake = fakeAgent({ onPrompt: () => gate });
+  const { daemon } = await start(fake);
+  const c = await connectClient(daemon);
+  const sessionId = await startedSession(c);
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hang") });
+  await until(() => c.kinds().includes("user_message"), "the turn to start");
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(false);
+  const before = c.listChanged();
+  fake.crash();
+  release();
+  await until(
+    () => c.seen.some((s) => (s.update as { stopReason?: string }).stopReason === "error"),
+    "the error",
+  );
+  // An announcement that comes after the record, when the row already says so.
+  await until(() => c.listChanged() > before + 1, "the list to be announced after the record");
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(true);
+});
+
+test("a prompt that fails is a turn that ended in error: on record, and unread", async () => {
+  const fake = fakeAgent();
+  const { daemon } = await start(fake);
+  const c = await connectClient(daemon);
+  const sessionId = await startedSession(c);
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(false);
+  // The agent is gone and cannot be started again: the prompt is refused, and that is the end of the turn.
+  const announced = c.listChanged();
+  fake.crash();
+  fake.control.failLaunch = true;
+  await until(() => c.listChanged() > announced, "the exit to be announced");
+  await expect(
+    c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") }),
+  ).rejects.toBeDefined();
+  await until(
+    () => c.seen.some((s) => (s.update as { stopReason?: string }).stopReason === "error"),
+    "the turn end to be on record",
+  );
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(true);
+});
+
 test("a session waiting on the owner is unread and announced even if the agent says nothing of it, and answering is announced", async () => {
   // As the Claude adapter does: it asks for permission and sends no state_update of its own.
   const { daemon } = await start(

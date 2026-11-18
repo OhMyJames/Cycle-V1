@@ -37,6 +37,8 @@ export const fakeAgent = (
     configs: [] as Record<string, unknown>[],
   };
   const connections: AgentConnection[] = [];
+  /** What a test may switch: the next launch fails. */
+  const control = { failLaunch: false };
   const cancelResolvers: (() => void)[] = [];
 
   const build = () => {
@@ -137,9 +139,10 @@ export const fakeAgent = (
       ? { promptCapabilities: options.promptCapabilities }
       : {}),
     launch: async () => {
+      if (control.failLaunch) throw new Error("The agent cannot start");
       log.launches++;
       return { target: build() };
     },
   };
-  return { definition, log, crash: () => connections.at(-1)?.close() };
+  return { definition, log, control, crash: () => connections.at(-1)?.close() };
 };

@@ -31,6 +31,7 @@ import type { AgentDefinition } from "./agents.ts";
 import { blobsDir, defaultsPath, indexPath, sessionsDir } from "./data-dir.ts";
 import { AgentDefaults } from "./defaults-file.ts";
 import {
+  INTERNAL_ERROR,
   INVALID_PARAMS,
   logUnavailable,
   RpcError,
@@ -637,6 +638,8 @@ export class Daemon {
     if (wasWorking) {
       // Whoever is watching is told the turn is over, rather than left waiting for an idle.
       session.agentState = "idle";
+      // The record is what makes the session unread: announce again once it is written, or a client that
+      // re-lists on the first announcement reads the row before the mark.
       void this.#write(session, {
         kind: "update",
         data: {
@@ -645,6 +648,8 @@ export class Daemon {
           stopReason: "error",
           error: { code: CycleErrorCode.AgentExited, message: "The agent exited" },
         },
+      }).then((written) => {
+        if (written) this.#changed();
       });
     }
     this.#changed();
@@ -909,8 +914,26 @@ export class Daemon {
         } as never);
         return answer as never;
       } catch (error) {
+        // A turn that ended in failure is a turn end like any other: on record, so the session shows as unread.
+        // Not when the agent already said it is idle (it exited: `#onAgentClosed` wrote that).
+        const state: string = session.agentState;
+        const unsaid = state !== "idle";
         session.agentState = "idle";
         this.#changed();
+        if (unsaid) {
+          const code = error instanceof RpcError ? error.code : INTERNAL_ERROR;
+          void this.#write(session, {
+            kind: "update",
+            data: {
+              sessionUpdate: "state_update",
+              state: "idle",
+              stopReason: "error",
+              error: { code, message: error instanceof Error ? error.message : String(error) },
+            },
+          }).then((written) => {
+            if (written) this.#changed();
+          });
+        }
         throw error;
       }
     });
