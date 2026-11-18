@@ -913,6 +913,40 @@ html[data-platform="darwin"]
   font-size: var(--cycle-text-meta);
 }
 
+/* Messages sent while the agent works: dashed, for what has not happened yet. */
+[data-slot="queued"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-slot="queued-message"] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.5rem;
+  border: 1px dashed var(--ui-border);
+  border-radius: var(--ui-radius);
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
+}
+
+[data-slot="queued-tag"] {
+  flex: none;
+}
+
+[data-slot="queued-text"] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 [data-slot="attachments"] {
   display: flex;
   flex-wrap: wrap;

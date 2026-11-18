@@ -297,13 +297,12 @@ export function App() {
             </div>
             {view !== undefined ? (
               <Composer
+                key={viewKey(view.hostId, view.sessionId)}
+                sessionKey={viewKey(view.hostId, view.sessionId)}
                 canAttach={
                   agents.find((a) => a.id === session?.agent)?.promptCapabilities?.image != null
                 }
                 enabled={!view.loading}
-                working={view.conversation.status !== "idle"}
-                onSend={store.send}
-                onStop={store.cancel}
               />
             ) : null}
           </main>

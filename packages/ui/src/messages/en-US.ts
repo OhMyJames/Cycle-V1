@@ -37,6 +37,25 @@ export const enUS = {
   },
   "composer.problem.unreadable": "{name} could not be read.",
 
+  // The box a message is written in
+  "composer.message": "Message",
+  "composer.placeholder.idle": "Message the agent",
+  "composer.placeholder.working": "Queue a message for when the agent is done",
+  "composer.placeholder.none": "Choose or start a session",
+  "composer.send": "Send",
+  "composer.queue": "Queue",
+  "composer.stop": "Stop",
+
+  // Messages sent while the agent works, waiting their turn
+  "composer.queued.label": "Queued messages",
+  "composer.queued.tag": "Queued",
+  "composer.queued.edit": "Edit queued message: {preview}",
+  "composer.queued.editShort": "Edit",
+  "composer.queued.images": {
+    one: "{count} image",
+    other: "{count} images",
+  },
+
   // The code colours choice
   "codeTheme.label": "Code colours",
 } as const satisfies Messages;

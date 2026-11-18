@@ -9,7 +9,11 @@ import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
 import { fakeBridge, idle, summary, text } from "../fake-bridge.ts";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // Drafts are kept in the page's storage; each test starts with none.
+  localStorage.clear();
+});
 
 const u = (update: object) => update as SessionUpdate;
 
@@ -77,12 +81,14 @@ test("Enter sends what was typed, Shift+Enter makes a new line, and the box empt
   expect(named("prompt")).toHaveLength(0);
   await user.keyboard("{Enter}");
   await waitFor(() =>
-    expect(named("prompt")).toEqual([["prompt", "local", "s1", "first line\nsecond line"]]),
+    expect(named("prompt")).toEqual([
+      ["prompt", "local", "s1", [{ type: "text", text: "first line\nsecond line" }]],
+    ]),
   );
   expect(box.value).toBe("");
 });
 
-test("while the agent works the button stops it, and the box does not send", async () => {
+test("while the agent works there is Stop, and a message typed is queued, not refused", async () => {
   const { user, emit, named } = await mount();
   await openFirstSession(user);
   await screen.findByRole("textbox", { name: "Message" });
@@ -94,9 +100,16 @@ test("while the agent works the button stops it, and the box does not send", asy
     version: 1,
   });
   const stop = await screen.findByRole("button", { name: "Stop" });
+  expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+  const queue = screen.getByRole("button", { name: "Queue" }) as HTMLButtonElement;
+  expect(queue.disabled).toBe(true);
+  await user.type(screen.getByRole("textbox", { name: "Message" }), "next");
+  await user.click(queue);
+  await waitFor(() =>
+    expect(named("prompt")).toEqual([["prompt", "local", "s1", [{ type: "text", text: "next" }]]]),
+  );
   await user.click(stop);
   expect(named("cancel")).toHaveLength(1);
-  expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
   emit({
     type: "update",
     hostId: "local",
@@ -495,4 +508,120 @@ test("a development run says updates are for the installed app and offers no che
   });
   expect(screen.getByText("Updates are for the installed app.")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull();
+});
+
+const queueUpdate = (version: number, entries: object[], extra: object = {}) => ({
+  type: "update" as const,
+  hostId: "local",
+  sessionId: "s1",
+  update: u({ sessionUpdate: "_cycle/queue_update", entries, ...extra }),
+  version,
+});
+const waiting = (id: string, words: string) => ({
+  queueId: id,
+  prompt: [{ type: "text", text: words }],
+});
+
+test("what is queued is listed, and Edit takes it back into the box", async () => {
+  const { user, emit, bridge } = await mount();
+  const taken: string[] = [];
+  bridge.dequeue = async (_host, _session, queueId) => {
+    taken.push(queueId);
+    return [{ type: "text", text: "the second one" }];
+  };
+  await openFirstSession(user);
+  const box = (await screen.findByRole("textbox", { name: "Message" })) as HTMLTextAreaElement;
+  emit(queueUpdate(1, [waiting("q1", "the second one")]));
+  const list = await screen.findByRole("list", { name: "Queued messages" });
+  expect(list.textContent).toContain("the second one");
+  await user.click(
+    within(list).getByRole("button", { name: /Edit queued message: the second one/ }),
+  );
+  await waitFor(() => expect(box.value).toBe("the second one"));
+  emit(queueUpdate(2, []));
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
+  expect(taken).toEqual(["q1"]);
+  expect(document.activeElement).toBe(box);
+});
+
+test("what the daemon hands back after a stop is in the box, with no error", async () => {
+  const { user, emit, store } = await mount();
+  await openFirstSession(user);
+  const box = (await screen.findByRole("textbox", { name: "Message" })) as HTMLTextAreaElement;
+  await user.type(box, "and this");
+  emit(
+    queueUpdate(1, [], {
+      returned: [waiting("q1", "one"), waiting("q2", "two")],
+      reason: "cancelled",
+    }),
+  );
+  await waitFor(() => expect(box.value).toBe("one\n\ntwo\n\nand this"));
+  expect(store.getState().error).toBeUndefined();
+});
+
+test("each session has its own box, and a draft survives going to another session and back", async () => {
+  const { user, store } = await mount();
+  await openFirstSession(user);
+  const box = (await screen.findByRole("textbox", { name: "Message" })) as HTMLTextAreaElement;
+  await user.type(box, "unfinished");
+  await act(() => store.selectSession("s2"));
+  await waitFor(() =>
+    expect((screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).value).toBe(
+      "",
+    ),
+  );
+  await act(() => store.selectSession("s1"));
+  await waitFor(() =>
+    expect((screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).value).toBe(
+      "unfinished",
+    ),
+  );
+});
+
+test("Up in an empty box recalls what was sent, Down goes back, and typing is not interfered with", async () => {
+  const { user } = await mount({
+    snapshot: () =>
+      history(
+        u({
+          sessionUpdate: "user_message",
+          messageId: "u1",
+          content: [{ type: "text", text: "first" }],
+        }),
+        text("ok", "a1"),
+        u({
+          sessionUpdate: "user_message",
+          messageId: "u2",
+          content: [{ type: "text", text: "second" }],
+        }),
+        idle({ stopReason: "end_turn" }),
+      ),
+  });
+  await openFirstSession(user);
+  const box = (await screen.findByRole("textbox", { name: "Message" })) as HTMLTextAreaElement;
+  await waitFor(() => expect(box.disabled).toBe(false));
+  await user.click(box);
+  await user.keyboard("{ArrowUp}");
+  expect(box.value).toBe("second");
+  await user.keyboard("{ArrowUp}");
+  expect(box.value).toBe("first");
+  await user.keyboard("{ArrowDown}");
+  expect(box.value).toBe("second");
+  await user.keyboard("{ArrowDown}");
+  expect(box.value).toBe("");
+  await user.type(box, "typing");
+  await user.keyboard("{ArrowUp}");
+  expect(box.value).toBe("typing");
+});
+
+test("a message that could not be sent is back in the box", async () => {
+  const { user, bridge } = await mount();
+  bridge.prompt = async () => {
+    throw new Error("The agent is not available");
+  };
+  await openFirstSession(user);
+  const box = (await screen.findByRole("textbox", { name: "Message" })) as HTMLTextAreaElement;
+  await waitFor(() => expect(box.disabled).toBe(false));
+  await user.type(box, "do it{Enter}");
+  await screen.findByRole("alert");
+  await waitFor(() => expect(box.value).toBe("do it"));
 });

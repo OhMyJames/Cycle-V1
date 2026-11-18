@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import type { SessionUpdate } from "@cycle/acp";
 import type { AppEvent, PermissionRequest, SessionSnapshot } from "../src/api.ts";
-import { applyUpdate, emptyConversation } from "../src/model/index.ts";
+import { DraftStore } from "../src/draft.ts";
+import { applyUpdate, emptyConversation, reduce } from "../src/model/index.ts";
 import { AppStore, viewKey } from "../src/store/index.ts";
 
 import { fakeBridge, idle, text } from "./fake-bridge.ts";
@@ -14,8 +15,8 @@ const update = (version: number, u: SessionUpdate, sessionId = "s1"): AppEvent =
   version,
 });
 
-const opened = async (script = fakeBridge()) => {
-  const store = new AppStore(script.bridge);
+const opened = async (script = fakeBridge(), drafts?: DraftStore) => {
+  const store = new AppStore(script.bridge, drafts ?? new DraftStore(undefined));
   await store.start();
   await store.selectSession("s1");
   return { store, ...script };
@@ -126,10 +127,15 @@ test("a permission request appears and closes", async () => {
 
 test("sends a prompt, ignoring an empty one, and can cancel", async () => {
   const { store, named } = await opened();
-  await store.send("   ");
+  const key = viewKey("local", "s1");
+  store.drafts.setText(key, "   ");
+  await store.send();
   expect(named("prompt")).toHaveLength(0);
-  await store.send("hello");
-  expect(named("prompt")).toEqual([["prompt", "local", "s1", "hello"]]);
+  store.drafts.setText(key, "hello");
+  await store.send();
+  expect(named("prompt")).toEqual([["prompt", "local", "s1", [{ type: "text", text: "hello" }]]]);
+  // The box is empty from the moment it went.
+  expect(store.drafts.get(key).text).toBe("");
   await store.cancel();
   expect(named("cancel")).toHaveLength(1);
 });
@@ -144,7 +150,10 @@ test("takes a queued prompt back, and an error says why it could not", async () 
     return [{ type: "text", text: "back" }];
   };
   const { store } = await opened(script);
+  store.drafts.setText(viewKey("local", "s1"), "typing");
   expect(await store.dequeue("q1")).toEqual([{ type: "text", text: "back" }]);
+  // It is in the box now, in front of what was being written.
+  expect(store.drafts.get(viewKey("local", "s1")).text).toBe("back\n\ntyping");
   expect(await store.dequeue("gone")).toBeUndefined();
   expect(store.getState().error).toBe("That prompt is not waiting");
 });
@@ -155,8 +164,11 @@ test("what goes wrong is kept for the user, without Electron's wrapping, and can
     throw new Error("Error invoking remote method 'cycle:prompt': Error: The session is working");
   };
   const { store } = await opened(script);
-  await store.send("hi");
+  store.drafts.setText(viewKey("local", "s1"), "hi");
+  await store.send();
   expect(store.getState().error).toBe("The session is working");
+  // What could not go is back in the box.
+  expect(store.drafts.get(viewKey("local", "s1")).text).toBe("hi");
   store.dismissError();
   expect(store.getState().error).toBeUndefined();
 });
@@ -209,4 +221,59 @@ test("an install that main refuses shows its reason, in the words main used", as
   await store.start();
   await store.installUpdate();
   expect(store.getState().error).toBe("no room");
+});
+
+const handBack = (texts: string[], reason = "cancelled") => ({
+  sessionUpdate: "_cycle/queue_update",
+  entries: [],
+  reason,
+  returned: texts.map((text, i) => ({ queueId: `${text}-${i}`, prompt: [{ type: "text", text }] })),
+});
+
+test("what the daemon hands back goes into that session's box once, even for a session not in view", async () => {
+  const { store, emit } = await opened();
+  const key = viewKey("local", "s1");
+  store.drafts.setText(key, "later");
+  emit({
+    type: "update",
+    hostId: "local",
+    sessionId: "s1",
+    update: handBack(["one", "two"]) as never,
+    version: 1,
+  });
+  expect(store.drafts.get(key).text).toBe("one\n\ntwo\n\nlater");
+  // Another update does not put it there again.
+  emit({
+    type: "update",
+    hostId: "local",
+    sessionId: "s1",
+    update: { sessionUpdate: "_cycle/queue_update", entries: [] } as never,
+    version: 2,
+  });
+  expect(store.drafts.get(key).text).toBe("one\n\ntwo\n\nlater");
+});
+
+test("a page that opens a session whose hand-back it has already taken does not take it again", async () => {
+  const snapshot = () => ({
+    conversation: reduce([handBack(["gone"]) as never]),
+    permissions: [],
+    version: 1,
+  });
+  const drafts = new DraftStore(undefined);
+  const key = viewKey("local", "s1");
+  drafts.markHandled(key, "gone-0");
+  const { store } = await opened(fakeBridge({ connected: true, snapshot }), drafts);
+  expect(store.drafts.get(key).text).toBe("");
+  // One it has not taken is put in the box when the session opens: it came while nobody looked.
+  const other = new DraftStore(undefined);
+  const again = await opened(fakeBridge({ connected: true, snapshot }), other);
+  expect(again.store.drafts.get(key).text).toBe("gone");
+});
+
+test("deleting a session forgets what was written for it", async () => {
+  const { store } = await opened();
+  const key = viewKey("local", "s1");
+  store.drafts.setText(key, "never sent");
+  await store.deleteSession("s1");
+  expect(store.drafts.get(key).text).toBe("");
 });

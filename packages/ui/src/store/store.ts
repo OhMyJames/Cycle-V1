@@ -13,7 +13,7 @@ import type {
   SessionSummary,
   UpdateState,
 } from "../api.ts";
-import type { Attachment } from "../attachments.ts";
+import { DraftStore, promptBlocks, returnedId } from "../draft.ts";
 import { applyUpdate, type Conversation, emptyConversation } from "../model/index.ts";
 
 export const viewKey = (hostId: string, sessionId: string): string => `${hostId}:${sessionId}`;
@@ -72,9 +72,12 @@ export class AppStore {
   /** Events about a session that is still being opened, held until its snapshot is in. */
   readonly #held = new Map<string, AppEvent[]>();
   #stop: (() => void) | undefined;
+  /** What each session's box holds, written and not sent. */
+  readonly drafts: DraftStore;
 
-  constructor(bridge: CycleBridge) {
+  constructor(bridge: CycleBridge, drafts: DraftStore = new DraftStore()) {
     this.#bridge = bridge;
+    this.drafts = drafts;
   }
 
   getState = (): AppState => this.#state;
@@ -180,7 +183,24 @@ export class AppStore {
   }
 
   #setView(key: string, view: SessionView): void {
+    this.#takeBack(key, view);
     this.#set((s) => ({ views: { ...s.views, [key]: view } }));
+  }
+
+  /**
+   * What the daemon handed back (a stop, an error) goes into that session's box, whether or not it is the one in
+   * view, once: a reload of the page finds the same hand-back and does not put it there again.
+   */
+  #takeBack(key: string, view: SessionView): void {
+    const returned = view.conversation.returned;
+    if (returned === undefined || view.loading) return;
+    const id = returnedId(returned.prompts);
+    if (this.drafts.handled(key, id)) return;
+    this.drafts.markHandled(key, id);
+    this.drafts.restore(
+      key,
+      returned.prompts.map((p) => p.prompt),
+    );
   }
 
   async #reopen(hostId: string, sessionId: string): Promise<void> {
@@ -278,27 +298,31 @@ export class AppStore {
     if (sessionId !== undefined) await this.selectSession(sessionId);
   };
 
-  /** Sends a message: its text, and the images attached to it, if any. */
-  send = async (text: string, attachments: readonly Attachment[] = []): Promise<void> => {
+  /**
+   * Sends what the selected session's box holds: its text, and the images attached to it. The box is empty from the
+   * moment it goes; if it cannot go, what was in it comes back, in front of anything written since.
+   */
+  send = async (): Promise<void> => {
     const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
     if (hostId === undefined || sessionId === undefined) return;
-    if (text.trim() === "" && attachments.length === 0) return;
-    // Text alone goes as it always did; with images, as the blocks an agent reads (the text first).
-    const content: string | PromptBlock[] =
-      attachments.length === 0
-        ? text
-        : [
-            ...(text.trim() === "" ? [] : [{ type: "text" as const, text }]),
-            ...attachments.map((a) => ({ type: "image" as const, data: a.data, mimeType: a.type })),
-          ];
-    await this.#attempt(() => this.#bridge.prompt(hostId, sessionId, content));
+    const key = viewKey(hostId, sessionId);
+    const content: PromptBlock[] | undefined = promptBlocks(this.drafts.get(key));
+    if (content === undefined) return;
+    this.drafts.clear(key);
+    const sent = await this.#attempt(async () => {
+      await this.#bridge.prompt(hostId, sessionId, content);
+      return true;
+    });
+    if (sent !== true) this.drafts.restore(key, [content]);
   };
 
   /** Takes a queued prompt back to edit it. Undefined if it had gone to the agent, or came back, meanwhile. */
   dequeue = async (queueId: string): Promise<PromptBlock[] | undefined> => {
     const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
     if (hostId === undefined || sessionId === undefined) return undefined;
-    return this.#attempt(() => this.#bridge.dequeue(hostId, sessionId, queueId));
+    const blocks = await this.#attempt(() => this.#bridge.dequeue(hostId, sessionId, queueId));
+    if (blocks !== undefined) this.drafts.restore(viewKey(hostId, sessionId), [blocks]);
+    return blocks;
   };
 
   cancel = async (): Promise<void> => {
@@ -330,6 +354,7 @@ export class AppStore {
     if (hostId === undefined) return;
     await this.#attempt(async () => {
       await this.#bridge.deleteSession(hostId, sessionId);
+      this.drafts.forget(viewKey(hostId, sessionId));
       this.#set((s) => {
         const { [viewKey(hostId, sessionId)]: _gone, ...views } = s.views;
         return {
