@@ -222,4 +222,39 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 - 应用菜单:没有自定义,用 Electron 的默认菜单(含 Edit,复制粘贴可用)。在 Mac 上要确认 ⌘N、⌘B 等没有和系统菜单冲突。
 - 字体:Linux 上是回退字体;Mac 上是 SF,行高和宽度会有差别。
 
-**还没做的**:⌘K 会话搜索(留了位置)、图片、代码高亮主题、agent 自己改的设置回显、通知。
+**之后又做的**(同一天):
+
+- **⌘K 会话搜索**:在已读取的会话里按标题、文件夹、agent、主机搜,打开时会读取其他已连接主机的会话,所以跨主机。**不搜对话内容**:全文要在历史所在的地方(daemon)做。
+- **图片**:agent 或你发的图片(png、jpeg、gif、webp,不含 svg)显示在对话里,点开放大;从按钮、粘贴或拖放附加到消息里,上限和协议一致(单张 5 MiB、合计 12 MiB、最多 32 块,见 decision 0010)。**只有 agent 声明能收图片时才出现附加的控件**(`promptCapabilities.image`)。Markdown 里的远程图片仍然不加载(安全,见 docs/desktop.md)。
+- **代码配色**:见第 15 节。
+
+**还没做的**:agent 自己改的设置回显、通知、会话内容的全文搜索、存量文字迁入 i18n 目录(第 14 节)、从右到左的版式。
+
+## 14. 语言与 i18n(2026-11-18)
+
+界面的**源语言是 en-US**,以后要能支持别的语言。决定和理由见 [decision 0012](docs/decisions/0012-ui-language-en-us.md);写界面文字时的规矩:
+
+- 文字写在 `packages/ui/src/messages/en-US.ts`,组件里用 `t("key")`,不在标记里写字面量。门禁的棘轮(`scan-copy.mjs --i18n`)不让新的字面量进来。
+- 整句,不拼句;变化的部分用 `{placeholder}`;数量用复数消息;数字和日期用 `Intl`(`t.number`、`t.date`)。
+- 键按位置命名(`search.placeholder`),不按内容命名。
+- 版式要经得起文字变长约 40%:不写死宽度,长文字省略并能看全。
+- 不翻译的:agent 的输出、daemon 和 agent 返回的原话、命令、路径、版本号。
+- 样式用逻辑属性(`padding-inline-start`)是将来支持从右到左的前提;现有的 `padding-left` 等要在那一步改。
+
+## 15. 代码配色(2026-11-18)
+
+代码块由 Shiki 着色,通过 Streamdown 的代码插件(`@streamdown/code`;Streamdown 自己不带高亮,没有插件时代码是纯文字)。插件用 Shiki 的 JavaScript 正则引擎,不需要 WebAssembly,页面的 CSP 不变。**语言和主题按需加载**(打包分包:启动时约 0.9 MB,全部约 12 MB 只在需要时读)。
+
+你可以在侧栏底部的"Code colours"里选,保存在本机。五个选择都是 Shiki 自带的流行配对(深色用在系统为深色时):
+
+| 选择                 | 浅色 / 深色主题                                        | 文字色里最低的对比度(浅 / 深) | 低于 4.5:1 的文字色个数(浅 / 深) |
+| -------------------- | ------------------------------------------------------ | ----------------------------- | -------------------------------- |
+| GitHub(默认)         | github-light-default / github-dark-default             | 4.55 / 6.44                   | 0 / 0                            |
+| GitHub high contrast | github-light-high-contrast / github-dark-high-contrast | 5.04 / 9.34                   | 0 / 0                            |
+| VS Code              | light-plus / dark-plus                                 | 3.54 / 3.65                   | 1 / 1                            |
+| One                  | one-light / one-dark-pro                               | 2.58 / 3.27                   | 6 / 2                            |
+| Catppuccin           | catppuccin-latte / catppuccin-mocha                    | 2.62 / 7.01                   | 12 / 0                           |
+
+对比度是各主题的文字色在我们的白色和近黑背景上算的(去掉了对比度低于 1.5 的,那些是背景色)。**默认的两个主题所有文字色都过 AA(4.5:1)**;其余几个有的颜色(多数是注释和浅色下的黄、橙)达不到,这是那些主题自己的设计,选它们是选了好看而不是可读性最好的,所以默认不是它们。
+
+**没有 Vercel 的选项**:Shiki 没带 Vercel 的主题,也没有 Vercel 官方发布的可用配色(找到的只有社区仿制品,没有可靠的色值)。要加的话,需要有人提供色值,做成 Shiki 的自定义主题。

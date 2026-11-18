@@ -10,7 +10,11 @@ bun run check        # 边界、css、类型、lint、单元测试、DOM 测试,
 
 新的界面状态要在 DOM 测试里有一条(`packages/ui/test/dom/app.dom.tsx`,假桥接在 `test/fake-bridge.ts`)。
 
-## 2. 文案
+## 2. 文案和 i18n
+
+门禁里有 i18n 的棘轮:`bun .claude/skills/cycle-design-taste/scripts/scan-copy.mjs --i18n`。它数每个文件里还写在标记里的界面文字,和 `scripts/i18n-baseline.json` 比,只许减少。把存量搬进目录后用 `--update` 降低基线。
+
+### 文案扫描
 
 ```bash
 bun .claude/skills/cycle-design-taste/scripts/scan-copy.mjs            # 默认扫 packages/ui/src/react

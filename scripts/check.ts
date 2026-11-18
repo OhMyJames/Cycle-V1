@@ -63,6 +63,17 @@ for await (const file of sources.scan({ cwd: root })) {
       failures.push(`app.css defines ${token}, which DESIGN.md does not mention`);
 }
 
+// New interface text goes in the message catalog, not in the markup (decision 0012). The count of what is still in the markup
+// may only go down; the script says which file got worse.
+{
+  const ratchet = Bun.spawnSync(
+    ["bun", `${root}.claude/skills/cycle-design-taste/scripts/scan-copy.mjs`, "--i18n"],
+    { cwd: root },
+  );
+  if (ratchet.exitCode !== 0)
+    failures.push(`i18n:\n${new TextDecoder().decode(ratchet.stdout).trim()}`);
+}
+
 if (failures.length > 0) {
   console.error(`boundaries failed:\n  ${failures.join("\n  ")}`);
   process.exit(1);

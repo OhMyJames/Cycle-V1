@@ -18,6 +18,19 @@
 - **术语一致**:host、session、agent、turn、permission 各只有一个叫法,不换着说(不要 server/machine/remote 混用)。
 - **句子短,不加感叹号、表情、省略号装饰**。"Starting…" 里的省略号表示还在进行,可以;别处不用。
 
+## 语言与 i18n
+
+源语言是 en-US,将来会有别的语言(decision 0012)。写文字时:
+
+- **进目录,不进标记。** 新文字写在 `packages/ui/src/messages/en-US.ts`,组件里 `const { t } = useI18n()`,`t("search.empty")`。门禁的棘轮(`scan-copy.mjs --i18n`)不让新的字面量进来,存量只能减少。
+- **整句。** 不写 `"Delete " + name`,写 `"Delete {name}"` 一条消息;别的语言词序不同。
+- **数量是复数消息**:`{ one: "{count} image", other: "{count} images" }`,不写 `count + " image(s)"`。
+- **数字、日期、单位用 `Intl`**:`t.number(5, { style: "unit", unit: "megabyte" })`,不手写 "5 MB"。
+- **键按位置命名**(`composer.problem.type`),不按内容。
+- **留出变长的空间**:同一句话在别的语言常常长 30% 到 40%。不写死宽度;长了省略并能看全。
+- **不翻译的**:agent 的输出、daemon 和 agent 返回的原话、命令、路径、版本号,它们是数据。
+- 棘轮只抓得到 JSX 文字和 `title`、`aria-label`、`placeholder`、`alt` 的字面量;三元表达式里的字符串和拼出来的模板要自己留意。
+
 ## 模型腔
 
 读起来像模型写的,通常是这几类。一个不一定是问题,成群出现才是。

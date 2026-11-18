@@ -37,7 +37,7 @@ Cycle 是一个人每天开几个小时的工具:盯着 agent 干活、批准它
 4. **状态要齐。** 每块界面都有:空、加载、出错、断线、内容很长、数量很多。出错时写**原因和下一步**,不写"出错了"。
    (`references/states.md` 有逐块的清单。)
 5. **文案平实。** 按钮是动词加对象("Allow once""Delete session");不用感叹号、表情、"powerful""seamless"之类的词;
-   不编数字和名字;一个界面只用一种语言(现在是英文,句首大写,其余小写)。(`references/copy.md`)
+   不编数字和名字;源语言是 en-US(句首大写,其余小写),文字写在 `packages/ui/src/messages/en-US.ts`,组件里用 `t("key")`,不在标记里写字面量;整句,不拼句;数量用复数消息;数字和日期用 `Intl`。(`references/copy.md`;决定见 `docs/decisions/0012`)
 6. **动效只为说明变化。** 120 到 200ms,只动 transform 和 opacity,ease-out,不弹跳;流式文字不让布局跳;
    `prefers-reduced-motion` 下全部静止。(`references/motion.md`)
 7. **图标一套。** 用 iconmcp 的线性图标(16 单位网格),`currentColor`,不画仿品;只有图标的按钮必须有名字(`aria-label`)和提示。

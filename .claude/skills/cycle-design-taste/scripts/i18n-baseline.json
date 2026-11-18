@@ -1,0 +1,17 @@
+{
+  "packages/ui/src/react/store-context.tsx": 1,
+  "packages/ui/src/react/i18n.tsx": 0,
+  "packages/ui/src/react/image.tsx": 0,
+  "packages/ui/src/react/code-theme-picker.tsx": 0,
+  "packages/ui/src/react/config-form.tsx": 2,
+  "packages/ui/src/react/search.tsx": 0,
+  "packages/ui/src/react/markdown.tsx": 0,
+  "packages/ui/src/react/update.tsx": 1,
+  "packages/ui/src/react/dialogs.tsx": 28,
+  "packages/ui/src/react/app.tsx": 12,
+  "packages/ui/src/react/status.tsx": 0,
+  "packages/ui/src/react/composer.tsx": 3,
+  "packages/ui/src/react/conversation.tsx": 5,
+  "packages/ui/src/react/sidebar.tsx": 10,
+  "packages/ui/src/react/permission.tsx": 1
+}
