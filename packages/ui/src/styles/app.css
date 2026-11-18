@@ -470,6 +470,22 @@ html[data-platform="darwin"]
   -webkit-app-region: no-drag;
 }
 
+/* A drag region takes the clicks of whatever is drawn over it, so with a dialog, a menu or a list of choices open nothing is
+   one: they cover the empty state and the session header, and none of what is on them could be clicked. */
+html[data-platform="darwin"]:has(
+    :is(
+        [data-slot="dialog-backdrop"],
+        [data-slot="menu-content"],
+        [data-slot="select-content"],
+        [role="dialog"],
+        [role="menu"],
+        [role="listbox"]
+      )[data-open]
+  )
+  :is([data-slot="titlebar"], [data-slot="session-header"], [data-slot="empty"]) {
+  -webkit-app-region: no-drag;
+}
+
 /* With the sidebar folded the traffic lights are over the main area: the title starts after them. */
 html[data-platform="darwin"]
   [data-slot="app"]:has([data-slot="resizable-panel"][data-collapsed])
