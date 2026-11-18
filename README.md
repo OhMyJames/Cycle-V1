@@ -35,7 +35,7 @@ bun install      # 安装依赖,并启用 pre-commit 钩子
 bun run check    # 边界、类型、lint、测试
 ```
 
-目前:`packages/acp`、`packages/protocol`、`packages/daemon`(会话层)和 Claude 适配有实现和测试;还没有可运行的 daemon 进程、unix socket 与 SSH 传输,`desktop` 还是空壳。
+后端已齐:`packages/acp`、`protocol`、`daemon`(会话层)、`transport`(unix socket 和 ssh)、`client`(带断线重连)、`adapters/claude`,以及可运行的 `apps/daemon`(`serve` 和 `proxy`)。`apps/desktop` 还是空壳。
 
 ## v1 不做
 

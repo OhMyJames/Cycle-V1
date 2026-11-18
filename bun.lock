@@ -10,6 +10,23 @@
         "typescript": "^7.0.2",
       },
     },
+    "apps/daemon": {
+      "name": "@cycle/daemon-app",
+      "version": "0.0.0",
+      "bin": {
+        "cycle-daemon": "./src/main.ts",
+      },
+      "dependencies": {
+        "@cycle/daemon": "workspace:*",
+        "@cycle/protocol": "workspace:*",
+        "@cycle/transport": "workspace:*",
+        "zod": "^4.6.7",
+      },
+      "devDependencies": {
+        "@cycle/acp": "workspace:*",
+        "@cycle/client": "workspace:*",
+      },
+    },
     "apps/desktop": {
       "name": "@cycle/desktop",
       "version": "0.0.0",
@@ -31,6 +48,18 @@
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "0.3.327",
         "@cycle/acp": "workspace:*",
+      },
+    },
+    "packages/client": {
+      "name": "@cycle/client",
+      "version": "0.0.0",
+      "dependencies": {
+        "@cycle/acp": "workspace:*",
+        "@cycle/protocol": "workspace:*",
+        "@cycle/transport": "workspace:*",
+      },
+      "devDependencies": {
+        "@cycle/daemon": "workspace:*",
       },
     },
     "packages/daemon": {
@@ -109,7 +138,11 @@
 
     "@cycle/adapter-claude": ["@cycle/adapter-claude@workspace:packages/adapters/claude"],
 
+    "@cycle/client": ["@cycle/client@workspace:packages/client"],
+
     "@cycle/daemon": ["@cycle/daemon@workspace:packages/daemon"],
+
+    "@cycle/daemon-app": ["@cycle/daemon-app@workspace:apps/daemon"],
 
     "@cycle/desktop": ["@cycle/desktop@workspace:apps/desktop"],
 

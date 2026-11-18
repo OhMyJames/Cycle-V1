@@ -5,7 +5,12 @@
 
 export type MockReply = string | ReadableStream<Uint8Array>;
 
-export type MockRequest = { method: string; path: string; body: unknown };
+export type MockRequest = {
+  method: string;
+  path: string;
+  body: unknown;
+  headers: Record<string, string>;
+};
 
 const sse = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
@@ -147,7 +152,12 @@ export const startMock = (
       try {
         body = JSON.parse(text);
       } catch {}
-      requests.push({ method: request.method, path: url.pathname, body });
+      requests.push({
+        method: request.method,
+        path: url.pathname,
+        body,
+        headers: Object.fromEntries(request.headers),
+      });
       if (request.method === "POST" && url.pathname === "/v1/messages") {
         return new Response(reply(requests), { headers: { "content-type": "text/event-stream" } });
       }

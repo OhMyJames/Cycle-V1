@@ -47,6 +47,9 @@ Desktop(Electron) ──L1──▶ Daemon ──L2(ACP)──▶ Agent 适配�
 packages/protocol          Cycle 对 ACP 的扩展:_cycle/* 方法、_meta 键、错误码(zod)
 packages/acp               ACP v2 类型和常量(固定 SDK 版本,唯一导入它的地方)
 packages/daemon            会话管理、事件日志(JSONL)、ACP client 调度
+packages/transport         unix socket、stdio 桥接、ssh 通道
+packages/client            给客户端用的 CycleClient:重连、按 seq 补发、去重
+apps/daemon                可运行的 daemon:serve 和 proxy
 packages/adapters/claude   Claude 适配进程(基于 Claude Agent SDK)和 manifest
 apps/desktop               Electron(main:ssh 与 daemon 连接;renderer:UI)
 docs/
