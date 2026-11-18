@@ -29,16 +29,16 @@ Cycle 是一个人每天开几个小时的工具:盯着 agent 干活、批准它
 
 这十条压过其余所有内容。
 
-1. **只用令牌。** DESIGN.md 里的 `--cycle-*` 加 ui-sdk 的 `--ui-*`(门禁检查 DESIGN.md 与 `app.css` 的 `--cycle-*` 一致:新增令牌要两边都写)。颜色引用这两组语义令牌,圆角 `var(--ui-radius)`(8px),间距 `var(--cycle-gap)` 或 `--ui-spacing` 的倍数。不写十六进制颜色、
+1. **只用令牌。** DESIGN.md 里的 `--cycle-*` 加 ui-sdk 的 `--ui-*`(门禁检查 DESIGN.md 与 `app.css` 的 `--cycle-*` 一致:新增令牌要两边都写)。颜色引用这两组语义令牌(表面、边框、文字四档,见 DESIGN.md 第 3 节;控件的边用 `--cycle-input-border`,不用 `--cycle-border-default`,后者只有 1.2:1,只做分隔),圆角五档同心(控件 `var(--ui-radius)` 8px,其余 `--cycle-radius-*`,见 DESIGN.md 第 5 节),间距 `var(--cycle-gap)` 或 `--ui-spacing` 的倍数。不写十六进制颜色、
    不加新的强调色、不加渐变、毛玻璃、发光、阴影装饰。令牌用 `light-dark()`,跟随系统深浅色;每一处都得跟着换,深浅色都要看。
 2. **一个系统。** 根字号 16px,组件和正文使用 `DESIGN.md` 的四档字阶;一种字体栈(系统字体),等宽只用于代码、命令、路径、id;
-   两种内容宽度(侧栏、主区),主区里的对话有最大行宽。不新增字号、不新增圆角值、不新增间距值。
+   两种内容宽度(侧栏、主区),主区里的对话有最大行宽。不新增字号、不新增圆角值、不新增间距值。字重用 `var(--cycle-weight)`(浅 420、深 400)、500 和 600;行高用 `--cycle-leading-*`,不写散落的数。
 3. **样式写在 `app.css` 里,用 `data-slot`。** 我们自己的组件不用 Tailwind 工具类,不用行内样式。Tailwind 只服务 Streamdown。ui-sdk 的部件(Collapsible、Command 等)自己设 `data-slot`,会盖掉我们写的:给它们写样式用 `data-kind`(或 `data-palette`),先看渲染出来的 DOM。
 4. **状态要齐。** 每块界面都有:空、加载、出错、断线、内容很长、数量很多。出错时写**原因和下一步**,不写"出错了"。
    (`references/states.md` 有逐块的清单。)
 5. **文案平实。** 按钮是动词加对象("Allow once""Delete session");不用感叹号、表情、"powerful""seamless"之类的词;
    不编数字和名字;源语言是 en-US(句首大写,其余小写),文字写在 `packages/ui/src/messages/en-US.ts`,组件里用 `t("key")`,不在标记里写字面量;整句,不拼句;数量用复数消息;数字和日期用 `Intl`。(`references/copy.md`;决定见 `docs/decisions/0012`)
-6. **动效只为说明变化。** 120 到 200ms,只动 transform 和 opacity,ease-out,不弹跳;流式文字不让布局跳;
+6. **动效只为说明变化。** 三档:状态 100ms、展开 160ms、出现 200ms(`--cycle-motion-*`),只动 transform 和 opacity,ease-out,不弹跳;流式文字不让布局跳;
    `prefers-reduced-motion` 下全部静止。(`references/motion.md`)
 7. **图标一套。** 用 iconmcp 的线性图标(16 单位网格),`currentColor`,不画仿品;只有图标的按钮必须有名字(`aria-label`)和提示。
    (`references/icons.md`)

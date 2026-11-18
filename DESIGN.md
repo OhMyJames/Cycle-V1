@@ -4,7 +4,8 @@ Cycle 界面的设计:**什么样子、为什么**。给人和 coding agent 读�
 [`.claude/skills/cycle-design-taste`](.claude/skills/cycle-design-taste/SKILL.md);界面的各个状态在**状态画廊**里画出来
 (`bun packages/ui/gallery/shoot.ts`,见末尾)。
 
-> **状态:已定(2026-11-18)。** 8 个决定都按推荐,只有圆角从 6px 放宽到 8px。第 11 节记着每个决定和理由。
+> **状态:已定(2026-11-18)。** 8 个决定都按推荐,只有圆角从 6px 放宽到 8px。之后(同一天)参照 old-cycle 的设计系统加了 D9–D11:暖灰令牌、五档同心圆角、
+> 浅深不同的字重。强调色仍是靛蓝,D1 不变。第 11 节记着每个决定和理由。
 > 实现按阶段推进,每阶段用画廊对比;还没做到的在第 13 节列着。
 
 ## 1. 现状(画廊的截图所见)
@@ -46,8 +47,8 @@ Cycle 界面的设计:**什么样子、为什么**。给人和 coding agent 读�
 
 ## 3. 颜色
 
-沿用 ui-sdk 的中性令牌(`--ui-background`、`--ui-foreground`、`--ui-muted`、`--ui-muted-foreground`、`--ui-border`、
-`--ui-input`),它们已用 `light-dark()` 跟随系统。新增一组 `--cycle-*`,语义化命名,**组件只引用语义名**。
+中性色是下面"表面、边框和文字"一节的暖灰,ui-sdk 的 `--ui-*` 中性令牌指向它们(`--ui-input` 仍是 ui-sdk 自己的)。语义色是一组 `--cycle-*`,
+**组件只引用语义名**。全部用 `light-dark()` 跟随系统。
 
 | 令牌                        | 用途                             | 浅色                   | 深色                 | 对比度(文字对背景) |
 | --------------------------- | -------------------------------- | ---------------------- | -------------------- | ------------------ |
@@ -58,25 +59,57 @@ Cycle 界面的设计:**什么样子、为什么**。给人和 coding agent 读�
 | `--ui-destructive`(沿用)    | 失败、断线、删除                 | 沿用                   | 沿用                 | 5.41 / 7.14        |
 
 - 强调色取应用图标的靛蓝(`#4f46e5` 一带),让图标和界面是一家人。
-- 上表每一对文字色都已核对 ≥ 4.5:1(WCAG AA)。沿用的 `--ui-muted-foreground` 在 `--ui-background` 上为 5.32(浅)/7.58(深),
-  在 `--ui-muted` 上为 4.84/6.53,也合格。
+- 上表每一对文字色都已核对 ≥ 4.5:1(WCAG AA)。中性文字的对比度见下一节。(状态色是针对旧的纯白底核对的;换成暖灰底后差别在 0.1 以内,画廊的对比度检查会再看。)
 - **焦点环用 `--cycle-accent`**,2px,偏移 2px。现有 `--ui-ring`(1.29:1)和 `--ui-ring-border`(2.68:1)都不够 3:1。
 - **消息框边框用 `--cycle-input-border`**,由现有的次要文字色和内容底色混合。未聚焦时在深浅色下都要与底色达到 3:1。
-- 底色层次:`--ui-background`(内容)、`--ui-muted`(侧栏、代码、用户消息、工具行)、浮层用 `--ui-background` 加 `--ui-shadow`。
+- 底色层次:workspace(内容)、sidebar(侧栏)、message(代码、用户消息、工具行,即 `--ui-muted`)、raised(盖在上面的)。浮层用 raised 加 `--cycle-shadow-popover`。
 - **不新增别的颜色。** 要区分第四种状态时,先想能不能用形状或文字。
+
+### 表面、边框和文字(2026-11-18,取自 old-cycle 的设计系统 v0.8,值按我们的对比度重新核对)
+
+ui-sdk 的中性令牌不再是浅灰和黑白,而是**暖灰**一套(表面 surface、边框 border、文字 ink 三组)。ui-sdk 自己的令牌在 `app.css` 里
+指向它们(`--ui-background` 是 workspace,`--ui-muted` 是 message,`--ui-foreground` 是 ink,`--ui-muted-foreground` 是 ink-muted,
+`--ui-border` 是 border-default),所以 ui-sdk 的控件跟着变,组件不用改。强调色不变,仍是靛蓝。
+
+| 令牌                        | 用途                                              | 浅色    | 深色    |
+| --------------------------- | ------------------------------------------------- | ------- | ------- |
+| `--cycle-surface-workspace` | 对话和主区                                        | #fcfcfb | #161615 |
+| `--cycle-surface-sidebar`   | 侧栏和窗口                                        | #f7f7f5 | #121211 |
+| `--cycle-surface-raised`    | 盖在上面的:权限卡、候选列表                       | #ffffff | #1c1b1a |
+| `--cycle-surface-message`   | 用户消息、代码和一切下沉的填充(`--ui-muted`)      | #f2f1ee | #262523 |
+| `--cycle-surface-hover`     | 行和控件的悬停                                    | #f0efec | #2a2927 |
+| `--cycle-surface-selected`  | 选中和按下(为之后的控件状态预留)                  | #e8e7e3 | #33312e |
+| `--cycle-border-subtle`     | 卡片里行与行的分隔                                | #efeeeb | #2a2927 |
+| `--cycle-border-default`    | 卡片、分隔线(`--ui-border`)                       | #e5e4e0 | #34322f |
+| `--cycle-ink`               | 正文、标题                                        | #1c1b1a | #f2f1ee |
+| `--cycle-ink-secondary`     | 标签、侧栏的行、图标                              | #4f4c48 | #c4c1bb |
+| `--cycle-ink-muted`         | 元信息、时间、路径、占位(`--ui-muted-foreground`) | #6a6660 | #9d9992 |
+| `--cycle-ink-disabled`      | 只给禁用的控件,不承载信息                         | #8b8780 | #787570 |
+
+- **文字四档,每档是不同的层级。** 浅色下对 workspace 为 16.8、8.3、5.6 和 3.5:1;深色下为 16.0、10.1、6.4 和 4.0:1。
+- **ink-muted 在上表每一个表面上都 ≥ 4.5:1**,包括选中(浅 4.61、深 4.57)。old-cycle 的同名一档在选中的行上只有 4.28 和 4.19,不够;这里把它加深一点(浅色 #6a6660,深色 #9d9992)。
+- **控件的边不用 `border-default`。** 它对 workspace 只有 1.24:1,只是分隔用;输入框等控件的边仍用 `--cycle-input-border`(≥ 3:1)。old-cycle 的 `border-control` 只有 1.5:1,我们不取。
+- 选中的会话行仍是 workspace 色加边加靛蓝左条;悬停是 `surface-hover`;侧栏的行平时是 `ink-secondary`,选中时是 `ink`。
+- 浮层的阴影和遮罩:`--cycle-shadow-popover`(菜单、权限卡、候选列表)、`--cycle-shadow-dialog`(对话框)、`--cycle-scrim`(模态的遮罩)。深色下阴影更深,因为浅色的阴影在深底上看不见。
+- 三个动效时长令牌和 `--cycle-surface-selected` 先定义在这里,等控件(Segmented、Tabs、Switch 的状态和展开收起)做的时候引用;现在 `app.css` 里还没有过渡动画,所以没有规则用到它们。
+- 主题跟随系统。`light-dark()` 只能装颜色;阴影和字重在 `@media (prefers-color-scheme: dark)` 里换。
 
 ### 其他令牌
 
 除颜色外,`app.css` 的 `:root` 里还有这些 `--cycle-*`。组件只引用它们,不写散落的数值。
 
-| 令牌                                                                              | 值                          | 用途                                                       |
-| --------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------- |
-| `--cycle-gap`                                                                     | 0.75rem                     | 区块之间和内边距的基本间距                                 |
-| `--cycle-gap-turn`                                                                | 2rem                        | 一个 turn 开头前的间距(块之间是 `--cycle-gap`)             |
-| `--cycle-text-meta`、`--cycle-text-ui`、`--cycle-text-body`、`--cycle-text-title` | 12、13、14、16px            | 第 4 节的四档字阶                                          |
-| `--cycle-measure`                                                                 | 48rem                       | 对话内容列的最大宽度                                       |
-| `--cycle-column-pad`                                                              | 由 measure 算出             | 让对话、权限卡、输入框共用同一条内容列(在各自的规则里定义) |
-| `--cycle-ease`、`--cycle-in`、`--cycle-out`                                       | ease-out 曲线、150ms、120ms | 动效(见 skill 的 motion.md)                                |
+| 令牌                                                                                          | 值                   | 用途                                                       |
+| --------------------------------------------------------------------------------------------- | -------------------- | ---------------------------------------------------------- |
+| `--cycle-gap`                                                                                 | 0.75rem              | 区块之间和内边距的基本间距                                 |
+| `--cycle-gap-turn`                                                                            | 2rem                 | 一个 turn 开头前的间距(块之间是 `--cycle-gap`)             |
+| `--cycle-text-meta`、`--cycle-text-ui`、`--cycle-text-body`、`--cycle-text-title`             | 12、13、14、16px     | 第 4 节的四档字阶                                          |
+| `--cycle-measure`                                                                             | 48rem                | 对话内容列的最大宽度                                       |
+| `--cycle-column-pad`                                                                          | 由 measure 算出      | 让对话、权限卡、输入框共用同一条内容列(在各自的规则里定义) |
+| `--cycle-ease`                                                                                | ease-out 曲线        | 动效(见 skill 的 motion.md)                                |
+| `--cycle-motion-state`、`--cycle-motion-disclosure`、`--cycle-motion-enter`                   | 100ms、160ms、200ms  | 状态变化(悬停、按下)、展开收起、出现                       |
+| `--cycle-leading-meta`、`--cycle-leading-ui`、`--cycle-leading-body`、`--cycle-leading-title` | 1.5、1.54、1.57、1.5 | 第 4 节字阶的行高(18、20、22、24px)                        |
+| `--cycle-weight`                                                                              | 420(深色 400)        | 常规字重:浅底上的深字显得细,深底上的浅字显得粗             |
+| `--cycle-radius-sm`、`-card`、`-message`、`-composer`                                         | 4、12、16、20px      | 第 5 节的圆角档(控件是 `--ui-radius`,8px)                  |
 
 ### 状态到颜色和形状
 
@@ -98,19 +131,22 @@ Cycle 界面的设计:**什么样子、为什么**。给人和 coding agent 读�
 
 | 档    | 大小 | 行高 | 用在                                    |
 | ----- | ---- | ---- | --------------------------------------- |
-| meta  | 12px | 1.4  | 状态文字、用量、时间、路径              |
-| ui    | 13px | 1.5  | 按钮、侧栏、表单、工具行(ui-sdk 的基准) |
-| body  | 14px | 1.6  | 对话的正文                              |
-| title | 16px | 1.3  | 会话标题、对话框标题                    |
+| meta  | 12px | 1.5  | 状态文字、用量、时间、路径              |
+| ui    | 13px | 1.54 | 按钮、侧栏、表单、工具行(ui-sdk 的基准) |
+| body  | 14px | 1.57 | 对话的正文                              |
+| title | 16px | 1.5  | 会话标题、对话框标题                    |
 
-- 字重只用 400、500、600:600 只给标题和"Needs you"。
+- 字重:常规是 `--cycle-weight`(浅色 420,深色 400),其余 500 和 600:600 只给标题和"Needs you"。灰色的字保持常规。
+- **PingFang 的字重是固定档位**,浅色的 420 会落到 Medium,中文就全变粗了。`app.css` 里的 `Cycle PingFang`(四个 `@font-face`,只用 `local()`,不打包字体)把 Light、Regular、Medium、Semibold 分别接到 1–349、350–449、450–549、550 以上的字重,字体栈里它排在 `PingFang SC` 前面。SF 是可变字体,直接取 420。
 - 等宽只给代码、命令、路径、id、ssh 原话。
 - 数字用 `font-variant-numeric: tabular-nums`(用量、百分比、版本)。
 
 ## 5. 间距与布局
 
 - **单位 4px**(`--ui-spacing`),间距只取 1、2、3、4、6、8 倍。现有的 `--cycle-gap: 0.75rem` 改为 3 倍(12px)并保留。
-- **圆角**:`--ui-radius` 设为 8px(控件、卡片、气泡);代码块和表格 8px;不用更大的圆角。
+- **圆角五档,嵌套时同心**(内圆角 = 外圆角 − 内边距):4(徽标、勾框、行内小块,`--cycle-radius-sm`)、8(控件、行、输入框、菜单里的项,`--ui-radius`)、
+  12(卡片:工具行和工作行、权限卡、候选列表、菜单和选择列表,`--cycle-radius-card`)、16(用户消息和对话框,`--cycle-radius-message`)、
+  20(输入框所在的整块,`--cycle-radius-composer`,等做到那块时用)。例:12 的菜单留 4 的内边距,里面的项是 8。取自 old-cycle,它的依据是图标的圆角约是图标尺寸的四分之一。不再加别的值。
 - **窗口**:最小 720×480(BrowserWindow 的 `minWidth/minHeight`);默认 1200×800。
 - **侧栏**:默认 16rem(原 18rem);可拖动调宽(200–360px),宽度保存在本机;可折叠(⌘B,或聚焦分隔条按 Enter / 双击)。
   原先写的"窄于 900px 自动收起成抽屉"没有做:最小窗口 720px 时侧栏最窄 200px、主区最窄 480px,两者都能用,不需要抽屉。
@@ -124,10 +160,10 @@ Cycle 界面的设计:**什么样子、为什么**。给人和 coding agent 读�
 按 `data-slot`。只写和现状不同的地方;没写的保持现状。
 
 - **host-bar**:主机选择加一个状态点(第 3 节);"Add environment"、"Remove"、"Agent defaults"收进选择器旁的"…"菜单。
-- **session row**:左侧状态点,标题一行省略,第二行 meta(路径末段、相对时间);选中行用 `--ui-muted` 底加 2px accent 左条;
+- **session row**:左侧状态点,标题一行省略,第二行 meta(路径末段、相对时间);选中行用 workspace 底、1px 边加 2px accent 左条(平时的行在 sidebar 底上,悬停是 surface-hover);
   "Needs you"行加粗标题。归档的 60% 透明。
 - **New session**:次要按钮(描边),放在侧栏顶部。**只有 Send 和权限卡的"Allow once"是 accent 实心按钮。**
-- **message**:用户消息 `--ui-muted` 底、8px 圆角;agent 消息无底无边,直接排版。
+- **message**:用户消息 `--ui-muted` 底、16px 圆角;agent 消息无底无边,直接排版。
 - **tool row**(只有一次调用的一段;两次以上见第 16 节的卡片):图标(按工具:Bash、Read、Edit…)+ 名称 + 等宽摘要 + 状态形状;展开后输入输出等宽,左侧竖线缩进。失败行加
   destructive 状态形状和"failed",输出默认展开。
 - **thought**:**默认不显示**(第 16 节);打开后是折叠的一行 muted "Thinking",展开后 muted 文字,左侧竖线。
@@ -138,7 +174,7 @@ Cycle 界面的设计:**什么样子、为什么**。给人和 coding agent 读�
 - **banner**(更新、daemon 版本、错误):一行,左侧图标,右侧一个主要动作和"Dismiss";更新用 accent,错误用 destructive,
   不用整行染色,只用左侧竖条和图标。
 - **empty / loading / error 的屏**:图标、一句话、一个动作;错误的原因在同一块里,等宽,可选中。
-- **对话框**:8px 圆角,浮层阴影,标题 16px;主要按钮在右,取消在左;首个输入自动聚焦;Esc 关闭并把焦点还回去。
+- **对话框**:16px 圆角,raised 底,`--cycle-shadow-dialog`,标题 16px;主要按钮在右,取消在左;首个输入自动聚焦;Esc 关闭并把焦点还回去。
 
 ## 7. 图标
 
@@ -148,8 +184,16 @@ chevron、check、x、warning、tool(按工具)、thought、plan。
 
 ## 8. 层次与深度
 
-边框 1px `--ui-border`。浮层(菜单、对话框、权限卡)用 `--ui-shadow`。其余不用阴影。深色下浮层背景比内容层亮一档(`--ui-muted`),
-因为深色里阴影看不见。
+**边,然后才是阴影。** 平的面(卡片、行、侧栏)只有 1px `--cycle-border-default`,没有阴影;浮起来的面有边,也有阴影,底是 raised:
+
+| 层                     | 边  | 阴影                     |
+| ---------------------- | --- | ------------------------ |
+| 页面、侧栏             | 无  | 无                       |
+| 卡片、工具行、通知     | 1px | 无                       |
+| 菜单、候选列表、权限卡 | 1px | `--cycle-shadow-popover` |
+| 对话框、搜索面板       | 1px | `--cycle-shadow-dialog`  |
+
+深色下 raised 比 workspace 亮一档(#1c1b1a 对 #161615),因为深色里阴影看不见,层次靠这一档和边。
 
 ## 9. 窗口与桌面(已定,macOS 为主)
 
@@ -178,16 +222,19 @@ chevron、check、x、warning、tool(按工具)、thought、plan。
 
 2026-11-18 定下。
 
-| #   | 决定         | 推荐                         | 备选                                   |
-| --- | ------------ | ---------------------------- | -------------------------------------- |
-| D1  | 强调色       | 靛蓝,和图标一致              | 中性(只用黑白,最安静);别的色相         |
-| D2  | 圆角         | 8px(推荐是 6px,你放宽到 8px) | 保持直角(现状,更"工具味");10px(更圆润) |
-| D3  | 状态点和图标 | 加,按第 3、7 节              | 只改文字和颜色,不加图标                |
-| D4  | 侧栏         | 16rem、可拖动、窄窗口收起    | 固定宽度                               |
-| D5  | 头部操作     | 收进"…"菜单,只留 Settings    | 保持四个按钮外露                       |
-| D6  | 权限卡       | 吸附在输入框上方,和对话分开  | 留在对话流里                           |
-| D7  | 标题栏       | hiddenInset,红绿灯在侧栏顶部 | 保持系统标题栏                         |
-| D8  | 对话内容列   | 48rem 居中                   | 占满主区                               |
+| #   | 决定         | 推荐                             | 备选                                   |
+| --- | ------------ | -------------------------------- | -------------------------------------- |
+| D1  | 强调色       | 靛蓝,和图标一致                  | 中性(只用黑白,最安静);别的色相         |
+| D2  | 圆角         | 8px(推荐是 6px,你放宽到 8px)     | 保持直角(现状,更"工具味");10px(更圆润) |
+| D3  | 状态点和图标 | 加,按第 3、7 节                  | 只改文字和颜色,不加图标                |
+| D4  | 侧栏         | 16rem、可拖动、窄窗口收起        | 固定宽度                               |
+| D5  | 头部操作     | 收进"…"菜单,只留 Settings        | 保持四个按钮外露                       |
+| D6  | 权限卡       | 吸附在输入框上方,和对话分开      | 留在对话流里                           |
+| D7  | 标题栏       | hiddenInset,红绿灯在侧栏顶部     | 保持系统标题栏                         |
+| D8  | 对话内容列   | 48rem 居中                       | 占满主区                               |
+| D9  | 灰阶         | 暖灰一套令牌(2026-11-18)         | 保持 ui-sdk 的中性灰                   |
+| D10 | 圆角         | 五档同心:4、8、12、16、20        | 一个 8px(D2 的结果)                    |
+| D11 | 字重         | 浅色 420、深色 400,PingFang 映射 | 一档字重                               |
 
 ## 12. 状态画廊
 

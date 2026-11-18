@@ -20,6 +20,18 @@ const COLORS = [
   "cycle-attention",
   "cycle-success",
   "cycle-input-border",
+  "cycle-surface-workspace",
+  "cycle-surface-sidebar",
+  "cycle-surface-raised",
+  "cycle-surface-message",
+  "cycle-surface-hover",
+  "cycle-surface-selected",
+  "cycle-border-subtle",
+  "cycle-border-default",
+  "cycle-ink",
+  "cycle-ink-secondary",
+  "cycle-ink-muted",
+  "cycle-ink-disabled",
 ];
 const SIZES = [0.8, 0.85, 0.9, 1, 1.1];
 
