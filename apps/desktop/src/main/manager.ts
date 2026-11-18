@@ -21,7 +21,7 @@ import {
   type SessionSummary,
 } from "@cycle/ui";
 import { daemonUpgradeCommand, isNewer } from "../shared/release.ts";
-import { LOCAL_ENVIRONMENT, type Settings } from "./settings.ts";
+import { environmentOf, LOCAL_ENVIRONMENT, type Settings } from "./settings.ts";
 
 export type ManagerOptions = {
   settings: Settings;
@@ -127,9 +127,15 @@ export class ConnectionManager
   async saveEnvironment(environment: EnvironmentConfig): Promise<void> {
     if (environment.id === LOCAL_ENVIRONMENT.id)
       throw new Error("The local daemon cannot be changed");
-    const rest = this.#environments.filter((h) => h.id !== environment.id);
-    this.#environments = [...rest, environment];
-    await this.#options.settings.save(this.#environments);
+    // What the page sends is not trusted: it is read as the file is, so what is not an environment this app can reach
+    // (an address ssh would read as an option, a shape it does not know) is refused, and what is kept is what was read.
+    const checked = environmentOf(environment);
+    if (checked === undefined)
+      throw new Error("That is not an environment this app can connect to");
+    const next = [...this.#environments.filter((h) => h.id !== checked.id), checked];
+    // The list changes once it is kept: a save that fails leaves things as they were.
+    await this.#options.settings.save(next);
+    this.#environments = next;
     this.#options.emit({ type: "environments", environments: this.#environments });
   }
 
@@ -139,8 +145,9 @@ export class ConnectionManager
     await this.disconnect(environmentId);
     this.#lastSessions.delete(environmentId);
     this.#lastError.delete(environmentId);
-    this.#environments = this.#environments.filter((h) => h.id !== environmentId);
-    await this.#options.settings.save(this.#environments);
+    const next = this.#environments.filter((h) => h.id !== environmentId);
+    await this.#options.settings.save(next);
+    this.#environments = next;
     this.#options.emit({ type: "environments", environments: this.#environments });
   }
 
@@ -209,6 +216,8 @@ export class ConnectionManager
     try {
       await connection.client.start();
     } catch (error) {
+      // Removed or replaced while it was starting: what is there now is not this attempt's to change.
+      if (this.#connections.get(environmentId) !== connection) throw error;
       this.#connections.delete(environmentId);
       this.#lastError.set(environmentId, messageOf(error));
       this.#options.emit({
@@ -224,8 +233,10 @@ export class ConnectionManager
       await this.#refreshSessions(environmentId, connection);
     } catch (error) {
       // A daemon that answers but cannot list is not usable: say so, instead of sitting connected with no list.
-      this.#connections.delete(environmentId);
+      const current = this.#connections.get(environmentId) === connection;
+      if (current) this.#connections.delete(environmentId);
       await connection.client.close().catch(() => undefined);
+      if (!current) throw error;
       this.#lastError.set(environmentId, messageOf(error));
       this.#options.emit({
         type: "environment-status",

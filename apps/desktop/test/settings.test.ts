@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { EnvironmentConfig } from "@cycle/ui";
 import { fileSettings, LOCAL_ENVIRONMENT } from "../src/main/settings.ts";
 
 const dirs: string[] = [];
@@ -83,12 +84,47 @@ test("this computer is not kept in the file, and an entry that says it is is ign
   expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ environments: [] });
 });
 
-test("a file that cannot be read says which, instead of starting from nothing", async () => {
+test("a file that is not JSON does not keep the app from opening: it is kept beside, and this computer is what is left", async () => {
   const dir = await mkdtemp(join(tmpdir(), "cycle-settings-"));
   dirs.push(dir);
   const path = join(dir, "settings.json");
   await writeFile(path, "{ not json");
-  await expect(fileSettings(path).load()).rejects.toThrow(path);
+  expect(await fileSettings(path).load()).toEqual([LOCAL_ENVIRONMENT]);
+  const kept = (await readdir(dir)).filter((f) => f.startsWith("settings.json.broken-"));
+  expect(kept).toHaveLength(1);
+  expect(await readFile(join(dir, kept[0] as string), "utf8")).toBe("{ not json");
+});
+
+test("an address ssh would read as an option is not an environment, and is left as it was", async () => {
+  const entry = {
+    id: "x",
+    name: "X",
+    kind: "remote",
+    transport: { type: "ssh", host: "-oProxyCommand=touch /tmp/x" },
+  };
+  const path = await fileIn({ environments: [entry] });
+  const settings = fileSettings(path);
+  expect(await settings.load()).toEqual([LOCAL_ENVIRONMENT]);
+  await settings.save([LOCAL_ENVIRONMENT]);
+  expect(JSON.parse(await readFile(path, "utf8")).environments).toEqual([entry]);
+});
+
+test("saves made at once are all written, one after the other", async () => {
+  const path = await fileIn();
+  const settings = fileSettings(path);
+  await settings.load();
+  const box = (n: number): EnvironmentConfig => ({
+    id: `box${n}`,
+    name: `Box ${n}`,
+    kind: "remote",
+    transport: { type: "ssh", host: `box${n}` },
+  });
+  await Promise.all(
+    [1, 2, 3, 4, 5].map((n) =>
+      settings.save([LOCAL_ENVIRONMENT, ...[1, 2, 3, 4, 5].slice(0, n).map(box)]),
+    ),
+  );
+  expect(JSON.parse(await readFile(path, "utf8")).environments).toHaveLength(5);
 });
 
 test("what an entry has that this version does not know, and the other keys of the file, are written back", async () => {

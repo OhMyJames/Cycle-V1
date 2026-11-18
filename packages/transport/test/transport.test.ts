@@ -180,6 +180,7 @@ test("ssh reaches a command on the far side with ssh's own arguments", async () 
     "BatchMode=yes",
     "-o",
     "ServerAliveInterval=15",
+    "--",
     "me@example",
     "bun",
     bridge,

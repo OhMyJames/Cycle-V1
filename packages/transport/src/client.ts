@@ -83,8 +83,8 @@ export type SshOptions = {
  * apply and nothing of ssh is reimplemented. BatchMode is on: there is no one to type a password,
  * and a prompt would hang the connection.
  */
-export const sshChannel = (options: SshOptions): Channel =>
-  commandChannel({
+export const sshChannel = (options: SshOptions): Channel => {
+  return commandChannel({
     command: [
       options.ssh ?? "ssh",
       "-T",
@@ -93,8 +93,12 @@ export const sshChannel = (options: SshOptions): Channel =>
       "-o",
       "ServerAliveInterval=15",
       ...(options.args ?? []),
+      // Whatever the host is, it is the host: ssh reads a word that starts with "-" as an option unless this ends them
+      // (-oProxyCommand=... would run a command here).
+      "--",
       options.host,
       ...options.command,
     ],
     ...(options.env !== undefined ? { env: options.env } : {}),
   });
+};
