@@ -59,6 +59,7 @@ export const fakeBridge = (
           state: options.connected ? ("connected" as const) : ("closed" as const),
         },
       ],
+      sessions: {},
     })),
     saveHost: record("saveHost", async () => {}),
     removeHost: record("removeHost", async () => {}),

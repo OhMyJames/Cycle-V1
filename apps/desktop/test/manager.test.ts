@@ -441,3 +441,51 @@ test("a hook that fails does not stop the list from being read, and a manager wi
   await quiet.m.connect("local");
   expect(quiet.events.length).toBeGreaterThan(0);
 });
+
+test("every host is connected, one that cannot be reached does not hold up the others, and why is kept for a renderer that asks later", async () => {
+  const { manager } = await setup();
+  const { m, events } = await manager("all");
+  await m.saveHost(far);
+  // Same settings file, a manager whose far host cannot be reached.
+  const both = new ConnectionManager({
+    settings: fileSettings(join(dir, "settings-all.json")),
+    channelFor: (host) => async () => {
+      if (host.id === "far") throw new Error("Host key verification failed");
+      return connectUnix(join(dir, "d.sock"));
+    },
+    emit: (e) => events.push(e),
+  });
+  await both.init();
+  cleanup.push(() => both.close());
+  await both.connectAll();
+  const { status } = await both.hosts();
+  expect(status.find((s) => s.hostId === "local")?.state).toBe("connected");
+  expect(status.find((s) => s.hostId === "far")).toMatchObject({
+    state: "closed",
+    error: "Host key verification failed",
+  });
+});
+
+test("the last list of a host that goes away is still given, and a host removed has none", async () => {
+  const { manager } = await setup();
+  const { m } = await manager();
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  expect((await m.hosts()).sessions.local?.map((s) => s.sessionId)).toEqual([id]);
+  await m.disconnect("local");
+  const after = await m.hosts();
+  expect(after.status[0]?.state).toBe("closed");
+  expect(after.sessions.local?.map((s) => s.sessionId)).toEqual([id]);
+  await m.saveHost(far);
+  await m.removeHost("far");
+  expect((await m.hosts()).sessions.far).toBeUndefined();
+});
+
+test("a session says when it last had something happen", async () => {
+  const { manager } = await setup();
+  const { m } = await manager();
+  await m.connect("local");
+  await m.createSession("local", { cwd: "/tmp" });
+  const [session] = await m.sessions("local");
+  expect(Number.isNaN(Date.parse(session?.updatedAt ?? ""))).toBe(false);
+});
