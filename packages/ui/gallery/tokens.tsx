@@ -16,12 +16,16 @@ const COLORS = [
   "ring",
   "ring-border",
   "overlay",
+  "cycle-accent",
+  "cycle-attention",
+  "cycle-success",
 ];
 const SIZES = [0.8, 0.85, 0.9, 1, 1.1];
 
 export function drawTokens(root: HTMLElement) {
   const style = getComputedStyle(document.documentElement);
-  const value = (n: string) => style.getPropertyValue(`--ui-${n}`).trim();
+  const name = (n: string) => (n.startsWith("cycle-") ? `--${n}` : `--ui-${n}`);
+  const value = (n: string) => style.getPropertyValue(name(n)).trim();
   createRoot(root).render(
     <div
       style={{
@@ -37,9 +41,9 @@ export function drawTokens(root: HTMLElement) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
           {COLORS.map((c) => (
             <div key={c} style={{ border: "1px solid var(--ui-border)" }}>
-              <div style={{ height: 40, background: `var(--ui-${c})` }} />
+              <div style={{ height: 40, background: `var(${name(c)})` }} />
               <div style={{ padding: 6, fontSize: "0.8em" }}>
-                <div>--ui-{c}</div>
+                <div>{name(c)}</div>
                 <div style={{ color: "var(--ui-muted-foreground)", wordBreak: "break-all" }}>
                   {value(c)}
                 </div>
@@ -90,10 +94,10 @@ export function drawTokens(root: HTMLElement) {
       <section>
         <h2>Controls (ui-sdk, as used)</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <Button>Default</Button>
-          <Button variant="outline">Outline</Button>
-          <Button variant="ghost">Ghost</Button>
-          <Button variant="destructive">Delete session</Button>
+          <Button data-variant="solid">Solid</Button>
+          <Button data-variant="outline">Outline</Button>
+          <Button data-variant="ghost">Ghost</Button>
+          <Button data-variant="destructive">Delete session</Button>
           <Button disabled>Disabled</Button>
           <Input aria-label="Name" placeholder="Name" style={{ width: 200 }} />
         </div>
