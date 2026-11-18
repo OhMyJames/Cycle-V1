@@ -191,7 +191,7 @@ export function App() {
         const request = view.permissions[0];
         run(() => void store.answerPermission(request.key, firstAllow.optionId));
       } else if (key === "[" || key === "]") {
-        const at = list.order.findIndex((s) => s === session);
+        const at = session === undefined ? -1 : list.order.indexOf(session);
         const next = list.order[at + (key === "]" ? 1 : -1)];
         if (next !== undefined) run(() => void store.selectSession(next.hostId, next.sessionId));
       }
