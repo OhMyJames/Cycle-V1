@@ -18,6 +18,12 @@ export const META = {
   archived: "cycle/archived",
   state: "cycle/state",
   lastSeq: "cycle/lastSeq",
+  /** In a `session/list` row: whether something worth seeing came after the last `_cycle/session/mark_read`. */
+  unread: "cycle/unread",
+  /** In a `session/list` row: how many background sub-agents are still running. Absent when none. */
+  background: "cycle/background",
+  /** In a `subagent_update`: what the adapter says of the task beyond ACP's fields (decision 0014). */
+  subagent: "cycle/subagent",
   /** In a `session/list` row: the context the session uses and what it has cost (`SessionUsageSchema`). */
   usage: "cycle/usage",
   /** On a permission request sent to a client: the daemon's id for it, as `_cycle/request_resolved` names it. */
@@ -27,7 +33,7 @@ export const META = {
 } as const;
 
 /** The version of Cycle's protocol, "major.minor". A different major is refused. */
-export const CYCLE_PROTOCOL_VERSION = "0.1";
+export const CYCLE_PROTOCOL_VERSION = "0.2";
 
 export const ProtocolVersionSchema = z.string().regex(/^\d+\.\d+$/);
 

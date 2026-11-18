@@ -53,18 +53,30 @@ class JsonlSessionLog implements SessionLog {
   readonly #now: () => Date;
   readonly #listeners = new Set<(record: LogRecord) => void>();
   #last: number;
+  #updated: string | undefined;
   #queue: Promise<unknown> = Promise.resolve();
   #closed = false;
 
-  constructor(sessionId: string, path: string, last: number, now: () => Date) {
+  constructor(
+    sessionId: string,
+    path: string,
+    last: number,
+    updated: string | undefined,
+    now: () => Date,
+  ) {
     this.sessionId = sessionId;
     this.#path = path;
     this.#last = last;
+    this.#updated = updated;
     this.#now = now;
   }
 
   lastSeq(): number {
     return this.#last;
+  }
+
+  updatedAt(): string | undefined {
+    return this.#updated;
   }
 
   append(record: NewRecord): Promise<LogRecord> {
@@ -88,6 +100,7 @@ class JsonlSessionLog implements SessionLog {
       throw logUnavailable(this.sessionId, String(error));
     }
     this.#last = stored.seq;
+    if (stored.kind !== "meta") this.#updated = stored.ts;
     for (const listener of [...this.#listeners]) listener(stored);
     return stored;
   }
@@ -150,7 +163,8 @@ export class JsonlLogStore implements LogStore {
     // next record would be glued to it, and the damage would be in the middle of the file.
     if (validBytes < Buffer.byteLength(text)) await truncate(path, validBytes);
     this.#open.add(sessionId);
-    const log = new JsonlSessionLog(sessionId, path, records.length, this.#now);
+    const updated = records.findLast((record) => record.kind !== "meta")?.ts;
+    const log = new JsonlSessionLog(sessionId, path, records.length, updated, this.#now);
     const close = log.close.bind(log);
     log.close = async () => {
       await close();

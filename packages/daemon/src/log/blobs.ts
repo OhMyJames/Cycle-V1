@@ -83,6 +83,10 @@ class BlobSessionLog implements SessionLog {
     return this.#inner.lastSeq();
   }
 
+  updatedAt(): string | undefined {
+    return this.#inner.updatedAt();
+  }
+
   #remember(sha256: string, text: string): void {
     const recent = this.#recent;
     const key = `${this.sessionId}/${sha256}`;

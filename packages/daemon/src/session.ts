@@ -1,4 +1,5 @@
 import type { SessionUpdate } from "@cycle/acp";
+import { META } from "@cycle/protocol";
 import type { AgentLink } from "./agent-link.ts";
 import type { SessionEntry } from "./index-file.ts";
 import type { SessionLog } from "./log/types.ts";
@@ -52,6 +53,11 @@ export class Session {
    * state first; that is a handshake, not history, and is not logged.
    */
   resuming = false;
+  /**
+   * The sub-agents the agent has announced and not ended, by id, and whether each runs in the
+   * background. In memory only: when the agent process goes, so do they.
+   */
+  readonly #subagents = new Map<string, boolean>();
   /** Set while an agent process is being started, so two prompts do not start two. */
   starting: Promise<AgentLink> | undefined;
 
@@ -64,6 +70,53 @@ export class Session {
   nextRequestId(): string {
     this.#requests += 1;
     return `p${this.#requests}`;
+  }
+
+  /** When something last happened in the session: its last record that is not the daemon's own. */
+  updatedAt(): string {
+    return this.log.updatedAt() ?? this.entry.createdAt;
+  }
+
+  unread(): boolean {
+    return (this.entry.attentionSeq ?? 0) > (this.entry.readSeq ?? 0);
+  }
+
+  /** How many sub-agents run in the background. */
+  backgroundCount(): number {
+    let count = 0;
+    for (const background of this.#subagents.values()) if (background) count += 1;
+    return count;
+  }
+
+  /**
+   * Takes in a `subagent_update`. A sub-agent is in the background from the first update that says
+   * so until it is idle; later updates often leave the flag out, and then it stays as it was.
+   * Returns whether the session went from having none in the background to having some, or back.
+   */
+  noteSubagent(update: Record<string, unknown>): boolean {
+    const before = this.backgroundCount() > 0;
+    const id = update.sessionId;
+    if (typeof id !== "string") return false;
+    const state = update.state;
+    const named = typeof state === "string" ? state : (state as { state?: unknown } | null)?.state;
+    const meta = (update._meta as Record<string, unknown> | null | undefined)?.[META.subagent];
+    const said = (meta as { background?: unknown } | null | undefined)?.background;
+    if (named === "idle") {
+      this.#subagents.delete(id);
+    } else if (named === "running" || this.#subagents.has(id)) {
+      this.#subagents.set(
+        id,
+        typeof said === "boolean" ? said : (this.#subagents.get(id) ?? false),
+      );
+    }
+    return before !== this.backgroundCount() > 0;
+  }
+
+  /** The agent process is gone, and its sub-agents with it. Returns whether any were in the background. */
+  endSubagents(): boolean {
+    const had = this.backgroundCount() > 0;
+    this.#subagents.clear();
+    return had;
   }
 
   status(): SessionStatus {

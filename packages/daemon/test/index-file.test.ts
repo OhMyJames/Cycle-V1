@@ -70,3 +70,12 @@ test("the index is private even when a crash left a temporary file with looser p
   });
   expect((await stat(path)).mode & 0o777).toBe(0o600);
 });
+
+test("an index from before readSeq and attentionSeq loads, and keeps them once they are set", async () => {
+  const path = join(dir, "index.json");
+  await writeFile(path, JSON.stringify({ version: 1, sessions: { s1: entry } }));
+  const index = await SessionIndex.load(path);
+  expect(index.get("s1")?.readSeq).toBeUndefined();
+  await index.update("s1", { attentionSeq: 7, readSeq: 3 });
+  expect((await SessionIndex.load(path)).get("s1")).toMatchObject({ attentionSeq: 7, readSeq: 3 });
+});

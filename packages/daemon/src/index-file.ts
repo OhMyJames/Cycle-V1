@@ -25,6 +25,14 @@ export const SessionEntrySchema = z.object({
   /** The agent's latest `usage_update`: shown in the session list. */
   usage: SessionUsageSchema.optional(),
   archived: z.boolean().optional(),
+  /**
+   * How far the clients have seen the session (`_cycle/session/mark_read`), and the seq of the last
+   * record worth seeing: a turn that ended or a request for approval. The session is unread when the
+   * second is past the first. Both are absent from an index written before they existed, and count
+   * as 0: such a session is not unread.
+   */
+  readSeq: z.number().int().nonnegative().optional(),
+  attentionSeq: z.number().int().nonnegative().optional(),
   /** What was asked of the agent with `session/set_config_option`, applied again when it is restarted. */
   config: z.record(z.string(), z.string()).optional(),
   createdAt: z.string(),
@@ -91,6 +99,11 @@ export class SessionIndex {
       if (entry === undefined) throw new Error(`No session ${sessionId} in the index`);
       this.#sessions.set(sessionId, SessionEntrySchema.parse({ ...entry, ...change }));
     });
+  }
+
+  /** Resolves when every change made so far is on disk. */
+  async flush(): Promise<void> {
+    await this.#queue;
   }
 
   delete(sessionId: string): Promise<void> {

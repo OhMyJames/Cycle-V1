@@ -103,3 +103,24 @@ test("removes a closed log for good, and not an open one", async () => {
   await s.remove("s1");
   expect(await s.exists("s1")).toBe(false);
 });
+
+test("updatedAt is the time of the last record that is not a meta one, and survives a reopen", async () => {
+  let minute = 0;
+  const ticking = () =>
+    new JsonlLogStore({ dir, now: () => new Date(Date.UTC(2026, 10, 18, 0, minute++)) });
+  const log = await ticking().open("s1");
+  expect(log.updatedAt()).toBeUndefined();
+  await log.append({ kind: "meta", data: { event: "created" } });
+  expect(log.updatedAt()).toBeUndefined();
+  const update = await log.append({
+    kind: "update",
+    data: { sessionUpdate: "agent_message_chunk" },
+  });
+  expect(log.updatedAt()).toBe(update.ts);
+  await log.append({ kind: "meta", data: { event: "agent_exited" } });
+  expect(log.updatedAt()).toBe(update.ts);
+  await log.close();
+  const again = await ticking().open("s1");
+  expect(again.updatedAt()).toBe(update.ts);
+  await again.close();
+});
