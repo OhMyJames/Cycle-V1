@@ -16,6 +16,8 @@
     "react-dom": "19.3.1"
   },
   "devDependencies": {
+    "@electron/notarize": "3.1.2",
+    "@electron/osx-sign": "2.7.2",
     "@cycle/daemon": "workspace:*",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0"
@@ -24,6 +26,8 @@
   "scripts": {
     "build": "bun scripts/build.ts",
     "package": "bun scripts/package.ts",
+    "sign": "bun scripts/sign.ts",
+    "release-assets": "bun scripts/release-assets.ts",
     "start": "bun scripts/start.ts",
     "test:real": "bun test ./test/integration/real-ui.integration.ts",
     "test:integration": "bun test ./test/integration/smoke.integration.ts"

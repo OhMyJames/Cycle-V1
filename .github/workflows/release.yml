@@ -1,0 +1,170 @@
+# Builds what a user installs.
+#
+#  push a tag v<version>  builds, signs, notarizes and publishes a GitHub release: the macOS app
+#                         (Apple silicon) and the Linux daemon. The tag must equal the version in
+#                         apps/desktop/package.json.
+#  run by hand            builds the same and uploads them as workflow artifacts, nothing published.
+#                         With "sign" off (the default) the app is only ad hoc signed, which needs no
+#                         secrets: this is how the macOS job is iterated on.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: Sign with the Developer ID and notarize (needs the Apple secrets)
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: The tag is the app's version
+        if: github.ref_type == 'tag'
+        run: test "$GITHUB_REF_NAME" = "v$(jq -r .version apps/desktop/package.json)"
+      - run: bun run check
+
+  daemon-linux:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run --cwd apps/daemon build
+      - name: The built daemon runs, with nothing around it
+        run: |
+          D=apps/daemon/dist/cycle-daemon-linux-x64
+          ! env -i PATH=/usr/bin:/bin "$D/cycle-daemon" status --data-dir "$RUNNER_TEMP/d"
+          env -i PATH=/usr/bin:/bin "$D/claude" --version
+      - name: Checksum
+        working-directory: apps/daemon/dist
+        run: sha256sum cycle-daemon-linux-x64.tar.gz > cycle-daemon-linux-x64.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daemon-linux-x64
+          path: |
+            apps/daemon/dist/cycle-daemon-linux-x64.tar.gz
+            apps/daemon/dist/cycle-daemon-linux-x64.tar.gz.sha256
+
+  macos:
+    needs: check
+    # Apple silicon. Only arm64 is shipped.
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      BUNDLE: apps/desktop/build/Cycle.app/Contents/Resources/app
+      SIGN: ${{ github.event_name == 'push' || inputs.sign }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run --cwd apps/desktop package
+
+      # What is inside the app has to work on this platform: the compiled daemon, and the Claude
+      # binary of the darwin SDK package. Checked before signing and again after, because the hardened
+      # runtime can stop a Bun executable that ran fine unsigned.
+      - name: The bundled daemon and Claude run (ad hoc)
+        run: |
+          set +e
+          "$BUNDLE/bin/cycle-daemon" status --data-dir "$RUNNER_TEMP/d1"; test $? -eq 1 || exit 1
+          "$BUNDLE/bin/claude" --version || exit 1
+          CYCLE_DAEMON_BIN="$PWD/$BUNDLE/bin/cycle-daemon" bun run --cwd apps/daemon test:integration
+
+      - name: Import the signing certificate
+        if: env.SIGN == 'true'
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/cycle-signing.keychain-db"
+          PASSWORD=$(openssl rand -hex 16)
+          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cycle.p12"
+          security create-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cycle.p12" -k "$KEYCHAIN" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$PASSWORD" "$KEYCHAIN" > /dev/null
+          rm "$RUNNER_TEMP/cycle.p12"
+          EXISTING=$(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//' | tr '\n' ' ')
+          security list-keychains -d user -s "$KEYCHAIN" $EXISTING
+          security find-identity -v -p codesigning
+          echo "CYCLE_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Sign
+        if: env.SIGN == 'true'
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+        run: |
+          printf '%s' "$APPLE_API_KEY" > "$APPLE_API_KEY_PATH"
+          chmod 600 "$APPLE_API_KEY_PATH"
+          bun run --cwd apps/desktop sign
+          rm "$APPLE_API_KEY_PATH"
+
+      - name: The signed app passes Gatekeeper, and what is inside it still runs
+        if: env.SIGN == 'true'
+        run: |
+          /usr/sbin/spctl --assess --type execute --verbose=4 apps/desktop/build/Cycle.app
+          codesign --verify --deep --strict --verbose=2 apps/desktop/build/Cycle.app
+          set +e
+          "$BUNDLE/bin/cycle-daemon" status --data-dir "$RUNNER_TEMP/d2"; test $? -eq 1 || exit 1
+          "$BUNDLE/bin/claude" --version || exit 1
+          CYCLE_DAEMON_BIN="$PWD/$BUNDLE/bin/cycle-daemon" bun run --cwd apps/daemon test:integration
+
+      - name: Archive and manifest
+        run: bun run --cwd apps/desktop release-assets
+
+      - name: Remove the signing keychain
+        if: always() && env.SIGN == 'true'
+        run: |
+          if [ -n "$CYCLE_KEYCHAIN" ]; then
+            security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db" || true
+            security delete-keychain "$CYCLE_KEYCHAIN" || true
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-darwin-arm64${{ env.SIGN == 'true' && '' || '-unsigned' }}
+          path: apps/desktop/build/release/*
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [daemon-linux, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - run: ls -l assets
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" --generate-notes
