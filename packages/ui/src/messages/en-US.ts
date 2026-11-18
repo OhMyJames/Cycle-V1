@@ -81,6 +81,8 @@ export const enUS = {
 
   // The session list
   "sessions.label": "Sessions",
+  "sessions.listLabel": "Session list",
+  "sessions.noFolder": "No folder",
   "sessions.group.needsYou": "Needs you",
   "sessions.group.working": "Working",
   "sessions.showAll": {

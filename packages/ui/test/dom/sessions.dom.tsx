@@ -27,7 +27,8 @@ const mount = async (sessions: SessionSummary[]) => {
   );
   await act(() => store.start());
   await screen.findAllByRole("option");
-  return { user, ...script };
+  const emit = (event: Parameters<typeof script.emit>[0]) => act(() => script.emit(event));
+  return { user, ...script, emit };
 };
 
 const names = () => screen.getAllByRole("option").map((o) => o.textContent ?? "");
@@ -42,11 +43,19 @@ const mixed = [
 
 test("what needs you comes first, then what is working, then the projects", async () => {
   await mount(mixed);
-  const groups = screen.getAllByRole("group").map((g) => g.textContent);
-  expect(groups[0]).toContain("Needs you");
-  expect(groups[1]).toContain("Working");
-  expect(groups[2]).toContain("app");
-  // Each group has its name, and the rows follow in that order.
+  const groups = screen.getAllByRole("group");
+  // Each group is named by its heading (and not by a word in a row), and its rows are inside it.
+  expect(groups.map((g) => g.getAttribute("aria-labelledby") !== null)).toEqual([true, true, true]);
+  const needs = screen.getByRole("group", { name: "Needs you" });
+  const working = screen.getByRole("group", { name: "Working" });
+  expect(within(needs).getAllByRole("option")).toHaveLength(1);
+  expect(within(working).getAllByRole("option")).toHaveLength(1);
+  // The groups, in the order they are on screen; a project is named by its folder.
+  expect(groups.indexOf(needs)).toBe(0);
+  expect(groups.indexOf(working)).toBe(1);
+  expect(within(screen.getByRole("group", { name: "app" })).getAllByRole("option")).toHaveLength(2);
+  // In a group that is not a project, a row says where it works.
+  expect(within(working).getByRole("option").textContent).toContain("other");
   const rows = names();
   expect(rows[0]).toContain("ask");
   expect(rows[1]).toContain("run");
@@ -92,4 +101,23 @@ test("a session found by the search that is past the page is shown, not selected
   await user.keyboard("{Enter}");
   const shown = await screen.findByRole("option", { name: /^needle/ });
   await waitFor(() => expect(shown.getAttribute("aria-selected")).toBe("true"));
+});
+
+test("a row that moves to another group keeps the keyboard focus", async () => {
+  const { user, emit } = await mount([row("one", { lastSeq: 1 }), row("two", { lastSeq: 2 })]);
+  const first = screen.getAllByRole("option")[1] as HTMLElement;
+  await user.click(first);
+  first.focus();
+  expect(document.activeElement).toBe(first);
+  // It starts working: it moves up to Working, and is another element there.
+  await emit({
+    type: "sessions",
+    hostId: "local",
+    sessions: [row("one", { lastSeq: 3, state: "running" }), row("two", { lastSeq: 2 })],
+  });
+  const moved = await screen.findByRole("option", { name: /one/ });
+  expect(
+    within(screen.getByRole("group", { name: "Working" })).getByRole("option", { name: /one/ }),
+  ).toBe(moved);
+  expect(document.activeElement).toBe(moved);
 });

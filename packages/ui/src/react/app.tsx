@@ -21,7 +21,7 @@ import {
   ResizableHandle,
   ResizablePanel,
 } from "@ui-sdk/react/resizable";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { usageLabel } from "../model/index.ts";
 import { sessionList } from "../sessions.ts";
 import { viewKey } from "../store/index.ts";
@@ -126,7 +126,15 @@ export function App() {
   const close = () => setPanel("none");
   const [layout] = useState(createResizableController);
   // The list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
-  const list = sessionList(sessions, { showArchived, showAll, selected: selectedSession });
+  const list = useMemo(
+    () => sessionList(sessions, { showArchived, showAll, selected: selectedSession }),
+    [sessions, showArchived, showAll, selectedSession],
+  );
+  // The limit that was lifted was one host's.
+  useEffect(() => {
+    if (selectedHost !== undefined) setShowAll(false);
+  }, [selectedHost]);
+
   const working = view !== undefined && view.conversation.status !== "idle";
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
 

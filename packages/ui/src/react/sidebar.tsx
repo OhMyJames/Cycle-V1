@@ -45,7 +45,7 @@ export function Sidebar(props: SidebarProps) {
   const state = props.selectedHost !== undefined ? props.status[props.selectedHost] : undefined;
   const hostState = HOST_STATE[state?.state ?? "closed"];
   return (
-    <nav data-slot="sidebar" aria-label="Sessions">
+    <nav data-slot="sidebar" aria-label={t("sessions.label")}>
       <div data-slot="titlebar" aria-hidden="true" />
       <div data-slot="host-bar">
         <Select

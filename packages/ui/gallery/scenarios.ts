@@ -2,6 +2,7 @@
 // bridge. DESIGN.md says what each is for. Add one when a surface gets a new state.
 import type { SessionUpdate } from "@cycle/acp";
 import type {
+  AppEvent,
   HostConfig,
   HostStatus,
   PermissionRequest,
@@ -27,8 +28,8 @@ export type Scenario = {
   attach?: boolean;
   /** Presses Tab this many times with real input events, so :focus-visible shows as it does for a keyboard. */
   tabs?: number;
-  /** Runs once the page has drawn: open a dialog, press a key. */
-  after?: (root: HTMLElement) => Promise<void>;
+  /** Runs once the page has drawn: open a dialog, press a key, or send an event as the app's main process would. */
+  after?: (root: HTMLElement, emit: (event: AppEvent) => void) => Promise<void>;
 };
 
 const u = (update: object) => update as SessionUpdate;
@@ -550,6 +551,37 @@ export const scenarios: Record<string, Scenario> = {
       session("old", { title: "Archived thing", archived: true, lastSeq: 2 }),
     ],
     history: [you("u1", "Where were we?"), say("a1", "Here.")],
+  },
+  "session-focus": {
+    title: "A row that starts working moves to the Working group and keeps the keyboard focus",
+    sessions: [
+      session("one", { title: "First", lastSeq: 1 }),
+      session("two", { title: "Second", lastSeq: 2 }),
+    ],
+    history: [you("u1", "Hello"), say("a1", "Hi.")],
+    after: async (root, emit) => {
+      const option = (id: string) => root.querySelector<HTMLElement>(`[data-session="${id}"]`);
+      const first = option("one");
+      if (first === null) throw new Error("gallery: no row for the first session");
+      first.focus();
+      if (document.activeElement !== first)
+        throw new Error("gallery: the row did not take the focus");
+      emit({
+        type: "sessions",
+        hostId: "local",
+        sessions: [
+          session("one", { title: "First", lastSeq: 3, state: "running" }),
+          session("two", { title: "Second", lastSeq: 2 }),
+        ],
+      });
+      await until(
+        () => option("one")?.closest('[data-kind="working"]') !== null,
+        "the row to move to Working",
+      );
+      await frames(3);
+      if (document.activeElement !== option("one"))
+        console.error("session-focus: the row moved and the keyboard focus was lost");
+    },
   },
   "many-sessions": {
     title: "800 sessions, long titles, every state",

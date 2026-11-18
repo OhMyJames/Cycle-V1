@@ -1,6 +1,6 @@
 import { Listbox, ListboxGroup, ListboxGroupLabel, ListboxItem } from "@ui-sdk/react/listbox";
 import type { SessionSummary } from "../api.ts";
-import type { SessionGroup, SessionList } from "../sessions.ts";
+import { projectOf, type SessionGroup, type SessionList } from "../sessions.ts";
 import { useI18n } from "./i18n.tsx";
 import { SESSION_STATE, StatusDot } from "./status.tsx";
 
@@ -12,11 +12,21 @@ export const sessionTitle = (session: SessionSummary): string => {
   return place(session.cwd);
 };
 
-function Row({ session, named }: { session: SessionSummary; named: boolean }) {
-  const doing = SESSION_STATE[session.state];
+function Row({
+  session,
+  place: where,
+}: {
+  session: SessionSummary;
+  /** Where the session works, said under its title in the groups that are not a project; absent in a project. */
+  place: string | undefined;
+}) {
+  // The state is told by the dot's colour and shape, and in words by the heading of the group the row is in. An archived
+  // session is put away, whatever its state says.
+  const doing = session.archived ? undefined : SESSION_STATE[session.state];
   return (
     <ListboxItem
       value={session.sessionId}
+      data-session={session.sessionId}
       data-archived={session.archived || undefined}
       data-needs-you={session.state === "requires_action" || undefined}
     >
@@ -26,9 +36,7 @@ function Row({ session, named }: { session: SessionSummary; named: boolean }) {
       <span data-slot="session-main">
         <span data-slot="session-title">{sessionTitle(session)}</span>
         <span data-slot="session-meta" data-state={session.state}>
-          {doing?.word}
-          {/* Under a project, the project is the heading; in the groups above, it says where the session is. */}
-          {named ? <span data-slot="session-place">{place(session.cwd)}</span> : null}
+          {where}
         </span>
       </span>
     </ListboxItem>
@@ -41,7 +49,9 @@ function Heading({ group }: { group: SessionGroup }) {
     ? t("sessions.group.needsYou")
     : group.kind === "working"
       ? t("sessions.group.working")
-      : group.label;
+      : group.label === ""
+        ? t("sessions.noFolder")
+        : group.label;
 }
 
 /** What waits on the person, what is working, then the projects: one list, so the arrow keys walk all of it. */
@@ -60,7 +70,7 @@ export function SessionListView({
   return (
     <>
       <Listbox
-        aria-label={t("sessions.label")}
+        aria-label={t("sessions.listLabel")}
         value={selected ?? null}
         onValueChange={(next) => {
           if (typeof next === "string") onSelect(next);
@@ -72,7 +82,11 @@ export function SessionListView({
               <Heading group={group} />
             </ListboxGroupLabel>
             {group.sessions.map((session) => (
-              <Row key={session.sessionId} session={session} named={group.kind !== "project"} />
+              <Row
+                key={session.sessionId}
+                session={session}
+                place={group.kind === "project" ? undefined : list.names.get(projectOf(session))}
+              />
             ))}
           </ListboxGroup>
         ))}
