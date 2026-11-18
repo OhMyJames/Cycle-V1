@@ -18,9 +18,16 @@ const OTHER_MAX = 2000;
 export const questionsOf = (input: Record<string, unknown>): Question[] | undefined => {
   const questions = input.questions;
   if (!Array.isArray(questions) || questions.length === 0) return undefined;
+  const texts = new Set<string>();
   for (const q of questions as Question[]) {
     if (typeof q?.question !== "string" || !Array.isArray(q.options) || q.options.length === 0) {
       return undefined;
+    }
+    // The answers are keyed by the question's text: two the same would be one answer.
+    if (texts.has(q.question)) return undefined;
+    texts.add(q.question);
+    for (const option of q.options) {
+      if (typeof option?.label !== "string" || option.label === "") return undefined;
     }
   }
   return questions as Question[];
@@ -79,7 +86,7 @@ export const answersOf = (
   for (const [index, q] of questions.entries()) {
     const value = content?.[keyOf(index)];
     const written = content?.[otherKeyOf(index)];
-    const other = typeof written === "string" ? written.trim() : "";
+    const other = typeof written === "string" ? written.trim().slice(0, OTHER_MAX) : "";
     if (Array.isArray(value)) {
       const labels = [...value.map(String), ...(other === "" ? [] : [other])];
       if (labels.length > 0) answers[q.question] = labels.join(", ");

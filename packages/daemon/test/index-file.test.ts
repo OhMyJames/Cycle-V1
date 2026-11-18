@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { readdir, writeFile } from "node:fs/promises";
+import { readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { IndexUnreadableError, SessionIndex } from "../src/index.ts";
 import { tempDir } from "./support.ts";
@@ -58,4 +58,15 @@ test("a change that fails leaves the index as it was", async () => {
   await index.put("s1", entry);
   await expect(index.update("missing", { title: "x" })).rejects.toBeDefined();
   expect(index.list().map(([id]) => id)).toEqual(["s1"]);
+});
+
+test("the index is private even when a crash left a temporary file with looser permissions", async () => {
+  const path = join(dir, "index.json");
+  await writeFile(`${path}.${process.pid}.tmp`, "stale", { mode: 0o644 });
+  const index = await SessionIndex.load(path);
+  await index.put("s1", {
+    ...entry,
+    mcpServers: [{ name: "x", env: [{ name: "T", value: "secret" }] }],
+  });
+  expect((await stat(path)).mode & 0o777).toBe(0o600);
 });

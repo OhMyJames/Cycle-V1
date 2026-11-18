@@ -10,6 +10,17 @@ export type SdkContent =
       title?: string;
     };
 
+/** A value in a quoted attribute: it cannot end the quote or the tag. */
+const attribute = (value: string): string =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+
+/** A file's text cannot close the tag it is in: a `</file` inside it is written `<\/file`. */
+const closing = (text: string): string => text.replace(/<\/file/gi, "<\\/file");
+
 const refuse = (what: string, data: Record<string, unknown>): never => {
   throw new RequestError(-32602, what, data);
 };
@@ -43,7 +54,7 @@ export const toSdkContent = (blocks: readonly ContentBlock[]): string | SdkConte
         plain = false;
         parts.push({
           type: "text",
-          text: `<file uri="${String(resource.uri)}">\n${resource.text}\n</file>`,
+          text: `<file uri="${attribute(String(resource.uri))}">\n${closing(resource.text)}\n</file>`,
         });
       } else if (typeof resource.blob === "string" && resource.mimeType === "application/pdf") {
         plain = false;

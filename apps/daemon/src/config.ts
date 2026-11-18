@@ -19,8 +19,20 @@ export const ConfigSchema = z.object({
       allowEnv: z.array(z.string()).default(["PATH", "LANG", "LC_ALL", "TERM"]),
       /** Variables set to a value, e.g. a key or a base URL. Written here, never inherited. */
       env: z.record(z.string(), z.string()).default({}),
+      /**
+       * Start a session's Claude process when the session is made, so its slash commands are known
+       * before the first message (decision 0014). Costs about 230 MB per new session until it is idle.
+       */
+      warmStart: z.boolean().default(true),
+      /** Ask Claude for a model-written progress line for each sub-agent: a model call each. */
+      progressSummaries: z.boolean().default(true),
     })
-    .default({ allowEnv: ["PATH", "LANG", "LC_ALL", "TERM"], env: {} }),
+    .default({
+      allowEnv: ["PATH", "LANG", "LC_ALL", "TERM"],
+      env: {},
+      warmStart: true,
+      progressSummaries: true,
+    }),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 

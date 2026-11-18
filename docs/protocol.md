@@ -191,7 +191,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 **内容校验**(决策 0010):daemon 在启动 agent 之前检查 `prompt` 的每一块,不合格就以 `-32602` 拒绝,`data` 为 `{reason, index}`,不会丢掉其中一部分再继续:
 
 - 允许的类型:`text`、`resource_link`(每个 agent 都接受),以及该 agent 的 `promptCapabilities` 允许的:`image`(PNG、JPEG、GIF、WebP)、`resource`(`embeddedContext`:文本,或 `application/pdf` 的二进制)。`audio` 一律不收。
-- 上限:每块解码后 5 MiB,整个 prompt 12 MiB,最多 32 块;文本块按 UTF-8 字节数算。常量在 `@cycle/protocol`(`PROMPT_LIMITS`),客户端可以用同一个函数 `checkPrompt` 提前检查。
+- 上限:每块解码后 5 MiB,整个 prompt 12 MiB,最多 32 块;文本块按 UTF-8 字节数算,`resource_link` 按名字和 uri 的字节数算。常量在 `@cycle/protocol`(`PROMPT_LIMITS`),客户端可以用同一个函数 `checkPrompt` 提前检查。
 - `reason`:(空数组在 ACP 的 schema 那一层就被拒绝,没有 `reason`;下面这些是 daemon 自己给的。)`too_many_blocks`、`unsupported_block`、`malformed_block`(缺必需字段,或图片没有内容)、`unsupported_media_type`、`block_too_large`、`prompt_too_large`、`invalid_base64`。
 
 附件和图片进入日志的 `user_message`,历史补发时和文字一起到达。
@@ -219,6 +219,7 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 - 只有在 `initialize` 里声明了 `elicitation.form` 的、已附着的客户端才会被问。请求的 `_meta["cycle/requestId"]` 和权限请求一样。
 - 回答是 ACP 的 `{action: "accept" | "decline" | "cancel", content?}`;日志的 `response` 记录整个回答。
 - **没有这样的客户端附着时立即回答**(最后一个有能力的客户端断开时,正在等的表单同样如此回答) `{action: "cancel", _meta: {"cycle/noClient": true}}`,不挂起。agent 据此回退:MCP 的 elicitation 当作拒绝,`AskUserQuestion` 走权限请求。
+- **表单里填的内容不进日志,也不发给别的客户端**(可能是密码或令牌):agent 拿到完整的回答,日志的 `response` 记录和 `_cycle/request_resolved` 只有 `action`。客户端的回答只取 `action`(`accept`、`decline`、`cancel`)和 `accept` 时的 `content`;别的字段(包括客户端自己加的 `_meta`)丢掉,不是回答的当作 `cancel`。客户端处理不了表单(回了错误)时,和没有客户端一样回 `cycle/noClient`。
 - `session/cancel`、agent 退出:未解决的 elicitation 以 `{action: "cancel"}` 结束,并发 `_cycle/request_resolved`。
 - URL 模式 v1 不支持,daemon 不声明。
 - **`AskUserQuestion` 的表单**:每个问题一个选择字段(`q0`,`q1`…:单选 `oneOf`、多选 `array`)和一个可选的自由输入字段(`q0_other`…,最多 2000 字符)。都没有 `required`:一个字段表达不了"二选一"。自由输入非空时,单选以它为答案,多选把它加在所选标签之后;全部为空等于没回答,工具得到"The user did not answer"。

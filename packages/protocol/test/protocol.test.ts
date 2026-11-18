@@ -136,3 +136,11 @@ test("a block missing what it must have is malformed, not a block of no bytes", 
     index: 0,
   });
 });
+
+test("a link counts by the size of its name and uri, so it cannot carry what the limit is for", () => {
+  const big = "x".repeat(PROMPT_LIMITS.blockBytes + 1);
+  expect(checkPrompt([{ type: "resource_link", name: "a", uri: big }], undefined)).toEqual({
+    reason: "block_too_large",
+    index: 0,
+  });
+});

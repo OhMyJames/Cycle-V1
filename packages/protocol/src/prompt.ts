@@ -65,7 +65,8 @@ export const checkPrompt = (
       if (typeof block.name !== "string" || typeof block.uri !== "string") {
         return { reason: "malformed_block", index };
       }
-      bytes = 0;
+      // A link has no content, but a long name or uri is as large on the wire as any text.
+      bytes = new TextEncoder().encode(block.name + block.uri).length;
     } else if (block.type === "image") {
       if (capabilities?.image == null) return { reason: "unsupported_block", index };
       if (!(IMAGE_TYPES as readonly unknown[]).includes(block.mimeType)) {
