@@ -49,6 +49,6 @@ app.whenReady().then(async () => {
     report.push({ ...job, ready, overflow, errors: loadError ? [loadError, ...errors] : errors });
   }
   win.destroy();
-  console.log("REPORT " + JSON.stringify(report));
+  console.log(`REPORT ${JSON.stringify(report)}`);
   app.quit();
 });

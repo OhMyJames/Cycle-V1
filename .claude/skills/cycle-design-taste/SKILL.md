@@ -19,7 +19,8 @@ Cycle 是一个人每天开几个小时的工具:盯着 agent 干活、批准它
 
 ## 开始之前
 
-1. 读 `packages/ui/AGENTS.md`、`docs/desktop.md` 的界面部分,以及 ui-sdk skill(`packages/ui/.claude/skills/ui-sdk`)。
+1. 读根目录的 `DESIGN.md`(这个应用该是什么样子:颜色、字阶、间距、组件、状态;标"提议"的还没确认,不要当成已定),
+   再读 `packages/ui/AGENTS.md`、`docs/desktop.md` 的界面部分,以及 ui-sdk skill(`packages/ui/.claude/skills/ui-sdk`)。
 2. 读 `packages/ui/src/styles/app.css`:现有的 `data-slot`、间距和颜色就是这个系统,新东西接在它后面,不另起一套。
 3. 动手前用三行写清:**谁在什么时候用这块**(例如"agent 在等批准,用户从别的窗口切回来");**它有哪些状态**
    (`references/states.md`);**哪里要动、为什么动**(没有理由就不动)。

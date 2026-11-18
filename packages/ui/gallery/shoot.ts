@@ -86,7 +86,7 @@ for (const r of JSON.parse(line.slice(7)) as {
   if (problems.length > 0) bad++;
   if (problems.length > 0 || argv.includes("--all"))
     console.log(
-      `${problems.length > 0 ? "!" : " "} ${r.out}${problems.length > 0 ? "  " + problems.join(", ") : ""}`,
+      `${problems.length > 0 ? "!" : " "} ${r.out}${problems.length > 0 ? `  ${problems.join(", ")}` : ""}`,
     );
   total++;
 }

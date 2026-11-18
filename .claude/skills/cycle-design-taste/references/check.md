@@ -21,7 +21,13 @@ bun .claude/skills/cycle-design-taste/scripts/scan-copy.mjs path/a.tsx # 指定�
 不为通过它而改写:命中的词如果是字面意思(例如真的在说 "harness"),在这一行说明理由,而不是把句子改坏。
 它查不出"没说事实"的文案,那要自己读(`references/copy.md`)。
 
-## 3. 在真实窗口里看
+## 3. 状态画廊
+
+`bun packages/ui/gallery/shoot.ts`(在仓库根目录)用真实组件和假数据画出每个状态,在真实 Electron 里截图,浅色和深色、
+1200×800 与 760×600,并报告页面是否横向溢出、有没有控制台错误。改了界面就跑一遍,**读几张最相关的截图**。
+界面加了新状态,就在 `packages/ui/gallery/scenarios.ts` 里加一个场景。详见 `DESIGN.md` 第 12 节。
+
+## 4. 在真实窗口里看
 
 门禁看不到颜色、间距、溢出、对齐。要看真东西:
 
@@ -41,7 +47,7 @@ bun .claude/skills/cycle-design-taste/scripts/scan-copy.mjs path/a.tsx # 指定�
 
 ## 已知缺口(诚实记录)
 
-- 还没有"状态画廊":一个页面把所有状态并排画出来,供截图比较。它是下一步最值得做的检查工具。
+- 状态画廊已有,但没有自动的视觉回归(不和上一次截图比较);颜色和间距的错误靠人眼读截图。
 - 没有自动的视觉回归;颜色和间距的错误只能靠人眼和这份清单发现。
 - 没有自动的可访问性扫描(例如 axe);键盘和 ARIA 只做了 ui-sdk 自带的那部分。
 - 深色模式、窗口缩放在 Linux 的 xvfb 下不能代表 Mac 的实际效果。
