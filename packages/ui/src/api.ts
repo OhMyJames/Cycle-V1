@@ -51,7 +51,14 @@ export type AgentInfo = {
   available: boolean;
   /** JSON Schema of the agent's settings. The UI draws a form from it. */
   configSchema: Record<string, unknown>;
+  /** What the agent takes in a prompt beyond text (ACP `PromptCapabilities`). Absent from a daemon that does not say. */
+  promptCapabilities?: { image?: object | null | undefined } | undefined;
 };
+
+/** What a message to an agent is made of: text, and images as ACP carries them (base64). */
+export type PromptBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
 
 export type PermissionOption = { optionId: string; name: string; kind: string };
 
@@ -122,7 +129,8 @@ export type AppApi = {
   createSession(hostId: string, params: NewSession): Promise<string>;
   /** Starts watching a session and returns it whole. Call again after a reload. */
   openSession(hostId: string, sessionId: string): Promise<SessionSnapshot>;
-  prompt(hostId: string, sessionId: string, text: string): Promise<void>;
+  /** A text, or blocks: text and images. */
+  prompt(hostId: string, sessionId: string, content: string | PromptBlock[]): Promise<void>;
   cancel(hostId: string, sessionId: string): Promise<void>;
   setSessionConfig(
     hostId: string,

@@ -6,6 +6,7 @@ export * from "./conversation.tsx";
 export * from "./dialogs.tsx";
 export * from "./i18n.tsx";
 export * from "./icons.tsx";
+export * from "./image.tsx";
 export * from "./markdown.tsx";
 export * from "./permission.tsx";
 export * from "./search.tsx";

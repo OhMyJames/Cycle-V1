@@ -33,6 +33,7 @@ const bridgeFor = (scenario: Scenario) => {
       id: "claude",
       name: "Claude",
       available: true,
+      ...(scenario.attach ? { promptCapabilities: { image: {} } } : {}),
       configSchema: {
         type: "object",
         properties: {

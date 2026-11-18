@@ -15,6 +15,7 @@ import {
   ToolIcon,
   WebIcon,
 } from "./icons.tsx";
+import { ImageBlockView } from "./image.tsx";
 import { Markdown } from "./markdown.tsx";
 
 const MAX_SHOWN = 20_000;
@@ -44,7 +45,7 @@ const stringify = (value: unknown): string => {
   }
 };
 
-function Blocks({ blocks }: { blocks: Block[] }) {
+function Blocks({ blocks, from }: { blocks: Block[]; from: "agent" | "user" }) {
   return (
     <>
       {blocks
@@ -52,12 +53,42 @@ function Blocks({ blocks }: { blocks: Block[] }) {
         .map(({ block, key }) =>
           block.type === "text" ? (
             <span key={key}>{String(block.text)}</span>
+          ) : block.type === "image" ? (
+            <ImageBlockView key={key} block={block} from={from} />
           ) : (
             <span data-slot="block-note" key={key}>
               [{block.type}]
             </span>
           ),
         )}
+    </>
+  );
+}
+
+/** An agent's message: its text as markdown, and its images where they came, in order. */
+function AgentBlocks({ blocks, streaming }: { blocks: Block[]; streaming: boolean }) {
+  const parts: { key: string; text?: string; image?: Block }[] = [];
+  for (const [index, block] of blocks.entries()) {
+    if (block.type === "image") parts.push({ key: `image-${index}`, image: block });
+    else {
+      const last = parts.at(-1);
+      if (last?.text !== undefined) last.text += textOf([block]);
+      else parts.push({ key: `text-${index}`, text: textOf([block]) });
+    }
+  }
+  return (
+    <>
+      {parts.map((part, at) =>
+        part.image !== undefined ? (
+          <ImageBlockView key={part.key} block={part.image} from="agent" />
+        ) : (
+          <Markdown
+            key={part.key}
+            text={part.text ?? ""}
+            streaming={streaming && at === parts.length - 1}
+          />
+        ),
+      )}
     </>
   );
 }
@@ -119,13 +150,13 @@ function ItemView({ item, streaming }: { item: Item; streaming: boolean }) {
     case "user":
       return (
         <div data-slot="message" data-role="user">
-          <Blocks blocks={item.blocks} />
+          <Blocks blocks={item.blocks} from="user" />
         </div>
       );
     case "agent":
       return (
         <div data-slot="message" data-role="agent">
-          <Markdown text={textOf(item.blocks)} streaming={streaming} />
+          <AgentBlocks blocks={item.blocks} streaming={streaming} />
         </div>
       );
     case "thought":

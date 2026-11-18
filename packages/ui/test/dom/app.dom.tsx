@@ -297,6 +297,81 @@ test("Ctrl or Cmd+K searches the sessions by what each shows, and Enter opens th
   await waitFor(() => expect(named("openSession")).toEqual([["openSession", "local", "s1"]]));
 });
 
+test("images can be attached when the agent takes them, and go with the message as image blocks", async () => {
+  const { user, named } = await mount({
+    configure: (script) => {
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          configSchema: {},
+          promptCapabilities: { image: {} },
+        },
+      ];
+    },
+  });
+  await openFirstSession(user);
+  const attach = await screen.findByRole("button", { name: "Attach image" });
+  expect(attach).toBeTruthy();
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+  if (picker === null) throw new Error("no file input");
+  const png = new File([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])], "shot.png", {
+    type: "image/png",
+  });
+  await user.upload(picker, png);
+  expect(await screen.findByRole("button", { name: "Remove shot.png" })).toBeTruthy();
+  await user.type(await screen.findByRole("textbox", { name: "Message" }), "what is this");
+  await user.keyboard("{Enter}");
+  await waitFor(() => expect(named("prompt")).toHaveLength(1));
+  expect(named("prompt")[0]).toEqual([
+    "prompt",
+    "local",
+    "s1",
+    [
+      { type: "text", text: "what is this" },
+      { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
+    ],
+  ]);
+  // The attachment is gone once sent.
+  expect(screen.queryByRole("button", { name: "Remove shot.png" })).toBeNull();
+});
+
+test("a file that is not an image the agent takes is refused with the reason, and nothing is attached", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          configSchema: {},
+          promptCapabilities: { image: {} },
+        },
+      ];
+    },
+  });
+  await openFirstSession(user);
+  await screen.findByRole("button", { name: "Attach image" });
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+  if (picker === null) throw new Error("no file input");
+  // The picker's own filter (`accept`) is only a hint: a drop or a paste brings anything, so the code checks again.
+  await userEvent
+    .setup({ applyAccept: false })
+    .upload(picker, new File(["x"], "pic.bmp", { type: "image/bmp" }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "pic.bmp is not a PNG, JPEG, GIF or WebP image.",
+  );
+  expect(screen.queryByRole("list", { name: "Attached images" })).toBeNull();
+});
+
+test("without the agent's word that it takes images, there is nothing to attach them with", async () => {
+  const { user } = await mount();
+  await openFirstSession(user);
+  await screen.findByRole("textbox", { name: "Message" });
+  expect(screen.queryByRole("button", { name: "Attach image" })).toBeNull();
+});
+
 test("an update that is found is offered, asks before it restarts, and the footer can check on demand", async () => {
   const { user, emit, named } = await mount();
   expect(await screen.findByText("Cycle 0.1.0")).toBeTruthy();

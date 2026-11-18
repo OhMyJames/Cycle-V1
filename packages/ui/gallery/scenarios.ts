@@ -11,6 +11,7 @@ import type {
 } from "../src/api.ts";
 import { type CodeThemeId, codeTheme } from "../src/code-theme.ts";
 import { applyUpdate, emptyConversation } from "../src/model/index.ts";
+import { SAMPLE_PNG } from "./sample-image.ts";
 
 export type Scenario = {
   title: string;
@@ -21,6 +22,8 @@ export type Scenario = {
   history?: SessionUpdate[];
   permissions?: PermissionRequest[];
   update?: UpdateState;
+  /** The agent takes images: the composer shows how to attach them. */
+  attach?: boolean;
   /** Presses Tab this many times with real input events, so :focus-visible shows as it does for a keyboard. */
   tabs?: number;
   /** Runs once the page has drawn: open a dialog, press a key. */
@@ -215,6 +218,77 @@ export const scenarios: Record<string, Scenario> = {
       ],
     ),
   ),
+  images: {
+    title:
+      "Images in a conversation: one you sent, one the agent sent between two paragraphs, one that cannot be shown",
+    sessions: [session("s1", { title: "Look at the mock" })],
+    history: [
+      u({
+        sessionUpdate: "user_message",
+        messageId: "u1",
+        content: [
+          { type: "text", text: "Does this match the design?" },
+          {
+            type: "image",
+            data: SAMPLE_PNG,
+            mimeType: "image/png",
+            uri: "file:///Users/dev/mock.png",
+          },
+        ],
+      }),
+      u({
+        sessionUpdate: "agent_message",
+        messageId: "a1",
+        content: [
+          { type: "text", text: "Close. The colours match; the sun sits lower in the design:" },
+          { type: "image", data: SAMPLE_PNG, mimeType: "image/png" },
+          { type: "text", text: "And one more, which I could not render as a picture." },
+          { type: "image", data: "PHN2Zz48L3N2Zz4=", mimeType: "image/svg+xml" },
+        ],
+      }),
+      idle({ stopReason: "end_turn" }),
+    ],
+  },
+  attach: {
+    title: "Images attached to a message (two pictures and one the agent cannot take)",
+    attach: true,
+    sessions: [session("s1", { title: "Look at the mock" })],
+    history: [
+      you("u1", "Here is the design."),
+      say("a1", "Got it. Send me the screenshot."),
+      idle({ stopReason: "end_turn" }),
+    ],
+    after: async () => {
+      const bytes = Uint8Array.from(atob(SAMPLE_PNG), (c) => c.charCodeAt(0));
+      const files = new DataTransfer();
+      files.items.add(new File([bytes], "mock.png", { type: "image/png" }));
+      files.items.add(
+        new File([bytes], "a-rather-long-screenshot-name-2026-11-18.png", { type: "image/png" }),
+      );
+      files.items.add(new File(["x"], "notes.bmp", { type: "image/bmp" }));
+      const input = document.querySelector('input[type="file"]') as HTMLInputElement | null;
+      if (input === null) throw new Error("no file input");
+      input.files = files.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 600));
+    },
+  },
+  "image-open": {
+    title: "An image opened large",
+    sessions: [session("s1", { title: "Look at the mock" })],
+    history: [
+      u({
+        sessionUpdate: "agent_message",
+        messageId: "a1",
+        content: [{ type: "image", data: SAMPLE_PNG, mimeType: "image/png" }],
+      }),
+      idle({ stopReason: "end_turn" }),
+    ],
+    after: async () => {
+      (document.querySelector('[data-slot="image"]') as HTMLElement | null)?.click();
+      await new Promise((r) => setTimeout(r, 400));
+    },
+  },
   "empty-conversation": {
     title: "A session with nothing said yet",
     sessions: [session("s1")],

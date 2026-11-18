@@ -297,6 +297,9 @@ export function App() {
             </div>
             {view !== undefined ? (
               <Composer
+                canAttach={
+                  agents.find((a) => a.id === session?.agent)?.promptCapabilities?.image != null
+                }
                 enabled={!view.loading}
                 working={view.conversation.status !== "idle"}
                 onSend={store.send}

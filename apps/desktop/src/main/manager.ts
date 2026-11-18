@@ -12,6 +12,7 @@ import {
   type HostStatus,
   type NewSession,
   type PermissionRequest,
+  type PromptBlock,
   type SessionSnapshot,
   type SessionSummary,
 } from "@cycle/ui";
@@ -270,8 +271,10 @@ export class ConnectionManager
     this.#options.emit({ type: "update", hostId, sessionId, update, version: watched.version });
   }
 
-  async prompt(hostId: string, sessionId: string, text: string): Promise<void> {
-    await this.#connection(hostId).client.prompt(sessionId, [{ type: "text", text }]);
+  async prompt(hostId: string, sessionId: string, content: string | PromptBlock[]): Promise<void> {
+    const blocks =
+      typeof content === "string" ? [{ type: "text" as const, text: content }] : content;
+    await this.#connection(hostId).client.prompt(sessionId, blocks);
   }
 
   async cancel(hostId: string, sessionId: string): Promise<void> {

@@ -308,3 +308,24 @@ export const CopyIcon = ({ size = 16, ...rest }: IconProps) => (
     </g>
   </Svg>
 );
+
+/** iconmcp: paperclip */
+export const AttachIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g transform="rotate(45 8 8)">
+      <path d="M5.5 4.75 V11.25 A2.5 2.5 0 0 0 10.5 11.25 V3.5 A1.25 1.25 0 0 0 8 3.5 V9.75" />
+    </g>
+  </Svg>
+);
+
+/** iconmcp: image */
+export const ImageIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <rect x="2" y="2.75" width="12" height="10.5" rx="2" />
+      <circle cx="5.625" cy="5.875" r="1" />
+      <path d="M2.25 12.25 L6 8.5 L9.25 11.75" />
+      <path d="M8.25 10.75 L10.25 8.75 L13.75 12.25" />
+    </g>
+  </Svg>
+);

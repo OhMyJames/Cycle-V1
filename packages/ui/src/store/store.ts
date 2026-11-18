@@ -8,10 +8,12 @@ import type {
   HostStatus,
   NewSession,
   PermissionRequest,
+  PromptBlock,
   SessionSnapshot,
   SessionSummary,
   UpdateState,
 } from "../api.ts";
+import type { Attachment } from "../attachments.ts";
 import { applyUpdate, type Conversation, emptyConversation } from "../model/index.ts";
 
 export const viewKey = (hostId: string, sessionId: string): string => `${hostId}:${sessionId}`;
@@ -276,10 +278,20 @@ export class AppStore {
     if (sessionId !== undefined) await this.selectSession(sessionId);
   };
 
-  send = async (text: string): Promise<void> => {
+  /** Sends a message: its text, and the images attached to it, if any. */
+  send = async (text: string, attachments: readonly Attachment[] = []): Promise<void> => {
     const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
-    if (hostId === undefined || sessionId === undefined || text.trim() === "") return;
-    await this.#attempt(() => this.#bridge.prompt(hostId, sessionId, text));
+    if (hostId === undefined || sessionId === undefined) return;
+    if (text.trim() === "" && attachments.length === 0) return;
+    // Text alone goes as it always did; with images, as the blocks an agent reads (the text first).
+    const content: string | PromptBlock[] =
+      attachments.length === 0
+        ? text
+        : [
+            ...(text.trim() === "" ? [] : [{ type: "text" as const, text }]),
+            ...attachments.map((a) => ({ type: "image" as const, data: a.data, mimeType: a.type })),
+          ];
+    await this.#attempt(() => this.#bridge.prompt(hostId, sessionId, content));
   };
 
   cancel = async (): Promise<void> => {

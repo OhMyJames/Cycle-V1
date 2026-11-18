@@ -628,6 +628,10 @@ html[data-platform="darwin"]
 }
 
 [data-slot="message"][data-role="user"] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
   align-self: flex-end;
   max-width: 80%;
   background: var(--ui-muted);
@@ -640,6 +644,39 @@ html[data-platform="darwin"]
 [data-slot="message"][data-role="agent"] {
   max-width: 100%;
   overflow-wrap: anywhere;
+}
+
+/* An image of a conversation: a thumbnail that opens large. It is a data URL; nothing is fetched. */
+[data-slot="image"] {
+  display: inline-block;
+  max-width: min(100%, 24rem);
+  padding: 0;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  overflow: hidden;
+  background: var(--ui-muted);
+  cursor: zoom-in;
+}
+
+[data-slot="image"] img {
+  display: block;
+  max-width: 100%;
+  max-height: 20rem;
+  object-fit: contain;
+}
+
+[data-palette="image"] {
+  width: fit-content;
+  min-width: min(20rem, 100%);
+  max-width: calc(100vw - 4rem);
+}
+
+[data-palette="image"] img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 12rem);
+  margin-inline: auto;
+  object-fit: contain;
 }
 
 [data-slot="blocked-image"],
@@ -854,10 +891,71 @@ html[data-platform="darwin"]
 /* Composer */
 [data-slot="composer"] {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 0.5rem;
   padding: var(--cycle-gap) var(--cycle-column-pad);
   border-top: 1px solid var(--ui-border);
+}
+
+[data-slot="composer-row"] {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+[data-slot="composer"][data-dropping] {
+  outline: 2px dashed var(--cycle-accent);
+  outline-offset: -4px;
+}
+
+[data-slot="drop-hint"] {
+  color: var(--cycle-accent);
+  font-size: var(--cycle-text-meta);
+}
+
+[data-slot="attachments"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-slot="attachment"] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 14rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-muted);
+  font-size: var(--cycle-text-meta);
+}
+
+[data-slot="attachment"] img {
+  width: 2rem;
+  height: 2rem;
+  border-radius: calc(var(--ui-radius) / 2);
+  object-fit: cover;
+}
+
+[data-slot="attachment-name"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-slot="attachment"] button {
+  display: grid;
+  place-items: center;
+  padding: 0.125rem;
+  border: 0;
+  background: none;
+  color: var(--ui-muted-foreground);
+  cursor: pointer;
 }
 
 [data-slot="composer"] textarea {
