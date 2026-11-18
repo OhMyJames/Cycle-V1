@@ -23,6 +23,7 @@ import {
 } from "@ui-sdk/react/resizable";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { usageLabel } from "../model/index.ts";
+import { sessionList } from "../sessions.ts";
 import { viewKey } from "../store/index.ts";
 import { thinking } from "../thinking.ts";
 import { CodeThemePicker } from "./code-theme-picker.tsx";
@@ -104,6 +105,7 @@ export function App() {
   const [panel, setPanel] = useState<Panel>("none");
   const [showArchived, setShowArchived] = useState(false);
   const [sent, setSent] = useState(0);
+  const [showAll, setShowAll] = useState(false);
 
   const sessions = selectedHost !== undefined ? (sessionsByHost[selectedHost] ?? []) : [];
   const agents = selectedHost !== undefined ? (agentsByHost[selectedHost] ?? []) : [];
@@ -123,9 +125,8 @@ export function App() {
   );
   const close = () => setPanel("none");
   const [layout] = useState(createResizableController);
-  const visible = sessions
-    .filter((s) => showArchived || !s.archived)
-    .sort((a, b) => b.lastSeq - a.lastSeq);
+  // The list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
+  const list = sessionList(sessions, { showArchived, showAll, selected: selectedSession });
   const working = view !== undefined && view.conversation.status !== "idle";
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
 
@@ -168,8 +169,8 @@ export function App() {
         const request = view.permissions[0];
         run(() => void store.answerPermission(request.key, firstAllow.optionId));
       } else if (key === "[" || key === "]") {
-        const at = visible.findIndex((s) => s.sessionId === selectedSession);
-        const next = visible[at + (key === "]" ? 1 : -1)];
+        const at = list.order.findIndex((s) => s.sessionId === selectedSession);
+        const next = list.order[at + (key === "]" ? 1 : -1)];
         if (next !== undefined) run(() => void store.selectSession(next.sessionId));
       }
     };
@@ -194,7 +195,7 @@ export function App() {
             hosts={hosts}
             status={status}
             selectedHost={selectedHost}
-            sessions={sessions}
+            list={list}
             selectedSession={selectedSession}
             showArchived={showArchived}
             onSelectHost={(id) => void store.selectHost(id)}
@@ -204,6 +205,7 @@ export function App() {
             onAddHost={() => setPanel("add-host")}
             onRemoveHost={(id) => void store.removeHost(id)}
             onToggleArchived={() => setShowArchived((v) => !v)}
+            onShowAll={() => setShowAll(true)}
             onAgentDefaults={() => setPanel("defaults")}
           >
             <CodeThemePicker />

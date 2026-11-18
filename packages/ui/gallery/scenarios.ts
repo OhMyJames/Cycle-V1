@@ -528,6 +528,29 @@ export const scenarios: Record<string, Scenario> = {
     status: [{ hostId: "local", state: "reconnecting" }],
     sessions: [session("s1", { title: "Fix the remote session" })],
   },
+  "session-groups": {
+    title:
+      "The session list: what needs you, what is working, then projects (one with more than a page, two with the same last folder name)",
+    sessions: [
+      session("ask", { title: "Approve the deploy", state: "requires_action", lastSeq: 90 }),
+      session("run1", {
+        title: "Index the logs",
+        state: "running",
+        cwd: "/home/dev/docs-site",
+        lastSeq: 80,
+      }),
+      session("run2", { title: "Port the tests", state: "running", lastSeq: 70 }),
+      ...Array.from({ length: 24 }, (_, n) =>
+        session(`c${n}`, { title: `Cycle task ${n + 1}`, lastSeq: 24 - n }),
+      ),
+      session("d1", { title: "Fix the sidebar", cwd: "/home/dev/docs-site", lastSeq: 30 }),
+      session("d2", { title: "Write the guide", cwd: "/home/dev/docs-site", lastSeq: 29 }),
+      session("a1", { title: "Another app", cwd: "/home/other/app", lastSeq: 40 }),
+      session("a2", { title: "The app", cwd: "/home/dev/app", lastSeq: 35 }),
+      session("old", { title: "Archived thing", archived: true, lastSeq: 2 }),
+    ],
+    history: [you("u1", "Where were we?"), say("a1", "Here.")],
+  },
   "many-sessions": {
     title: "800 sessions, long titles, every state",
     sessions: Array.from({ length: 800 }, (_, i) =>

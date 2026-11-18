@@ -13,7 +13,8 @@
   "packages/ui/src/react/status.tsx": 0,
   "packages/ui/src/react/turn.tsx": 0,
   "packages/ui/src/react/composer.tsx": 3,
+  "packages/ui/src/react/session-list.tsx": 0,
   "packages/ui/src/react/conversation.tsx": 0,
-  "packages/ui/src/react/sidebar.tsx": 10,
+  "packages/ui/src/react/sidebar.tsx": 9,
   "packages/ui/src/react/permission.tsx": 1
 }

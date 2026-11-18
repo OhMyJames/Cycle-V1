@@ -310,6 +310,43 @@ svg[data-slot="dot"] {
   box-shadow: inset 2px 0 0 var(--cycle-accent);
 }
 
+/* A group of the list: its heading, then its rows. */
+[data-slot="listbox-group"] {
+  display: flex;
+  flex-direction: column;
+}
+
+[data-slot="listbox-group"] + [data-slot="listbox-group"] {
+  margin-top: 0.5rem;
+}
+
+[data-slot="listbox-group-label"] {
+  padding: 0.25rem 0.5rem 0.125rem;
+  font-size: var(--cycle-text-meta);
+  font-weight: 600;
+  color: var(--ui-muted-foreground);
+}
+
+/* A row with nothing to say on its second line is one line. */
+[data-slot="session-meta"]:empty {
+  display: none;
+}
+
+[data-slot="session-place"] {
+  margin-inline-start: 0.5rem;
+}
+
+[data-slot="show-all"] {
+  align-self: flex-start;
+  padding: 0.25rem 0.5rem;
+  font-size: var(--cycle-text-meta);
+  color: var(--cycle-accent);
+}
+
+[data-slot="show-all"]:hover {
+  text-decoration: underline;
+}
+
 [data-slot="session-dot"] {
   flex: none;
   display: grid;
