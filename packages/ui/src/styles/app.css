@@ -470,6 +470,12 @@ html[data-platform="darwin"]
   -webkit-app-region: no-drag;
 }
 
+/* A drag region takes the clicks of whatever is drawn over it. Dialogs, menus and lists of choices open over the empty state and the
+   session header, so their backdrop and their surface are not part of one: what is on them is clicked, and a click on the backdrop closes. */
+html[data-platform="darwin"] :is([data-slot$="-backdrop"], [data-slot$="-content"]) {
+  -webkit-app-region: no-drag;
+}
+
 /* With the sidebar folded the traffic lights are over the main area: the title starts after them. */
 html[data-platform="darwin"]
   [data-slot="app"]:has([data-slot="resizable-panel"][data-collapsed])
