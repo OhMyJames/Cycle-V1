@@ -256,18 +256,18 @@ svg[data-slot="dot"] {
   box-shadow: none;
 }
 
-[data-slot="host-bar"] {
+[data-slot="environment-bar"] {
   display: flex;
   align-items: center;
   gap: 0.25rem;
 }
 
-[data-slot="host-bar"] > :first-child {
+[data-slot="environment-bar"] > :first-child {
   flex: 1;
   min-width: 0;
 }
 
-[data-slot="host-state"] {
+[data-slot="environment-state"] {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -275,11 +275,11 @@ svg[data-slot="dot"] {
   color: var(--ui-muted-foreground);
 }
 
-[data-slot="host-state"][data-state="closed"] {
+[data-slot="environment-state"][data-state="closed"] {
   color: var(--ui-destructive);
 }
 
-[data-slot="host-state"][data-state="reconnecting"] {
+[data-slot="environment-state"][data-state="reconnecting"] {
   color: var(--cycle-attention);
 }
 
@@ -327,15 +327,6 @@ svg[data-slot="dot"] {
   color: var(--ui-muted-foreground);
 }
 
-/* A row with nothing to say on its second line is one line. */
-[data-slot="session-meta"]:empty {
-  display: none;
-}
-
-[data-slot="session-place"] {
-  margin-inline-start: 0.5rem;
-}
-
 [data-slot="show-all"] {
   align-self: flex-start;
   padding: 0.25rem 0.5rem;
@@ -369,25 +360,67 @@ svg[data-slot="dot"] {
   font-weight: 500;
 }
 
-[data-needs-you] [data-slot="session-title"] {
+[data-mark="needs-you"] [data-slot="session-title"],
+[data-mark="unread"] [data-slot="session-title"] {
   font-weight: 600;
 }
 
-[data-slot="session-meta"] {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--cycle-text-meta);
+/* The switcher: the workspace shown, an icon if it is on another host, and a square number for what is elsewhere. */
+[data-slot="workspace-switcher"] {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  max-width: 100%;
+  font-weight: 600;
+}
+
+[data-slot="workspace-switcher"][data-empty] {
+  font-weight: 400;
   color: var(--ui-muted-foreground);
 }
 
-[data-slot="session-meta"][data-state="running"] {
-  color: var(--cycle-accent);
+[data-slot="workspace-switcher"][data-away],
+[role="menuitem"][data-away] {
+  color: var(--ui-muted-foreground);
 }
 
-[data-slot="session-meta"][data-state="requires_action"] {
-  color: var(--cycle-attention);
+[data-slot="workspace-name"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-slot="remote"] {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--ui-muted-foreground);
+}
+
+/* A number in a square: the most urgent class of what is not on screen. The colour agrees with the dot of that class. */
+[data-slot="badge"] {
+  flex: none;
+  min-width: 1.4em;
+  padding: 0 0.3em;
+  border-radius: 4px;
+  text-align: center;
+  font-size: var(--cycle-text-meta);
   font-weight: 600;
+  line-height: 1.5;
+  color: var(--ui-background);
+  background: var(--cycle-accent);
+}
+
+[data-slot="badge"][data-mark="needs-you"] {
+  background: var(--cycle-attention);
+}
+
+[data-slot="badge"][data-mark="unread"] {
+  color: var(--cycle-accent);
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px currentColor;
 }
 
 [data-archived] {

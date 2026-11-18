@@ -9,7 +9,7 @@ import { fakeBridge, idle, summary as summaryOf, text } from "./fake-bridge.ts";
 
 const update = (version: number, u: SessionUpdate, sessionId = "s1"): AppEvent => ({
   type: "update",
-  hostId: "local",
+  environmentId: "local",
   sessionId,
   update: u,
   version,
@@ -22,14 +22,14 @@ const opened = async (script = fakeBridge({ connected: true }), drafts?: DraftSt
   return { store, ...script };
 };
 
-test("starts: reads the hosts and what main has of them, and the agents of those that are connected", async () => {
+test("starts: reads the environments and what main has of them, and the agents of those that are connected", async () => {
   const { bridge, named } = fakeBridge({ connected: true });
   const store = new AppStore(bridge);
   await store.start();
   const s = store.getState();
   expect(s.ready).toBe(true);
-  expect(s.selectedHost).toBe("local");
-  // Main connects every host: the page does not.
+  expect(s.selectedEnvironment).toBe("local");
+  // Main connects every environment: the page does not.
   expect(named("connect")).toHaveLength(0);
   expect(s.sessions.local?.map((x) => x.sessionId)).toEqual(["s1"]);
   expect(s.agents.local?.map((a) => a.id)).toEqual(["fake"]);
@@ -41,7 +41,7 @@ test("the agents of a host are read when it connects, not before", async () => {
   await store.start();
   expect(store.getState().agents.local).toBeUndefined();
   expect(script.named("agents")).toEqual([]);
-  script.emit({ type: "host-status", hostId: "local", state: "connected" });
+  script.emit({ type: "environment-status", environmentId: "local", state: "connected" });
   await Bun.sleep(5);
   expect(store.getState().agents.local?.map((a) => a.id)).toEqual(["fake"]);
 });
@@ -50,7 +50,7 @@ test("a session of a host that is away cannot be opened unless it was already, a
   const script = fakeBridge({ connected: false });
   const store = new AppStore(script.bridge);
   await store.start();
-  // Its last list is there, from main, though the host is not connected.
+  // Its last list is there, from main, though the environment is not connected.
   expect(store.getState().sessions.local?.map((x) => x.sessionId)).toEqual(["s1"]);
   await store.selectSession("local", "s1");
   expect(store.getState().error).toBe(
@@ -59,11 +59,11 @@ test("a session of a host that is away cannot be opened unless it was already, a
   expect(store.getState().selectedSession).toBeUndefined();
   expect(script.named("openSession")).toEqual([]);
 
-  // Open while it was connected, then the host goes away: what was read can still be looked at.
+  // Open while it was connected, then the environment goes away: what was read can still be looked at.
   store.dismissError();
-  script.emit({ type: "host-status", hostId: "local", state: "connected" });
+  script.emit({ type: "environment-status", environmentId: "local", state: "connected" });
   await store.selectSession("local", "s1");
-  script.emit({ type: "host-status", hostId: "local", state: "closed" });
+  script.emit({ type: "environment-status", environmentId: "local", state: "closed" });
   await store.selectSession("local", "s1");
   expect(store.getState().error).toBeUndefined();
   expect(store.getState().selectedSession).toBe("s1");
@@ -75,20 +75,25 @@ test("a host that is saved is connected, and one that is removed leaves nothing 
   const store = new AppStore(script.bridge);
   await store.start();
   await store.selectSession("local", "s1");
-  await store.saveHost({ id: "box", name: "Box", kind: "ssh", host: "me@box" });
+  await store.saveEnvironment({
+    id: "box",
+    name: "Box",
+    kind: "remote",
+    transport: { type: "ssh", host: "me@box" },
+  });
   expect(script.named("connect")).toEqual([["connect", "box"]]);
   script.emit({
     type: "sessions",
-    hostId: "box",
-    sessions: [{ ...summaryOf("b1"), hostId: "box" }],
+    environmentId: "box",
+    sessions: [{ ...summaryOf("b1"), environmentId: "box" }],
   });
-  script.emit({ type: "host-status", hostId: "box", state: "connected" });
-  await store.removeHost("box");
+  script.emit({ type: "environment-status", environmentId: "box", state: "connected" });
+  await store.removeEnvironment("box");
   const s = store.getState();
   expect(s.sessions.box).toBeUndefined();
   expect(s.agents.box).toBeUndefined();
   expect(s.status.box).toBeUndefined();
-  // What was open on another host stays open.
+  // What was open on another environment stays open.
   expect(s.selectedSession).toBe("s1");
 });
 
@@ -99,7 +104,7 @@ test("a host that cannot be connected says so in its status, not in an error to 
   };
   const store = new AppStore(script.bridge);
   await store.start();
-  await store.connectHost("local");
+  await store.connectEnvironment("local");
   expect(store.getState().error).toBeUndefined();
 });
 
@@ -174,7 +179,7 @@ test("events that come while a session is being read are applied after it, in or
 test("a permission request appears and closes", async () => {
   const request: PermissionRequest = {
     key: "local:s1:p1",
-    hostId: "local",
+    environmentId: "local",
     sessionId: "s1",
     title: "Allow Bash?",
     options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
@@ -186,7 +191,7 @@ test("a permission request appears and closes", async () => {
   expect(named("answerPermission")).toEqual([["answerPermission", "local:s1:p1", "allow"]]);
   emit({
     type: "permission-closed",
-    hostId: "local",
+    environmentId: "local",
     sessionId: "s1",
     key: request.key,
     version: 2,
@@ -305,7 +310,7 @@ test("what the daemon hands back goes into that session's box once, even for a s
   store.drafts.setText(key, "later");
   emit({
     type: "update",
-    hostId: "local",
+    environmentId: "local",
     sessionId: "s1",
     update: handBack(["one", "two"]) as never,
     version: 1,
@@ -314,7 +319,7 @@ test("what the daemon hands back goes into that session's box once, even for a s
   // Another update does not put it there again.
   emit({
     type: "update",
-    hostId: "local",
+    environmentId: "local",
     sessionId: "s1",
     update: { sessionUpdate: "_cycle/queue_update", entries: [] } as never,
     version: 2,
@@ -351,10 +356,10 @@ test("a notification pressed shows that session, on whichever host", async () =>
   const script = fakeBridge({ connected: true });
   const store = new AppStore(script.bridge);
   await store.start();
-  script.emit({ type: "focus-session", hostId: "local", sessionId: "s1" });
+  script.emit({ type: "focus-session", environmentId: "local", sessionId: "s1" });
   // The focus is asked for without waiting (the event handler cannot); the session is opened a moment later.
   for (let i = 0; i < 100 && script.named("openSession").length === 0; i += 1) await Bun.sleep(5);
-  expect(store.getState().selectedHost).toBe("local");
+  expect(store.getState().selectedEnvironment).toBe("local");
   expect(store.getState().selectedSession).toBe("s1");
   expect(script.named("openSession").at(-1)).toEqual(["openSession", "local", "s1"]);
 });
@@ -377,7 +382,7 @@ test("a session deleted elsewhere takes its view, its draft and its place as the
   expect(store.drafts.get(key).text).toBe("half a thought");
   expect(store.getState().selectedSession).toBe("s1");
 
-  emit({ type: "session-gone", hostId: "local", sessionId: "s1" });
+  emit({ type: "session-gone", environmentId: "local", sessionId: "s1" });
   expect(store.getState().views[key]).toBeUndefined();
   expect(store.getState().selectedSession).toBeUndefined();
   expect(store.drafts.get(key).text).toBe("");
@@ -385,7 +390,7 @@ test("a session deleted elsewhere takes its view, its draft and its place as the
 
 test("a session gone on another host does not close the one that is open here", async () => {
   const { store, emit } = await opened();
-  emit({ type: "session-gone", hostId: "elsewhere", sessionId: "s1" });
+  emit({ type: "session-gone", environmentId: "elsewhere", sessionId: "s1" });
   expect(store.getState().selectedSession).toBe("s1");
   expect(store.getState().views[viewKey("local", "s1")]).toBeDefined();
 });

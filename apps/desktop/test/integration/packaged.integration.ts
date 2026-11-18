@@ -4,7 +4,7 @@
 // itself, start the daemon, and show a window that is connected to it.
 //
 // The window is read over the DevTools protocol, which Electron serves when asked
-// (--remote-debugging-port): the page's own host indicator has to say "connected".
+// (--remote-debugging-port): the page's own environment indicator has to say "connected".
 // Linux (under xvfb) and macOS run the same test; what differs is only where the executable is.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
@@ -63,8 +63,8 @@ test.skipIf(!ready)(
       for (;;) {
         state = await evaluate(
           port,
-          // A host that is connected is not shown in the sidebar's list of hosts that are apart (only one that is not is),
-          // so the window says it by the button that starts a session being usable: it is while some host is connected.
+          // An environment that is connected is not shown in the sidebar's list of environments that are apart (only one that is not is),
+          // so the window says it by the button that starts a session being usable: it is while some environment is connected.
           "document.querySelector('button[title^=\"New session\"]')?.disabled === false ? 'connected' : null",
         ).catch(() => undefined);
         if (state === "connected") break;

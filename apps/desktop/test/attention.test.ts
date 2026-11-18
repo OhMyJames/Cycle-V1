@@ -9,11 +9,11 @@ import {
 import type { AttentionNotice } from "../src/main/manager.ts";
 
 const notice = (over: Partial<AttentionNotice> = {}): AttentionNotice => ({
-  hostId: "local",
-  hostName: "This computer",
+  environmentId: "local",
+  environmentName: "This computer",
   kind: "needs-you",
   session: {
-    hostId: "local",
+    environmentId: "local",
     sessionId: "s1",
     cwd: "/home/dev/cycle-v1",
     archived: false,
@@ -85,7 +85,11 @@ test("a session with no title is named by its folder, and one on another machine
   const { notify, shown } = rig();
   const { title: _gone, ...untitled } = notice().session;
   notify(
-    notice({ hostId: "build", hostName: "build-1", session: { ...untitled, hostId: "build" } }),
+    notice({
+      environmentId: "build",
+      environmentName: "build-1",
+      session: { ...untitled, environmentId: "build" },
+    }),
   );
   expect(shown).toEqual([
     { title: "cycle-v1", subtitle: "build-1", body: "Waiting for your answer" },
@@ -109,7 +113,7 @@ test("pressing it brings the window back and asks the page to show that session"
   notify(notice());
   press();
   expect(calls).toEqual(["notify", "show", "focus", "activate"]);
-  expect(emitted).toEqual([{ type: "focus-session", hostId: "local", sessionId: "s1" }]);
+  expect(emitted).toEqual([{ type: "focus-session", environmentId: "local", sessionId: "s1" }]);
 });
 
 test("a title is one line of a length a notification can use, and a title that says nothing is the folder", () => {

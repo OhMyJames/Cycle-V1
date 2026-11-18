@@ -57,7 +57,7 @@ export function UpdateBanner() {
         open={confirming}
         onOpenChange={setConfirming}
         title={`Update to ${version}?`}
-        description="Cycle closes and opens again as the new version. A session on This computer that is working is interrupted; sessions on other hosts carry on."
+        description="Cycle closes and opens again as the new version. A session on This computer that is working is interrupted; sessions on other environments carry on."
         confirmLabel="Update and restart"
         onConfirm={() => store.installUpdate()}
       />
@@ -65,9 +65,9 @@ export function UpdateBanner() {
   );
 }
 
-/** A host whose daemon is older than this app: what to run on that machine. */
-export function DaemonBanner({ hostId }: { hostId: string }) {
-  const daemon = useAppState((s) => s.status[hostId]?.daemon);
+/** An environment whose daemon is older than this app: what to run on that machine. */
+export function DaemonBanner({ environmentId }: { environmentId: string }) {
+  const daemon = useAppState((s) => s.status[environmentId]?.daemon);
   if (daemon?.upgrade === undefined) return null;
   return (
     <div data-slot="banner" data-severity="warning" role="status">

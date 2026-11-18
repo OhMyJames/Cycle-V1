@@ -28,8 +28,8 @@ import { optionId, PickerMenu, type PickerRow } from "./picker-menu.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 
 export type ComposerProps = {
-  /** The host it is on, for what its daemon can do. */
-  hostId: string;
+  /** The environment it is on, for what its daemon can do. */
+  environmentId: string;
   /** The session this box is for, as `viewKey` names it. A box is made anew for each session. */
   sessionKey: string;
   /** False when there is no session, or it is still being read. */
@@ -65,7 +65,7 @@ const previewOf = (prompt: QueuedPrompt): { text: string; images: number } => ({
 });
 
 export function Composer({
-  hostId,
+  environmentId,
   sessionKey,
   enabled,
   canAttach = false,
@@ -82,7 +82,7 @@ export function Composer({
   const commands = useAppState((s) => s.views[sessionKey]?.conversation.commands ?? NONE);
   const { text, attachments } = draft;
   // A daemon that has not said it queues is asked nothing it would refuse: a message waits for the turn to end.
-  const capabilities = useAppState((s) => s.status[hostId]?.capabilities);
+  const capabilities = useAppState((s) => s.status[environmentId]?.capabilities);
   const canQueue = capabilities?.queue === true;
   const canFind = capabilities?.files === true;
   const recalled = useRef<Recall>(NOT_RECALLING);

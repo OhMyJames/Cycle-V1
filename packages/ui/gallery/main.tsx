@@ -22,11 +22,12 @@ const bridgeFor = (scenario: Scenario) => {
     connected: true,
     ...(scenario.update ? { update: scenario.update } : {}),
   });
-  const hosts = scenario.hosts ?? [LOCAL];
-  const status = scenario.status ?? hosts.map((h) => UP(h.id));
+  const environments = scenario.environments ?? [LOCAL];
+  const status = scenario.status ?? environments.map((h) => UP(h.id));
   const sessions = scenario.sessions ?? [];
-  script.bridge.hosts = async () => ({ hosts, status });
-  script.bridge.sessions = async (hostId) => sessions.filter((s) => s.hostId === hostId);
+  script.bridge.environments = async () => ({ environments, status });
+  script.bridge.sessions = async (environmentId) =>
+    sessions.filter((s) => s.environmentId === environmentId);
   script.bridge.openSession = async () => snapshotOf(scenario);
   script.bridge.agents = async () => [
     {

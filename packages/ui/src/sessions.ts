@@ -1,24 +1,32 @@
-// How the sessions are ordered and grouped for the list, and which of them are shown: pure, so the list on screen and the
-// keyboard walking it (Cmd+[ and Cmd+]) are one thing and are tested without a page.
+// How the sessions are put in front of the person: which workspace the sidebar shows, how its sessions are grouped and
+// ordered, what each row says, and what the switcher says of the other workspaces. Pure, so the list on screen and the
+// keyboard walking it (Cmd+[ and Cmd+]) are one thing and are tested without a page. `now` is given, never read.
 //
-// What waits on the person comes first, then what is working, then the rest by project. A session list row has no
-// pin and no time, only a sequence number, so there are no "Pinned" or "Today" groups: they have nothing to come from.
+// A workspace is a folder on one environment: `(environmentId, cwd)` (docs/desktop.md). The sidebar shows one at a time.
 import type { SessionSummary } from "./api.ts";
 import { viewKey } from "./store/store.ts";
 
-/** How many of a project's sessions show before "Show more". */
-export const PER_PROJECT = 20;
+/** How many of a workspace's older sessions show before "Show more". */
+export const PER_WORKSPACE = 20;
+
+/** What is on a row, most urgent first: the one thing a row says of its session. */
+export type Mark = "needs-you" | "running" | "background" | "unread";
+export const URGENCY: readonly Mark[] = ["needs-you", "running", "background", "unread"];
+
+export type Counts = Record<Mark, number>;
+
+/** The most urgent class that has any, and how many sessions are in it. */
+export const urgent = (counts: Counts): { mark: Mark; count: number } | undefined => {
+  const mark = URGENCY.find((m) => counts[m] > 0);
+  return mark === undefined ? undefined : { mark, count: counts[mark] };
+};
 
 export type SessionGroup = {
   /** Unique among the groups, and the same from one call to the next. */
   key: string;
-  kind: "needs-you" | "working" | "project";
-  /** A project's name (see `names` of the list); empty for the first two groups, and for a session with no folder. */
-  label: string;
+  kind: "needs-you" | "running" | "today" | "yesterday" | "earlier";
   /** What is shown. */
   sessions: SessionSummary[];
-  /** How many more the project has than are shown. */
-  hidden: number;
 };
 
 export type SessionList = {
@@ -27,41 +35,21 @@ export type SessionList = {
   order: SessionSummary[];
   /** How many sessions are not shown because of the limit. */
   hidden: number;
-  /** The name of each project, by its `projectKey`. */
-  names: ReadonlyMap<string, string>;
 };
 
-/** What the list needs to know of a host to name its projects. */
-export type HostLabel = { id: string; name: string; local: boolean };
+/** What the list needs to know of an environment. */
+export type EnvironmentLabel = { id: string; name: string; local: boolean };
 
-export type SessionListOptions = {
-  showArchived: boolean;
-  /** Lifts the limit of each project. */
-  showAll: boolean;
-  /** The open session, by its `sessionKey`: its project shows it, however far down it is. */
-  selected?: string | undefined;
-  /**
-   * The hosts, so that a project on another machine is named as such ("app · build-box"): the same folder on two
-   * hosts is two projects. Without it no project is named after its host.
-   */
-  hosts?: readonly HostLabel[] | undefined;
-  /**
-   * Hosts that are not connected: their sessions are the last list read, and nothing can be done with them. They wait
-   * for no one and work for no one, so they are in their projects and not in Needs you or Working.
-   */
-  away?: ReadonlySet<string> | undefined;
-};
-
-/** A session, among the sessions of every host: the pair (host, id) is what is unique. */
+/** A session, among the sessions of every environment: the pair (environment, id) is what is unique. */
 export const sessionKey = (session: SessionSummary): string =>
-  viewKey(session.hostId, session.sessionId);
+  viewKey(session.environmentId, session.sessionId);
 
-/** A project is a folder on one host (a host's id has no "|" in it, so the first one ends it). */
-export const projectKey = (session: SessionSummary): string =>
-  `${session.hostId}|${projectOf(session)}`;
+/** A workspace is a folder on one environment (an environment's id has no "|" in it, so the first one ends it). */
+export const workspaceKey = (session: SessionSummary): string =>
+  `${session.environmentId}|${folderOf(session)}`;
 
-/** The folder a session belongs to as a project: without a trailing slash (`/a/app` and `/a/app/` are one). */
-export const projectOf = (session: SessionSummary): string => {
+/** The folder a session works in, without a trailing slash (`/a/app` and `/a/app/` are one). */
+export const folderOf = (session: SessionSummary): string => {
   const trimmed = session.cwd.replace(/\/+$/, "");
   return trimmed === "" ? (session.cwd.startsWith("/") ? "/" : "") : trimmed;
 };
@@ -72,7 +60,7 @@ const timeOf = (session: SessionSummary): number =>
   session.updatedAt === undefined ? Number.NaN : Date.parse(session.updatedAt);
 
 /**
- * Newest first. By `updatedAt`, which compares across hosts. A session whose daemon does not say (an older one) comes
+ * Newest first. By `updatedAt`, which compares across environments. A session whose daemon does not say (an older one) comes
  * after those that have it, and those are ordered by `lastSeq`, which only compares within one daemon: so they stay
  * in their daemon's order, and are never mixed in with another's by a number that means something else.
  */
@@ -81,116 +69,243 @@ const younger = (a: SessionSummary, b: SessionSummary): number => {
   const right = timeOf(b);
   if (!Number.isNaN(left) && !Number.isNaN(right) && left !== right) return right - left;
   if (Number.isNaN(left) !== Number.isNaN(right)) return Number.isNaN(left) ? 1 : -1;
-  // `lastSeq` only means something within one daemon: across daemons the tie stays a tie (group by host first).
-  return before(a.hostId, b.hostId) || b.lastSeq - a.lastSeq;
+  // `lastSeq` only means something within one daemon: across daemons the tie stays a tie (group by environment first).
+  return before(a.environmentId, b.environmentId) || b.lastSeq - a.lastSeq;
 };
 
 export const newest = (a: SessionSummary, b: SessionSummary): number =>
-  younger(a, b) || before(a.hostId, b.hostId) || before(a.sessionId, b.sessionId);
+  younger(a, b) || before(a.environmentId, b.environmentId) || before(a.sessionId, b.sessionId);
+
+/**
+ * What a row says of its session, one thing: waiting for the person, working, a background sub-agent working, or news
+ * the person has not seen. An archived session is put away and a session of an environment that is away is the last list read:
+ * neither waits for anyone nor works for anyone.
+ */
+export const markOf = (session: SessionSummary, away?: ReadonlySet<string>): Mark | undefined => {
+  if (session.archived || away?.has(session.environmentId) === true) return undefined;
+  if (session.state === "requires_action") return "needs-you";
+  if (session.state === "running") return "running";
+  if ((session.background ?? 0) > 0) return "background";
+  if (session.unread === true) return "unread";
+  return undefined;
+};
+
+const noCounts = (): Counts => ({ "needs-you": 0, running: 0, background: 0, unread: 0 });
+
+export type Workspace = {
+  key: string;
+  environmentId: string;
+  cwd: string;
+  /** The folder's name; more of the path where two on one environment would be the same, and the environment's name where two environments would. */
+  name: string;
+  /** Its sessions, newest first (those that are archived only when asked for). */
+  sessions: SessionSummary[];
+  counts: Counts;
+};
+
+/**
+ * Every workspace: grouped by environment (this computer first, then in the order the environments are listed), and inside an environment the
+ * one with the newest session first. A workspace with only archived sessions is there only when they are asked for.
+ */
+export const workspacesOf = (
+  sessions: readonly SessionSummary[],
+  {
+    environments = [],
+    away,
+    showArchived = false,
+  }: {
+    environments?: readonly EnvironmentLabel[] | undefined;
+    away?: ReadonlySet<string> | undefined;
+    showArchived?: boolean | undefined;
+  } = {},
+): Workspace[] => {
+  const byKey = new Map<string, SessionSummary[]>();
+  for (const session of sessions.toSorted(newest)) {
+    if (session.archived && !showArchived) continue;
+    const list = byKey.get(workspaceKey(session));
+    if (list === undefined) byKey.set(workspaceKey(session), [session]);
+    else list.push(session);
+  }
+  const known = [...byKey].map(([key, list]) => ({
+    key,
+    environmentId: list[0]?.environmentId ?? "",
+    cwd: list[0] !== undefined ? folderOf(list[0]) : "",
+    sessions: list,
+  }));
+  const names = namesOf(known, environments);
+  const rank = (environmentId: string): number => {
+    const at = environments.findIndex((h) => h.id === environmentId);
+    const local = environments[at]?.local === true;
+    return local ? -1 : at === -1 ? environments.length : at;
+  };
+  return known
+    .map((w): Workspace => {
+      const counts = noCounts();
+      for (const session of w.sessions) {
+        const mark = markOf(session, away);
+        if (mark !== undefined) counts[mark] += 1;
+      }
+      return { ...w, name: names.get(w.key) ?? "", counts };
+    })
+    .toSorted((a, b) => {
+      const left = a.sessions[0];
+      const right = b.sessions[0];
+      return (
+        rank(a.environmentId) - rank(b.environmentId) ||
+        (left !== undefined && right !== undefined ? younger(left, right) : 0) ||
+        before(a.key, b.key)
+      );
+    });
+};
 
 const parts = (folder: string): string[] => folder.split("/").filter(Boolean);
 
-type Project = { key: string; folder: string; hostId: string };
-
 /**
- * The names of the projects: the last part of the folder, with more of it only where two on the same host would be
- * the same; then, for a project on another host, that host's name.
+ * The names of the workspaces: the last part of the folder, with more of it only where two on the same environment would be
+ * the same; and where two on different environments would still be the same, the environment's name after it.
  */
 const namesOf = (
-  projects: readonly Project[],
-  hosts: ReadonlyMap<string, HostLabel>,
+  workspaces: readonly { key: string; environmentId: string; cwd: string }[],
+  environments: readonly EnvironmentLabel[],
 ): Map<string, string> => {
-  const segments = new Map(projects.map((p) => [p.key, parts(p.folder)]));
-  const depth = new Map(projects.map((p) => [p.key, 1]));
-  const label = (project: Project): string => {
-    const all = segments.get(project.key) ?? [];
-    const take = depth.get(project.key) ?? 1;
+  const segments = new Map(workspaces.map((w) => [w.key, parts(w.cwd)]));
+  const depth = new Map(workspaces.map((w) => [w.key, 1]));
+  const label = (w: { key: string; cwd: string }): string => {
+    const all = segments.get(w.key) ?? [];
+    const take = depth.get(w.key) ?? 1;
     // At most the whole path, which no other folder has.
-    return all.length === 0 ? project.folder : all.slice(-take).join("/");
+    return all.length === 0 ? w.cwd : all.slice(-take).join("/");
   };
   for (let round = 0; round < 64; round += 1) {
-    const byLabel = new Map<string, Project[]>();
-    for (const project of projects) {
-      const same = `${project.hostId}|${label(project)}`;
-      byLabel.set(same, [...(byLabel.get(same) ?? []), project]);
+    const byLabel = new Map<string, typeof workspaces>();
+    for (const w of workspaces) {
+      const same = `${w.environmentId}|${label(w)}`;
+      byLabel.set(same, [...(byLabel.get(same) ?? []), w]);
     }
     let grew = false;
     for (const same of byLabel.values()) {
       if (same.length < 2) continue;
-      for (const project of same) {
-        if ((depth.get(project.key) ?? 1) < (segments.get(project.key)?.length ?? 0)) {
-          depth.set(project.key, (depth.get(project.key) ?? 1) + 1);
+      for (const w of same) {
+        if ((depth.get(w.key) ?? 1) < (segments.get(w.key)?.length ?? 0)) {
+          depth.set(w.key, (depth.get(w.key) ?? 1) + 1);
           grew = true;
         }
       }
     }
     if (!grew) break;
   }
+  const taken = new Map<string, number>();
+  for (const w of workspaces) taken.set(label(w), (taken.get(label(w)) ?? 0) + 1);
   return new Map(
-    projects.map((project) => {
-      const host = hosts.get(project.hostId);
-      const name = label(project);
-      if (host === undefined || host.local) return [project.key, name];
-      return [project.key, name === "" ? host.name : `${name} · ${host.name}`];
+    workspaces.map((w) => {
+      const name = label(w);
+      const environment = environments.find((h) => h.id === w.environmentId);
+      const clash = (taken.get(name) ?? 0) > 1 && environment !== undefined;
+      return [
+        w.key,
+        name === "" ? (environment?.name ?? "") : clash ? `${name} · ${environment.name}` : name,
+      ];
     }),
   );
 };
 
+/**
+ * The workspace the sidebar shows: the one the person chose in the switcher (until they open something else), then the
+ * one the open session is in, then the one that had something happen most recently.
+ */
+export const currentWorkspace = (
+  workspaces: readonly Workspace[],
+  { chosen, open }: { chosen?: string | undefined; open?: SessionSummary | undefined },
+): Workspace | undefined => {
+  const named = (key: string | undefined) =>
+    key === undefined ? undefined : workspaces.find((w) => w.key === key);
+  const recent = workspaces
+    .map((w) => w.sessions[0])
+    .filter((s): s is SessionSummary => s !== undefined)
+    .toSorted(newest)[0];
+  return (
+    named(chosen) ?? (open && named(workspaceKey(open))) ?? named(recent && workspaceKey(recent))
+  );
+};
+
+export type Elsewhere = {
+  /** The most urgent thing going on in the other workspaces, and how many sessions it is. */
+  mark: Mark | undefined;
+  count: number;
+  counts: Counts;
+};
+
+/** What the switcher says of the workspaces that are not shown. */
+export const elsewhere = (
+  workspaces: readonly Workspace[],
+  current: Workspace | undefined,
+): Elsewhere => {
+  const counts = noCounts();
+  for (const w of workspaces) {
+    if (w.key === current?.key) continue;
+    for (const mark of URGENCY) counts[mark] += w.counts[mark];
+  }
+  const top = urgent(counts);
+  return { mark: top?.mark, count: top?.count ?? 0, counts };
+};
+
+/** The day a time is in, by the local clock: 0 today, 1 yesterday, more before. */
+const daysAgo = (time: number, now: Date): number => {
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const then = new Date(time);
+  const a = new Date(day(now));
+  const b = new Date(day(then));
+  // Whole days between two local midnights, whatever the length of the days in between.
+  return Math.round((a.getTime() - b.getTime()) / 86_400_000);
+};
+
+export type SessionListOptions = {
+  /** Lifts the limit. */
+  showAll: boolean;
+  /** The open session, by its `sessionKey`: shown however far down it is. */
+  selected?: string | undefined;
+  /** Environments that are not connected: their sessions are the last list read, and wait for no one. */
+  away?: ReadonlySet<string> | undefined;
+  now: Date;
+};
+
+/**
+ * One workspace's sessions: what waits on the person, what is working (and what has a sub-agent working), then the
+ * rest by the day they last had something happen. Only the older ones are limited: a session with something to say, and
+ * the open one, are always shown.
+ */
 export const sessionList = (
   sessions: readonly SessionSummary[],
-  { showArchived, showAll, selected, hosts, away }: SessionListOptions,
+  { showAll, selected, away, now }: SessionListOptions,
 ): SessionList => {
-  const shown = sessions.filter((s) => showArchived || !s.archived).toSorted(newest);
-  // An archived session is put away: it waits for no one, and is not "working" even if its state says so.
-  const live = (s: SessionSummary) => !s.archived && away?.has(s.hostId) !== true;
-  const needs = shown.filter((s) => live(s) && s.state === "requires_action");
-  const working = shown.filter((s) => live(s) && s.state === "running");
-  const apart = new Set([...needs, ...working]);
-  const byProject = new Map<string, SessionSummary[]>();
-  for (const session of shown) {
-    if (apart.has(session)) continue;
-    const key = projectKey(session);
-    const list = byProject.get(key);
-    if (list === undefined) byProject.set(key, [session]);
-    else list.push(session);
-  }
-  const known = new Map<string, Project>();
-  for (const session of shown) {
-    known.set(projectKey(session), {
-      key: projectKey(session),
-      folder: projectOf(session),
-      hostId: session.hostId,
-    });
-  }
-  const names = namesOf([...known.values()], new Map((hosts ?? []).map((h) => [h.id, h])));
-  const projects = [...byProject].toSorted(([a, left], [b, right]) => {
-    const l = left[0];
-    const r = right[0];
-    return (l !== undefined && r !== undefined ? younger(l, r) : 0) || before(a, b);
-  });
-  // The open session's project shows it, however far down it is, and by where the session stands among that folder's
-  // sessions whatever its state: so the list does not grow and shrink as the session moves between Working and its project.
-  const open = shown.find((s) => sessionKey(s) === selected);
-  const openFolder = open === undefined ? undefined : projectKey(open);
-  const openAt =
-    open === undefined ? 0 : shown.filter((s) => projectKey(s) === openFolder).indexOf(open) + 1;
+  const sorted = sessions.toSorted(newest);
   const groups: SessionGroup[] = [];
-  if (needs.length > 0)
-    groups.push({ key: "needs-you", kind: "needs-you", label: "", sessions: needs, hidden: 0 });
-  if (working.length > 0)
-    groups.push({ key: "working", kind: "working", label: "", sessions: working, hidden: 0 });
+  const needs = sorted.filter((s) => markOf(s, away) === "needs-you");
+  const busy = sorted.filter((s) => {
+    const mark = markOf(s, away);
+    return mark === "running" || mark === "background";
+  });
+  const apart = new Set([...needs, ...busy]);
+  if (needs.length > 0) groups.push({ key: "needs-you", kind: "needs-you", sessions: needs });
+  if (busy.length > 0) groups.push({ key: "running", kind: "running", sessions: busy });
+  const rest = sorted.filter((s) => !apart.has(s));
+  let shown = 0;
   let hidden = 0;
-  for (const [key, all] of projects) {
-    const limit = showAll ? all.length : Math.max(PER_PROJECT, key === openFolder ? openAt : 0);
-    const list = all.slice(0, limit);
-    hidden += all.length - list.length;
-    groups.push({
-      key: `project:${key}`,
-      kind: "project",
-      label: names.get(key) ?? "",
-      sessions: list,
-      hidden: all.length - list.length,
+  for (const kind of ["today", "yesterday", "earlier"] as const) {
+    const day = rest.filter((s) => {
+      const time = timeOf(s);
+      const ago = Number.isNaN(time) ? 2 : Math.min(2, Math.max(0, daysAgo(time, now)));
+      return (ago === 0 ? "today" : ago === 1 ? "yesterday" : "earlier") === kind;
     });
+    const list = day.filter((s) => {
+      // What has something to say, and the open one, are shown whatever the page holds, and do not use it up.
+      if (markOf(s, away) !== undefined || sessionKey(s) === selected) return true;
+      const keep = showAll || shown < PER_WORKSPACE;
+      if (keep) shown += 1;
+      else hidden += 1;
+      return keep;
+    });
+    if (list.length > 0) groups.push({ key: kind, kind, sessions: list });
   }
-  return { groups, order: groups.flatMap((g) => g.sessions), hidden, names };
+  return { groups, order: groups.flatMap((g) => g.sessions), hidden };
 };

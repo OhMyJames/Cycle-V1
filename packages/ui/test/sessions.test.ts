@@ -1,9 +1,17 @@
 import { expect, test } from "bun:test";
 import type { SessionSummary } from "../src/api.ts";
-import { PER_PROJECT, projectOf, sessionList } from "../src/sessions.ts";
+import {
+  currentWorkspace,
+  elsewhere,
+  markOf,
+  newest,
+  PER_WORKSPACE,
+  sessionList,
+  workspacesOf,
+} from "../src/sessions.ts";
 
 const row = (id: string, over: Partial<SessionSummary> = {}): SessionSummary => ({
-  hostId: "local",
+  environmentId: "local",
   sessionId: id,
   cwd: "/work/app",
   archived: false,
@@ -12,236 +20,252 @@ const row = (id: string, over: Partial<SessionSummary> = {}): SessionSummary => 
   lastSeq: 1,
   ...over,
 });
-const plain = { showArchived: false, showAll: false };
+const on = (environmentId: string, id: string, over: Partial<SessionSummary> = {}) =>
+  row(id, { environmentId, ...over });
+
+// Local noon on the 18th of November: the days are the local clock's, so the times are built from local parts.
+const now = new Date(2026, 10, 18, 12, 0, 0);
+const at = (day: number, hour = 9) => new Date(2026, 10, day, hour, 0, 0).toISOString();
+const options = { showAll: false, now };
 const ids = (list: ReturnType<typeof sessionList>) => list.order.map((s) => s.sessionId);
+const environments = [
+  { id: "local", name: "This computer", local: true },
+  { id: "far", name: "Build box", local: false },
+];
 
-test("what waits on the person comes first, then what is working, then the projects", () => {
+test("a row says one thing, the most urgent: waiting, working, background work, news", () => {
+  const all = row("a", { state: "requires_action", unread: true, background: 2 });
+  expect(markOf(all)).toBe("needs-you");
+  expect(markOf(row("b", { state: "running", unread: true, background: 1 }))).toBe("running");
+  expect(markOf(row("c", { background: 1, unread: true }))).toBe("background");
+  expect(markOf(row("d", { unread: true }))).toBe("unread");
+  expect(markOf(row("e"))).toBeUndefined();
+  // A daemon that does not say has no news and no background work.
+  expect(markOf(row("f", {}))).toBeUndefined();
+});
+
+test("an archived session, and a session of a host that is away, say nothing", () => {
+  expect(markOf(row("a", { state: "running", archived: true }))).toBeUndefined();
+  expect(markOf(on("far", "b", { state: "requires_action" }), new Set(["far"]))).toBeUndefined();
+  expect(markOf(on("far", "b", { state: "requires_action" }), new Set(["other"]))).toBe(
+    "needs-you",
+  );
+});
+
+test("a workspace is a folder on one host: the same folder on two environments is two, and a trailing slash is nothing", () => {
+  const list = workspacesOf(
+    [
+      row("a", { cwd: "/work/app/" }),
+      row("b", { cwd: "/work/app" }),
+      on("far", "c", { cwd: "/work/app" }),
+    ],
+    { environments },
+  );
+  expect(list.map((w) => [w.environmentId, w.cwd, w.sessions.length])).toEqual([
+    ["local", "/work/app", 2],
+    ["far", "/work/app", 1],
+  ]);
+});
+
+test("workspaces are grouped by host, this computer first, and newest first inside a host", () => {
+  const list = workspacesOf(
+    [
+      on("far", "f1", { cwd: "/srv/api", updatedAt: at(18, 11) }),
+      row("l1", { cwd: "/work/old", updatedAt: at(10) }),
+      row("l2", { cwd: "/work/new", updatedAt: at(17) }),
+      on("far", "f2", { cwd: "/srv/web", updatedAt: at(1) }),
+    ],
+    {
+      environments: [
+        environments[1] as (typeof environments)[number],
+        environments[0] as (typeof environments)[number],
+      ],
+    },
+  );
+  // The order the environments are given in does not put a remote one before this computer.
+  expect(list.map((w) => w.cwd)).toEqual(["/work/new", "/work/old", "/srv/api", "/srv/web"]);
+});
+
+test("a workspace with only archived sessions is there only when they are asked for", () => {
+  const sessions = [
+    row("a", { cwd: "/work/gone", archived: true }),
+    row("b", { cwd: "/work/app" }),
+  ];
+  expect(workspacesOf(sessions, { environments }).map((w) => w.cwd)).toEqual(["/work/app"]);
+  expect(workspacesOf(sessions, { environments, showArchived: true })).toHaveLength(2);
+});
+
+test("a workspace is named by its folder, with more of the path only where two would be the same", () => {
+  const list = workspacesOf(
+    [row("a", { cwd: "/a/app" }), row("b", { cwd: "/b/app" }), row("c", { cwd: "/work/lib" })],
+    { environments },
+  );
+  expect(list.map((w) => w.name).toSorted()).toEqual(["a/app", "b/app", "lib"]);
+});
+
+test("a workspace on another host is named after the host only where the name would clash", () => {
+  const clash = workspacesOf(
+    [row("a", { cwd: "/work/app" }), on("far", "b", { cwd: "/srv/app" })],
+    {
+      environments,
+    },
+  );
+  expect(clash.map((w) => w.name).toSorted()).toEqual(["app · Build box", "app · This computer"]);
+  const apart = workspacesOf(
+    [row("a", { cwd: "/work/app" }), on("far", "b", { cwd: "/srv/api" })],
+    {
+      environments,
+    },
+  );
+  expect(apart.map((w) => w.name).toSorted()).toEqual(["api", "app"]);
+});
+
+test("a workspace counts what is going on in it, but not in a host that is away", () => {
+  const sessions = [
+    row("a", { state: "requires_action" }),
+    row("b", { state: "running" }),
+    row("c", { background: 1 }),
+    row("d", { unread: true }),
+    row("e", { unread: true }),
+    on("far", "f", { cwd: "/srv/api", state: "requires_action" }),
+  ];
+  const [app, api] = workspacesOf(sessions, { environments, away: new Set(["far"]) });
+  expect(app?.counts).toEqual({ "needs-you": 1, running: 1, background: 1, unread: 2 });
+  expect(api?.counts).toEqual({ "needs-you": 0, running: 0, background: 0, unread: 0 });
+});
+
+test("the workspace shown: the one chosen, else the one the open session is in, else the newest", () => {
+  const sessions = [
+    row("a", { cwd: "/work/old", updatedAt: at(1) }),
+    row("b", { cwd: "/work/new", updatedAt: at(17) }),
+    on("far", "c", { cwd: "/srv/api", updatedAt: at(5) }),
+  ];
+  const workspaces = workspacesOf(sessions, { environments });
+  const name = (w: ReturnType<typeof currentWorkspace>) => w?.cwd;
+  expect(name(currentWorkspace(workspaces, {}))).toBe("/work/new");
+  expect(name(currentWorkspace(workspaces, { open: sessions[2] }))).toBe("/srv/api");
+  const chosen = workspaces.find((w) => w.cwd === "/work/old")?.key;
+  expect(name(currentWorkspace(workspaces, { chosen, open: sessions[2] }))).toBe("/work/old");
+  // A choice that is gone (its sessions were deleted) is not a reason to show nothing.
+  expect(name(currentWorkspace(workspaces, { chosen: "local|/gone" }))).toBe("/work/new");
+  expect(currentWorkspace([], {})).toBeUndefined();
+});
+
+test("the switcher counts the most urgent class in the other workspaces, and says the rest in the counts", () => {
+  const workspaces = workspacesOf(
+    [
+      row("a", { cwd: "/work/here", state: "requires_action" }),
+      row("b", { cwd: "/work/there", state: "running" }),
+      row("c", { cwd: "/work/there2", state: "running" }),
+      row("d", { cwd: "/work/there2", unread: true }),
+    ],
+    { environments },
+  );
+  const here = workspaces.find((w) => w.cwd === "/work/here");
+  const other = elsewhere(workspaces, here);
+  // What waits in this workspace is on screen: it is not counted.
+  expect(other.mark).toBe("running");
+  expect(other.count).toBe(2);
+  expect(other.counts).toEqual({ "needs-you": 0, running: 2, background: 0, unread: 1 });
+  expect(elsewhere([], undefined)).toMatchObject({ mark: undefined, count: 0 });
+});
+
+test("what waits on the person comes first, then what is running, then the days", () => {
   const list = sessionList(
     [
-      row("old", { lastSeq: 1 }),
-      row("run", { state: "running", lastSeq: 5 }),
-      row("ask", { state: "requires_action", lastSeq: 2 }),
-      row("new", { lastSeq: 9 }),
+      row("old", { updatedAt: at(5) }),
+      row("run", { state: "running", updatedAt: at(18, 9) }),
+      row("ask", { state: "requires_action", updatedAt: at(1) }),
+      row("new", { updatedAt: at(18, 10) }),
+      row("sub", { background: 1, updatedAt: at(2) }),
     ],
-    plain,
+    options,
   );
-  expect(list.groups.map((g) => g.kind)).toEqual(["needs-you", "working", "project"]);
-  expect(ids(list)).toEqual(["ask", "run", "new", "old"]);
+  expect(list.groups.map((g) => g.kind)).toEqual(["needs-you", "running", "today", "earlier"]);
+  // A session with a background sub-agent is running, as far as the list is concerned.
+  expect(ids(list)).toEqual(["ask", "run", "sub", "new", "old"]);
 });
 
-test("a session is in one group only, and a project's sessions are newest first", () => {
-  const list = sessionList(
-    [row("a", { lastSeq: 1 }), row("b", { lastSeq: 3 }), row("c", { state: "running" })],
-    plain,
-  );
-  expect(ids(list).sort()).toEqual(["a", "b", "c"]);
-  expect(list.groups.at(-1)?.sessions.map((s) => s.sessionId)).toEqual(["b", "a"]);
-});
-
-test("projects are ordered by their newest session, and a name is longer only where two would clash", () => {
+test("the days are the local clock's: today, yesterday, earlier; and a session with no time is earlier", () => {
   const list = sessionList(
     [
-      row("1", { cwd: "/home/a/app", lastSeq: 1 }),
-      row("2", { cwd: "/home/b/app", lastSeq: 5 }),
-      row("3", { cwd: "/home/a/tool", lastSeq: 3 }),
+      row("t", { updatedAt: at(18, 0) }),
+      row("y", { updatedAt: at(17, 23) }),
+      row("e", { updatedAt: at(16, 23) }),
+      row("n", { lastSeq: 7 }),
     ],
-    plain,
+    options,
   );
-  expect(list.groups.map((g) => g.label)).toEqual(["b/app", "tool", "a/app"]);
+  expect(list.groups.map((g) => [g.kind, g.sessions.map((s) => s.sessionId)])).toEqual([
+    ["today", ["t"]],
+    ["yesterday", ["y"]],
+    ["earlier", ["e", "n"]],
+  ]);
 });
 
-test("archived sessions are not shown unless asked for, and are never 'working'", () => {
-  const rows = [row("a"), row("z", { archived: true, state: "running", lastSeq: 9 })];
-  expect(ids(sessionList(rows, plain))).toEqual(["a"]);
-  const all = sessionList(rows, { ...plain, showArchived: true });
-  expect(all.groups.map((g) => g.kind)).toEqual(["project"]);
-  expect(ids(all)).toEqual(["z", "a"]);
+test("the same input in another order is the same list", () => {
+  const rows = [
+    row("a", { updatedAt: at(18, 9), lastSeq: 1 }),
+    row("b", { updatedAt: at(18, 9), lastSeq: 1 }),
+    row("c", { lastSeq: 2 }),
+    row("d", { lastSeq: 2 }),
+  ];
+  expect(ids(sessionList(rows, options))).toEqual(ids(sessionList([...rows].reverse(), options)));
 });
 
-test("a project shows a page of its sessions and says how many more it has", () => {
-  const rows = Array.from({ length: PER_PROJECT + 5 }, (_, n) => row(`s${n}`, { lastSeq: n }));
-  const list = sessionList(rows, plain);
-  expect(list.order).toHaveLength(PER_PROJECT);
-  expect(list.hidden).toBe(5);
-  expect(list.groups[0]?.hidden).toBe(5);
-  expect(sessionList(rows, { ...plain, showAll: true }).order).toHaveLength(PER_PROJECT + 5);
-});
-
-test("the open session is shown however far down its project it is", () => {
-  const rows = Array.from({ length: PER_PROJECT + 5 }, (_, n) => row(`s${n}`, { lastSeq: n }));
-  const list = sessionList(rows, { ...plain, selected: "local:s0" });
-  expect(ids(list)).toContain("s0");
-  expect(list.hidden).toBe(0);
-});
-
-test("the open session is shown, and its project is not opened any further than that", () => {
-  const rows = Array.from({ length: 300 }, (_, n) => row(`s${n}`, { lastSeq: n }));
-  const list = sessionList(rows, { ...plain, selected: "local:s279" });
-  // s279 is the 21st newest: the page, plus one.
-  expect(list.order).toHaveLength(PER_PROJECT + 1);
-  expect(list.order.at(-1)?.sessionId).toBe("s279");
-  // An open one on the first page changes nothing.
-  expect(sessionList(rows, { ...plain, selected: "local:s299" }).order).toHaveLength(PER_PROJECT);
-});
-
-test("the open session in Working leaves its project the same size as when it is in it", () => {
-  const rows = Array.from({ length: 300 }, (_, n) => row(`s${n}`, { lastSeq: n }));
-  const idle = sessionList(rows, { ...plain, selected: "local:s250" });
-  const running = sessionList(
-    rows.map((r) => (r.sessionId === "s250" ? { ...r, state: "running" as const } : r)),
-    { ...plain, selected: "local:s250" },
+test("older sessions show a page and the rest on request; what has something to say, and the open one, always show", () => {
+  const many = Array.from({ length: PER_WORKSPACE + 5 }, (_, n) =>
+    row(`s${n}`, { updatedAt: at(1, 1 + (n % 20)), lastSeq: n }),
   );
-  const project = (list: ReturnType<typeof sessionList>) => list.groups.at(-1)?.sessions.length;
-  // In the project it is the 50th row; running, it is in Working, and the project is still as long: it does not jump.
-  expect(project(idle)).toBe(50);
-  expect(project(running)).toBe(50);
+  // Five of them are far down and none is marked: they are hidden, unless asked for.
+  const shown = sessionList(many, options);
+  expect(shown.order).toHaveLength(PER_WORKSPACE);
+  expect(shown.hidden).toBe(5);
+  expect(sessionList(many, { ...options, showAll: true }).hidden).toBe(0);
+  const last = shown.order.at(-1);
+  const hiddenOne = many.find((s) => !shown.order.includes(s));
+  expect(last).toBeDefined();
+  expect(hiddenOne).toBeDefined();
+  if (hiddenOne === undefined) return;
+  // Open, it is shown wherever it falls; with news, too.
+  const open = sessionList(many, { ...options, selected: `local:${hiddenOne.sessionId}` });
+  expect(open.order).toContain(hiddenOne);
+  const news = many.map((s) => (s === hiddenOne ? { ...s, unread: true } : s));
+  const withNews = sessionList(news, options);
+  expect(withNews.order.map((s) => s.sessionId)).toContain(hiddenOne.sessionId);
+  // It does not use the page up: the page is still full of the others.
+  expect(withNews.order).toHaveLength(PER_WORKSPACE + 1);
 });
 
-test("an open session that is not in the list changes nothing", () => {
-  const rows = Array.from({ length: 30 }, (_, n) => row(`s${n}`, { lastSeq: n }));
-  expect(sessionList(rows, { ...plain, selected: "local:nobody" }).order).toHaveLength(PER_PROJECT);
-  const archived = [...rows, row("gone", { archived: true, lastSeq: 0 })];
-  expect(sessionList(archived, { ...plain, selected: "local:gone" }).order).toHaveLength(
-    PER_PROJECT,
-  );
-});
-
-test("a folder with a trailing slash is the same project, and the root and an empty folder are named", () => {
-  expect(projectOf(row("a", { cwd: "/a/app/" }))).toBe("/a/app");
-  expect(projectOf(row("a", { cwd: "/" }))).toBe("/");
-  expect(projectOf(row("a", { cwd: "" }))).toBe("");
-  const list = sessionList([row("1", { cwd: "/a/app" }), row("2", { cwd: "/a/app/" })], plain);
-  expect(list.groups).toHaveLength(1);
-});
-
-test("project names are made longer until no two are the same", () => {
+test("a session of a host that is away is in its day, not in what needs you or is running", () => {
   const list = sessionList(
     [
-      row("1", { cwd: "/a/x/app", lastSeq: 3 }),
-      row("2", { cwd: "/b/x/app", lastSeq: 2 }),
-      row("3", { cwd: "/c/y/app", lastSeq: 1 }),
-      row("4", { cwd: "/d/tool", lastSeq: 0 }),
+      on("far", "a", { state: "requires_action", updatedAt: at(18, 9) }),
+      row("b", { updatedAt: at(18, 8) }),
     ],
-    plain,
+    { ...options, away: new Set(["far"]) },
   );
-  const labels = list.groups.map((g) => g.label);
-  expect(new Set(labels).size).toBe(labels.length);
-  expect(labels).toContain("tool");
-  expect(labels).toContain("a/x/app");
-  expect(labels).toContain("y/app");
+  expect(list.groups.map((g) => g.kind)).toEqual(["today"]);
+  expect(ids(list)).toEqual(["a", "b"]);
 });
 
-test("the names of the projects are given for every session, also those in Working", () => {
-  const list = sessionList(
-    [row("1", { cwd: "/a/app", state: "running" }), row("2", { cwd: "/b/app" })],
-    plain,
-  );
-  expect(list.names.get("local|/a/app")).toBe("a/app");
-  expect(list.names.get("local|/b/app")).toBe("b/app");
-});
-
-test("projects with the same newest session are ordered by their folder, and the list is the same every time", () => {
-  const rows = [row("1", { cwd: "/b", lastSeq: 1 }), row("2", { cwd: "/a", lastSeq: 1 })];
-  expect(sessionList(rows, plain).groups.map((g) => g.label)).toEqual(["a", "b"]);
-});
-
-test("an empty list has no groups, and the order is the same call after call", () => {
-  expect(sessionList([], plain)).toEqual({ groups: [], order: [], hidden: 0, names: new Map() });
-  const rows = [row("a", { lastSeq: 1 }), row("b", { lastSeq: 1 })];
-  expect(ids(sessionList(rows, plain))).toEqual(ids(sessionList([...rows].reverse(), plain)));
-});
-
-const on = (hostId: string, id: string, over: Partial<SessionSummary> = {}) =>
-  row(id, { hostId, ...over });
-
-test("sessions are ordered by when they last had something happen, across hosts", () => {
-  const list = sessionList(
-    [
-      on("local", "a", { updatedAt: "2026-11-18T10:00:00.000Z", lastSeq: 900 }),
-      on("far", "b", { updatedAt: "2026-11-18T12:00:00.000Z", lastSeq: 2 }),
-      on("local", "c", { updatedAt: "2026-11-18T11:00:00.000Z", lastSeq: 1 }),
-    ],
-    plain,
-  );
-  // By time, whatever their numbers say: the two hosts' counters mean different things.
-  expect(list.groups.flatMap((g) => g.sessions.map((s) => s.sessionId))).toEqual(["b", "c", "a"]);
-});
-
-test("a session whose daemon gives no time comes after those that have one, and keeps its daemon's order", () => {
-  const list = sessionList(
-    [
-      on("old", "x", { lastSeq: 50 }),
-      on("old", "y", { lastSeq: 70 }),
-      on("new", "z", { updatedAt: "2020-01-01T00:00:00.000Z", lastSeq: 1 }),
-    ],
-    plain,
-  );
-  expect(list.order.map((s) => s.sessionId)).toEqual(["z", "y", "x"]);
-});
-
-test("undated sessions of two daemons are not mixed by numbers that mean different things", () => {
+test("sessions of two daemons that give no time are not mixed by numbers that mean different things", () => {
   const rows = [
     on("a", "a1", { lastSeq: 500 }),
     on("b", "b1", { lastSeq: 3 }),
     on("a", "a2", { lastSeq: 400 }),
     on("b", "b2", { lastSeq: 2 }),
   ];
-  const order = (list: ReturnType<typeof sessionList>) => list.order.map((s) => s.sessionId);
-  expect(order(sessionList(rows, plain))).toEqual(order(sessionList([...rows].reverse(), plain)));
-  // Each daemon's own order holds, and the two stay apart.
-  expect(order(sessionList(rows, plain))).toEqual(["a1", "a2", "b1", "b2"]);
+  const sorted = (list: SessionSummary[]) => list.toSorted(newest).map((s) => s.sessionId);
+  expect(sorted(rows)).toEqual(["a1", "a2", "b1", "b2"]);
+  expect(sorted([...rows].reverse())).toEqual(sorted(rows));
 });
 
-test("the same folder on two hosts is two projects, and one on another machine is named after its host", () => {
-  const hosts = [
-    { id: "local", name: "This computer", local: true },
-    { id: "far", name: "Build box", local: false },
-  ];
-  const list = sessionList(
-    [
-      on("local", "a", { lastSeq: 2 }),
-      on("far", "b", { lastSeq: 1 }),
-      on("far", "c", { lastSeq: 3 }),
-    ],
-    { ...plain, hosts },
-  );
-  expect(list.groups.map((g) => g.label).toSorted()).toEqual(["app", "app · Build box"]);
-  expect(list.groups.map((g) => g.key)).toEqual([...new Set(list.groups.map((g) => g.key))]);
-  expect(list.groups.find((g) => g.label === "app · Build box")?.sessions).toHaveLength(2);
-});
-
-test("a name is made longer only against projects on the same host", () => {
-  const hosts = [
-    { id: "local", name: "This computer", local: true },
-    { id: "far", name: "Build box", local: false },
-  ];
-  const list = sessionList(
-    [on("local", "a", { cwd: "/home/me/app" }), on("far", "b", { cwd: "/srv/work/app" })],
-    { ...plain, hosts },
-  );
-  expect(list.groups.map((g) => g.label).toSorted()).toEqual(["app", "app · Build box"]);
-});
-
-test("the open session is found by host and id, not by id alone", () => {
+test("a session that has a time comes before one that has none, across environments", () => {
   const rows = [
-    ...Array.from({ length: PER_PROJECT + 5 }, (_, n) => on("a", `s${n}`, { lastSeq: n })),
-    ...Array.from({ length: PER_PROJECT + 5 }, (_, n) => on("b", `s${n}`, { lastSeq: n })),
+    on("old", "x", { lastSeq: 50 }),
+    on("new", "z", { updatedAt: "2020-01-01T00:00:00.000Z", lastSeq: 1 }),
+    on("old", "y", { lastSeq: 70 }),
   ];
-  const list = sessionList(rows, { ...plain, selected: "b:s0" });
-  expect(list.order.filter((s) => s.hostId === "b" && s.sessionId === "s0")).toHaveLength(1);
-  expect(list.order.filter((s) => s.hostId === "a" && s.sessionId === "s0")).toHaveLength(0);
-});
-
-test("sessions of a host that is away wait for no one and work for no one", () => {
-  const list = sessionList(
-    [
-      on("far", "ask", { state: "requires_action" }),
-      on("far", "run", { state: "running" }),
-      on("local", "mine", { state: "running" }),
-    ],
-    { ...plain, away: new Set(["far"]) },
-  );
-  expect(list.groups.map((g) => g.kind)).toEqual(["working", "project"]);
-  expect(list.groups[0]?.sessions.map((s) => s.sessionId)).toEqual(["mine"]);
-  expect(list.order.map((s) => s.sessionId).toSorted()).toEqual(["ask", "mine", "run"]);
+  expect(rows.toSorted(newest).map((s) => s.sessionId)).toEqual(["z", "y", "x"]);
 });
