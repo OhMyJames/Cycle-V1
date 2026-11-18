@@ -45,7 +45,8 @@ CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd packages/daemon test:real    
 
 - token 只放进 Claude 进程的环境,不进适配器自己的环境、不进日志(跑完检查过日志里没有它)。没设 `CYCLE_REAL_MODEL_TOKEN` 时这些测试是跳过的。
 - 默认用最小的模型(`CYCLE_REAL_MODEL`,默认 haiku)。断言是松的,因为真实模型不确定;这些测试的价值在它打印的报告,结果记在 [adapters/claude.md](adapters/claude.md)。
-- 两个套件加起来约 30 秒,花几个很短的回合。**不在 CI 里**:CI 不应该持有账号的 token。
+- 还有两个只在构建之后才有意义的:`apps/daemon` 下 `test:real`(只用构建出的可执行文件、空环境)和 `apps/desktop` 下 `test:real`(真实窗口加真实模型加构建出的 daemon)。先在根目录 `bun run build`。
+- 四个套件加起来约一分钟,花几个很短的回合。**不在 CI 里**:CI 不应该持有账号的 token。
 
 ## CI
 

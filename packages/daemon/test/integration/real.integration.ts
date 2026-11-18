@@ -76,7 +76,9 @@ test.skipIf(!enabled)(
       console.log(
         "REAL daemon turn 1 kinds:",
         JSON.stringify(
-          c.kinds().reduce<Record<string, number>>((m, k) => ({ ...m, [k]: (m[k] ?? 0) + 1 }), {}),
+          Object.fromEntries(
+            [...new Set(c.kinds())].map((k) => [k, c.kinds().filter((x) => x === k).length]),
+          ),
         ),
       );
       expect(c.permissions.length).toBeGreaterThan(0);

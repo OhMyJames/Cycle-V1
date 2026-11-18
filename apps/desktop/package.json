@@ -24,6 +24,7 @@
   "scripts": {
     "build": "bun scripts/build.ts",
     "start": "bun scripts/start.ts",
+    "test:real": "bun test ./test/integration/real-ui.integration.ts",
     "test:integration": "bun test ./test/integration/smoke.integration.ts"
   }
 }

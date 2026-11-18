@@ -57,6 +57,26 @@ bun apps/daemon/src/main.ts proxy  [--data-dir <dir>] [--socket <path>]   # stdi
 - daemon 在数据目录里写 `daemon.pid`。
 - socket 权限 0600,所在目录 0700。这就是 v1 的全部访问控制(决策 0004)。
 
+## 构建成一个可以拷走的目录
+
+```bash
+bun run --cwd apps/daemon build
+```
+
+产出 `apps/daemon/dist/cycle-daemon-<os>-<arch>/`(和同名 `.tar.gz`,约 220 MB):
+
+- `cycle-daemon`:daemon 本身,一个可执行文件(`bun build --compile`,约 110 MB,里面带着 Bun 和 Claude 适配)。
+- `claude`:Claude Code 的二进制(约 370 MB,取自 SDK 的平台包),放在它旁边,适配通过 `claudeExecutable` 找到它。
+
+机器上不需要 Bun、Node,也不需要装 `claude`。适配器作为同一个可执行文件的子命令(`cycle-daemon adapter claude`)运行,所以只有这一个文件加 `claude`。
+
+```bash
+cycle-daemon status   # 在运行返回 0,不在运行返回 1
+cycle-daemon stop     # 发 SIGTERM,等 socket 关闭
+```
+
+**装到远端机器**:解开 tarball,把目录放到 `$PATH` 上(或在桌面端 "Add host" 里把命令写成绝对路径,如 `/opt/cycle/cycle-daemon proxy`)。`<os>-<arch>` 要和那台机器一致:在哪个平台构建就产出哪个平台的;跨平台要在对应平台构建。凭证写进那台机器上的 `<数据目录>/config.json`(见下)。
+
 ## 配置:`<数据目录>/config.json`
 
 ```json
@@ -81,6 +101,8 @@ bun apps/daemon/src/main.ts proxy  [--data-dir <dir>] [--socket <path>]   # stdi
 ## 验证
 
 - `bun test`(门禁里):对一个进程内的假 ACP agent,覆盖上面"已做"的每一项。
+- `CYCLE_DAEMON_BIN=<构建出的 cycle-daemon> bun run test:integration`(在 `apps/daemon` 下)把同一个端到端测试换成跑构建出的可执行文件,通过。
+- `CYCLE_REAL_MODEL_TOKEN=… bun run test:real`(在 `apps/daemon` 下,先 `build`):只用构建出的可执行文件、**空的环境**(PATH 只有 `/usr/bin:/bin`,没有 bun、node、token,token 只写在 `config.json` 里),经 `proxy` 起 daemon,真实模型一轮带权限审批,再 `status`、`stop`。通过,约 7 秒。
 - `bun run test:integration`(在 `apps/daemon` 下):**整个后端**。客户端用 `CycleClient` 经过 ssh(用一个在本机执行命令的替身)连上;没有 daemon 在运行,`proxy` 把它启动起来;daemon 启动 Claude 适配进程,跑真实 SDK,对本地模拟 API。一个 turn 之后客户端断开,daemon 仍在运行且 pid 不变;新客户端再连上,拿到历史,继续对话,模型的请求里有前一个 turn 的上下文。
 - `packages/transport` 和 `packages/client` 的测试在门禁里:8MB 的消息、500 条消息保序、socket 权限、单实例、残留 socket、桥接、ssh 参数;客户端断线重连不丢不重、断线时错过的内容回来后补上、断线时挂起的权限请求在重连后重新问、`start` 失败、`close` 后不再重试。
 - 一个由测试发现的问题:agent 恢复时发的状态快照曾被当作历史记进日志,客户端会把它当成 turn 结束。现在丢弃,并有测试(把修复去掉,测试会失败)。

@@ -24,8 +24,7 @@ const main = async () => {
     rendererDir: env.SMOKE_RENDERER as string,
     preloadPath: env.SMOKE_PRELOAD as string,
     localCommand: [
-      "bun",
-      env.SMOKE_DAEMON as string,
+      ...(JSON.parse(env.SMOKE_DAEMON as string) as string[]),
       "proxy",
       "--data-dir",
       env.SMOKE_DATA as string,
@@ -124,6 +123,16 @@ const main = async () => {
   const conversationText = () =>
     `(document.querySelector('[data-slot="conversation"]')?.textContent ?? "")`;
 
+  // Against a mock the answers are exact. Against a real model they are not: the prompts ask for one
+  // word, and the page is checked for it without regard to case.
+  const real = env.SMOKE_REAL === "1";
+  const hello = real ? "pong" : "Hello from the mock";
+  const finished = real ? "finished" : "All done";
+  // What the agent said, not what the person typed: the prompt itself may contain the word.
+  const agentText = `[...document.querySelectorAll('[data-slot="message"][data-role="agent"]')].map((e) => e.textContent).join(" ")`;
+  const has = (text: string) =>
+    `(${agentText}).toLowerCase().includes(${JSON.stringify(text.toLowerCase())})`;
+
   try {
     // What the page is, before anything else.
     await waitFor("the app", `document.querySelector('[data-slot="app"]')`);
@@ -143,6 +152,12 @@ const main = async () => {
       `document.querySelector('[data-slot="host-state"]')?.textContent === "connected"`,
     );
     out({ step: "connected" });
+    if (real) {
+      // The cheapest model, set the way the "Agent defaults" dialog sets it.
+      await run(
+        `window.cycle.setAgentDefaults("local", "claude", { model: ${JSON.stringify(env.SMOKE_MODEL ?? "haiku")} })`,
+      );
+    }
 
     // A new session, started by clicking and typing.
     await click(byText("button", "New session"));
@@ -161,7 +176,7 @@ const main = async () => {
 
     // A message, and a streamed answer.
     await focusComposer();
-    await type("Say hello.");
+    await type(real ? "Reply with exactly one word: pong" : "Say hello.");
     out({
       step: "typed",
       active: await run(
@@ -176,26 +191,66 @@ const main = async () => {
     await press("Enter");
     await sleep(1500);
     out({ step: "after-enter", body: await run("document.body.innerText.slice(0, 700)") });
-    await waitFor("the answer", `${conversationText()}.includes("Hello from the mock")`);
+    await waitFor("the answer", has(hello), 60_000);
     await waitFor(
       "the turn to end",
       `!!document.querySelector('[data-slot="composer"]') && [...document.querySelectorAll('[data-slot="composer"] button')].some((b) => b.textContent.trim() === "Send")`,
+      60_000,
     );
     out({ step: "answer", text: await run(conversationText()) });
 
     // A tool that needs asking: a card appears, a click answers it.
     await focusComposer();
-    await type("Now touch a file.");
+    await type(
+      real
+        ? "Use the Bash tool to run exactly: touch made-by-the-agent.txt  Then say: finished"
+        : "Now touch a file.",
+    );
     await press("Enter");
-    await waitFor("the permission card", `document.querySelector('[data-slot="permission"]')`);
+    await waitFor(
+      "the permission card",
+      `document.querySelector('[data-slot="permission"]')`,
+      60_000,
+    );
     out({
       step: "permission",
       text: await run(`document.querySelector('[data-slot="permission"]').textContent`),
     });
     await click(byText('[data-slot="permission"] button', "Allow"));
-    await waitFor("the end of that turn", `${conversationText()}.includes("All done")`);
+    await waitFor("the end of that turn", has(finished), 60_000);
     await waitFor("the card to go", `!document.querySelector('[data-slot="permission"]')`);
+    await waitFor(
+      "the turn to end",
+      `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => b.textContent.trim() === "Send")`,
+      60_000,
+    );
     out({ step: "allowed", text: await run(conversationText()) });
+
+    if (real) {
+      // What a real model writes when asked for structure: a heading, a list, a table, a code block.
+      await focusComposer();
+      await type(
+        "Without using any tools, reply in markdown with: a level-2 heading, a bullet list of 3 items, a table of 2 columns and 2 rows, and a fenced python code block of about 12 lines defining a function with a docstring.",
+      );
+      await press("Enter");
+      await waitFor(
+        "the turn to start",
+        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => b.textContent.trim() === "Stop")`,
+      );
+      await waitFor(
+        "the turn to end",
+        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => b.textContent.trim() === "Send")`,
+        90_000,
+      );
+      out({
+        step: "markdown",
+        found: await run(`(() => {
+          const last = [...document.querySelectorAll('[data-slot="message"][data-role="agent"]')].at(-1);
+          const q = (s) => last ? last.querySelectorAll(s).length : -1;
+          return { heading: q("h2"), list: q("li"), table: q("table"), pre: q("pre"), code: q("code"), coloured: q("pre span[style], pre span[class]"), html: last ? last.innerHTML.length : 0 };
+        })()`),
+      });
+    }
 
     // The page reloads: it is given the session whole, not an empty one.
     await run("location.reload()").catch(() => undefined);
@@ -204,10 +259,7 @@ const main = async () => {
       `document.querySelector('[data-slot="host-state"]')?.textContent === "connected"`,
     );
     await click(`document.querySelector('[role="option"]')`);
-    await waitFor(
-      "the conversation back",
-      `${conversationText()}.includes("Hello from the mock") && ${conversationText()}.includes("All done")`,
-    );
+    await waitFor("the conversation back", `${has(hello)} && ${has(finished)}`);
     out({ step: "reloaded", ok: true });
 
     const shot = await contents.capturePage();

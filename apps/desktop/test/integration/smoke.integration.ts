@@ -12,23 +12,10 @@ import {
   textReply,
   toolReply,
 } from "../../../../packages/adapters/claude/test/integration/mock-anthropic.ts";
+import { canLaunch, launch } from "./launch.ts";
 
-const appDir = new URL("../..", import.meta.url).pathname;
-const dist = join(appDir, "dist");
-const daemonMain = join(appDir, "../daemon/src/main.ts");
-const electron = (() => {
-  const base = join(appDir, "../../node_modules/.bun");
-  const found = Array.from(
-    new Bun.Glob("electron@*/node_modules/electron/dist/electron").scanSync(base),
-  );
-  return found[0] === undefined ? undefined : join(base, found[0]);
-})();
-const xvfb = Bun.which("xvfb-run");
-const ready =
-  electron !== undefined &&
-  existsSync(electron) &&
-  xvfb !== null &&
-  existsSync(join(dist, "main.mjs"));
+const daemonMain = join(new URL("../..", import.meta.url).pathname, "../daemon/src/main.ts");
+const ready = canLaunch;
 
 let root: string;
 beforeAll(async () => {
@@ -69,63 +56,17 @@ test.skipIf(!ready)(
         },
       }),
     );
-    const built = await Bun.build({
-      entrypoints: [join(appDir, "test/integration/smoke-main.ts")],
-      target: "node",
-      format: "esm",
-      external: ["electron"],
-    });
-    expect(built.success).toBe(true);
-    const script = join(root, "smoke-main.mjs");
-    await Bun.write(script, (await built.outputs[0]?.text()) ?? "");
-
-    const proc = Bun.spawn(
-      [
-        xvfb as string,
-        "-a",
-        electron as string,
-        // The test machine has no setuid chrome-sandbox. The window itself is still sandboxed
-        // (sandbox: true); only the process-level helper is skipped. The app never ships this flag.
-        "--no-sandbox",
-        "--disable-gpu",
-        `--user-data-dir=${join(root, "electron")}`,
-        script,
-      ],
-      {
-        // Everything the app and the daemon may see: nothing of this machine's environment.
-        env: {
-          PATH: process.env.PATH ?? "",
-          HOME: home,
-          ELECTRON_ENABLE_LOGGING: "0",
-          SMOKE_RENDERER: join(dist, "renderer"),
-          SMOKE_PRELOAD: join(dist, "preload.cjs"),
-          SMOKE_DAEMON: daemonMain,
-          SMOKE_DATA: data,
-          SMOKE_SOCKET: join(root, "d.sock"),
-          SMOKE_HOME: home,
-          SMOKE_CWD: cwd,
-          ...(process.env.SMOKE_LOG ? { SMOKE_LOG: process.env.SMOKE_LOG } : {}),
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
-    let lines: Record<string, unknown>[] = [];
     try {
-      const [out, err] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-      ]);
-      await proc.exited;
-      lines = out
-        .split("\n")
-        .filter((l) => l.startsWith("{"))
-        .map((l) => JSON.parse(l));
-      if (proc.exitCode !== 0) console.log("electron stderr:", err.slice(-2000));
-      for (const line of lines) console.log("step", JSON.stringify(line).slice(0, 1500));
-      const step = (name: string) => lines.find((l) => l.step === name);
+      const { exitCode, step } = await launch({
+        root,
+        data,
+        home,
+        cwd,
+        daemon: ["bun", daemonMain],
+        deadline: 110_000,
+      });
       expect(step("failed")).toBeUndefined();
-      expect(proc.exitCode).toBe(0);
+      expect(exitCode).toBe(0);
 
       // The page is locked down.
       const page = step("page")?.security as Record<string, unknown>;

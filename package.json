@@ -9,6 +9,8 @@
     "apps/*"
   ],
   "scripts": {
+    "build": "bun run --cwd apps/daemon build && bun run --cwd apps/desktop build",
+    "start": "bun run --cwd apps/desktop start",
     "check": "bun scripts/check.ts",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "biome check .",

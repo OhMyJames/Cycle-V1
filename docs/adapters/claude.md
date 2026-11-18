@@ -4,7 +4,7 @@
 
 `packages/adapters/claude`:把 Claude Agent SDK 包装成 ACP v2 agent,通过 stdio 与 daemon 通信。决策见 [0001](../decisions/0001-claude-acp-adapter.md)。
 
-验证所用版本:`@anthropic-ai/claude-agent-sdk` 0.3.327,`@agentclientprotocol/sdk` 2.7.0,Bun 1.4.4。验证用本地模拟的 Anthropic API,没有用真实模型。
+验证所用版本:`@anthropic-ai/claude-agent-sdk` 0.3.327,`@agentclientprotocol/sdk` 2.7.0,Bun 1.4.4。验证先用本地模拟的 Anthropic API,之后又用真实模型验证过(见文末)。
 
 ## 启动与配置
 
