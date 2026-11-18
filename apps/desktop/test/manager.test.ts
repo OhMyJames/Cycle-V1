@@ -393,17 +393,50 @@ test("a session that asks and then finishes is reported to the main process, and
   expect(notices[1]).toMatchObject({ kind: "finished", session: { sessionId: id, state: "idle" } });
 });
 
-test("an archived session is not reported, and a manager without an attention hook says nothing", async () => {
-  const { manager } = await setup();
+test("the first list a manager reads is not a change, even when a session in it is asking", async () => {
+  const { manager } = await setup(
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        await ask();
+      },
+    }),
+  );
+  const first = await manager("first");
+  await first.m.connect("local");
+  const id = await first.m.createSession("local", { cwd: "/tmp" });
+  await first.m.openSession("local", id);
+  await first.m.prompt("local", id, "ask");
+  await until(() => of(first.events, "permission").length === 1, "the request");
+  // Another app starts while the session is asking: what it is told is the list, not a change in it.
   const notices: AttentionNotice[] = [];
-  const { m } = await manager("app", undefined, (n) => notices.push(n));
+  const second = await manager("second", undefined, (n) => notices.push(n));
+  await second.m.connect("local");
+  const listed = await second.m.sessions("local");
+  expect(listed.map((s) => s.state)).toEqual(["requires_action"]);
+  await Bun.sleep(50);
+  expect(notices).toEqual([]);
+});
+
+test("a hook that fails does not stop the list from being read, and a manager without one says nothing", async () => {
+  const { manager } = await setup(
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        await ask();
+      },
+    }),
+  );
+  const { m, events } = await manager("app", undefined, () => {
+    throw new Error("no notification today");
+  });
   await m.connect("local");
   const id = await m.createSession("local", { cwd: "/tmp" });
   await m.openSession("local", id);
-  await m.archiveSession("local", id, true);
-  await m.prompt("local", id, "go").catch(() => undefined);
-  await Bun.sleep(100);
-  expect(notices).toEqual([]);
+  await m.prompt("local", id, "ask");
+  // The list still reaches the renderer, with the session asking.
+  await until(
+    () => of(events, "sessions").some((e) => e.sessions.some((s) => s.state === "requires_action")),
+    "the renderer to be told the session is asking",
+  );
   const quiet = await manager("quiet");
   await quiet.m.connect("local");
   expect(quiet.events.length).toBeGreaterThan(0);

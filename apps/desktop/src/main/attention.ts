@@ -8,6 +8,8 @@ import type { AttentionNotice } from "./manager.ts";
 export type NotifyWindow = {
   isFocused(): boolean;
   isDestroyed(): boolean;
+  isMinimized(): boolean;
+  restore(): void;
   show(): void;
   focus(): void;
 };
@@ -15,7 +17,7 @@ export type NotifyWindow = {
 /** What of Electron's Notification this needs. */
 export type NotificationLike = {
   show(): void;
-  on(event: "click", listener: () => void): unknown;
+  on(event: "click" | "close" | "failed", listener: () => void): unknown;
 };
 
 export type AttentionDeps = {
@@ -23,15 +25,28 @@ export type AttentionDeps = {
   /** Whether the system can show notifications at all. */
   supported: () => boolean;
   create: (options: { title: string; subtitle?: string; body: string }) => NotificationLike;
+  /** Brings the whole app forward (on a Mac, a window shown is not enough while another app is in front). */
+  activate: () => void;
   translator: Translator;
   emit: (event: AppEvent) => void;
 };
 
-const titleOf = (notice: AttentionNotice): string => {
+/** The longest title of a notification: a session's title is the agent's or the daemon's word, and may be long. */
+export const MAX_TITLE = 80;
+
+const folderOf = (cwd: string): string => cwd.split("/").filter(Boolean).at(-1) ?? cwd;
+
+/** One line, no longer than a notification can use; the folder when the title says nothing. */
+export const titleOf = (notice: AttentionNotice): string => {
   const { session } = notice;
-  if (session.title !== undefined && session.title !== "") return session.title;
-  return session.cwd.split("/").filter(Boolean).at(-1) ?? session.cwd;
+  const line = (session.title ?? "").replace(/\s+/g, " ").trim();
+  const title = line === "" ? folderOf(session.cwd) : line;
+  return title.length > MAX_TITLE ? `${title.slice(0, MAX_TITLE - 1)}…` : title;
 };
+
+// A notification that nothing refers to may be collected before it is pressed, and its click would never come (Electron says to
+// keep a reference): they are held until they are pressed, closed, or fail.
+const shown = new Set<NotificationLike>();
 
 /**
  * The function the manager calls. While the window is in front the person can see the sidebar, and a notification would
@@ -47,11 +62,18 @@ export const notifyAttention = (deps: AttentionDeps) => (notice: AttentionNotice
     ...(notice.hostId === "local" ? {} : { subtitle: notice.hostName }),
     body: deps.translator.t(`attention.${notice.kind}`),
   });
+  shown.add(notification);
+  const done = () => void shown.delete(notification);
+  notification.on("close", done);
+  notification.on("failed", done);
   notification.on("click", () => {
+    done();
     const target = deps.window();
     if (target === undefined || target.isDestroyed()) return;
+    if (target.isMinimized()) target.restore();
     target.show();
     target.focus();
+    deps.activate();
     deps.emit({
       type: "focus-session",
       hostId: notice.hostId,
@@ -60,3 +82,6 @@ export const notifyAttention = (deps: AttentionDeps) => (notice: AttentionNotice
   });
   notification.show();
 };
+
+/** How many notifications are being held, for the tests. */
+export const heldNotifications = (): number => shown.size;

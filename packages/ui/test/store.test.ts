@@ -207,3 +207,13 @@ test("a notification pressed shows that session, on whichever host", async () =>
   expect(store.getState().selectedSession).toBe("s1");
   expect(script.named("openSession").at(-1)).toEqual(["openSession", "local", "s1"]);
 });
+
+test("a notification about a session that is gone shows nothing and says nothing", async () => {
+  const script = fakeBridge({ connected: true });
+  const store = new AppStore(script.bridge);
+  await store.start();
+  await store.focusSession("local", "gone");
+  expect(store.getState().selectedSession).toBeUndefined();
+  expect(script.named("openSession")).toEqual([]);
+  expect(store.getState().error).toBeUndefined();
+});

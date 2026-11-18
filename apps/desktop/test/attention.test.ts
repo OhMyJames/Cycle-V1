@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { type AppEvent, createTranslator, enUS } from "@cycle/ui";
-import { type NotifyWindow, notifyAttention } from "../src/main/attention.ts";
+import {
+  heldNotifications,
+  MAX_TITLE,
+  type NotifyWindow,
+  notifyAttention,
+} from "../src/main/attention.ts";
 import type { AttentionNotice } from "../src/main/manager.ts";
 
 const notice = (over: Partial<AttentionNotice> = {}): AttentionNotice => ({
@@ -20,14 +25,23 @@ const notice = (over: Partial<AttentionNotice> = {}): AttentionNotice => ({
   ...over,
 });
 
-const rig = (options: { focused?: boolean; supported?: boolean; destroyed?: boolean } = {}) => {
+const rig = (
+  options: {
+    focused?: boolean;
+    supported?: boolean;
+    destroyed?: boolean;
+    minimized?: boolean;
+  } = {},
+) => {
   const calls: string[] = [];
   const shown: { title: string; subtitle?: string; body: string }[] = [];
   const emitted: AppEvent[] = [];
-  let click: () => void = () => {};
+  const listeners = new Map<string, () => void>();
   const window: NotifyWindow = {
     isFocused: () => options.focused ?? false,
     isDestroyed: () => options.destroyed ?? false,
+    isMinimized: () => options.minimized ?? false,
+    restore: () => calls.push("restore"),
     show: () => calls.push("show"),
     focus: () => calls.push("focus"),
   };
@@ -38,15 +52,17 @@ const rig = (options: { focused?: boolean; supported?: boolean; destroyed?: bool
       shown.push(n);
       return {
         show: () => calls.push("notify"),
-        on: (_event, listener) => {
-          click = listener;
+        on: (event, listener) => {
+          listeners.set(event, listener);
         },
       };
     },
+    activate: () => calls.push("activate"),
     translator: createTranslator("en-US", enUS),
     emit: (event) => emitted.push(event),
   });
-  return { notify, calls, shown, emitted, press: () => click() };
+  const fire = (event: string) => listeners.get(event)?.();
+  return { notify, calls, shown, emitted, press: () => fire("click"), fire };
 };
 
 test("a session that asks is a notification with its title and what it wants", () => {
@@ -56,10 +72,10 @@ test("a session that asks is a notification with its title and what it wants", (
   expect(calls).toEqual(["notify"]);
 });
 
-test("what finished and what stopped say so, in words", () => {
+test("what is done and what stopped say so, in words (and not that it went well: the list does not know)", () => {
   const finished = rig();
   finished.notify(notice({ kind: "finished" }));
-  expect(finished.shown[0]?.body).toBe("Finished");
+  expect(finished.shown[0]?.body).toBe("Waiting for your next message");
   const stopped = rig();
   stopped.notify(notice({ kind: "stopped" }));
   expect(stopped.shown[0]?.body).toBe("The agent stopped unexpectedly");
@@ -92,6 +108,43 @@ test("pressing it brings the window back and asks the page to show that session"
   const { notify, press, calls, emitted } = rig();
   notify(notice());
   press();
-  expect(calls).toEqual(["notify", "show", "focus"]);
+  expect(calls).toEqual(["notify", "show", "focus", "activate"]);
   expect(emitted).toEqual([{ type: "focus-session", hostId: "local", sessionId: "s1" }]);
+});
+
+test("a title is one line of a length a notification can use, and a title that says nothing is the folder", () => {
+  const long = rig();
+  long.notify(notice({ session: { ...notice().session, title: "x".repeat(500) } }));
+  expect(long.shown[0]?.title).toHaveLength(MAX_TITLE);
+  expect(long.shown[0]?.title.endsWith("…")).toBe(true);
+  const lines = rig();
+  lines.notify(notice({ session: { ...notice().session, title: "  Two\n\n lines\t here " } }));
+  expect(lines.shown[0]?.title).toBe("Two lines here");
+  const blank = rig();
+  blank.notify(notice({ session: { ...notice().session, title: " \n " } }));
+  expect(blank.shown[0]?.title).toBe("cycle-v1");
+});
+
+test("a minimized window is restored when the notification is pressed", () => {
+  const { notify, press, calls } = rig({ minimized: true });
+  notify(notice());
+  press();
+  expect(calls).toEqual(["notify", "restore", "show", "focus", "activate"]);
+});
+
+test("a notification is held until it is pressed, closed or fails, so that it is not collected before its click", () => {
+  const held = heldNotifications();
+  const pressed = rig();
+  pressed.notify(notice());
+  expect(heldNotifications()).toBe(held + 1);
+  pressed.press();
+  expect(heldNotifications()).toBe(held);
+  const closed = rig();
+  closed.notify(notice());
+  closed.fire("close");
+  expect(heldNotifications()).toBe(held);
+  const failed = rig();
+  failed.notify(notice());
+  failed.fire("failed");
+  expect(heldNotifications()).toBe(held);
 });

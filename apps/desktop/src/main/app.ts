@@ -62,6 +62,7 @@ export const startApp = async (options: AppOptions) => {
       window: () => window,
       supported: () => Notification.isSupported(),
       create: (notification) => new Notification(notification),
+      activate: () => app.focus({ steal: true }),
       translator: createTranslator(SOURCE_LOCALE, enUS),
       emit,
     }),
