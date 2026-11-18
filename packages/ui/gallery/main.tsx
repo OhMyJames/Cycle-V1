@@ -24,10 +24,14 @@ const bridgeFor = (scenario: Scenario) => {
   });
   const environments = scenario.environments ?? [LOCAL];
   const status = scenario.status ?? environments.map((h) => UP(h.id));
-  const sessions = scenario.sessions ?? [];
-  script.bridge.environments = async () => ({ environments, status });
-  script.bridge.sessions = async (environmentId) =>
-    sessions.filter((s) => s.environmentId === environmentId);
+  const sessions = Object.fromEntries(
+    environments.map((environment) => [
+      environment.id,
+      (scenario.sessions ?? []).filter((session) => session.environmentId === environment.id),
+    ]),
+  );
+  script.bridge.environments = async () => ({ environments, status, sessions });
+  script.bridge.sessions = async (environmentId) => sessions[environmentId] ?? [];
   script.bridge.openSession = async () => snapshotOf(scenario);
   script.bridge.agents = async () => [
     {

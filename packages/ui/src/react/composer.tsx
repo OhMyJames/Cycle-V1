@@ -19,6 +19,7 @@ import {
   sentTexts,
 } from "../draft.ts";
 import { mentionQuery, mentionRow } from "../mention.ts";
+import type { Status } from "../model/conversation.ts";
 import { type QueuedPrompt, textOf } from "../model/index.ts";
 import { commandText, filterCommands, slashQuery } from "../slash.ts";
 import { useI18n } from "./i18n.tsx";
@@ -34,6 +35,9 @@ export type ComposerProps = {
   sessionKey: string;
   /** False when there is no session, or it is still being read. */
   enabled: boolean;
+  /** The editor can keep taking a draft while remote actions are disabled. */
+  connected: boolean;
+  activity: Status;
   /** The agent takes images in a prompt: the person may attach them. Without it the controls are not there. */
   canAttach?: boolean;
   /** A message was sent from the box (not yet known to have arrived): the conversation follows it. */
@@ -68,6 +72,8 @@ export function Composer({
   environmentId,
   sessionKey,
   enabled,
+  connected,
+  activity,
   canAttach = false,
   onSent,
 }: ComposerProps) {
@@ -75,16 +81,14 @@ export function Composer({
   const store = useAppStore();
   const draft = useSyncExternalStore(store.drafts.subscribe, () => store.drafts.get(sessionKey));
   // Only what the box shows is watched: the conversation is made anew by every streamed update, and the box must not be drawn again for each.
-  const working = useAppState(
-    (s) => (s.views[sessionKey]?.conversation.status ?? "idle") !== "idle",
-  );
+  const working = activity !== "idle";
   const queue = useAppState((s) => s.views[sessionKey]?.conversation.queue ?? NONE);
   const commands = useAppState((s) => s.views[sessionKey]?.conversation.commands ?? NONE);
   const { text, attachments } = draft;
   // A daemon that has not said it queues is asked nothing it would refuse: a message waits for the turn to end.
   const capabilities = useAppState((s) => s.status[environmentId]?.capabilities);
   const canQueue = capabilities?.queue === true;
-  const canFind = capabilities?.files === true;
+  const canFind = connected && capabilities?.files === true;
   const recalled = useRef<Recall>(NOT_RECALLING);
   const [problem, setProblem] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
@@ -192,7 +196,17 @@ export function Composer({
   };
   // While the agent works, a message is queued: it goes when the turn ends well (docs/protocol.md §8).
   const canSend =
-    enabled && (!working || canQueue) && (text.trim() !== "" || attachments.length > 0);
+    enabled &&
+    connected &&
+    (!working || canQueue) &&
+    (text.trim() !== "" || attachments.length > 0);
+  const placeholder = !enabled
+    ? t("conversation.loading")
+    : activity === "requires_action"
+      ? t("step.approval")
+      : working
+        ? t(canQueue ? "composer.placeholder.working" : "composer.placeholder.busy")
+        : t("composer.placeholder.idle");
 
   const megabytes = (bytes: number) =>
     number(bytes / 1048576, { style: "unit", unit: "megabyte", maximumFractionDigits: 0 });
@@ -337,6 +351,11 @@ export function Composer({
 
   return (
     <div data-slot="composer" data-dropping={dropping || undefined} ref={root}>
+      {!connected && enabled ? (
+        <span data-slot="hint" role="status">
+          {t("composer.offline")}
+        </span>
+      ) : null}
       {dropping ? <div data-slot="drop-hint">{t("composer.drop")}</div> : null}
       {queue.length > 0 ? (
         <ul data-slot="queued" aria-label={t("composer.queued.label")}>
@@ -354,6 +373,7 @@ export function Composer({
                 </span>
                 <Button
                   data-variant="ghost"
+                  disabled={!connected}
                   aria-label={t("composer.queued.edit", { preview: label })}
                   onClick={() => void edit(entry.queueId)}
                 >
@@ -441,15 +461,7 @@ export function Composer({
             }}
             disabled={!enabled}
             label={t("composer.message")}
-            placeholder={
-              enabled
-                ? working
-                  ? canQueue
-                    ? t("composer.placeholder.working")
-                    : t("composer.placeholder.busy")
-                  : t("composer.placeholder.idle")
-                : t("composer.placeholder.none")
-            }
+            placeholder={placeholder}
             onKey={onKey}
             onPasteFiles={(files) => void attach(files)}
             handle={input}
@@ -462,7 +474,7 @@ export function Composer({
           />
         </div>
         {working ? (
-          <Button data-variant="outline" onClick={() => void store.cancel()}>
+          <Button data-variant="outline" disabled={!connected} onClick={() => void store.cancel()}>
             {t("composer.stop")}
           </Button>
         ) : null}

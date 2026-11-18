@@ -152,6 +152,7 @@ export function App() {
       : undefined;
   const environmentState =
     selectedEnvironment !== undefined ? status[selectedEnvironment]?.state : undefined;
+  const connected = environmentState === "connected";
   const environmentError =
     selectedEnvironment !== undefined ? status[selectedEnvironment]?.error : undefined;
   const readDefaults = useCallback(
@@ -208,7 +209,9 @@ export function App() {
     void store.markRead(session.environmentId, session.sessionId);
   }, [session, inFront, status, store]);
 
-  const working = view !== undefined && view.conversation.status !== "idle";
+  const activity = view?.permissions.length
+    ? "requires_action"
+    : (view?.conversation.status ?? "idle");
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
 
   // Keyboard (DESIGN.md section 10). One handler, so every shortcut is in one place.
@@ -239,12 +242,11 @@ export function App() {
             .querySelector<HTMLElement>('[data-slot="composer"] [data-slot="composer-input"]')
             ?.focus(),
         );
-      else if (key === "." && working && environmentState === "connected")
-        run(() => void store.cancel());
+      else if (key === "." && connected && activity !== "idle") run(() => void store.cancel());
       else if (
         key === "Enter" &&
+        connected &&
         typing === null &&
-        environmentState === "connected" &&
         firstAllow !== undefined &&
         view?.permissions[0] !== undefined
       ) {
@@ -403,6 +405,7 @@ export function App() {
                 follow={sent}
                 conversation={view.conversation}
                 loading={view.loading}
+                awaitingApproval={activity === "requires_action"}
               />
             ) : (
               <div data-slot="empty">
@@ -434,6 +437,7 @@ export function App() {
                 <PermissionCard
                   key={request.key}
                   request={request}
+                  disabled={!connected}
                   onAnswer={store.answerPermission}
                 />
               ))}
@@ -446,7 +450,9 @@ export function App() {
                 canAttach={
                   agents.find((a) => a.id === session?.agent)?.promptCapabilities?.image != null
                 }
-                enabled={!view.loading && environmentState === "connected"}
+                enabled={!view.loading}
+                connected={connected}
+                activity={activity}
                 onSent={() => setSent((n) => n + 1)}
               />
             ) : null}
