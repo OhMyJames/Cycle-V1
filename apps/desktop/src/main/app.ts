@@ -2,7 +2,13 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { commandChannel, sshChannel } from "@cycle/transport/client";
 import { createTranslator, enUS, SOURCE_LOCALE } from "@cycle/ui";
-import { API_METHODS, type AppEvent, channel, EVENT_CHANNEL, type HostConfig } from "@cycle/ui/api";
+import {
+  API_METHODS,
+  type AppEvent,
+  channel,
+  type EnvironmentConfig,
+  EVENT_CHANNEL,
+} from "@cycle/ui/api";
 import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from "electron";
 import { notifyAttention } from "./attention.ts";
 import { ConnectionManager } from "./manager.ts";
@@ -13,7 +19,7 @@ export type AppOptions = {
   /** Where the built page is: index.html, renderer.js, app.css. */
   rendererDir: string;
   preloadPath: string;
-  /** How to run `cycle proxy` for the local host. */
+  /** How to run `cycle proxy` for the local environment. */
   localCommand: string[];
   /** The whole environment of that command. Nothing is inherited from the app. */
   localEnv: Record<string, string>;
@@ -32,11 +38,12 @@ const isWeb = (url: string): boolean => {
   }
 };
 
-/** How each kind of host is reached. The one place that knows. */
-const channelFor = (options: AppOptions) => (host: HostConfig) => async () => {
-  if (host.kind === "local")
+/** How each kind of environment is reached. The one place that knows. */
+const channelFor = (options: AppOptions) => (environment: EnvironmentConfig) => async () => {
+  if (environment.kind === "local")
     return commandChannel({ command: options.localCommand, env: options.localEnv });
-  return sshChannel({ host: host.host, command: host.command ?? ["cycle", "proxy"] });
+  const { transport } = environment;
+  return sshChannel({ host: transport.host, command: transport.command ?? ["cycle", "proxy"] });
 };
 
 /**
@@ -145,7 +152,7 @@ export const startApp = async (options: AppOptions) => {
   });
   contents.on("will-attach-webview", (event) => event.preventDefault());
   await window.loadURL(indexUrl);
-  // Every host is connected from here, not when the person picks one: what is wrong with one is in its status.
+  // Every environment is connected from here, not when the person picks one: what is wrong with one is in its status.
   void manager.connectAll();
   if (options.update !== undefined && options.update.disabled === undefined) {
     await cleanStale(options.update.appPath);

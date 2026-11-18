@@ -39,7 +39,7 @@ import { ConversationView } from "./conversation.tsx";
 import {
   AgentDefaultsDialog,
   ConfirmDialog,
-  HostDialog,
+  EnvironmentDialog,
   NewSessionDialog,
   RenameDialog,
 } from "./dialogs.tsx";
@@ -50,14 +50,14 @@ import { PermissionCard } from "./permission.tsx";
 import { SearchDialog } from "./search.tsx";
 import type { Away } from "./session-list.tsx";
 import { MOD, Sidebar, sessionTitle } from "./sidebar.tsx";
-import { HOST_STATE } from "./status.tsx";
+import { ENVIRONMENT_STATE } from "./status.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 import { DaemonBanner, UpdateBanner, UpdateFooter } from "./update.tsx";
 
 type Panel =
   | "none"
   | "new-session"
-  | "add-host"
+  | "add-environment"
   | "defaults"
   | "rename"
   | "delete"
@@ -66,10 +66,14 @@ type Panel =
 
 function SessionSettings({ onClose }: { onClose: () => void }) {
   const store = useAppStore();
-  const host = useAppState((s) => s.selectedHost);
+  const environment = useAppState((s) => s.selectedEnvironment);
   const sessionId = useAppState((s) => s.selectedSession);
-  const sessions = useAppState((s) => (host !== undefined ? s.sessions[host] : undefined));
-  const agents = useAppState((s) => (host !== undefined ? s.agents[host] : undefined));
+  const sessions = useAppState((s) =>
+    environment !== undefined ? s.sessions[environment] : undefined,
+  );
+  const agents = useAppState((s) =>
+    environment !== undefined ? s.agents[environment] : undefined,
+  );
   const session = sessions?.find((x) => x.sessionId === sessionId);
   const agent = agents?.find((a) => a.id === session?.agent);
   if (session === undefined || agent === undefined) return null;
@@ -103,12 +107,12 @@ export function App() {
   const { t } = useI18n();
   const showThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
   const ready = useAppState((s) => s.ready);
-  const hosts = useAppState((s) => s.hosts);
+  const environments = useAppState((s) => s.environments);
   const status = useAppState((s) => s.status);
-  const selectedHost = useAppState((s) => s.selectedHost);
+  const selectedEnvironment = useAppState((s) => s.selectedEnvironment);
   const selectedSession = useAppState((s) => s.selectedSession);
-  const sessionsByHost = useAppState((s) => s.sessions);
-  const agentsByHost = useAppState((s) => s.agents);
+  const sessionsByEnvironment = useAppState((s) => s.sessions);
+  const agentsByEnvironment = useAppState((s) => s.agents);
   const views = useAppState((s) => s.views);
   const error = useAppState((s) => s.error);
   const [panel, setPanel] = useState<Panel>("none");
@@ -120,56 +124,65 @@ export function App() {
     undefined,
   );
 
-  // The sessions of every host, in one list; what is open is on the host `selectedHost` names.
+  // The sessions of every environment, in one list; what is open is on the environment `selectedEnvironment` names.
   const sessions = useMemo(
-    () => hosts.flatMap((h) => sessionsByHost[h.id] ?? []),
-    [hosts, sessionsByHost],
+    () => environments.flatMap((h) => sessionsByEnvironment[h.id] ?? []),
+    [environments, sessionsByEnvironment],
   );
-  const agents = selectedHost !== undefined ? (agentsByHost[selectedHost] ?? []) : [];
+  const agents =
+    selectedEnvironment !== undefined ? (agentsByEnvironment[selectedEnvironment] ?? []) : [];
   const session = sessions.find(
-    (s) => s.hostId === selectedHost && s.sessionId === selectedSession,
+    (s) => s.environmentId === selectedEnvironment && s.sessionId === selectedSession,
   );
-  const [defaultsHost, setDefaultsHost] = useState<string | undefined>(undefined);
-  const connectedHosts = hosts.filter((h) => status[h.id]?.state === "connected");
-  // A host that is not connected: its sessions are the last it gave, and are shown greyed.
+  const [defaultsEnvironment, setDefaultsEnvironment] = useState<string | undefined>(undefined);
+  const connectedEnvironments = environments.filter((h) => status[h.id]?.state === "connected");
+  // An environment that is not connected: its sessions are the last it gave, and are shown greyed.
   const away = useMemo(() => {
     const map = new Map<string, Away>();
-    for (const h of hosts) {
+    for (const h of environments) {
       const state = status[h.id]?.state ?? "closed";
-      if (state !== "connected") map.set(h.id, { name: h.name, word: HOST_STATE[state].word });
+      if (state !== "connected")
+        map.set(h.id, { name: h.name, word: ENVIRONMENT_STATE[state].word });
     }
     return map;
-  }, [hosts, status]);
+  }, [environments, status]);
   const view =
-    selectedHost !== undefined && selectedSession !== undefined
-      ? views[viewKey(selectedHost, selectedSession)]
+    selectedEnvironment !== undefined && selectedSession !== undefined
+      ? views[viewKey(selectedEnvironment, selectedSession)]
       : undefined;
-  const hostState = selectedHost !== undefined ? status[selectedHost]?.state : undefined;
-  const hostError = selectedHost !== undefined ? status[selectedHost]?.error : undefined;
+  const environmentState =
+    selectedEnvironment !== undefined ? status[selectedEnvironment]?.state : undefined;
+  const environmentError =
+    selectedEnvironment !== undefined ? status[selectedEnvironment]?.error : undefined;
   const readDefaults = useCallback(
-    (hostId: string, agent: string) => store.readAgentDefaults(hostId, agent),
+    (environmentId: string, agent: string) => store.readAgentDefaults(environmentId, agent),
     [store],
   );
   const close = () => setPanel("none");
   const [layout] = useState(createResizableController);
   // The workspaces, and the one the sidebar shows; the list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
-  const hostLabels = useMemo(
-    () => hosts.map((h) => ({ id: h.id, name: h.name, local: h.kind === "local" })),
-    [hosts],
+  const environmentLabels = useMemo(
+    () => environments.map((h) => ({ id: h.id, name: h.name, local: h.kind === "local" })),
+    [environments],
   );
-  const awayHosts = useMemo(() => new Set(away.keys()), [away]);
+  const awayEnvironments = useMemo(() => new Set(away.keys()), [away]);
   const workspaces = useMemo(
-    () => workspacesOf(sessions, { hosts: hostLabels, away: awayHosts, showArchived }),
-    [sessions, hostLabels, awayHosts, showArchived],
+    () =>
+      workspacesOf(sessions, {
+        environments: environmentLabels,
+        away: awayEnvironments,
+        showArchived,
+      }),
+    [sessions, environmentLabels, awayEnvironments, showArchived],
   );
   const openKey = session !== undefined ? sessionKey(session) : undefined;
   const current = currentWorkspace(workspaces, {
     chosen: chosen !== undefined && chosen.on === openKey ? chosen.workspace : undefined,
     open: session,
   });
-  // A new session starts in the workspace that is shown, if its host can have one started.
+  // A new session starts in the workspace that is shown, if its environment can have one started.
   const startOn =
-    current !== undefined && connectedHosts.some((h) => h.id === current.hostId)
+    current !== undefined && connectedEnvironments.some((h) => h.id === current.environmentId)
       ? current
       : undefined;
   const elsewhere = useMemo(() => elsewhereOf(workspaces, current), [workspaces, current]);
@@ -179,10 +192,10 @@ export function App() {
       sessionList(current?.sessions ?? [], {
         showAll,
         selected: openKey,
-        away: awayHosts,
+        away: awayEnvironments,
         now: new Date(day),
       }),
-    [current, showAll, openKey, awayHosts, day],
+    [current, showAll, openKey, awayEnvironments, day],
   );
 
   // What is on screen has been seen: the daemon is told, so the mark goes and stays gone (also on another client).
@@ -191,8 +204,8 @@ export function App() {
   // Run again with each list that still says so: a mark that could not be told is tried again with the next list.
   useEffect(() => {
     if (session?.unread !== true || !inFront) return;
-    if (status[session.hostId]?.state !== "connected") return;
-    void store.markRead(session.hostId, session.sessionId);
+    if (status[session.environmentId]?.state !== "connected") return;
+    void store.markRead(session.environmentId, session.sessionId);
   }, [session, inFront, status, store]);
 
   const working = view !== undefined && view.conversation.status !== "idle";
@@ -215,7 +228,7 @@ export function App() {
         action();
       };
       if (key === "k") run(() => setPanel("search"));
-      else if (key === "n" && connectedHosts.length > 0) run(() => setPanel("new-session"));
+      else if (key === "n" && connectedEnvironments.length > 0) run(() => setPanel("new-session"));
       else if (key === "b")
         run(() =>
           layout.isCollapsed("sidebar") ? layout.expand("sidebar") : layout.collapse("sidebar"),
@@ -226,11 +239,12 @@ export function App() {
             .querySelector<HTMLElement>('[data-slot="composer"] [data-slot="composer-input"]')
             ?.focus(),
         );
-      else if (key === "." && working && hostState === "connected") run(() => void store.cancel());
+      else if (key === "." && working && environmentState === "connected")
+        run(() => void store.cancel());
       else if (
         key === "Enter" &&
         typing === null &&
-        hostState === "connected" &&
+        environmentState === "connected" &&
         firstAllow !== undefined &&
         view?.permissions[0] !== undefined
       ) {
@@ -238,13 +252,15 @@ export function App() {
         run(() => void store.answerPermission(request.key, firstAllow.optionId));
       } else if (key === "[" || key === "]") {
         const at = session === undefined ? -1 : list.order.indexOf(session);
-        // A row on a host that is away and was never opened cannot be opened: the walk goes past it.
+        // A row on an environment that is away and was never opened cannot be opened: the walk goes past it.
         const step = key === "]" ? 1 : -1;
         // The open session is not in the workspace that is shown: the walk starts at the end it is going from.
         let to = at === -1 ? (step === 1 ? 0 : list.order.length - 1) : at + step;
-        while (list.order[to] !== undefined && away.has(list.order[to]?.hostId ?? "")) to += step;
+        while (list.order[to] !== undefined && away.has(list.order[to]?.environmentId ?? ""))
+          to += step;
         const next = list.order[to];
-        if (next !== undefined) run(() => void store.selectSession(next.hostId, next.sessionId));
+        if (next !== undefined)
+          run(() => void store.selectSession(next.environmentId, next.sessionId));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -265,7 +281,7 @@ export function App() {
           collapsedSize="0px"
         >
           <Sidebar
-            hosts={hosts}
+            environments={environments}
             status={status}
             workspaces={workspaces}
             current={current}
@@ -275,16 +291,18 @@ export function App() {
             selected={openKey}
             away={away}
             showArchived={showArchived}
-            onSelectSession={(chosen) => void store.selectSession(chosen.hostId, chosen.sessionId)}
+            onSelectSession={(chosen) =>
+              void store.selectSession(chosen.environmentId, chosen.sessionId)
+            }
             onNewSession={() => setPanel("new-session")}
             onSearch={() => setPanel("search")}
-            onAddHost={() => setPanel("add-host")}
-            onRemoveHost={(id) => void store.removeHost(id)}
-            onConnectHost={(id) => void store.connectHost(id)}
+            onAddEnvironment={() => setPanel("add-environment")}
+            onRemoveEnvironment={(id) => void store.removeEnvironment(id)}
+            onConnectEnvironment={(id) => void store.connectEnvironment(id)}
             onToggleArchived={() => setShowArchived((v) => !v)}
             onShowAll={() => setShowAll(true)}
             onAgentDefaults={(id) => {
-              setDefaultsHost(id);
+              setDefaultsEnvironment(id);
               setPanel("defaults");
             }}
           >
@@ -296,7 +314,9 @@ export function App() {
         <ResizablePanel id="main" minSize="480px">
           <main data-slot="main">
             <UpdateBanner />
-            {selectedHost !== undefined ? <DaemonBanner hostId={selectedHost} /> : null}
+            {selectedEnvironment !== undefined ? (
+              <DaemonBanner environmentId={selectedEnvironment} />
+            ) : null}
             {error !== undefined ? (
               <div data-slot="banner" data-severity="error" role="alert">
                 <ErrorCircleIcon />
@@ -306,20 +326,23 @@ export function App() {
                 </Button>
               </div>
             ) : null}
-            {hostState === "reconnecting" ? (
+            {environmentState === "reconnecting" ? (
               <div data-slot="banner" data-severity="warning" role="status">
                 <WarningIcon />
                 Connection lost. Reconnecting… what you miss will be shown when it is back.
               </div>
             ) : null}
             {view !== undefined &&
-            hostState !== undefined &&
-            hostState !== "connected" &&
-            hostState !== "reconnecting" ? (
+            environmentState !== undefined &&
+            environmentState !== "connected" &&
+            environmentState !== "reconnecting" ? (
               <div data-slot="banner" data-severity="warning" role="status">
                 <WarningIcon />
                 {t("session.awayBanner", {
-                  host: hosts.find((h) => h.id === selectedHost)?.name ?? selectedHost ?? "",
+                  host:
+                    environments.find((h) => h.id === selectedEnvironment)?.name ??
+                    selectedEnvironment ??
+                    "",
                 })}
               </div>
             ) : null}
@@ -375,27 +398,29 @@ export function App() {
             ) : null}
             {view !== undefined ? (
               <ConversationView
-                key={viewKey(view.hostId, view.sessionId)}
-                sessionKey={viewKey(view.hostId, view.sessionId)}
+                key={viewKey(view.environmentId, view.sessionId)}
+                sessionKey={viewKey(view.environmentId, view.sessionId)}
                 follow={sent}
                 conversation={view.conversation}
                 loading={view.loading}
               />
             ) : (
               <div data-slot="empty">
-                {hostState === "connected" ? (
+                {environmentState === "connected" ? (
                   <p>Choose a session, or start a new one.</p>
-                ) : hostState === "connecting" || hostState === "reconnecting" ? (
+                ) : environmentState === "connecting" || environmentState === "reconnecting" ? (
                   <p>Connecting to this host…</p>
                 ) : (
                   <div data-slot="empty-block" role="alert">
                     <ErrorCircleIcon size={20} />
                     <p data-slot="empty-title">Not connected to this host.</p>
-                    {hostError !== undefined ? <code data-slot="reason">{hostError}</code> : null}
-                    {selectedHost !== undefined ? (
+                    {environmentError !== undefined ? (
+                      <code data-slot="reason">{environmentError}</code>
+                    ) : null}
+                    {selectedEnvironment !== undefined ? (
                       <Button
                         data-variant="outline"
-                        onClick={() => void store.connectHost(selectedHost)}
+                        onClick={() => void store.connectEnvironment(selectedEnvironment)}
                       >
                         Retry
                       </Button>
@@ -415,13 +440,13 @@ export function App() {
             </div>
             {view !== undefined ? (
               <Composer
-                key={`composer:${viewKey(view.hostId, view.sessionId)}`}
-                hostId={view.hostId}
-                sessionKey={viewKey(view.hostId, view.sessionId)}
+                key={`composer:${viewKey(view.environmentId, view.sessionId)}`}
+                environmentId={view.environmentId}
+                sessionKey={viewKey(view.environmentId, view.sessionId)}
                 canAttach={
                   agents.find((a) => a.id === session?.agent)?.promptCapabilities?.image != null
                 }
-                enabled={!view.loading && hostState === "connected"}
+                enabled={!view.loading && environmentState === "connected"}
                 onSent={() => setSent((n) => n + 1)}
               />
             ) : null}
@@ -432,39 +457,41 @@ export function App() {
       <SearchDialog
         open={panel === "search"}
         onOpenChange={(open) => !open && close()}
-        hosts={hosts}
+        environments={environments}
         status={status}
-        sessions={sessionsByHost}
-        onPick={async (hostId, sessionId) => {
+        sessions={sessionsByEnvironment}
+        onPick={async (environmentId, sessionId) => {
           // An archived session is not in the list unless archived ones are shown: show them, or the pick would select a hidden row.
-          if (sessionsByHost[hostId]?.find((s) => s.sessionId === sessionId)?.archived)
+          if (
+            sessionsByEnvironment[environmentId]?.find((s) => s.sessionId === sessionId)?.archived
+          )
             setShowArchived(true);
-          await store.selectSession(hostId, sessionId);
+          await store.selectSession(environmentId, sessionId);
         }}
         onNewSession={() => setPanel("new-session")}
       />
       <NewSessionDialog
         open={panel === "new-session"}
         onOpenChange={(open) => !open && close()}
-        hosts={connectedHosts}
-        defaultHost={startOn?.hostId ?? selectedHost}
+        environments={connectedEnvironments}
+        defaultEnvironment={startOn?.environmentId ?? selectedEnvironment}
         defaultCwd={startOn?.cwd}
-        agents={agentsByHost}
+        agents={agentsByEnvironment}
         readDefaults={readDefaults}
         chooseDirectory={store.chooseDirectory}
         onCreate={store.createSession}
       />
-      <HostDialog
-        open={panel === "add-host"}
+      <EnvironmentDialog
+        open={panel === "add-environment"}
         onOpenChange={(open) => !open && close()}
-        onSave={store.saveHost}
+        onSave={store.saveEnvironment}
       />
-      {defaultsHost !== undefined ? (
+      {defaultsEnvironment !== undefined ? (
         <DefaultsPanel
           open={panel === "defaults"}
           onOpenChange={(open) => !open && close()}
-          hostId={defaultsHost}
-          agents={agentsByHost[defaultsHost] ?? []}
+          environmentId={defaultsEnvironment}
+          agents={agentsByEnvironment[defaultsEnvironment] ?? []}
         />
       ) : null}
       {session !== undefined ? (
@@ -494,14 +521,14 @@ export function App() {
 function DefaultsPanel(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  hostId: string;
+  environmentId: string;
   agents: Parameters<typeof AgentDefaultsDialog>[0]["agents"];
 }) {
   const store = useAppStore();
-  const revision = useAppState((s) => s.defaultsRevision[props.hostId] ?? 0);
+  const revision = useAppState((s) => s.defaultsRevision[props.environmentId] ?? 0);
   const read = useCallback(
-    (agent: string) => store.readAgentDefaults(props.hostId, agent),
-    [store, props.hostId],
+    (agent: string) => store.readAgentDefaults(props.environmentId, agent),
+    [store, props.environmentId],
   );
   return (
     <AgentDefaultsDialog
@@ -510,7 +537,7 @@ function DefaultsPanel(props: {
       onOpenChange={props.onOpenChange}
       agents={props.agents}
       read={read}
-      onSave={(agent, config) => store.setAgentDefaults(props.hostId, agent, config)}
+      onSave={(agent, config) => store.setAgentDefaults(props.environmentId, agent, config)}
     />
   );
 }

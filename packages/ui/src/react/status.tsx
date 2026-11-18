@@ -11,7 +11,10 @@ export function StatusDot({ tone, shape }: { tone: Tone; shape: Shape }) {
   return <span data-slot="dot" data-tone={tone} data-shape={shape} aria-hidden="true" />;
 }
 
-export const HOST_STATE: Record<ConnectionState, { word: string; tone: Tone; shape: Shape }> = {
+export const ENVIRONMENT_STATE: Record<
+  ConnectionState,
+  { word: string; tone: Tone; shape: Shape }
+> = {
   connected: { word: "Connected", tone: "success", shape: "solid" },
   connecting: { word: "Connecting…", tone: "accent", shape: "ring" },
   reconnecting: { word: "Reconnecting…", tone: "attention", shape: "ring" },

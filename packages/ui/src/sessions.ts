@@ -2,7 +2,7 @@
 // ordered, what each row says, and what the switcher says of the other workspaces. Pure, so the list on screen and the
 // keyboard walking it (Cmd+[ and Cmd+]) are one thing and are tested without a page. `now` is given, never read.
 //
-// A workspace is a folder on one host: `(hostId, cwd)` (docs/desktop.md). The sidebar shows one at a time.
+// A workspace is a folder on one environment: `(environmentId, cwd)` (docs/desktop.md). The sidebar shows one at a time.
 import type { SessionSummary } from "./api.ts";
 import { viewKey } from "./store/store.ts";
 
@@ -37,16 +37,16 @@ export type SessionList = {
   hidden: number;
 };
 
-/** What the list needs to know of a host. */
-export type HostLabel = { id: string; name: string; local: boolean };
+/** What the list needs to know of an environment. */
+export type EnvironmentLabel = { id: string; name: string; local: boolean };
 
-/** A session, among the sessions of every host: the pair (host, id) is what is unique. */
+/** A session, among the sessions of every environment: the pair (environment, id) is what is unique. */
 export const sessionKey = (session: SessionSummary): string =>
-  viewKey(session.hostId, session.sessionId);
+  viewKey(session.environmentId, session.sessionId);
 
-/** A workspace is a folder on one host (a host's id has no "|" in it, so the first one ends it). */
+/** A workspace is a folder on one environment (an environment's id has no "|" in it, so the first one ends it). */
 export const workspaceKey = (session: SessionSummary): string =>
-  `${session.hostId}|${folderOf(session)}`;
+  `${session.environmentId}|${folderOf(session)}`;
 
 /** The folder a session works in, without a trailing slash (`/a/app` and `/a/app/` are one). */
 export const folderOf = (session: SessionSummary): string => {
@@ -60,7 +60,7 @@ const timeOf = (session: SessionSummary): number =>
   session.updatedAt === undefined ? Number.NaN : Date.parse(session.updatedAt);
 
 /**
- * Newest first. By `updatedAt`, which compares across hosts. A session whose daemon does not say (an older one) comes
+ * Newest first. By `updatedAt`, which compares across environments. A session whose daemon does not say (an older one) comes
  * after those that have it, and those are ordered by `lastSeq`, which only compares within one daemon: so they stay
  * in their daemon's order, and are never mixed in with another's by a number that means something else.
  */
@@ -69,20 +69,20 @@ const younger = (a: SessionSummary, b: SessionSummary): number => {
   const right = timeOf(b);
   if (!Number.isNaN(left) && !Number.isNaN(right) && left !== right) return right - left;
   if (Number.isNaN(left) !== Number.isNaN(right)) return Number.isNaN(left) ? 1 : -1;
-  // `lastSeq` only means something within one daemon: across daemons the tie stays a tie (group by host first).
-  return before(a.hostId, b.hostId) || b.lastSeq - a.lastSeq;
+  // `lastSeq` only means something within one daemon: across daemons the tie stays a tie (group by environment first).
+  return before(a.environmentId, b.environmentId) || b.lastSeq - a.lastSeq;
 };
 
 export const newest = (a: SessionSummary, b: SessionSummary): number =>
-  younger(a, b) || before(a.hostId, b.hostId) || before(a.sessionId, b.sessionId);
+  younger(a, b) || before(a.environmentId, b.environmentId) || before(a.sessionId, b.sessionId);
 
 /**
  * What a row says of its session, one thing: waiting for the person, working, a background sub-agent working, or news
- * the person has not seen. An archived session is put away and a session of a host that is away is the last list read:
+ * the person has not seen. An archived session is put away and a session of an environment that is away is the last list read:
  * neither waits for anyone nor works for anyone.
  */
 export const markOf = (session: SessionSummary, away?: ReadonlySet<string>): Mark | undefined => {
-  if (session.archived || away?.has(session.hostId) === true) return undefined;
+  if (session.archived || away?.has(session.environmentId) === true) return undefined;
   if (session.state === "requires_action") return "needs-you";
   if (session.state === "running") return "running";
   if ((session.background ?? 0) > 0) return "background";
@@ -94,9 +94,9 @@ const noCounts = (): Counts => ({ "needs-you": 0, running: 0, background: 0, unr
 
 export type Workspace = {
   key: string;
-  hostId: string;
+  environmentId: string;
   cwd: string;
-  /** The folder's name; more of the path where two on one host would be the same, and the host's name where two hosts would. */
+  /** The folder's name; more of the path where two on one environment would be the same, and the environment's name where two environments would. */
   name: string;
   /** Its sessions, newest first (those that are archived only when asked for). */
   sessions: SessionSummary[];
@@ -104,17 +104,17 @@ export type Workspace = {
 };
 
 /**
- * Every workspace: grouped by host (this computer first, then in the order the hosts are listed), and inside a host the
+ * Every workspace: grouped by environment (this computer first, then in the order the environments are listed), and inside an environment the
  * one with the newest session first. A workspace with only archived sessions is there only when they are asked for.
  */
 export const workspacesOf = (
   sessions: readonly SessionSummary[],
   {
-    hosts = [],
+    environments = [],
     away,
     showArchived = false,
   }: {
-    hosts?: readonly HostLabel[] | undefined;
+    environments?: readonly EnvironmentLabel[] | undefined;
     away?: ReadonlySet<string> | undefined;
     showArchived?: boolean | undefined;
   } = {},
@@ -128,15 +128,15 @@ export const workspacesOf = (
   }
   const known = [...byKey].map(([key, list]) => ({
     key,
-    hostId: list[0]?.hostId ?? "",
+    environmentId: list[0]?.environmentId ?? "",
     cwd: list[0] !== undefined ? folderOf(list[0]) : "",
     sessions: list,
   }));
-  const names = namesOf(known, hosts);
-  const rank = (hostId: string): number => {
-    const at = hosts.findIndex((h) => h.id === hostId);
-    const local = hosts[at]?.local === true;
-    return local ? -1 : at === -1 ? hosts.length : at;
+  const names = namesOf(known, environments);
+  const rank = (environmentId: string): number => {
+    const at = environments.findIndex((h) => h.id === environmentId);
+    const local = environments[at]?.local === true;
+    return local ? -1 : at === -1 ? environments.length : at;
   };
   return known
     .map((w): Workspace => {
@@ -151,7 +151,7 @@ export const workspacesOf = (
       const left = a.sessions[0];
       const right = b.sessions[0];
       return (
-        rank(a.hostId) - rank(b.hostId) ||
+        rank(a.environmentId) - rank(b.environmentId) ||
         (left !== undefined && right !== undefined ? younger(left, right) : 0) ||
         before(a.key, b.key)
       );
@@ -161,12 +161,12 @@ export const workspacesOf = (
 const parts = (folder: string): string[] => folder.split("/").filter(Boolean);
 
 /**
- * The names of the workspaces: the last part of the folder, with more of it only where two on the same host would be
- * the same; and where two on different hosts would still be the same, the host's name after it.
+ * The names of the workspaces: the last part of the folder, with more of it only where two on the same environment would be
+ * the same; and where two on different environments would still be the same, the environment's name after it.
  */
 const namesOf = (
-  workspaces: readonly { key: string; hostId: string; cwd: string }[],
-  hosts: readonly HostLabel[],
+  workspaces: readonly { key: string; environmentId: string; cwd: string }[],
+  environments: readonly EnvironmentLabel[],
 ): Map<string, string> => {
   const segments = new Map(workspaces.map((w) => [w.key, parts(w.cwd)]));
   const depth = new Map(workspaces.map((w) => [w.key, 1]));
@@ -179,7 +179,7 @@ const namesOf = (
   for (let round = 0; round < 64; round += 1) {
     const byLabel = new Map<string, typeof workspaces>();
     for (const w of workspaces) {
-      const same = `${w.hostId}|${label(w)}`;
+      const same = `${w.environmentId}|${label(w)}`;
       byLabel.set(same, [...(byLabel.get(same) ?? []), w]);
     }
     let grew = false;
@@ -199,9 +199,12 @@ const namesOf = (
   return new Map(
     workspaces.map((w) => {
       const name = label(w);
-      const host = hosts.find((h) => h.id === w.hostId);
-      const clash = (taken.get(name) ?? 0) > 1 && host !== undefined;
-      return [w.key, name === "" ? (host?.name ?? "") : clash ? `${name} · ${host.name}` : name];
+      const environment = environments.find((h) => h.id === w.environmentId);
+      const clash = (taken.get(name) ?? 0) > 1 && environment !== undefined;
+      return [
+        w.key,
+        name === "" ? (environment?.name ?? "") : clash ? `${name} · ${environment.name}` : name,
+      ];
     }),
   );
 };
@@ -261,7 +264,7 @@ export type SessionListOptions = {
   showAll: boolean;
   /** The open session, by its `sessionKey`: shown however far down it is. */
   selected?: string | undefined;
-  /** Hosts that are not connected: their sessions are the last list read, and wait for no one. */
+  /** Environments that are not connected: their sessions are the last list read, and wait for no one. */
   away?: ReadonlySet<string> | undefined;
   now: Date;
 };

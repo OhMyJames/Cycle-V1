@@ -5,10 +5,10 @@ import { join } from "node:path";
 import { Daemon } from "@cycle/daemon";
 import { type Channel, connectUnix } from "@cycle/transport/client";
 import { listenUnix } from "@cycle/transport/server";
-import { type AppEvent, applyUpdate, emptyConversation, type HostConfig } from "@cycle/ui";
+import { type AppEvent, applyUpdate, type EnvironmentConfig, emptyConversation } from "@cycle/ui";
 import { fakeAgent } from "../../../packages/daemon/test/fake-agent.ts";
 import { type AttentionNotice, ConnectionManager } from "../src/main/manager.ts";
-import { fileSettings, LOCAL_HOST } from "../src/main/settings.ts";
+import { fileSettings, LOCAL_ENVIRONMENT } from "../src/main/settings.ts";
 
 let dir: string;
 let cleanup: (() => void | Promise<void>)[] = [];
@@ -95,7 +95,7 @@ test("connects, creates a session, and lists it", async () => {
   const { manager } = await setup();
   const { m, events } = await manager();
   await m.connect("local");
-  expect(of(events, "host-status").map((e) => e.state)).toEqual(["connecting", "connected"]);
+  expect(of(events, "environment-status").map((e) => e.state)).toEqual(["connecting", "connected"]);
   const id = await m.createSession("local", { cwd: "/tmp" });
   const sessions = await m.sessions("local");
   // Its agent is running, so it is idle and not stopped.
@@ -104,7 +104,10 @@ test("connects, creates a session, and lists it", async () => {
   ]);
   expect(of(events, "sessions").length).toBeGreaterThan(0);
   // What the daemon said it can do reaches the page with the connection's state.
-  expect(of(events, "host-status").at(-1)?.capabilities).toEqual({ queue: true, files: true });
+  expect(of(events, "environment-status").at(-1)?.capabilities).toEqual({
+    queue: true,
+    files: true,
+  });
   expect((await m.agents("local")).map((a) => a.id)).toEqual(["fake"]);
 });
 
@@ -201,7 +204,7 @@ test("a permission request is shown, held for a reloaded renderer, and answered"
   await m.prompt("local", id, "ask");
   await until(() => of(events, "permission").length === 1, "the request");
   const request = first(of(events, "permission")).request;
-  expect(request).toMatchObject({ hostId: "local", sessionId: id, title: "Allow it?" });
+  expect(request).toMatchObject({ environmentId: "local", sessionId: id, title: "Allow it?" });
   expect(request.options.map((o) => o.optionId)).toEqual(["allow", "deny"]);
 
   // A renderer that reloads is given the request that is still waiting.
@@ -261,13 +264,21 @@ test("a connection that drops is picked up again, and a request still open is no
   await until(() => of(events, "permission").length === 1, "the request");
 
   drop();
-  await until(() => of(events, "host-status").some((e) => e.state === "reconnecting"), "the loss");
+  await until(
+    () => of(events, "environment-status").some((e) => e.state === "reconnecting"),
+    "the loss",
+  );
   // What the daemon can do is not forgotten while the line is down.
-  expect(of(events, "host-status").find((e) => e.state === "reconnecting")?.capabilities).toEqual({
+  expect(
+    of(events, "environment-status").find((e) => e.state === "reconnecting")?.capabilities,
+  ).toEqual({
     queue: true,
     files: true,
   });
-  await until(() => of(events, "host-status").at(-1)?.state === "connected", "the reconnect");
+  await until(
+    () => of(events, "environment-status").at(-1)?.state === "connected",
+    "the reconnect",
+  );
   // The daemon asked again on the new connection: still one request on screen, not two.
   await Bun.sleep(100);
   expect(of(events, "permission")).toHaveLength(1);
@@ -299,12 +310,17 @@ test("an agent's defaults are read and set", async () => {
   await until(() => of(events, "agent-defaults").length === 1, "the change");
 });
 
-test("hosts are kept across runs, and the local one stays", async () => {
+test("environments are kept across runs, and the local one stays", async () => {
   const { manager } = await setup();
   const first = await manager("a");
-  const box: HostConfig = { id: "box", name: "Box", kind: "ssh", host: "me@box" };
-  await first.m.saveHost(box);
-  expect((await first.m.hosts()).hosts.map((h) => h.id)).toEqual(["local", "box"]);
+  const box: EnvironmentConfig = {
+    id: "box",
+    name: "Box",
+    kind: "remote",
+    transport: { type: "ssh", host: "me@box" },
+  };
+  await first.m.saveEnvironment(box);
+  expect((await first.m.environments()).environments.map((h) => h.id)).toEqual(["local", "box"]);
   const again = new ConnectionManager({
     settings: fileSettings(join(dir, "settings-a.json")),
     channelFor: () => async () => {
@@ -313,10 +329,10 @@ test("hosts are kept across runs, and the local one stays", async () => {
     emit: () => {},
   });
   await again.init();
-  expect((await again.hosts()).hosts).toEqual([LOCAL_HOST, box]);
-  await expect(again.removeHost("local")).rejects.toThrow("cannot be removed");
-  await again.removeHost("box");
-  expect((await again.hosts()).hosts).toEqual([LOCAL_HOST]);
+  expect((await again.environments()).environments).toEqual([LOCAL_ENVIRONMENT, box]);
+  await expect(again.removeEnvironment("local")).rejects.toThrow("cannot be removed");
+  await again.removeEnvironment("box");
+  expect((await again.environments()).environments).toEqual([LOCAL_ENVIRONMENT]);
 });
 
 test("a host that cannot be reached ends closed, with why", async () => {
@@ -330,24 +346,31 @@ test("a host that cannot be reached ends closed, with why", async () => {
   });
   await m.init();
   await expect(m.connect("local")).rejects.toThrow("Host key verification failed");
-  expect(of(events, "host-status").at(-1)).toMatchObject({
+  expect(of(events, "environment-status").at(-1)).toMatchObject({
     state: "closed",
     error: "Host key verification failed",
   });
-  expect((await m.hosts()).status[0]?.state).toBe("closed");
+  expect((await m.environments()).status[0]?.state).toBe("closed");
 });
 
-const far: HostConfig = { id: "far", name: "Far", kind: "ssh", host: "example" };
-const connectedStatus = (events: AppEvent[], hostId: string) =>
+const far: EnvironmentConfig = {
+  id: "far",
+  name: "Far",
+  kind: "remote",
+  transport: { type: "ssh", host: "example" },
+};
+const connectedStatus = (events: AppEvent[], environmentId: string) =>
   events.findLast(
-    (e): e is Extract<AppEvent, { type: "host-status" }> =>
-      e.type === "host-status" && e.hostId === hostId && e.state === "connected",
+    (e): e is Extract<AppEvent, { type: "environment-status" }> =>
+      e.type === "environment-status" &&
+      e.environmentId === environmentId &&
+      e.state === "connected",
   );
 
 test("a remote host whose daemon is older than the app is told so, with what to run on it", async () => {
   const { manager } = await setup(fakeAgent(), "0.1.0");
   const { m, events } = await manager("app", "0.1.1");
-  await m.saveHost(far);
+  await m.saveEnvironment(far);
   await m.connect("far");
   const daemon = connectedStatus(events, "far")?.daemon;
   expect(daemon?.version).toBe("0.1.0");
@@ -360,7 +383,7 @@ test("a daemon that is the same, newer, or a development build is not nagged abo
   for (const version of ["0.1.1", "0.2.0", undefined]) {
     const { manager } = await setup(fakeAgent(), version);
     const { m, events } = await manager("app", "0.1.1");
-    await m.saveHost(far);
+    await m.saveEnvironment(far);
     await m.connect("far");
     expect(connectedStatus(events, "far")?.daemon?.upgrade).toBeUndefined();
     await m.close();
@@ -437,8 +460,8 @@ test("a session that asks and then finishes is reported to the main process, and
   await until(() => of(events, "permission").length === 1, "the request");
   await until(() => notices.length === 1, "the session to be reported as asking");
   expect(notices[0]).toMatchObject({
-    hostId: "local",
-    hostName: LOCAL_HOST.name,
+    environmentId: "local",
+    environmentName: LOCAL_ENVIRONMENT.name,
     kind: "needs-you",
     session: { sessionId: id, state: "requires_action" },
   });
@@ -510,13 +533,19 @@ test("a session deleted elsewhere while the connection was away is gone here, an
   held.add("a");
   drop();
   await until(
-    () => of(a.events, "host-status").some((e) => e.state === "reconnecting"),
+    () => of(a.events, "environment-status").some((e) => e.state === "reconnecting"),
     "the loss",
   );
-  await until(() => of(b.events, "host-status").at(-1)?.state === "connected", "b to be back");
+  await until(
+    () => of(b.events, "environment-status").at(-1)?.state === "connected",
+    "b to be back",
+  );
   await b.m.deleteSession("local", doomed);
   held.delete("a");
-  await until(() => of(a.events, "host-status").at(-1)?.state === "connected", "a to reconnect");
+  await until(
+    () => of(a.events, "environment-status").at(-1)?.state === "connected",
+    "a to reconnect",
+  );
 
   await until(() => of(a.events, "sessions").at(-1)?.sessions.length === 1, "the list to follow");
   expect(first(of(a.events, "sessions").slice(-1)).sessions.map((s) => s.sessionId)).toEqual([
@@ -524,7 +553,7 @@ test("a session deleted elsewhere while the connection was away is gone here, an
   ]);
   // The renderer is told, so it can drop the view and the dialogs of the session.
   expect(of(a.events, "session-gone")).toEqual([
-    { type: "session-gone", hostId: "local", sessionId: doomed },
+    { type: "session-gone", environmentId: "local", sessionId: doomed },
   ]);
   await expect(a.m.openSession("local", doomed)).rejects.toThrow();
   // The session that is still there goes on being watched.
@@ -536,12 +565,12 @@ test("a session deleted elsewhere while the connection was away is gone here, an
 test("every host is connected, one that cannot be reached does not hold up the others, and why is kept for a renderer that asks later", async () => {
   const { manager } = await setup();
   const { m, events } = await manager("all");
-  await m.saveHost(far);
-  // Same settings file, a manager whose far host cannot be reached.
+  await m.saveEnvironment(far);
+  // Same settings file, a manager whose far environment cannot be reached.
   const both = new ConnectionManager({
     settings: fileSettings(join(dir, "settings-all.json")),
-    channelFor: (host) => async () => {
-      if (host.id === "far") throw new Error("Host key verification failed");
+    channelFor: (environment) => async () => {
+      if (environment.id === "far") throw new Error("Host key verification failed");
       return connectUnix(join(dir, "d.sock"));
     },
     emit: (e) => events.push(e),
@@ -549,9 +578,9 @@ test("every host is connected, one that cannot be reached does not hold up the o
   await both.init();
   cleanup.push(() => both.close());
   await both.connectAll();
-  const { status } = await both.hosts();
-  expect(status.find((s) => s.hostId === "local")?.state).toBe("connected");
-  expect(status.find((s) => s.hostId === "far")).toMatchObject({
+  const { status } = await both.environments();
+  expect(status.find((s) => s.environmentId === "local")?.state).toBe("connected");
+  expect(status.find((s) => s.environmentId === "far")).toMatchObject({
     state: "closed",
     error: "Host key verification failed",
   });
@@ -562,14 +591,14 @@ test("the last list of a host that goes away is still given, and a host removed 
   const { m } = await manager();
   await m.connect("local");
   const id = await m.createSession("local", { cwd: "/tmp" });
-  expect((await m.hosts()).sessions.local?.map((s) => s.sessionId)).toEqual([id]);
+  expect((await m.environments()).sessions.local?.map((s) => s.sessionId)).toEqual([id]);
   await m.disconnect("local");
-  const after = await m.hosts();
+  const after = await m.environments();
   expect(after.status[0]?.state).toBe("closed");
   expect(after.sessions.local?.map((s) => s.sessionId)).toEqual([id]);
-  await m.saveHost(far);
-  await m.removeHost("far");
-  expect((await m.hosts()).sessions.far).toBeUndefined();
+  await m.saveEnvironment(far);
+  await m.removeEnvironment("far");
+  expect((await m.environments()).sessions.far).toBeUndefined();
 });
 
 test("a session says when it last had something happen", async () => {

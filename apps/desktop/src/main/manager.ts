@@ -9,10 +9,10 @@ import {
   applyUpdate,
   attentionOf,
   type Conversation,
+  type EnvironmentConfig,
+  type EnvironmentStatus,
   emptyConversation,
   type FileSearch,
-  type HostConfig,
-  type HostStatus,
   type NewSession,
   type PermissionRequest,
   type PromptBlock,
@@ -20,16 +20,16 @@ import {
   type SessionSummary,
 } from "@cycle/ui";
 import { daemonUpgradeCommand, isNewer } from "../shared/release.ts";
-import { LOCAL_HOST, type Settings } from "./settings.ts";
+import { LOCAL_ENVIRONMENT, type Settings } from "./settings.ts";
 
 export type ManagerOptions = {
   settings: Settings;
-  /** How to reach a host. The one place that knows about ssh, a local proxy, or a test socket. */
-  channelFor: (host: HostConfig) => () => Promise<Channel>;
+  /** How to reach an environment. The one place that knows about ssh, a local proxy, or a test socket. */
+  channelFor: (environment: EnvironmentConfig) => () => Promise<Channel>;
   emit: (event: AppEvent) => void;
   chooseDirectory?: () => Promise<string | undefined>;
   backoff?: { first: number; max: number };
-  /** The version of this app, to tell a host whose daemon is older. Without it, nothing is said. */
+  /** The version of this app, to tell an environment whose daemon is older. Without it, nothing is said. */
   appVersion?: string;
   /** A session changed in a way worth telling (it asks, it is done, its agent is gone). Without it, nothing is said. */
   attention?: (notice: AttentionNotice) => void;
@@ -37,8 +37,8 @@ export type ManagerOptions = {
 
 /** What the main process is told when a session that was changing is in a state that wants the person. */
 export type AttentionNotice = {
-  hostId: string;
-  hostName: string;
+  environmentId: string;
+  environmentName: string;
   session: SessionSummary;
   kind: Attention;
 };
@@ -55,7 +55,7 @@ type Watched = {
 
 type Connection = {
   client: CycleClient;
-  status: HostStatus;
+  status: EnvironmentStatus;
   sessions: SessionSummary[];
   watched: Map<string, Watched>;
   opening: Map<string, Promise<void>>;
@@ -76,11 +76,11 @@ export class ConnectionManager
   implements Omit<AppApi, "chooseDirectory" | "updateState" | "checkForUpdate" | "installUpdate">
 {
   readonly #options: ManagerOptions;
-  #hosts: HostConfig[] = [LOCAL_HOST];
+  #environments: EnvironmentConfig[] = [LOCAL_ENVIRONMENT];
   readonly #connections = new Map<string, Connection>();
-  /** The last list read from each host, kept when its connection goes: what the interface greys out. */
+  /** The last list read from each environment, kept when its connection goes: what the interface greys out. */
   readonly #lastSessions = new Map<string, SessionSummary[]>();
-  /** Why the last attempt to connect to a host failed, for a renderer that asks after the event went by. */
+  /** Why the last attempt to connect to an environment failed, for a renderer that asks after the event went by. */
   readonly #lastError = new Map<string, string>();
 
   constructor(options: ManagerOptions) {
@@ -88,7 +88,7 @@ export class ConnectionManager
   }
 
   async init(): Promise<void> {
-    this.#hosts = await this.#options.settings.load();
+    this.#environments = await this.#options.settings.load();
   }
 
   async close(): Promise<void> {
@@ -96,16 +96,16 @@ export class ConnectionManager
     this.#connections.clear();
   }
 
-  // ---- hosts ----
+  // ---- environments ----
 
-  async hosts() {
+  async environments() {
     return {
-      hosts: this.#hosts,
-      status: this.#hosts.map((host): HostStatus => {
-        const error = this.#lastError.get(host.id);
+      environments: this.#environments,
+      status: this.#environments.map((environment): EnvironmentStatus => {
+        const error = this.#lastError.get(environment.id);
         return (
-          this.#connections.get(host.id)?.status ?? {
-            hostId: host.id,
+          this.#connections.get(environment.id)?.status ?? {
+            environmentId: environment.id,
             state: "closed",
             ...(error !== undefined ? { error } : {}),
           }
@@ -116,40 +116,42 @@ export class ConnectionManager
   }
 
   /**
-   * Connects to every host, each on its own: one that cannot be reached is closed, with why, and the others
-   * are not held up by it. What is wrong with a host is in its status; nothing is thrown.
+   * Connects to every environment, each on its own: one that cannot be reached is closed, with why, and the others
+   * are not held up by it. What is wrong with an environment is in its status; nothing is thrown.
    */
   async connectAll(): Promise<void> {
-    await Promise.allSettled(this.#hosts.map((host) => this.connect(host.id)));
+    await Promise.allSettled(this.#environments.map((environment) => this.connect(environment.id)));
   }
 
-  async saveHost(host: HostConfig): Promise<void> {
-    if (host.id === LOCAL_HOST.id) throw new Error("The local daemon cannot be changed");
-    const rest = this.#hosts.filter((h) => h.id !== host.id);
-    this.#hosts = [...rest, host];
-    await this.#options.settings.save(this.#hosts);
-    this.#options.emit({ type: "hosts", hosts: this.#hosts });
+  async saveEnvironment(environment: EnvironmentConfig): Promise<void> {
+    if (environment.id === LOCAL_ENVIRONMENT.id)
+      throw new Error("The local daemon cannot be changed");
+    const rest = this.#environments.filter((h) => h.id !== environment.id);
+    this.#environments = [...rest, environment];
+    await this.#options.settings.save(this.#environments);
+    this.#options.emit({ type: "environments", environments: this.#environments });
   }
 
-  async removeHost(hostId: string): Promise<void> {
-    if (hostId === LOCAL_HOST.id) throw new Error("The local daemon cannot be removed");
-    await this.disconnect(hostId);
-    this.#lastSessions.delete(hostId);
-    this.#lastError.delete(hostId);
-    this.#hosts = this.#hosts.filter((h) => h.id !== hostId);
-    await this.#options.settings.save(this.#hosts);
-    this.#options.emit({ type: "hosts", hosts: this.#hosts });
+  async removeEnvironment(environmentId: string): Promise<void> {
+    if (environmentId === LOCAL_ENVIRONMENT.id)
+      throw new Error("The local daemon cannot be removed");
+    await this.disconnect(environmentId);
+    this.#lastSessions.delete(environmentId);
+    this.#lastError.delete(environmentId);
+    this.#environments = this.#environments.filter((h) => h.id !== environmentId);
+    await this.#options.settings.save(this.#environments);
+    this.#options.emit({ type: "environments", environments: this.#environments });
   }
 
-  async connect(hostId: string): Promise<void> {
-    const existing = this.#connections.get(hostId);
+  async connect(environmentId: string): Promise<void> {
+    const existing = this.#connections.get(environmentId);
     if (existing && existing.status.state !== "closed") return;
-    const host = this.#hosts.find((h) => h.id === hostId);
-    if (host === undefined) throw new Error(`No such host: ${hostId}`);
+    const environment = this.#environments.find((h) => h.id === environmentId);
+    if (environment === undefined) throw new Error(`No such environment: ${environmentId}`);
 
     const connection: Connection = {
       client: undefined as unknown as CycleClient,
-      status: { hostId, state: "connecting" },
+      status: { environmentId, state: "connecting" },
       sessions: [],
       watched: new Map(),
       opening: new Map(),
@@ -157,27 +159,29 @@ export class ConnectionManager
       applied: 0,
     };
     connection.client = new CycleClient({
-      connect: this.#options.channelFor(host),
+      connect: this.#options.channelFor(environment),
       name: "cycle-desktop",
       ...(this.#options.backoff !== undefined ? { backoff: this.#options.backoff } : {}),
       events: {
-        update: (sessionId, update) => this.#onUpdate(hostId, connection, sessionId, update),
+        update: (sessionId, update) => this.#onUpdate(environmentId, connection, sessionId, update),
         permission: (sessionId, request, requestId) =>
-          this.#onPermission(hostId, connection, sessionId, request, requestId),
+          this.#onPermission(environmentId, connection, sessionId, request, requestId),
         resolved: (sessionId, requestId) =>
-          this.#onResolved(hostId, connection, sessionId, String(requestId)),
-        listChanged: () => void this.#refreshSessions(hostId, connection).catch(() => undefined),
-        defaultsChanged: (agent) => this.#options.emit({ type: "agent-defaults", hostId, agent }),
-        gone: (sessionId) => this.#onGone(hostId, connection, sessionId),
+          this.#onResolved(environmentId, connection, sessionId, String(requestId)),
+        listChanged: () =>
+          void this.#refreshSessions(environmentId, connection).catch(() => undefined),
+        defaultsChanged: (agent) =>
+          this.#options.emit({ type: "agent-defaults", environmentId, agent }),
+        gone: (sessionId) => this.#onGone(environmentId, connection, sessionId),
         connection: (state, error) => {
           // A connection that came back asks for the list again: it may have changed while away.
           const was = connection.status.state;
           if (state === was && error === undefined) return;
           connection.status = {
-            hostId,
+            environmentId,
             state,
             ...(error !== undefined ? { error: messageOf(error) } : {}),
-            ...(state === "connected" ? this.#daemonOf(host, connection.client) : {}),
+            ...(state === "connected" ? this.#daemonOf(environment, connection.client) : {}),
             // What the daemon can do is known from the connection it said it on: a drop that comes back to the same
             // daemon does not take it away, or the box would stop queueing for as long as the line is down.
             ...(state === "connected"
@@ -191,40 +195,53 @@ export class ConnectionManager
                 ? { capabilities: connection.status.capabilities }
                 : {}),
           };
-          this.#options.emit({ type: "host-status", ...connection.status });
+          this.#options.emit({ type: "environment-status", ...connection.status });
           if (state === "connected" && was === "reconnecting") {
-            void this.#refreshSessions(hostId, connection, true).catch(() => undefined);
+            void this.#refreshSessions(environmentId, connection, true).catch(() => undefined);
           }
         },
       },
     });
-    this.#connections.set(hostId, connection);
-    this.#options.emit({ type: "host-status", ...connection.status });
+    this.#connections.set(environmentId, connection);
+    this.#options.emit({ type: "environment-status", ...connection.status });
     try {
       await connection.client.start();
     } catch (error) {
-      this.#connections.delete(hostId);
-      this.#lastError.set(hostId, messageOf(error));
-      this.#options.emit({ type: "host-status", hostId, state: "closed", error: messageOf(error) });
+      this.#connections.delete(environmentId);
+      this.#lastError.set(environmentId, messageOf(error));
+      this.#options.emit({
+        type: "environment-status",
+        environmentId,
+        state: "closed",
+        error: messageOf(error),
+      });
       throw error;
     }
-    this.#lastError.delete(hostId);
+    this.#lastError.delete(environmentId);
     try {
-      await this.#refreshSessions(hostId, connection);
+      await this.#refreshSessions(environmentId, connection);
     } catch (error) {
       // A daemon that answers but cannot list is not usable: say so, instead of sitting connected with no list.
-      this.#connections.delete(hostId);
+      this.#connections.delete(environmentId);
       await connection.client.close().catch(() => undefined);
-      this.#lastError.set(hostId, messageOf(error));
-      this.#options.emit({ type: "host-status", hostId, state: "closed", error: messageOf(error) });
+      this.#lastError.set(environmentId, messageOf(error));
+      this.#options.emit({
+        type: "environment-status",
+        environmentId,
+        state: "closed",
+        error: messageOf(error),
+      });
       throw error;
     }
   }
 
-  /** What a connected remote host's daemon is, and whether it is behind this app. */
-  #daemonOf(host: HostConfig, client: CycleClient): Pick<HostStatus, "daemon"> {
+  /** What a connected remote environment's daemon is, and whether it is behind this app. */
+  #daemonOf(
+    environment: EnvironmentConfig,
+    client: CycleClient,
+  ): Pick<EnvironmentStatus, "daemon"> {
     const version = client.serverVersion;
-    if (host.kind === "local" || version === undefined) return {};
+    if (environment.kind === "local" || version === undefined) return {};
     const { appVersion } = this.#options;
     const behind = appVersion !== undefined && isNewer(appVersion, version);
     return {
@@ -232,27 +249,27 @@ export class ConnectionManager
     };
   }
 
-  async disconnect(hostId: string): Promise<void> {
-    const connection = this.#connections.get(hostId);
+  async disconnect(environmentId: string): Promise<void> {
+    const connection = this.#connections.get(environmentId);
     if (connection === undefined) return;
-    this.#connections.delete(hostId);
+    this.#connections.delete(environmentId);
     for (const watched of connection.watched.values()) {
       for (const pending of watched.pending.values()) pending.answer({ outcome: "cancelled" });
     }
     await connection.client.close();
-    this.#options.emit({ type: "host-status", hostId, state: "closed" });
+    this.#options.emit({ type: "environment-status", environmentId, state: "closed" });
   }
 
-  #connection(hostId: string): Connection {
-    const connection = this.#connections.get(hostId);
+  #connection(environmentId: string): Connection {
+    const connection = this.#connections.get(environmentId);
     if (connection === undefined) throw new Error("Not connected to that host");
     return connection;
   }
 
   // ---- sessions ----
 
-  async sessions(hostId: string): Promise<SessionSummary[]> {
-    return this.#refreshSessions(hostId, this.#connection(hostId));
+  async sessions(environmentId: string): Promise<SessionSummary[]> {
+    return this.#refreshSessions(environmentId, this.#connection(environmentId));
   }
 
   /**
@@ -261,7 +278,7 @@ export class ConnectionManager
    * that is asking (and is still asking) is told.
    */
   async #refreshSessions(
-    hostId: string,
+    environmentId: string,
     connection: Connection,
     afterOutage = false,
   ): Promise<SessionSummary[]> {
@@ -270,7 +287,7 @@ export class ConnectionManager
     const sessions = rows.map((row): SessionSummary => {
       const meta = (row._meta ?? {}) as Record<string, unknown>;
       return {
-        hostId,
+        environmentId,
         sessionId: row.sessionId,
         cwd: row.cwd,
         ...(typeof meta.title === "string" ? { title: meta.title } : {}),
@@ -291,46 +308,47 @@ export class ConnectionManager
     // An answer to an older question, arriving after the answer to a newer one, would put the list back.
     if (asked < connection.applied) return connection.sessions;
     connection.applied = asked;
-    // The host may have been removed while the question was out: its list must not come back.
-    if (this.#connections.get(hostId) !== connection) return sessions;
+    // The environment may have been removed while the question was out: its list must not come back.
+    if (this.#connections.get(environmentId) !== connection) return sessions;
     const before = new Map(connection.sessions.map((s) => [s.sessionId, s]));
     connection.sessions = sessions;
-    this.#lastSessions.set(hostId, sessions);
-    this.#options.emit({ type: "sessions", hostId, sessions });
-    this.#tell(hostId, before, sessions, afterOutage);
+    this.#lastSessions.set(environmentId, sessions);
+    this.#options.emit({ type: "sessions", environmentId, sessions });
+    this.#tell(environmentId, before, sessions, afterOutage);
     return sessions;
   }
 
   /** What changed since the list before is what the person may want to be told. A hook that fails must not break the list. */
   #tell(
-    hostId: string,
+    environmentId: string,
     before: ReadonlyMap<string, SessionSummary>,
     sessions: readonly SessionSummary[],
     afterOutage: boolean,
   ): void {
     const attention = this.#options.attention;
     if (attention === undefined) return;
-    const hostName = this.#hosts.find((h) => h.id === hostId)?.name ?? hostId;
+    const environmentName =
+      this.#environments.find((h) => h.id === environmentId)?.name ?? environmentId;
     for (const session of sessions) {
       const kind = attentionOf(before.get(session.sessionId), session);
       if (kind === undefined || (afterOutage && kind !== "needs-you")) continue;
       try {
-        attention({ hostId, hostName, session, kind });
+        attention({ environmentId, environmentName, session, kind });
       } catch {
         // A notification that cannot be shown is a notification missed, not a list that cannot be read.
       }
     }
   }
 
-  async createSession(hostId: string, params: NewSession): Promise<string> {
-    const connection = this.#connection(hostId);
+  async createSession(environmentId: string, params: NewSession): Promise<string> {
+    const connection = this.#connection(environmentId);
     const sessionId = await connection.client.newSession(params);
-    await this.#refreshSessions(hostId, connection);
+    await this.#refreshSessions(environmentId, connection);
     return sessionId;
   }
 
-  async openSession(hostId: string, sessionId: string): Promise<SessionSnapshot> {
-    const connection = this.#connection(hostId);
+  async openSession(environmentId: string, sessionId: string): Promise<SessionSnapshot> {
+    const connection = this.#connection(environmentId);
     let opening = connection.opening.get(sessionId);
     if (opening === undefined) {
       opening = this.#watch(connection, sessionId).finally(() =>
@@ -366,17 +384,17 @@ export class ConnectionManager
   }
 
   /** A watched session was deleted elsewhere while the connection was away: nothing is waiting on it any more. */
-  #onGone(hostId: string, connection: Connection, sessionId: string): void {
+  #onGone(environmentId: string, connection: Connection, sessionId: string): void {
     const watched = connection.watched.get(sessionId);
     if (watched === undefined) return;
     for (const pending of watched.pending.values()) pending.answer({ outcome: "cancelled" });
     connection.watched.delete(sessionId);
     // The renderer drops the view (and with it the permission dialogs), the draft and the selection.
-    this.#options.emit({ type: "session-gone", hostId, sessionId });
+    this.#options.emit({ type: "session-gone", environmentId, sessionId });
   }
 
   #onUpdate(
-    hostId: string,
+    environmentId: string,
     connection: Connection,
     sessionId: string,
     update: Parameters<typeof applyUpdate>[1],
@@ -385,55 +403,73 @@ export class ConnectionManager
     if (watched === undefined) return;
     watched.conversation = applyUpdate(watched.conversation, update);
     watched.version += 1;
-    this.#options.emit({ type: "update", hostId, sessionId, update, version: watched.version });
+    this.#options.emit({
+      type: "update",
+      environmentId,
+      sessionId,
+      update,
+      version: watched.version,
+    });
   }
 
-  async prompt(hostId: string, sessionId: string, content: string | PromptBlock[]): Promise<void> {
+  async prompt(
+    environmentId: string,
+    sessionId: string,
+    content: string | PromptBlock[],
+  ): Promise<void> {
     const blocks =
       typeof content === "string" ? [{ type: "text" as const, text: content }] : content;
-    await this.#connection(hostId).client.prompt(sessionId, blocks);
+    await this.#connection(environmentId).client.prompt(sessionId, blocks);
   }
 
-  async cancel(hostId: string, sessionId: string): Promise<void> {
-    await this.#connection(hostId).client.cancel(sessionId);
+  async cancel(environmentId: string, sessionId: string): Promise<void> {
+    await this.#connection(environmentId).client.cancel(sessionId);
   }
 
-  async searchFiles(hostId: string, sessionId: string, query: string): Promise<FileSearch> {
-    return this.#connection(hostId).client.searchFiles(sessionId, query);
+  async searchFiles(environmentId: string, sessionId: string, query: string): Promise<FileSearch> {
+    return this.#connection(environmentId).client.searchFiles(sessionId, query);
   }
 
-  async dequeue(hostId: string, sessionId: string, queueId: string): Promise<PromptBlock[]> {
-    return (await this.#connection(hostId).client.dequeue(sessionId, queueId)) as PromptBlock[];
+  async dequeue(environmentId: string, sessionId: string, queueId: string): Promise<PromptBlock[]> {
+    return (await this.#connection(environmentId).client.dequeue(
+      sessionId,
+      queueId,
+    )) as PromptBlock[];
   }
 
-  async setSessionConfig(hostId: string, sessionId: string, configId: string, value: string) {
-    await this.#connection(hostId).client.setConfig(sessionId, configId, value);
+  async setSessionConfig(
+    environmentId: string,
+    sessionId: string,
+    configId: string,
+    value: string,
+  ) {
+    await this.#connection(environmentId).client.setConfig(sessionId, configId, value);
   }
 
-  async renameSession(hostId: string, sessionId: string, title: string): Promise<void> {
-    await this.#connection(hostId).client.rename(sessionId, title);
+  async renameSession(environmentId: string, sessionId: string, title: string): Promise<void> {
+    await this.#connection(environmentId).client.rename(sessionId, title);
   }
 
-  async archiveSession(hostId: string, sessionId: string, archived: boolean): Promise<void> {
-    await this.#connection(hostId).client.archive(sessionId, archived);
+  async archiveSession(environmentId: string, sessionId: string, archived: boolean): Promise<void> {
+    await this.#connection(environmentId).client.archive(sessionId, archived);
   }
 
   /**
    * The person has seen the session up to what the daemon has now. Never a seq past the log: the row's own
    * `lastSeq`. A daemon that cannot is not asked.
    */
-  async markRead(hostId: string, sessionId: string): Promise<void> {
-    const connection = this.#connection(hostId);
+  async markRead(environmentId: string, sessionId: string): Promise<void> {
+    const connection = this.#connection(environmentId);
     // The list as the daemon has it now: a row read before the news came in would say a seq below it.
-    const row = (await this.#refreshSessions(hostId, connection)).find(
+    const row = (await this.#refreshSessions(environmentId, connection)).find(
       (s) => s.sessionId === sessionId,
     );
     if (row === undefined) return;
     await connection.client.markRead(sessionId, row.lastSeq);
   }
 
-  async deleteSession(hostId: string, sessionId: string): Promise<void> {
-    const connection = this.#connection(hostId);
+  async deleteSession(environmentId: string, sessionId: string): Promise<void> {
+    const connection = this.#connection(environmentId);
     await connection.client.delete(sessionId);
     connection.watched.delete(sessionId);
   }
@@ -441,13 +477,13 @@ export class ConnectionManager
   // ---- permissions ----
 
   #onPermission(
-    hostId: string,
+    environmentId: string,
     connection: Connection,
     sessionId: string,
     request: Record<string, unknown>,
     requestId: string | undefined,
   ): Promise<PermissionAnswer> {
-    const key = `${hostId}:${sessionId}:${requestId ?? randomUUID()}`;
+    const key = `${environmentId}:${sessionId}:${requestId ?? randomUUID()}`;
     return new Promise<PermissionAnswer>((resolve) => {
       let watched = connection.watched.get(sessionId);
       if (watched === undefined) {
@@ -465,7 +501,7 @@ export class ConnectionManager
       old?.answer({ outcome: "cancelled" });
       const built: PermissionRequest = {
         key,
-        hostId,
+        environmentId,
         sessionId,
         title: String(request.title ?? "Permission"),
         subject: request.subject,
@@ -480,57 +516,62 @@ export class ConnectionManager
   }
 
   async answerPermission(key: string, optionId: string | "cancelled"): Promise<void> {
-    for (const [hostId, connection] of this.#connections) {
+    for (const [environmentId, connection] of this.#connections) {
       for (const [sessionId, watched] of connection.watched) {
         const pending = watched.pending.get(key);
         if (pending === undefined) continue;
         pending.answer(
           optionId === "cancelled" ? { outcome: "cancelled" } : { outcome: "selected", optionId },
         );
-        this.#closePermission(hostId, sessionId, watched, key);
+        this.#closePermission(environmentId, sessionId, watched, key);
         return;
       }
     }
   }
 
-  #closePermission(hostId: string, sessionId: string, watched: Watched, key: string): void {
+  #closePermission(environmentId: string, sessionId: string, watched: Watched, key: string): void {
     watched.pending.delete(key);
     watched.version += 1;
     this.#options.emit({
       type: "permission-closed",
-      hostId,
+      environmentId,
       sessionId,
       key,
       version: watched.version,
     });
   }
 
-  #onResolved(hostId: string, connection: Connection, sessionId: string, requestId: string): void {
+  #onResolved(
+    environmentId: string,
+    connection: Connection,
+    sessionId: string,
+    requestId: string,
+  ): void {
     const watched = connection.watched.get(sessionId);
-    const key = `${hostId}:${sessionId}:${requestId}`;
+    const key = `${environmentId}:${sessionId}:${requestId}`;
     const pending = watched?.pending.get(key);
     if (watched === undefined || pending === undefined) return;
     // Answered somewhere else. Free this client's request, and close the dialog.
     pending.answer({ outcome: "cancelled" });
-    this.#closePermission(hostId, sessionId, watched, key);
+    this.#closePermission(environmentId, sessionId, watched, key);
   }
 
   // ---- agents ----
 
-  async agents(hostId: string): Promise<AgentInfo[]> {
-    return (await this.#connection(hostId).client.agents()).agents;
+  async agents(environmentId: string): Promise<AgentInfo[]> {
+    return (await this.#connection(environmentId).client.agents()).agents;
   }
 
-  async agentDefaults(hostId: string, agent: string): Promise<Record<string, string>> {
-    return this.#connection(hostId).client.agentDefaults(agent);
+  async agentDefaults(environmentId: string, agent: string): Promise<Record<string, string>> {
+    return this.#connection(environmentId).client.agentDefaults(agent);
   }
 
   async setAgentDefaults(
-    hostId: string,
+    environmentId: string,
     agent: string,
     config: Record<string, string>,
   ): Promise<void> {
-    await this.#connection(hostId).client.setAgentDefaults(agent, config);
+    await this.#connection(environmentId).client.setAgentDefaults(agent, config);
   }
 
   chooseDirectory(): Promise<string | undefined> {

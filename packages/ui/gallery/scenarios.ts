@@ -3,8 +3,8 @@
 import type { SessionUpdate } from "@cycle/acp";
 import type {
   AppEvent,
-  HostConfig,
-  HostStatus,
+  EnvironmentConfig,
+  EnvironmentStatus,
   PermissionRequest,
   SessionSnapshot,
   SessionSummary,
@@ -17,8 +17,8 @@ import { SAMPLE_PNG } from "./sample-image.ts";
 
 export type Scenario = {
   title: string;
-  hosts?: HostConfig[];
-  status?: HostStatus[];
+  environments?: EnvironmentConfig[];
+  status?: EnvironmentStatus[];
   sessions?: SessionSummary[];
   /** The conversation of the session that is opened. Without it nothing is opened. */
   history?: SessionUpdate[];
@@ -51,12 +51,17 @@ const conversationOf = (root: HTMLElement): HTMLElement => {
   return el;
 };
 const drawnIn = (el: HTMLElement): number => el.querySelectorAll('[data-slot="block"]').length;
-const LOCAL: HostConfig = { id: "local", name: "This computer", kind: "local" };
-const BUILD: HostConfig = { id: "build", name: "build-1", kind: "ssh", host: "build-1" };
-const UP = (hostId: string): HostStatus => ({ hostId, state: "connected" });
+const LOCAL: EnvironmentConfig = { id: "local", name: "This computer", kind: "local" };
+const BUILD: EnvironmentConfig = {
+  id: "build",
+  name: "build-1",
+  kind: "remote",
+  transport: { type: "ssh", host: "build-1" },
+};
+const UP = (environmentId: string): EnvironmentStatus => ({ environmentId, state: "connected" });
 
 const session = (id: string, over: Partial<SessionSummary> = {}): SessionSummary => ({
-  hostId: "local",
+  environmentId: "local",
   sessionId: id,
   cwd: "/home/dev/cycle-v1",
   archived: false,
@@ -168,7 +173,7 @@ export const conversation: SessionUpdate[] = [
 
 const permission = (title: string, command: string): PermissionRequest => ({
   key: "local:s1:p1",
-  hostId: "local",
+  environmentId: "local",
   sessionId: "s1",
   title,
   subject: { type: "tool_call", toolCall: { name: "Bash", rawInput: { command } } },
@@ -213,7 +218,7 @@ const clickByLabel = async (root: HTMLElement, label: string) => {
   throw new Error(`nothing labelled "${label}"`);
 };
 
-/** An item of the host's menu, opened as a click would. */
+/** An item of the environment's menu, opened as a click would. */
 const hostAction = async (root: HTMLElement, item: string) => {
   await clickByLabel(root, "Host actions");
   await new Promise((r) => setTimeout(r, 200));
@@ -512,10 +517,10 @@ export const scenarios: Record<string, Scenario> = {
   },
   "host-down": {
     title: "The remote host cannot be reached (its own words shown)",
-    hosts: [BUILD, LOCAL],
+    environments: [BUILD, LOCAL],
     status: [
       {
-        hostId: "build",
+        environmentId: "build",
         state: "closed",
         error: "ssh: connect to host build-1 port 22: Connection refused",
       },
@@ -525,8 +530,8 @@ export const scenarios: Record<string, Scenario> = {
   },
   "host-reconnecting": {
     title: "The connection dropped and is being retried",
-    hosts: [LOCAL],
-    status: [{ hostId: "local", state: "reconnecting" }],
+    environments: [LOCAL],
+    status: [{ environmentId: "local", state: "reconnecting" }],
     sessions: [session("s1", { title: "Fix the remote session" })],
   },
   "session-groups": {
@@ -568,7 +573,7 @@ export const scenarios: Record<string, Scenario> = {
         throw new Error("gallery: the row did not take the focus");
       emit({
         type: "sessions",
-        hostId: "local",
+        environmentId: "local",
         sessions: [
           session("one", { title: "First", lastSeq: 3, state: "running" }),
           session("two", { title: "Second", lastSeq: 2 }),
@@ -618,10 +623,10 @@ export const scenarios: Record<string, Scenario> = {
   },
   "daemon-old": {
     title: "The remote daemon is older than the app",
-    hosts: [BUILD, LOCAL],
+    environments: [BUILD, LOCAL],
     status: [
       {
-        hostId: "build",
+        environmentId: "build",
         state: "connected",
         daemon: {
           version: "0.1.0",
@@ -643,7 +648,7 @@ export const scenarios: Record<string, Scenario> = {
   },
   "menu-host": {
     title: "The host's menu is open (a remote host)",
-    hosts: [BUILD, LOCAL],
+    environments: [BUILD, LOCAL],
     status: [UP("build"), UP("local")],
     sessions: [],
     after: async (root) => {
@@ -679,26 +684,41 @@ export const scenarios: Record<string, Scenario> = {
     },
   },
   "search-open": {
-    title: "The session search, opened with nothing typed (two hosts, several states)",
-    hosts: [LOCAL, BUILD],
+    title: "The session search, opened with nothing typed (two environments, several states)",
+    environments: [LOCAL, BUILD],
     status: [UP("local"), UP("build")],
     sessions: [
       session("s1", { title: "Fix the remote session", state: "running", lastSeq: 9 }),
       session("s2", { title: "Clean the build", state: "requires_action", lastSeq: 8 }),
       session("s3", { cwd: "/home/dev/docs", agent: "claude", lastSeq: 7 }),
       session("s4", { title: "Old idea", archived: true, lastSeq: 1 }),
-      session("b1", { hostId: "build", title: "Nightly release", cwd: "/srv/release", lastSeq: 6 }),
+      session("b1", {
+        environmentId: "build",
+        title: "Nightly release",
+        cwd: "/srv/release",
+        lastSeq: 6,
+      }),
     ],
     after: openSearch,
   },
   "search-typed": {
     title: "The session search with a query that matches by folder and by host",
-    hosts: [LOCAL, BUILD],
+    environments: [LOCAL, BUILD],
     status: [UP("local"), UP("build")],
     sessions: [
       session("s1", { title: "Fix the remote session", lastSeq: 9 }),
-      session("b1", { hostId: "build", title: "Nightly release", cwd: "/srv/release", lastSeq: 6 }),
-      session("b2", { hostId: "build", title: "Cache warm-up", cwd: "/srv/cache", lastSeq: 5 }),
+      session("b1", {
+        environmentId: "build",
+        title: "Nightly release",
+        cwd: "/srv/release",
+        lastSeq: 6,
+      }),
+      session("b2", {
+        environmentId: "build",
+        title: "Cache warm-up",
+        cwd: "/srv/cache",
+        lastSeq: 5,
+      }),
     ],
     after: async (root) => {
       await openSearch(root);

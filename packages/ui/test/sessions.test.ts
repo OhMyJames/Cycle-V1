@@ -11,7 +11,7 @@ import {
 } from "../src/sessions.ts";
 
 const row = (id: string, over: Partial<SessionSummary> = {}): SessionSummary => ({
-  hostId: "local",
+  environmentId: "local",
   sessionId: id,
   cwd: "/work/app",
   archived: false,
@@ -20,15 +20,15 @@ const row = (id: string, over: Partial<SessionSummary> = {}): SessionSummary => 
   lastSeq: 1,
   ...over,
 });
-const on = (hostId: string, id: string, over: Partial<SessionSummary> = {}) =>
-  row(id, { hostId, ...over });
+const on = (environmentId: string, id: string, over: Partial<SessionSummary> = {}) =>
+  row(id, { environmentId, ...over });
 
 // Local noon on the 18th of November: the days are the local clock's, so the times are built from local parts.
 const now = new Date(2026, 10, 18, 12, 0, 0);
 const at = (day: number, hour = 9) => new Date(2026, 10, day, hour, 0, 0).toISOString();
 const options = { showAll: false, now };
 const ids = (list: ReturnType<typeof sessionList>) => list.order.map((s) => s.sessionId);
-const hosts = [
+const environments = [
   { id: "local", name: "This computer", local: true },
   { id: "far", name: "Build box", local: false },
 ];
@@ -52,16 +52,16 @@ test("an archived session, and a session of a host that is away, say nothing", (
   );
 });
 
-test("a workspace is a folder on one host: the same folder on two hosts is two, and a trailing slash is nothing", () => {
+test("a workspace is a folder on one host: the same folder on two environments is two, and a trailing slash is nothing", () => {
   const list = workspacesOf(
     [
       row("a", { cwd: "/work/app/" }),
       row("b", { cwd: "/work/app" }),
       on("far", "c", { cwd: "/work/app" }),
     ],
-    { hosts },
+    { environments },
   );
-  expect(list.map((w) => [w.hostId, w.cwd, w.sessions.length])).toEqual([
+  expect(list.map((w) => [w.environmentId, w.cwd, w.sessions.length])).toEqual([
     ["local", "/work/app", 2],
     ["far", "/work/app", 1],
   ]);
@@ -75,9 +75,14 @@ test("workspaces are grouped by host, this computer first, and newest first insi
       row("l2", { cwd: "/work/new", updatedAt: at(17) }),
       on("far", "f2", { cwd: "/srv/web", updatedAt: at(1) }),
     ],
-    { hosts: [hosts[1] as (typeof hosts)[number], hosts[0] as (typeof hosts)[number]] },
+    {
+      environments: [
+        environments[1] as (typeof environments)[number],
+        environments[0] as (typeof environments)[number],
+      ],
+    },
   );
-  // The order the hosts are given in does not put a remote one before this computer.
+  // The order the environments are given in does not put a remote one before this computer.
   expect(list.map((w) => w.cwd)).toEqual(["/work/new", "/work/old", "/srv/api", "/srv/web"]);
 });
 
@@ -86,14 +91,14 @@ test("a workspace with only archived sessions is there only when they are asked 
     row("a", { cwd: "/work/gone", archived: true }),
     row("b", { cwd: "/work/app" }),
   ];
-  expect(workspacesOf(sessions, { hosts }).map((w) => w.cwd)).toEqual(["/work/app"]);
-  expect(workspacesOf(sessions, { hosts, showArchived: true })).toHaveLength(2);
+  expect(workspacesOf(sessions, { environments }).map((w) => w.cwd)).toEqual(["/work/app"]);
+  expect(workspacesOf(sessions, { environments, showArchived: true })).toHaveLength(2);
 });
 
 test("a workspace is named by its folder, with more of the path only where two would be the same", () => {
   const list = workspacesOf(
     [row("a", { cwd: "/a/app" }), row("b", { cwd: "/b/app" }), row("c", { cwd: "/work/lib" })],
-    { hosts },
+    { environments },
   );
   expect(list.map((w) => w.name).toSorted()).toEqual(["a/app", "b/app", "lib"]);
 });
@@ -102,14 +107,14 @@ test("a workspace on another host is named after the host only where the name wo
   const clash = workspacesOf(
     [row("a", { cwd: "/work/app" }), on("far", "b", { cwd: "/srv/app" })],
     {
-      hosts,
+      environments,
     },
   );
   expect(clash.map((w) => w.name).toSorted()).toEqual(["app · Build box", "app · This computer"]);
   const apart = workspacesOf(
     [row("a", { cwd: "/work/app" }), on("far", "b", { cwd: "/srv/api" })],
     {
-      hosts,
+      environments,
     },
   );
   expect(apart.map((w) => w.name).toSorted()).toEqual(["api", "app"]);
@@ -124,7 +129,7 @@ test("a workspace counts what is going on in it, but not in a host that is away"
     row("e", { unread: true }),
     on("far", "f", { cwd: "/srv/api", state: "requires_action" }),
   ];
-  const [app, api] = workspacesOf(sessions, { hosts, away: new Set(["far"]) });
+  const [app, api] = workspacesOf(sessions, { environments, away: new Set(["far"]) });
   expect(app?.counts).toEqual({ "needs-you": 1, running: 1, background: 1, unread: 2 });
   expect(api?.counts).toEqual({ "needs-you": 0, running: 0, background: 0, unread: 0 });
 });
@@ -135,7 +140,7 @@ test("the workspace shown: the one chosen, else the one the open session is in, 
     row("b", { cwd: "/work/new", updatedAt: at(17) }),
     on("far", "c", { cwd: "/srv/api", updatedAt: at(5) }),
   ];
-  const workspaces = workspacesOf(sessions, { hosts });
+  const workspaces = workspacesOf(sessions, { environments });
   const name = (w: ReturnType<typeof currentWorkspace>) => w?.cwd;
   expect(name(currentWorkspace(workspaces, {}))).toBe("/work/new");
   expect(name(currentWorkspace(workspaces, { open: sessions[2] }))).toBe("/srv/api");
@@ -154,7 +159,7 @@ test("the switcher counts the most urgent class in the other workspaces, and say
       row("c", { cwd: "/work/there2", state: "running" }),
       row("d", { cwd: "/work/there2", unread: true }),
     ],
-    { hosts },
+    { environments },
   );
   const here = workspaces.find((w) => w.cwd === "/work/here");
   const other = elsewhere(workspaces, here);
@@ -256,7 +261,7 @@ test("sessions of two daemons that give no time are not mixed by numbers that me
   expect(sorted([...rows].reverse())).toEqual(sorted(rows));
 });
 
-test("a session that has a time comes before one that has none, across hosts", () => {
+test("a session that has a time comes before one that has none, across environments", () => {
   const rows = [
     on("old", "x", { lastSeq: 50 }),
     on("new", "z", { updatedAt: "2020-01-01T00:00:00.000Z", lastSeq: 1 }),

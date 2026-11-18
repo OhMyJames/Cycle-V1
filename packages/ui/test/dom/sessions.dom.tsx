@@ -113,7 +113,7 @@ test("a row that moves to another group keeps the keyboard focus", async () => {
   // It starts working: it moves up to Running, and is another element there.
   await emit({
     type: "sessions",
-    hostId: "local",
+    environmentId: "local",
     sessions: [row("one", { lastSeq: 3, state: "running" }), row("two", { lastSeq: 2 })],
   });
   const moved = await screen.findByRole("option", { name: /one/ });

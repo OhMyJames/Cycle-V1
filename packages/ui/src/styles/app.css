@@ -256,18 +256,18 @@ svg[data-slot="dot"] {
   box-shadow: none;
 }
 
-[data-slot="host-bar"] {
+[data-slot="environment-bar"] {
   display: flex;
   align-items: center;
   gap: 0.25rem;
 }
 
-[data-slot="host-bar"] > :first-child {
+[data-slot="environment-bar"] > :first-child {
   flex: 1;
   min-width: 0;
 }
 
-[data-slot="host-state"] {
+[data-slot="environment-state"] {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -275,11 +275,11 @@ svg[data-slot="dot"] {
   color: var(--ui-muted-foreground);
 }
 
-[data-slot="host-state"][data-state="closed"] {
+[data-slot="environment-state"][data-state="closed"] {
   color: var(--ui-destructive);
 }
 
-[data-slot="host-state"][data-state="reconnecting"] {
+[data-slot="environment-state"][data-state="reconnecting"] {
   color: var(--cycle-attention);
 }
 

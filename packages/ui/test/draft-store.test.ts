@@ -58,11 +58,11 @@ test("a deleted session, and a removed host, lose their drafts, in memory and in
   drafts.setText("h2:a", "3");
   drafts.forget("h1:a");
   expect(drafts.get("h1:a").text).toBe("");
-  drafts.forgetHost("h1");
+  drafts.forgetEnvironment("h1");
   expect(drafts.get("h1:b").text).toBe("");
   expect(drafts.get("h2:a").text).toBe("3");
   expect(storage.keys()).toEqual(["cycle:draft:h2:a"]);
-  // A page that starts later finds only the other host's.
+  // A page that starts later finds only the other environment's.
   const later = new DraftStore(storage);
   expect(later.get("h1:b").text).toBe("");
   expect(later.get("h2:a").text).toBe("3");
@@ -73,7 +73,7 @@ test("a host's drafts that this page never read are removed from storage too", (
   storage.setItem("cycle:draft:h1:old", JSON.stringify({ text: "from before" }));
   storage.setItem("cycle:draft:h10:old", JSON.stringify({ text: "another host" }));
   const drafts = new DraftStore(storage);
-  drafts.forgetHost("h1");
+  drafts.forgetEnvironment("h1");
   expect(storage.keys()).toEqual(["cycle:draft:h10:old"]);
   expect(drafts.get("h1:old").text).toBe("");
 });
@@ -85,7 +85,7 @@ test("a deleted session or removed host tells a read in flight it is too late, t
   expect(drafts.generation("h1:a")).not.toBe(reading);
   const other = drafts.generation("h1:b");
   const elsewhere = drafts.generation("h2:a");
-  drafts.forgetHost("h1");
+  drafts.forgetEnvironment("h1");
   expect(drafts.generation("h1:b")).not.toBe(other);
   expect(drafts.generation("h2:a")).toBe(elsewhere);
 });
