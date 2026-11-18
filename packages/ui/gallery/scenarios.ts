@@ -112,13 +112,29 @@ const permission = (title: string, command: string): PermissionRequest => ({
 
 const click = async (root: HTMLElement, text: string) => {
   for (let i = 0; i < 50; i++) {
-    const found = Array.from(root.querySelectorAll("button")).find(
+    const found = Array.from(root.querySelectorAll('button, [role="menuitem"]')).find(
       (b) => b.textContent?.trim() === text,
     );
-    if (found) return void found.click();
+    if (found) return void (found as HTMLElement).click();
     await new Promise((r) => setTimeout(r, 50));
   }
   throw new Error(`no button "${text}"`);
+};
+
+const clickByLabel = async (root: HTMLElement, label: string) => {
+  for (let i = 0; i < 50; i++) {
+    const found = root.querySelector(`[aria-label="${label}"]`) as HTMLElement | null;
+    if (found) return void found.click();
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`nothing labelled "${label}"`);
+};
+
+/** An item of the host's menu, opened as a click would. */
+const hostAction = async (root: HTMLElement, item: string) => {
+  await clickByLabel(root, "Host actions");
+  await new Promise((r) => setTimeout(r, 200));
+  await click(root, item);
 };
 
 export const scenarios: Record<string, Scenario> = {
@@ -234,6 +250,37 @@ export const scenarios: Record<string, Scenario> = {
     ],
     sessions: [],
   },
+  "menu-session": {
+    title: "The session's menu is open",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    history: conversation,
+    after: async (root) => {
+      await clickByLabel(root, "Session actions");
+      await new Promise((r) => setTimeout(r, 200));
+    },
+  },
+  "menu-host": {
+    title: "The host's menu is open (a remote host)",
+    hosts: [BUILD, LOCAL],
+    status: [UP("build"), UP("local")],
+    sessions: [],
+    after: async (root) => {
+      await clickByLabel(root, "Host actions");
+      await new Promise((r) => setTimeout(r, 200));
+    },
+  },
+  focus: {
+    title: "Keyboard focus on a control and on a session",
+    sessions: [
+      session("s1", { title: "Fix the remote session" }),
+      session("s2", { title: "Second" }),
+    ],
+    history: conversation,
+    after: async (root) => {
+      // Tab to a control the way a keyboard would: focus-visible only shows for keyboard focus.
+      (root.querySelector('[role="option"]') as HTMLElement | null)?.focus();
+    },
+  },
   "dialog-new-session": {
     title: "New session dialog",
     sessions: [],
@@ -242,12 +289,12 @@ export const scenarios: Record<string, Scenario> = {
   "dialog-add-host": {
     title: "Add host dialog",
     sessions: [],
-    after: (root) => click(root, "Add host"),
+    after: (root) => hostAction(root, "Add host"),
   },
   "dialog-agent-defaults": {
     title: "Agent defaults dialog",
     sessions: [],
-    after: (root) => click(root, "Agent defaults"),
+    after: (root) => hostAction(root, "Agent defaults"),
   },
 };
 

@@ -149,7 +149,7 @@ const main = async () => {
 
     await waitFor(
       "the host to be connected",
-      `document.querySelector('[data-slot="host-state"]')?.textContent === "connected"`,
+      `document.querySelector('[data-slot="host-state"]')?.dataset.state === "connected"`,
     );
     out({ step: "connected" });
     if (real) {
@@ -291,7 +291,7 @@ const main = async () => {
     await run("location.reload()").catch(() => undefined);
     await waitFor(
       "the app again",
-      `document.querySelector('[data-slot="host-state"]')?.textContent === "connected"`,
+      `document.querySelector('[data-slot="host-state"]')?.dataset.state === "connected"`,
     );
     await click(`document.querySelector('[role="option"]')`);
     await waitFor("the conversation back", `${has(hello)} && ${has(finished)}`);

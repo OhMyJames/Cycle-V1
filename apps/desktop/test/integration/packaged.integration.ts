@@ -63,7 +63,7 @@ test.skipIf(!ready)(
       for (;;) {
         state = await evaluate(
           port,
-          "document.querySelector('[data-slot=\"host-state\"]')?.textContent ?? null",
+          "document.querySelector('[data-slot=\"host-state\"]')?.dataset.state ?? null",
         ).catch(() => undefined);
         if (state === "connected") break;
         if (Date.now() - started > 45_000) {

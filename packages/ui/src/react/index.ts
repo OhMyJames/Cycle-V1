@@ -3,6 +3,7 @@ export * from "./composer.tsx";
 export * from "./config-form.tsx";
 export * from "./conversation.tsx";
 export * from "./dialogs.tsx";
+export * from "./icons.tsx";
 export * from "./markdown.tsx";
 export * from "./permission.tsx";
 export * from "./sidebar.tsx";

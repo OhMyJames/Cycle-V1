@@ -190,7 +190,7 @@ test("shows what went wrong, and lets it be dismissed", async () => {
 test("says so when the connection is lost", async () => {
   const { emit } = await mount();
   emit({ type: "host-status", hostId: "local", state: "reconnecting" });
-  const note = await screen.findByText(/Reconnecting/);
+  const note = await screen.findByText(/Connection lost/);
   expect(note.getAttribute("role") ?? note.parentElement?.getAttribute("role")).toBe("status");
 });
 
@@ -226,7 +226,9 @@ test("starts a session from the defaults of the agent, in the directory typed", 
 test("deleting a session asks first", async () => {
   const { user, named } = await mount();
   await openFirstSession(user);
-  await user.click(await screen.findByRole("button", { name: "Delete" }));
+  // Delete is in the session's menu: out of the way, so that it is not pressed by habit.
+  await user.click(await screen.findByRole("button", { name: "Session actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
   const dialog = await screen.findByRole("alertdialog");
   expect(named("deleteSession")).toHaveLength(0);
   await user.click(within(dialog).getByRole("button", { name: "Delete" }));

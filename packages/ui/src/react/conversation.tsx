@@ -2,6 +2,19 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react
 import { useEffect, useRef } from "react";
 import type { Block, Conversation, Item, ToolItem } from "../model/index.ts";
 import { textOf } from "../model/index.ts";
+import {
+  CheckIcon,
+  CloseIcon,
+  ErrorCircleIcon,
+  FileEditIcon,
+  FileReadIcon,
+  type IconProps,
+  SearchIcon,
+  TerminalIcon,
+  ThoughtIcon,
+  ToolIcon,
+  WebIcon,
+} from "./icons.tsx";
 import { Markdown } from "./markdown.tsx";
 
 const MAX_SHOWN = 20_000;
@@ -49,6 +62,30 @@ function Blocks({ blocks }: { blocks: Block[] }) {
   );
 }
 
+/** The icon of a tool, by what it does. Unknown tools get the general one. */
+const TOOL_ICONS: Record<string, (props: IconProps) => React.ReactElement> = {
+  Bash: TerminalIcon,
+  Read: FileReadIcon,
+  Edit: FileEditIcon,
+  MultiEdit: FileEditIcon,
+  Write: FileEditIcon,
+  NotebookEdit: FileEditIcon,
+  Grep: SearchIcon,
+  Glob: SearchIcon,
+  WebFetch: WebIcon,
+  WebSearch: WebIcon,
+};
+
+/** How a tool call stands, as a shape (and the word beside it): done, failed, going, or not yet. */
+function ToolStatus({ status }: { status: string }) {
+  if (status === "completed")
+    return <CheckIcon size={14} data-slot="tool-mark" data-tone="success" />;
+  if (status === "failed" || status === "cancelled")
+    return <CloseIcon size={14} data-slot="tool-mark" data-tone="danger" />;
+  if (status === "in_progress") return <span data-slot="spinner" aria-hidden="true" />;
+  return <span data-slot="dot" data-tone="muted" data-shape="ring" aria-hidden="true" />;
+}
+
 function ToolCard({ tool }: { tool: ToolItem }) {
   const status = tool.status ?? "pending";
   const output =
@@ -56,11 +93,15 @@ function ToolCard({ tool }: { tool: ToolItem }) {
       ? textOf(tool.content.flatMap((c) => (c.type === "content" ? [c.content as Block] : [c])))
       : stringify(tool.rawOutput);
   const summary = toolSummary(tool);
+  const Icon = TOOL_ICONS[tool.name ?? ""] ?? ToolIcon;
   return (
-    <Collapsible data-slot="tool" data-status={status} data-variant="card">
+    // A failure is what the person came to read: it starts open.
+    <Collapsible data-slot="tool" data-status={status} defaultOpen={status === "failed"}>
       <CollapsibleTrigger>
+        <Icon size={14} data-slot="tool-icon" />
         <span data-slot="tool-name">{tool.name ?? "Tool"}</span>
         <span data-slot="tool-summary">{summary}</span>
+        <ToolStatus status={status} />
         <span data-slot="tool-status">{status.replace("_", " ")}</span>
       </CollapsibleTrigger>
       <CollapsiblePanel>
@@ -89,8 +130,11 @@ function ItemView({ item, streaming }: { item: Item; streaming: boolean }) {
       );
     case "thought":
       return (
-        <Collapsible data-slot="thought" data-variant="card">
-          <CollapsibleTrigger>Thinking</CollapsibleTrigger>
+        <Collapsible data-slot="thought">
+          <CollapsibleTrigger>
+            <ThoughtIcon size={14} />
+            Thinking
+          </CollapsibleTrigger>
           <CollapsiblePanel>
             <div data-slot="thought-text">{textOf(item.blocks)}</div>
           </CollapsiblePanel>
@@ -105,7 +149,11 @@ function ItemView({ item, streaming }: { item: Item; streaming: boolean }) {
             .map((entry, index) => ({ entry, key: `${index}:${entry.content}` }))
             .map(({ entry, key }) => (
               <li key={key} data-status={entry.status}>
-                {entry.content}
+                <span data-slot="plan-mark" data-status={entry.status} aria-hidden="true">
+                  {entry.status === "completed" ? <CheckIcon size={12} /> : null}
+                </span>
+                <span>{entry.content}</span>
+                <span data-slot="visually-hidden">{entry.status.replace("_", " ")}</span>
               </li>
             ))}
         </ol>
@@ -113,6 +161,7 @@ function ItemView({ item, streaming }: { item: Item; streaming: boolean }) {
     case "notice":
       return (
         <div data-slot="notice" data-severity={item.severity} role="status">
+          {item.severity === "error" ? <ErrorCircleIcon size={14} /> : null}
           {item.title}
         </div>
       );
@@ -167,8 +216,13 @@ export function ConversationView({
       ))}
       {conversation.lastStop?.stopReason === "error" ? (
         <div data-slot="notice" data-severity="error" role="alert">
-          The turn failed
-          {conversation.lastStop.error?.message ? `: ${conversation.lastStop.error.message}` : "."}
+          <ErrorCircleIcon size={14} />
+          <span>
+            The turn failed
+            {conversation.lastStop.error?.message
+              ? `: ${conversation.lastStop.error.message}`
+              : "."}
+          </span>
         </div>
       ) : null}
     </div>

@@ -7,6 +7,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@ui-sdk/react/dialog";
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
 import { useCallback, useState } from "react";
 import { usageLabel } from "../model/index.ts";
 import { viewKey } from "../store/index.ts";
@@ -20,6 +21,7 @@ import {
   NewSessionDialog,
   RenameDialog,
 } from "./dialogs.tsx";
+import { ErrorCircleIcon, MoreIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
 import { PermissionCard } from "./permission.tsx";
 import { Sidebar, sessionTitle } from "./sidebar.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
@@ -119,6 +121,7 @@ export function App() {
         {selectedHost !== undefined ? <DaemonBanner hostId={selectedHost} /> : null}
         {error !== undefined ? (
           <div data-slot="banner" data-severity="error" role="alert">
+            <ErrorCircleIcon />
             <span>{error}</span>
             <Button data-variant="ghost" onClick={store.dismissError}>
               Dismiss
@@ -127,6 +130,7 @@ export function App() {
         ) : null}
         {hostState === "reconnecting" ? (
           <div data-slot="banner" data-severity="warning" role="status">
+            <WarningIcon />
             Connection lost. Reconnecting… what you miss will be shown when it is back.
           </div>
         ) : null}
@@ -141,20 +145,33 @@ export function App() {
             </div>
             <div data-slot="row">
               <Button data-variant="outline" onClick={() => setPanel("settings")}>
+                <SettingsIcon />
                 Settings
               </Button>
-              <Button data-variant="outline" onClick={() => setPanel("rename")}>
-                Rename
-              </Button>
-              <Button
-                data-variant="outline"
-                onClick={() => void store.archiveSession(session.sessionId, !session.archived)}
+              <Menu
+                onAction={(value) => {
+                  if (value === "rename") setPanel("rename");
+                  else if (value === "archive")
+                    void store.archiveSession(session.sessionId, !session.archived);
+                  else if (value === "delete") setPanel("delete");
+                }}
               >
-                {session.archived ? "Restore" : "Archive"}
-              </Button>
-              <Button data-variant="outline" onClick={() => setPanel("delete")}>
-                Delete
-              </Button>
+                <MenuTrigger
+                  aria-label="Session actions"
+                  title="Session actions"
+                  data-variant="ghost"
+                >
+                  <MoreIcon />
+                </MenuTrigger>
+                <MenuContent>
+                  <MenuItem value="rename">Rename</MenuItem>
+                  <MenuItem value="archive">{session.archived ? "Restore" : "Archive"}</MenuItem>
+                  <MenuSeparator />
+                  <MenuItem value="delete" data-destructive>
+                    Delete
+                  </MenuItem>
+                </MenuContent>
+              </Menu>
             </div>
           </header>
         ) : null}
@@ -162,14 +179,25 @@ export function App() {
           <ConversationView conversation={view.conversation} loading={view.loading} />
         ) : (
           <div data-slot="empty">
-            {hostState === "connected"
-              ? "Choose a session, or start a new one."
-              : "Not connected to this host."}
-            {hostState !== "connected" && hostError !== undefined ? (
-              <span data-slot="hint" role="alert">
-                {hostError}
-              </span>
-            ) : null}
+            {hostState === "connected" ? (
+              <p>Choose a session, or start a new one.</p>
+            ) : hostState === "connecting" || hostState === "reconnecting" ? (
+              <p>Connecting to this host…</p>
+            ) : (
+              <div data-slot="empty-block" role="alert">
+                <ErrorCircleIcon size={20} />
+                <p data-slot="empty-title">Not connected to this host.</p>
+                {hostError !== undefined ? <code data-slot="reason">{hostError}</code> : null}
+                {selectedHost !== undefined ? (
+                  <Button
+                    data-variant="outline"
+                    onClick={() => void store.selectHost(selectedHost)}
+                  >
+                    Retry
+                  </Button>
+                ) : null}
+              </div>
+            )}
           </div>
         )}
         <div data-slot="permissions">
@@ -177,12 +205,14 @@ export function App() {
             <PermissionCard key={request.key} request={request} onAnswer={store.answerPermission} />
           ))}
         </div>
-        <Composer
-          enabled={view !== undefined && !view.loading}
-          working={view !== undefined && view.conversation.status !== "idle"}
-          onSend={store.send}
-          onStop={store.cancel}
-        />
+        {view !== undefined ? (
+          <Composer
+            enabled={!view.loading}
+            working={view.conversation.status !== "idle"}
+            onSend={store.send}
+            onStop={store.cancel}
+          />
+        ) : null}
       </main>
 
       <NewSessionDialog
