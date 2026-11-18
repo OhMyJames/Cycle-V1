@@ -145,3 +145,45 @@ test("thinking is hidden until asked for, and the line at the end still says the
   await waitFor(() => expect(log.textContent).toContain("weighing the options"));
   expect(thinking.get()).toBe(true);
 });
+
+const turnsOf = (n: number, from = 0) =>
+  Array.from({ length: n }, (_, k) => [
+    you(`question ${from + k}`),
+    u({
+      sessionUpdate: "agent_message",
+      messageId: `m${from + k}`,
+      content: [{ type: "text", text: `answer ${from + k}` }],
+    }),
+    state({ state: "idle", stopReason: "end_turn" }),
+  ]).flat();
+
+const drawn = (log: HTMLElement) => log.querySelectorAll('[data-slot="block"]').length;
+
+test("a long conversation draws its end, and the button brings the earlier blocks a page at a time", async () => {
+  const { user, log } = await open(...turnsOf(70));
+  await waitFor(() => expect(log.textContent).toContain("answer 69"));
+  // 140 blocks; the last 60 are drawn: question 40 is the first, question 39 is not.
+  expect(drawn(log)).toBe(60);
+  expect(log.textContent).toContain("question 40");
+  expect(log.textContent).not.toContain("question 39");
+  await user.click(screen.getByRole("button", { name: "Show earlier" }));
+  await waitFor(() => expect(log.textContent).toContain("question 10"));
+  expect(drawn(log)).toBe(120);
+  expect(log.textContent).not.toContain("question 9");
+  await user.click(screen.getByRole("button", { name: "Show earlier" }));
+  await waitFor(() => expect(log.textContent).toContain("question 0"));
+  expect(drawn(log)).toBe(140);
+  // Everything is drawn: there is nothing earlier, and the focus did not fall out of the page.
+  expect(screen.queryByRole("button", { name: "Show earlier" })).toBeNull();
+  expect(document.activeElement).toBe(log);
+});
+
+test("a conversation that grows from a few blocks to many draws about a page, not all of it", async () => {
+  const { log, emit } = await open(...turnsOf(1));
+  expect(drawn(log)).toBe(2);
+  for (const update of turnsOf(70, 1)) await emit(update);
+  await waitFor(() => expect(log.textContent).toContain("answer 70"));
+  // The reader is at the end: the window is the last page, however the conversation got there.
+  expect(drawn(log)).toBe(60);
+  expect(log.textContent).not.toContain("question 20");
+});

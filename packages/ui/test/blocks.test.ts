@@ -6,9 +6,12 @@ import {
   type BlockCache,
   blocksOf,
   type Conversation,
+  earlierAnchor,
+  PAGE,
   reduce,
   stepOf,
   type ToolItem,
+  windowStart,
 } from "../src/model/index.ts";
 
 const u = (update: object) => update as SessionUpdate;
@@ -217,4 +220,38 @@ test("the step says what is going on, and says nothing when the text itself is a
   expect(step([you("u"), u({ sessionUpdate: "state_update", state: "requires_action" })])).toEqual({
     kind: "approval",
   });
+});
+
+const many = (turns: number) =>
+  blocksOf(
+    reduce(
+      Array.from({ length: turns }, (_, n) => [
+        you(`u${n}`),
+        say(`m${n}`),
+        idle("end_turn"),
+      ]).flat(),
+    ),
+    OFF,
+  );
+
+test("a long conversation shows its last page, and nothing is hidden in a short one", () => {
+  const blocks = many(PAGE); // twice as many blocks as a page
+  expect(blocks.length).toBe(PAGE * 2);
+  expect(windowStart(blocks, undefined)).toBe(PAGE);
+  expect(windowStart(many(10), undefined)).toBe(0);
+});
+
+test("the window begins at its anchor, so what arrives at the end does not move the top", () => {
+  const blocks = many(PAGE);
+  const anchor = blocks[PAGE]?.key;
+  expect(windowStart(blocks, anchor)).toBe(PAGE);
+  const more = many(PAGE + 5);
+  expect(windowStart(more, anchor)).toBe(PAGE);
+});
+
+test("an anchor that is gone falls back to the last page, and earlier moves it up by a page", () => {
+  const blocks = many(PAGE);
+  expect(windowStart(blocks, "nobody")).toBe(PAGE);
+  expect(earlierAnchor(blocks, PAGE)).toBe(blocks[0]?.key);
+  expect(earlierAnchor(blocks, 10)).toBe(blocks[0]?.key);
 });

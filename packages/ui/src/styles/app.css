@@ -805,6 +805,26 @@ html[data-platform="darwin"]
   font-size: var(--cycle-text-meta);
 }
 
+/* Earlier blocks are added above the reader and the view is moved by hand (conversation.tsx): for that frame only, the
+   browser's own scroll anchoring must not move it too. At other times it keeps what is read in place as images and code
+   above it finish loading. */
+[data-slot="conversation"][data-prepending] {
+  overflow-anchor: none;
+}
+
+[data-slot="earlier"] {
+  align-self: center;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  font-size: var(--cycle-text-meta);
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="earlier"]:hover {
+  background: var(--ui-muted);
+}
+
 /* Each block is a column of its own, so a message can sit to the end; a turn begins with more space than blocks have. */
 [data-slot="block"] {
   display: flex;
