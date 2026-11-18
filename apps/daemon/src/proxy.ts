@@ -1,12 +1,11 @@
 import { bridgeStdio, isListening } from "@cycle/transport/server";
 import type { Paths } from "./config.ts";
-
-const MAIN = new URL("./main.ts", import.meta.url).pathname;
+import { selfCommand } from "./self.ts";
 
 /** Starts a daemon that outlives this process, so a session goes on when an ssh connection drops. */
 export const startDetached = (paths: Paths): void => {
   const child = Bun.spawn(
-    ["bun", MAIN, "serve", "--data-dir", paths.dataDir, "--socket", paths.socket],
+    [...selfCommand(), "serve", "--data-dir", paths.dataDir, "--socket", paths.socket],
     { detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore", env: process.env },
   );
   child.unref();

@@ -10,12 +10,15 @@
     "cycle-daemon": "./src/main.ts"
   },
   "dependencies": {
+    "@cycle/adapter-claude": "workspace:*",
     "@cycle/daemon": "workspace:*",
     "@cycle/transport": "workspace:*",
     "@cycle/protocol": "workspace:*",
     "zod": "^4.6.7"
   },
   "scripts": {
+    "test:real": "bun test ./test/integration/real-binary.integration.ts",
+    "build": "bun scripts/build.ts",
     "test:integration": "bun test ./test/integration/full.integration.ts"
   },
   "devDependencies": {

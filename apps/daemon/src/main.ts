@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
+import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { AlreadyRunningError } from "@cycle/transport/server";
+import { runAdapter } from "@cycle/adapter-claude/run";
+import { AlreadyRunningError, isListening } from "@cycle/transport/server";
 import { defaultDataDir, pathsFor } from "./config.ts";
 import { proxy } from "./proxy.ts";
 import { serve } from "./serve.ts";
@@ -10,6 +12,9 @@ const USAGE = `cycle-daemon <command> [options]
   serve   Run the daemon in the foreground.
   proxy   Join stdin and stdout to the daemon's socket, starting the daemon if needed.
           This is what a client runs over ssh.
+  status  Say whether the daemon is running (exit 0) or not (exit 1).
+  stop    Stop the daemon if it is running.
+  adapter claude   (internal) Run the Claude adapter on stdin and stdout.
 
 Options:
   --data-dir <dir>   Where sessions and settings live. Default: $CYCLE_V1_HOME or ~/.cycle-v1
@@ -26,7 +31,12 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
 });
 const command = positionals[0];
-if (values.help || (command !== "serve" && command !== "proxy")) {
+if (command === "adapter" && positionals[1] === "claude") {
+  await runAdapter();
+  process.exit(0);
+}
+const commands = ["serve", "proxy", "status", "stop"];
+if (values.help || command === undefined || !commands.includes(command)) {
   console.error(USAGE);
   process.exit(command === undefined || values.help ? 0 : 2);
 }
@@ -48,6 +58,28 @@ if (command === "serve") {
     }
     throw error;
   }
+} else if (command === "status") {
+  const up = await isListening(paths.socket);
+  console.log(up ? `running, listening on ${paths.socket}` : `not running (${paths.socket})`);
+  process.exit(up ? 0 : 1);
+} else if (command === "stop") {
+  const pid = Number(
+    (
+      await Bun.file(join(paths.dataDir, "daemon.pid"))
+        .text()
+        .catch(() => "")
+    ).trim(),
+  );
+  if (!(await isListening(paths.socket)) || !Number.isInteger(pid) || pid <= 0) {
+    console.log("not running");
+    process.exit(0);
+  }
+  process.kill(pid, "SIGTERM");
+  const started = Date.now();
+  while ((await isListening(paths.socket)) && Date.now() - started < 10_000) await Bun.sleep(50);
+  const gone = !(await isListening(paths.socket));
+  console.log(gone ? "stopped" : "did not stop within 10s");
+  process.exit(gone ? 0 : 1);
 } else {
   // stdout is the protocol: nothing else may be written to it.
   await proxy(paths, {

@@ -16,7 +16,10 @@ import {
 } from "../../../../packages/adapters/claude/test/integration/mock-anthropic.ts";
 import { fakeSsh } from "../../../../packages/transport/test/support.ts";
 
+// CYCLE_DAEMON_BIN: run the built single-file executable instead of the source (see `bun run build`).
 const MAIN = new URL("../../src/main.ts", import.meta.url).pathname;
+const DAEMON =
+  process.env.CYCLE_DAEMON_BIN !== undefined ? [process.env.CYCLE_DAEMON_BIN] : ["bun", MAIN];
 let root: string;
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "cv1-full-"));
@@ -67,7 +70,7 @@ test("the backend end to end: ssh, proxy, daemon, adapter, SDK, and a drop that 
         sshChannel({
           host: "me@box",
           ssh: ssh.path,
-          command: ["bun", MAIN, "proxy", "--data-dir", dataDir, "--socket", socket],
+          command: [...DAEMON, "proxy", "--data-dir", dataDir, "--socket", socket],
         }),
       events: {
         update: (_id, update, seq) => seen.push({ update, seq }),
@@ -114,7 +117,7 @@ test("the backend end to end: ssh, proxy, daemon, adapter, SDK, and a drop that 
         sshChannel({
           host: "me@box",
           ssh: ssh.path,
-          command: ["bun", MAIN, "proxy", "--data-dir", dataDir, "--socket", socket],
+          command: [...DAEMON, "proxy", "--data-dir", dataDir, "--socket", socket],
         }),
       events: { update: (_id, update, seq) => again.push({ update, seq }) },
     });

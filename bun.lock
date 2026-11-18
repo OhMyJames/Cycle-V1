@@ -18,6 +18,7 @@
         "cycle-daemon": "./src/main.ts",
       },
       "dependencies": {
+        "@cycle/adapter-claude": "workspace:*",
         "@cycle/daemon": "workspace:*",
         "@cycle/protocol": "workspace:*",
         "@cycle/transport": "workspace:*",

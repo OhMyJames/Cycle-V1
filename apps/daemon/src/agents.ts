@@ -1,8 +1,7 @@
 import { join } from "node:path";
 import { type AgentDefinition, processAgent } from "@cycle/daemon";
 import type { Config } from "./config.ts";
-
-const ADAPTER = new URL("../../../packages/adapters/claude/src/main.ts", import.meta.url).pathname;
+import { claudeExecutable, selfCommand } from "./self.ts";
 
 export const CLAUDE_CONFIG_SCHEMA = {
   type: "object",
@@ -43,10 +42,13 @@ export const agentsFor = (
     id: "claude",
     name: "Claude",
     configSchema: CLAUDE_CONFIG_SCHEMA,
-    command: ["bun", ADAPTER],
+    command: [...selfCommand(), "adapter", "claude"],
     env: {
       PATH: inherited.PATH ?? "",
-      CYCLE_ADAPTER_CONFIG: JSON.stringify({ env: claudeEnv(config.claude, dataDir, inherited) }),
+      CYCLE_ADAPTER_CONFIG: JSON.stringify({
+        env: claudeEnv(config.claude, dataDir, inherited),
+        ...(claudeExecutable() !== undefined ? { claudeExecutable: claudeExecutable() } : {}),
+      }),
     },
   }),
 ];
