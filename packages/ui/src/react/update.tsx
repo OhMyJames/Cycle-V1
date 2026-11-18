@@ -17,7 +17,7 @@ export const updateLine = (update: UpdateState): string => {
     case "available":
       return `Version ${update.version} is available`;
     case "downloading":
-      return `Downloading ${update.version}: ${megabytes(update.received)} of ${megabytes(update.total)} MB`;
+      return `Downloading ${update.how === "difference" ? "the changes for " : ""}${update.version}: ${megabytes(update.received)} of ${megabytes(update.total)} MB`;
     case "installing":
       return `Installing ${update.version}…`;
     case "error":

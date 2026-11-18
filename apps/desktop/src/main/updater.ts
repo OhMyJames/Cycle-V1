@@ -23,6 +23,7 @@ import {
   parseVersion,
   type ReleaseManifest,
 } from "../shared/release.ts";
+import { assembleDelta, DeltaDeclined } from "./delta.ts";
 import { APP_NAME, BUILD_FILE, MAC_BUNDLE } from "./layout.ts";
 
 export const CHECK_EVERY_MS = 60_000;
@@ -55,6 +56,10 @@ export type UpdaterDeps = {
   clearInterval?: (handle: unknown) => void;
   /** Why updating is off (not an installed app); there is then nothing to check. */
   disabled?: string | undefined;
+  /** Updating by the difference when the release allows it. On unless this is false. */
+  delta?: boolean;
+  /** Where the updater says what it did that the user does not need to see (a difference that fell back). */
+  log?: (message: string) => void;
 };
 
 export type Swap = { appPath: string; newApp: string; oldApp: string; staging: string };
@@ -245,16 +250,7 @@ export class Updater {
     const staging = stagingOf(this.#d.appPath, pending.version);
     try {
       await this.#preflight();
-      await rm(staging, { recursive: true, force: true });
-      await mkdir(staging, { recursive: true });
-      const zip = join(staging, "update.zip");
-      await this.#download(pending, zip);
-      this.#set({ current, kind: "installing", version: pending.version });
-      const unpacked = join(staging, "unpacked");
-      await this.#d.extract(zip, unpacked);
-      const newApp = join(unpacked, MAC_BUNDLE);
-      await this.#checkBundle(newApp, pending.manifest);
-      await this.#d.verifyBundle?.(newApp, this.#d.appPath);
+      const newApp = await this.#obtain(pending, staging);
       await this.#d.beforeSwap();
       this.#d.handOff({
         appPath: this.#d.appPath,
@@ -278,6 +274,89 @@ export class Updater {
     }
   }
 
+  /**
+   * The new bundle, checked, in the staging folder. By the difference when the release has a file table
+   * (the installed files are reused, only the changed ones are fetched); if that cannot be done, or what
+   * it makes does not pass the checks, once more from the whole archive.
+   */
+  async #obtain(pending: Pending, staging: string): Promise<string> {
+    const { manifest } = pending;
+    const log = this.#d.log ?? (() => {});
+    const fresh = async () => {
+      await rm(staging, { recursive: true, force: true });
+      await mkdir(staging, { recursive: true });
+    };
+    const check = async (newApp: string) => {
+      await this.#checkBundle(newApp, manifest);
+      await this.#d.verifyBundle?.(newApp, this.#d.appPath);
+      return newApp;
+    };
+    if (manifest.treeProblem !== undefined)
+      log(
+        `The release's file table is not usable (${manifest.treeProblem}); downloading it whole.`,
+      );
+    if (manifest.tree !== undefined && this.#d.delta !== false) {
+      await fresh();
+      try {
+        return await check(await this.#byDifference(pending, manifest.tree, staging));
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        log(
+          error instanceof DeltaDeclined
+            ? `Downloading the whole update: ${reason}.`
+            : `Updating by the difference failed (${reason}); downloading the whole update.`,
+        );
+      }
+    }
+    await fresh();
+    const zip = join(staging, "update.zip");
+    await this.#download(pending, zip);
+    this.#set({ current: this.#d.current.version, kind: "installing", version: pending.version });
+    const unpacked = join(staging, "unpacked");
+    await this.#d.extract(zip, unpacked);
+    return check(join(unpacked, MAC_BUNDLE));
+  }
+
+  async #byDifference(
+    pending: Pending,
+    tree: NonNullable<ReleaseManifest["tree"]>,
+    staging: string,
+  ): Promise<string> {
+    const current = this.#d.current.version;
+    const { version } = pending;
+    const progress = this.#progress(pending, "difference");
+    // Comparing the installed files takes some seconds before there is anything to count.
+    this.#set({ current, kind: "installing", version });
+    const done = await assembleDelta({
+      installed: this.#d.appPath,
+      into: join(staging, "unpacked"),
+      archiveUrl: pending.archiveUrl,
+      archiveSize: pending.manifest.size,
+      tree,
+      get: (url, headers) => this.#get(url, headers),
+      onPlan: (total) => progress(0, total, true),
+      onProgress: (received, total) => progress(received, total, false),
+      log: this.#d.log,
+    });
+    this.#set({ current, kind: "installing", version });
+    this.#d.log?.(
+      `Updated by the difference: fetched ${done.fetched} of ${pending.manifest.size} bytes, ${done.changed} files changed, ${done.reused} reused.`,
+    );
+    return done.app;
+  }
+
+  /** Reports the download's progress, at most four times a second. */
+  #progress(pending: Pending, how: "difference" | "whole") {
+    const current = this.#d.current.version;
+    let announced = 0;
+    return (received: number, total: number, force: boolean): void => {
+      const now = this.#at();
+      if (!force && now - announced < 250) return;
+      announced = now;
+      this.#set({ current, kind: "downloading", version: pending.version, received, total, how });
+    };
+  }
+
   async #preflight(): Promise<void> {
     const { appPath } = this.#d;
     if (appPath.includes("/AppTranslocation/"))
@@ -295,25 +374,13 @@ export class Updater {
 
   async #download(pending: Pending, to: string): Promise<void> {
     const { manifest } = pending;
-    const current = this.#d.current.version;
     const response = await this.#get(pending.archiveUrl);
     if (!response.ok || response.body === null)
       throw new Error(`The update could not be downloaded (${response.status}).`);
     const hash = createHash("sha256");
     let received = 0;
-    let announced = 0;
-    const emit = (force: boolean) => {
-      const now = this.#at();
-      if (!force && now - announced < 250) return;
-      announced = now;
-      this.#set({
-        current,
-        kind: "downloading",
-        version: pending.version,
-        received,
-        total: manifest.size,
-      });
-    };
+    const report = this.#progress(pending, "whole");
+    const emit = (force: boolean) => report(received, manifest.size, force);
     emit(true);
     await pipeline(
       Readable.fromWeb(response.body as never),

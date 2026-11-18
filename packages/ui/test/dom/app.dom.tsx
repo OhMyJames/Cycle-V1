@@ -461,6 +461,21 @@ test("an update that is found is offered, asks before it restarts, and the foote
     state: { current: "0.1.0", kind: "downloading", version: "0.2.0", received: 5e6, total: 2e7 },
   });
   expect(screen.getAllByText(/Downloading 0.2.0: 5 of 20 MB/).length).toBeGreaterThan(0);
+  // By the difference it says so, and how much it is: the changes, not the app.
+  await emit({
+    type: "app-update",
+    state: {
+      current: "0.1.0",
+      kind: "downloading",
+      version: "0.2.0",
+      received: 5e6,
+      total: 4e7,
+      how: "difference",
+    },
+  });
+  expect(
+    screen.getAllByText(/Downloading the changes for 0.2.0: 5 of 40 MB/).length,
+  ).toBeGreaterThan(0);
   // No button to start it again while it works, and no second check.
   expect(screen.queryByRole("button", { name: "Update and restart" })).toBeNull();
   expect(
