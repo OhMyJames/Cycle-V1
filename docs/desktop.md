@@ -71,9 +71,22 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - Bun 在 Electron 的主进程里不存在:客户端用 `node:net` 和 `node:child_process`,门禁拒绝在这些目录里用 Bun 的 API。
 - 点击输入框时如果对话框还在关闭动画里,点击会落在别处。冒烟脚本点到输入框真的拿到焦点为止。
 
+## 自动更新
+
+只在安装好的 macOS 应用里启用;`bun run start` 的开发运行里显示"Updates are for the installed app",不检查。实现在 `src/main/updater.ts`,所有外部依赖(网络、解压、进程、定时器)都注入,门禁里用假的 GitHub 测试;`test/integration/update.integration.ts` 在 macOS 上用真实的包走完整个流程(release 工作流里跑)。
+
+- **检查**:启动时一次,之后每 60 秒一次;侧栏里的 "Check for updates" 立即检查。后台检查失败(断网、被限流)不提示,用户自己点的检查会显示原因。
+- **发现**:读 GitHub 的发布列表(带 `If-None-Match`:内容没变时 GitHub 回 304,据 GitHub 文档不计入未登录的每小时 60 次限额),取比当前版本新、不是草稿、带本平台清单文件(`latest-darwin-arm64.json`)的最高版本。不能用 `/releases/latest`,因为它跳过 pre-release,而没签名的发布都是 pre-release。
+- **安装**要用户确认:顶部横幅 "Update and restart" → 确认框(会说明本机上正在工作的会话会被中断)。然后下载到应用旁边的隐藏目录(同一个卷,最后的替换是 rename),校验大小和 SHA-256,`ditto` 解压,检查解出的包的版本、平台和清单一致;当前应用有 Developer ID 签名时,还要新包签名有效且是同一个团队。
+- **替换**:先停掉旧应用带起来的本地 daemon(它跑在旧包里,不停的话替换后会留下一个找不到 `claude` 的旧 daemon),再由一个脱离的小 shell 脚本等旧进程退出后 `mv` 换包并 `open -n` 打开新的;替换失败会放回旧包并照样打开。不在运行中的进程自己换自己,是因为替换正在运行的 Electron 的包可能让它崩溃。下次启动清理遗留的临时目录。
+- **下载只来自**仓库自己的 release 地址(`https://github.com/OhMyJames/Cycle-V1/releases/download/`)。没签名的包靠 HTTPS 加 SHA-256 保证完整性,不能证明来源,这一点要等签名后才补上。程序自己下载的文件没有隔离标记,所以没签名的更新不会被 Gatekeeper 拦(第一次安装仍要手动去掉)。
+- **装不上时**会提前说明:应用所在的目录不可写,或应用是从下载位置直接打开的(App Translocation,只读)。
+- 测试用的 `CYCLE_UPDATE_URL` 只接受 `127.0.0.1` 或 `localhost`,不能把应用指到别处。
+
 ## 还没做
 
-- **桌面端打包**:没有 `.app`/安装包,没有自动更新(`bun run start` 用的是 Electron 的开发运行方式)。daemon 已经可以单独打包(见 [daemon.md](daemon.md))。
+- **远端 daemon 的升级**:应用只更新自己和自带的本地 daemon。远端机器上的 `cycle` 仍要手动重新安装(`install.sh`);客户端还不会发现远端版本落后。
+- **签名后的更新**:更新里已有"签名团队必须和当前应用相同"的检查,但还没有在真实的 Developer ID 签名包上跑过(目前发布的包只有 ad hoc 签名,这一条检查被跳过)。
 - **代码高亮**:真实输出里代码块有语言标签、行号和复制/下载按钮,颜色很淡;没有单独配置高亮主题。
 - **图片**:agent 消息里的图片只显示为文字;粘贴或附加图片到 prompt 也没做。
 - **当前设置的来源**:session 设置对话框显示的是 daemon 索引里记下的设置;agent 自己改的(比如 Claude 的 plan 模式切换)不会反映回来。

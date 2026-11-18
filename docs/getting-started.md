@@ -67,6 +67,14 @@ cycle stop     # 停掉(会话中的回合会中断)
 2. 应用里点 "Add host":名字随便起;Host 填 `ssh` 能认的(`user@host`,或 `~/.ssh/config` 里的别名);命令默认 `cycle proxy`。
 3. 如果连不上并提示找不到命令,是因为 ssh 非交互会话的 PATH 里没有 `~/.local/bin`。把命令改成绝对路径:`/home/<用户>/.local/bin/cycle proxy`。
 
+## 更新
+
+应用启动时检查一次更新,之后每分钟检查一次;侧栏底部的 "Check for updates" 可以立即检查。发现新版本时顶部出现横幅,点 "Update and restart" 并确认,应用会下载、校验、替换自己并重新打开。"This computer" 上正在工作的会话会被中断,远端主机上的会话不受影响。
+
+应用放在你有写权限的目录(`/Applications` 通常可以,`~/Applications` 也行)。直接从下载位置打开的应用不能更新自己,先把它移到应用程序里。
+
+远端 Linux 机器上的 `cycle` **不会**自动更新:下载新的 tarball,再运行一次 `install.sh`(见上一节)。
+
 ## 5. 用
 
 选主机,"New session",选工作目录,开始对话。Claude 要执行命令或改文件时会弹出确认卡片,Allow 或 Deny。头部显示上下文用量和累计费用;Claude 的任务列表显示在对话里。Settings 里可以改权限模式和模型,"Agent defaults" 设新会话的默认值。
