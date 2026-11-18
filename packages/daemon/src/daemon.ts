@@ -221,6 +221,7 @@ export class Daemon {
     if (entry === undefined) throw sessionNotFound(sessionId);
     const log = await this.#store.open(sessionId);
     const session = new Session(sessionId, entry, log);
+    this.#clamp(session);
     this.#watch(session);
     this.#sessions.set(sessionId, session);
     return session;
@@ -317,6 +318,19 @@ export class Daemon {
       },
       () => undefined,
     );
+  }
+
+  /**
+   * A crash can cost a log its last, half-written line, and with it the seqs after it, which are
+   * then given out again. A mark made in the index for one of those would hide the new records of
+   * the same number: it never stands past the log's end.
+   */
+  #clamp(session: Session): void {
+    const last = session.log.lastSeq();
+    const patch: Partial<SessionEntry> = {};
+    if ((session.entry.readSeq ?? 0) > last) patch.readSeq = last;
+    if ((session.entry.attentionSeq ?? 0) > last) patch.attentionSeq = last;
+    if (Object.keys(patch).length > 0) this.#remember(session, patch, false);
   }
 
   /** Follows what is written to a session's log, for what the list shows of it. */

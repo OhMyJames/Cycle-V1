@@ -91,10 +91,10 @@ export class Session {
   /**
    * Takes in a `subagent_update`. A sub-agent is in the background from the first update that says
    * so until it is idle; later updates often leave the flag out, and then it stays as it was.
-   * Returns whether the session went from having none in the background to having some, or back.
+   * Returns whether the number in the background changed, which the list shows.
    */
   noteSubagent(update: Record<string, unknown>): boolean {
-    const before = this.backgroundCount() > 0;
+    const before = this.backgroundCount();
     const id = update.sessionId;
     if (typeof id !== "string") return false;
     const state = update.state;
@@ -109,7 +109,7 @@ export class Session {
         typeof said === "boolean" ? said : (this.#subagents.get(id) ?? false),
       );
     }
-    return before !== this.backgroundCount() > 0;
+    return before !== this.backgroundCount();
   }
 
   /** The agent process is gone, and its sub-agents with it. */

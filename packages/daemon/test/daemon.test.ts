@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { methods } from "@cycle/acp";
 import { CycleErrorCode } from "@cycle/protocol";
 import { Daemon } from "../src/index.ts";
@@ -528,62 +530,104 @@ test("a long answer does not announce the list again for every piece of it", asy
   const before = c.listChanged();
   await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("go") });
   await until(() => c.ended() >= 1, "the turn to end");
+  // Running and ended are announced: waited for. Then a moment for anything more to arrive.
+  await until(() => c.listChanged() - before >= 2, "the two changes of state to be announced");
   await Bun.sleep(100);
-  // Running, ended, and the unread mark: a few, and nowhere near one per chunk.
+  // And nowhere near one for each of the thirty chunks.
   expect(c.listChanged() - before).toBeLessThanOrEqual(6);
-  expect(c.listChanged() - before).toBeGreaterThanOrEqual(2);
 });
 
 test("background sub-agents are counted while they run, and are gone with the agent", async () => {
-  const sub = (state: object, background?: boolean) => ({
+  const sub = (state: object, background?: boolean, id = "task-1") => ({
     sessionUpdate: "subagent_update",
-    sessionId: "task-1",
+    sessionId: id,
     state,
     _meta: {
-      "cycle/subagent": { toolCallId: "t1", ...(background === undefined ? {} : { background }) },
+      "cycle/subagent": { toolCallId: id, ...(background === undefined ? {} : { background }) },
     },
   });
+  const running = { state: "running" };
+  const idle = { state: "idle", stopReason: "end_turn" };
   const { daemon, fake } = await start(
     fakeAgent({
       onPrompt: async ({ prompt, say }) => {
-        if (prompt === "start") await say(sub({ state: "running" }, true));
-        if (prompt === "foreground") await say(sub({ state: "running" }, false));
+        if (prompt === "start") await say(sub(running, true));
+        if (prompt === "foreground") await say(sub(running, false));
         // A later update that leaves the flag out keeps it as it was.
-        if (prompt === "progress") await say(sub({ state: "running" }));
-        if (prompt === "end") await say(sub({ state: "idle", stopReason: "end_turn" }));
+        if (prompt === "progress") await say(sub(running));
+        if (prompt === "second") await say(sub(running, true, "task-2"));
+        if (prompt === "end") await say(sub(idle));
+        if (prompt === "end second") await say(sub(idle, undefined, "task-2"));
       },
     }),
   );
   const c = await connectClient(daemon);
   const sessionId = await startedSession(c);
-  const turn = async (word: string, ended: number) => {
+  let turns = 0;
+  const turn = async (word: string) => {
+    turns += 1;
     await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text(word) });
-    await until(() => c.ended() >= ended, `the "${word}" turn to end`);
+    await until(() => c.ended() >= turns, `the "${word}" turn to end`);
   };
-  expect((await rowOf(c, sessionId)).meta["cycle/background"]).toBeUndefined();
+  const background = async () => (await rowOf(c, sessionId)).meta["cycle/background"];
+  expect(await background()).toBeUndefined();
 
-  await turn("foreground", 1);
-  expect((await rowOf(c, sessionId)).meta["cycle/background"]).toBeUndefined();
-  await turn("end", 2);
+  await turn("foreground");
+  expect(await background()).toBeUndefined();
+  await turn("end");
 
   const before = c.listChanged();
-  await turn("start", 3);
-  await turn("progress", 4);
+  await turn("start");
+  await turn("progress");
   // The turn is over and the session is idle, with one sub-agent still at work.
   expect(stateOf((await rowOf(c, sessionId)).row)).toBe("idle");
-  expect((await rowOf(c, sessionId)).meta["cycle/background"]).toBe(1);
+  expect(await background()).toBe(1);
   expect(c.listChanged()).toBeGreaterThan(before);
 
-  await turn("end", 5);
-  expect((await rowOf(c, sessionId)).meta["cycle/background"]).toBeUndefined();
+  // The number is announced whenever it changes, not only to and from none.
+  let announced = c.listChanged();
+  await turn("second");
+  expect(await background()).toBe(2);
+  await until(() => c.listChanged() > announced, "1 to 2 to be announced");
+  announced = c.listChanged();
+  await turn("end");
+  expect(await background()).toBe(1);
+  await until(() => c.listChanged() > announced, "2 to 1 to be announced");
+  await turn("end second");
+  expect(await background()).toBeUndefined();
 
   // The agent process going takes its sub-agents with it, and the list is told.
-  await turn("start", 6);
-  expect((await rowOf(c, sessionId)).meta["cycle/background"]).toBe(1);
-  const announced = c.listChanged();
+  await turn("start");
+  expect(await background()).toBe(1);
+  announced = c.listChanged();
   fake.crash();
   await until(() => c.listChanged() > announced, "the list to be announced");
-  expect((await rowOf(c, sessionId)).meta["cycle/background"]).toBeUndefined();
+  expect(await background()).toBeUndefined();
+});
+
+test("a mark the index holds past the end of the log is brought back to it", async () => {
+  const first = await start();
+  const c = await connectClient(first.daemon);
+  const sessionId = await startedSession(c);
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
+  await until(() => c.ended() >= 1, "the turn to end");
+  await first.daemon.close();
+  open = [];
+  // As after a crash that cost the log its tail: the index says more than the log has.
+  const path = join(dir, "index.json");
+  const stored = JSON.parse(await readFile(path, "utf8"));
+  stored.sessions[sessionId].readSeq = 9999;
+  stored.sessions[sessionId].attentionSeq = 9999;
+  await writeFile(path, JSON.stringify(stored));
+
+  const second = await start();
+  const d = await connectClient(second.daemon);
+  expect((await rowOf(d, sessionId)).meta["cycle/unread"]).toBe(false);
+  await d.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await d.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("again") });
+  await until(() => d.ended() >= 1, "the next turn to end");
+  // Its records number past the log's old end, and the mark does not hide them.
+  expect((await rowOf(d, sessionId)).meta["cycle/unread"]).toBe(true);
 });
 
 test("the daemon says it takes mark_read, and speaks protocol 0.2", async () => {
