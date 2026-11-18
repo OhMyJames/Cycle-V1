@@ -81,8 +81,8 @@ test("starts, makes a session, and shows a turn as it happens", async () => {
   await client.start();
   expect(client.state).toBe("connected");
   expect(client.capabilities).toMatchObject({ agents: ["fake"] });
-  const sessionId = await client.newSession({ cwd: "/work" });
-  await client.watch(sessionId, "/work");
+  const sessionId = await client.newSession({ cwd: "/tmp" });
+  await client.watch(sessionId, "/tmp");
   await client.prompt(sessionId, text("hi"));
   await until(
     () => seen.some((s) => (s.update as { stopReason?: string }).stopReason === "end_turn"),
@@ -101,8 +101,8 @@ test("after a drop it reconnects and shows what it missed once, in order", async
     connection: (state) => states.push(state),
   });
   await watcher.start();
-  const sessionId = await watcher.newSession({ cwd: "/work" });
-  await watcher.watch(sessionId, "/work");
+  const sessionId = await watcher.newSession({ cwd: "/tmp" });
+  await watcher.watch(sessionId, "/tmp");
   await watcher.prompt(sessionId, text("one"));
   await until(() => seqs(seen).length === 4, "the first turn");
 
@@ -114,7 +114,7 @@ test("after a drop it reconnects and shows what it missed once, in order", async
   await until(() => watcher.state === "connected", "the reconnect");
   await other.start().catch(() => undefined);
   await until(() => other.state === "connected", "the other client to be back");
-  await other.watch(sessionId, "/work");
+  await other.watch(sessionId, "/tmp");
   await other.prompt(sessionId, text("two"));
   await until(() => seqs(seen).length === 8, "the second turn");
 
@@ -128,12 +128,12 @@ test("what happened while it was away is delivered when it comes back", async ()
   const seen: { update: SessionUpdate; seq: number | undefined }[] = [];
   const watcher = make({ update: (_id, update, seq) => seen.push({ update, seq }) });
   await watcher.start();
-  const sessionId = await watcher.newSession({ cwd: "/work" });
-  await watcher.watch(sessionId, "/work");
+  const sessionId = await watcher.newSession({ cwd: "/tmp" });
+  await watcher.watch(sessionId, "/tmp");
 
   const other = make();
   await other.start();
-  await other.watch(sessionId, "/work");
+  await other.watch(sessionId, "/tmp");
   network(false);
   drop();
   await until(() => watcher.state === "reconnecting", "the loss");
@@ -165,8 +165,8 @@ test("a permission request is answered by the handler", async () => {
     },
   });
   await client.start();
-  const sessionId = await client.newSession({ cwd: "/work" });
-  await client.watch(sessionId, "/work");
+  const sessionId = await client.newSession({ cwd: "/tmp" });
+  await client.watch(sessionId, "/tmp");
   await client.prompt(sessionId, text("ask"));
   await until(() => outcomes.length === 1, "the answer");
   expect(asked).toEqual([sessionId]);
@@ -191,8 +191,8 @@ test("a request left open by a dropped connection is asked again after the recon
     },
   });
   await client.start();
-  const sessionId = await client.newSession({ cwd: "/work" });
-  await client.watch(sessionId, "/work");
+  const sessionId = await client.newSession({ cwd: "/tmp" });
+  await client.watch(sessionId, "/tmp");
   await client.prompt(sessionId, text("ask"));
   await until(() => asked === 1, "the first ask");
   drop();

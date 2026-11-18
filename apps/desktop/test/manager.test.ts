@@ -82,11 +82,11 @@ test("connects, creates a session, and lists it", async () => {
   const { m, events } = await manager();
   await m.connect("local");
   expect(of(events, "host-status").map((e) => e.state)).toEqual(["connecting", "connected"]);
-  const id = await m.createSession("local", { cwd: "/work" });
+  const id = await m.createSession("local", { cwd: "/tmp" });
   const sessions = await m.sessions("local");
   // Its agent is running, so it is idle and not stopped.
   expect(sessions).toMatchObject([
-    { sessionId: id, cwd: "/work", agent: "fake", archived: false, state: "idle" },
+    { sessionId: id, cwd: "/tmp", agent: "fake", archived: false, state: "idle" },
   ]);
   expect(of(events, "sessions").length).toBeGreaterThan(0);
   expect((await m.agents("local")).map((a) => a.id)).toEqual(["fake"]);
@@ -96,7 +96,7 @@ test("a session opened after the fact comes whole, and its version counts the ev
   const { manager } = await setup();
   const { m, events } = await manager();
   await m.connect("local");
-  const id = await m.createSession("local", { cwd: "/work" });
+  const id = await m.createSession("local", { cwd: "/tmp" });
   const opened = await m.openSession("local", id);
   expect(opened.version).toBeGreaterThanOrEqual(0);
   await m.prompt("local", id, "hello");
@@ -128,7 +128,7 @@ test("opening a session twice at once watches it once", async () => {
   const { manager } = await setup();
   const { m } = await manager();
   await m.connect("local");
-  const id = await m.createSession("local", { cwd: "/work" });
+  const id = await m.createSession("local", { cwd: "/tmp" });
   const [a, b] = await Promise.all([m.openSession("local", id), m.openSession("local", id)]);
   expect(a.version).toBe(b.version);
 });
@@ -144,7 +144,7 @@ test("a permission request is shown, held for a reloaded renderer, and answered"
   );
   const { m, events } = await manager();
   await m.connect("local");
-  const id = await m.createSession("local", { cwd: "/work" });
+  const id = await m.createSession("local", { cwd: "/tmp" });
   await m.openSession("local", id);
   await m.prompt("local", id, "ask");
   await until(() => of(events, "permission").length === 1, "the request");
@@ -176,7 +176,7 @@ test("a request answered by another client is closed here", async () => {
   const theirs = await manager("theirs");
   await mine.m.connect("local");
   await theirs.m.connect("local");
-  const id = await mine.m.createSession("local", { cwd: "/work" });
+  const id = await mine.m.createSession("local", { cwd: "/tmp" });
   await mine.m.openSession("local", id);
   await theirs.m.openSession("local", id);
   await mine.m.prompt("local", id, "ask");
@@ -203,7 +203,7 @@ test("a connection that drops is picked up again, and a request still open is no
   );
   const { m, events } = await manager();
   await m.connect("local");
-  const id = await m.createSession("local", { cwd: "/work" });
+  const id = await m.createSession("local", { cwd: "/tmp" });
   await m.openSession("local", id);
   await m.prompt("local", id, "ask");
   await until(() => of(events, "permission").length === 1, "the request");
@@ -224,7 +224,7 @@ test("renames, archives and deletes a session, and the list follows", async () =
   const { manager } = await setup();
   const { m } = await manager();
   await m.connect("local");
-  const id = await m.createSession("local", { cwd: "/work" });
+  const id = await m.createSession("local", { cwd: "/tmp" });
   await m.renameSession("local", id, "Named");
   await m.archiveSession("local", id, true);
   expect(await m.sessions("local")).toMatchObject([{ title: "Named", archived: true }]);

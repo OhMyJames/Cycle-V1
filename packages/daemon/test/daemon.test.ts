@@ -32,10 +32,10 @@ const text = (value: string) => [{ type: "text" as const, text: value }];
 test("creates a session, runs a prompt, and the client sees the history with seq", async () => {
   const { daemon, fake } = await start();
   const c = await connectClient(daemon);
-  const created = await c.agent.request(methods.agent.session.new, { cwd: "/work" });
+  const created = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
   await c.agent.request(methods.agent.session.resume, {
     sessionId: created.sessionId,
-    cwd: "/work",
+    cwd: "/tmp",
   });
   const answer = await c.agent.request(methods.agent.session.prompt, {
     sessionId: created.sessionId,
@@ -57,18 +57,27 @@ test("creates a session, runs a prompt, and the client sees the history with seq
   expect(fake.log.prompts).toEqual(["hi"]);
 });
 
+test("a working directory that does not exist on the daemon's machine is refused up front, and nothing is stored", async () => {
+  const { daemon } = await start();
+  const c = await connectClient(daemon);
+  await expect(c.agent.request(methods.agent.session.new, { cwd: "/no/such/dir" })).rejects.toThrow(
+    /does not exist on the machine the daemon runs on/,
+  );
+  expect((await c.agent.request(methods.agent.session.list, {})).sessions).toHaveLength(0);
+});
+
 test("a second client replays the whole history, then goes live", async () => {
   const { daemon } = await start();
   const first = await connectClient(daemon);
-  const { sessionId } = await first.agent.request(methods.agent.session.new, { cwd: "/work" });
-  await first.agent.request(methods.agent.session.resume, { sessionId, cwd: "/work" });
+  const { sessionId } = await first.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await first.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
   await first.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("one") });
   await until(() => first.idle() >= 2, "the first turn");
 
   const late = await connectClient(daemon);
   await late.agent.request(methods.agent.session.resume, {
     sessionId,
-    cwd: "/work",
+    cwd: "/tmp",
     replayFrom: { type: "start" },
   });
   // History in order, then replay_complete, then the state snapshot.
@@ -92,8 +101,8 @@ test("a second client replays the whole history, then goes live", async () => {
 test("a reconnecting client asks for what it missed and gets only that", async () => {
   const { daemon } = await start();
   const c = await connectClient(daemon);
-  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/work" });
-  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/work" });
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
   await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("one") });
   await until(() => c.idle() >= 2, "the turn");
   const lastSeen = Math.max(...c.seen.map((s) => s.seq ?? 0));
@@ -103,7 +112,7 @@ test("a reconnecting client asks for what it missed and gets only that", async (
   const back = await connectClient(daemon);
   await back.agent.request(methods.agent.session.resume, {
     sessionId,
-    cwd: "/work",
+    cwd: "/tmp",
     replayFrom: { type: "_cycle.seq", after: lastSeen - 2 },
   });
   expect(back.seen.filter((s) => s.seq !== undefined).map((s) => s.seq)).toEqual([
@@ -117,11 +126,11 @@ test("a reconnecting client asks for what it missed and gets only that", async (
 test("a point past the end of the history is refused", async () => {
   const { daemon } = await start();
   const c = await connectClient(daemon);
-  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/work" });
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
   await expect(
     c.agent.request(methods.agent.session.resume, {
       sessionId,
-      cwd: "/work",
+      cwd: "/tmp",
       replayFrom: { type: "_cycle.seq", after: 999 },
     }),
   ).rejects.toMatchObject({ code: -32602 });
@@ -134,8 +143,8 @@ test("a prompt while the session is working is refused", async () => {
   });
   const { daemon } = await start(fakeAgent({ onPrompt: () => gate }));
   const c = await connectClient(daemon);
-  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/work" });
-  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/work" });
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
   await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("slow") });
   await expect(
     c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("again") }),
@@ -156,9 +165,9 @@ test("a permission request goes to every attached client; the first answer wins"
   );
   const a = await connectClient(daemon, { onPermission: () => "allow" });
   const b = await connectClient(daemon, { onPermission: () => "never" });
-  const { sessionId } = await a.agent.request(methods.agent.session.new, { cwd: "/work" });
-  await a.agent.request(methods.agent.session.resume, { sessionId, cwd: "/work" });
-  await b.agent.request(methods.agent.session.resume, { sessionId, cwd: "/work" });
+  const { sessionId } = await a.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await a.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await b.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
   await b.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("ask") });
   await until(() => outcomes.length === 1, "the agent to be answered");
   expect(outcomes[0]).toMatchObject({ outcome: { outcome: "selected", optionId: "allow" } });
@@ -180,14 +189,14 @@ test("a request made while no one is attached waits for the next client", async 
     }),
   );
   const first = await connectClient(daemon);
-  const { sessionId } = await first.agent.request(methods.agent.session.new, { cwd: "/work" });
+  const { sessionId } = await first.agent.request(methods.agent.session.new, { cwd: "/tmp" });
   await first.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("ask") });
   await Bun.sleep(30);
   expect(outcomes).toHaveLength(0);
   expect(first.permissions).toHaveLength(0);
 
   const second = await connectClient(daemon, { onPermission: () => "deny" });
-  await second.agent.request(methods.agent.session.resume, { sessionId, cwd: "/work" });
+  await second.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
   await until(() => outcomes.length === 1, "the agent to be answered");
   expect(second.permissions).toHaveLength(1);
   expect(outcomes[0]).toMatchObject({ outcome: { outcome: "selected", optionId: "deny" } });
@@ -203,8 +212,8 @@ test("a cancel answers pending requests as cancelled and reaches the agent", asy
     }),
   );
   const c = await connectClient(daemon, { onPermission: () => "never" });
-  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/work" });
-  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/work" });
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
   await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("ask") });
   await until(() => c.permissions.length === 1, "the request");
   await c.agent.notify(methods.agent.session.cancel, { sessionId });
@@ -221,8 +230,8 @@ test("an agent that exits stops the session, ends the turn, and the next prompt 
   const fake = fakeAgent({ onPrompt: () => gate });
   const { daemon } = await start(fake);
   const c = await connectClient(daemon);
-  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/work" });
-  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/work" });
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
   await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hang") });
   await until(() => c.kinds().includes("user_message"), "the turn to start");
   fake.crash();
@@ -251,7 +260,7 @@ test("an agent that exits stops the session, ends the turn, and the next prompt 
   // The state the agent sent when it resumed is a handshake: it is not in the history.
   const history = await c.agent.request(methods.agent.session.resume, {
     sessionId,
-    cwd: "/work",
+    cwd: "/tmp",
     replayFrom: { type: "start" },
   });
   void history;
@@ -262,14 +271,14 @@ test("an agent that exits stops the session, ends the turn, and the next prompt 
   expect(idlesWithoutReason).toEqual([]);
   expect(fake.log.launches).toBe(2);
   // It was resumed under the agent's own id, with the directory it was created in.
-  expect(fake.log.resumes.at(-1)).toMatchObject({ sessionId, cwd: "/work" });
+  expect(fake.log.resumes.at(-1)).toMatchObject({ sessionId, cwd: "/tmp" });
 });
 
 test("sessions and their history survive a new daemon on the same data", async () => {
   const first = await start();
   const c = await connectClient(first.daemon);
-  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/work" });
-  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/work" });
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
   await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("remember") });
   await until(() => c.idle() >= 2, "the turn");
   await first.daemon.close();
@@ -282,7 +291,7 @@ test("sessions and their history survive a new daemon on the same data", async (
   expect(stateOf(listed.sessions[0])).toBe("stopped");
   await d.agent.request(methods.agent.session.resume, {
     sessionId,
-    cwd: "/work",
+    cwd: "/tmp",
     replayFrom: { type: "start" },
   });
   const userMessages = d.seen.filter((s) => s.update.sessionUpdate === "user_message");
@@ -294,7 +303,7 @@ test("sessions and their history survive a new daemon on the same data", async (
 test("lists only Cycle's sessions, and renames, archives and deletes", async () => {
   const { daemon } = await start();
   const c = await connectClient(daemon);
-  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/work" });
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
   await c.agent.request("_cycle/session/set_title", { sessionId, title: "My session" });
   await c.agent.request("_cycle/session/archive", { sessionId });
   let listed = await c.agent.request(methods.agent.session.list, {});
@@ -308,7 +317,7 @@ test("lists only Cycle's sessions, and renames, archives and deletes", async () 
   listed = await c.agent.request(methods.agent.session.list, {});
   expect(listed.sessions).toEqual([]);
   await expect(
-    c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/work" }),
+    c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" }),
   ).rejects.toMatchObject({ code: -32002 });
   expect(c.listChanged()).toBeGreaterThan(0);
 });
@@ -338,10 +347,10 @@ test("an agent's defaults are kept, applied to new sessions, and overridden by w
     config: { mode: "plan" },
   });
 
-  await c.agent.request(methods.agent.session.new, { cwd: "/work" });
+  await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
   expect(fake.log.configs.map((x) => [x.configId, x.value])).toEqual([["mode", "plan"]]);
   await c.agent.request(methods.agent.session.new, {
-    cwd: "/work",
+    cwd: "/tmp",
     _meta: { "cycle/config": { mode: "acceptEdits" } },
   });
   expect(fake.log.configs.map((x) => [x.configId, x.value]).at(-1)).toEqual([
@@ -375,7 +384,7 @@ test("a session's own settings are in the list, and a change is announced", asyn
   const { daemon } = await start();
   const c = await connectClient(daemon);
   const { sessionId } = await c.agent.request(methods.agent.session.new, {
-    cwd: "/work",
+    cwd: "/tmp",
     _meta: { "cycle/config": { mode: "plan" } },
   });
   const before = c.listChanged();

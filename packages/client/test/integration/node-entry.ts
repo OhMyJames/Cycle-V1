@@ -11,8 +11,8 @@ const client = new CycleClient({
   events: { update: (_id, update, seq) => seen.push({ kind: update.sessionUpdate, seq }) },
 });
 await client.start();
-const sessionId = await client.newSession({ cwd: "/work" });
-await client.watch(sessionId, "/work");
+const sessionId = await client.newSession({ cwd: "/tmp" });
+await client.watch(sessionId, "/tmp");
 await client.prompt(sessionId, [{ type: "text", text: "hello from node" }]);
 const started = Date.now();
 while (!seen.some((s) => s.kind === "agent_message_chunk") && Date.now() - started < 10_000) {

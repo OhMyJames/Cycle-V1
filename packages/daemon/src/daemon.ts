@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { stat } from "node:fs/promises";
 import {
   type AgentContext,
   agent as acpAgent,
@@ -422,6 +423,18 @@ export class Daemon {
       if (agentId === undefined)
         throw new RpcError(CycleErrorCode.AgentUnavailable, "No agent is configured");
       this.#definition(agentId);
+      // The directory is a path on THIS machine (the daemon's), not the client's. Say so up front: otherwise
+      // the agent fails to start with an error that blames the binary.
+      if (
+        !(await stat(params.cwd).then(
+          (s) => s.isDirectory(),
+          () => false,
+        ))
+      )
+        throw new RpcError(
+          INVALID_PARAMS,
+          `The working directory ${params.cwd} does not exist on the machine the daemon runs on`,
+        );
       const id = randomUUID();
       const entry: SessionEntry = {
         agent: agentId,
