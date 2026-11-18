@@ -5,12 +5,12 @@
 
 ## 写法
 
-- **按钮是动词加对象**:"Allow once"、"Delete session"、"Add host"。不写"OK""Submit""Yes"。破坏性的按钮写出被破坏的东西,
+- **按钮是动词加对象**:"Allow once"、"Delete session"、"Add environment"。不写"OK""Submit""Yes"。破坏性的按钮写出被破坏的东西,
   确认框里的主按钮和触发它的按钮用同一个词。
 - **状态用名词和事实**:"Reconnecting"、"Working"、"Waiting for your approval"。不写"请稍候"。
 - **错误写三样**:发生了什么、为什么(远端或系统原话,不改写)、用户能做什么。远端的原话放在后面,原样,等宽显示。
   - 差:"Something went wrong."
-  - 好:"Not connected to this host. ssh: connect to host build-1 port 22: Connection refused. Check that the host is up, then Retry."
+  - 好:"Not connected to this environment. ssh: connect to host build-1 port 22: Connection refused. Check that the host is up, then Retry."
 - **空状态说下一步**:"No sessions yet." 后面跟一个能点的 "New session",不是一句鼓励。
 - **只写真的**:不编数字、人名、时间。一个数字要么来自数据,要么不出现。
 - **一种语言,一种大小写**:现在界面是英文,句首大写,其余小写;标题不用 Title Case。加了本地化再说,不要中英混排。
@@ -55,6 +55,6 @@
 |---|---|---|
 | 空对话 | "Nothing here yet. Say something below." | 可以,说了下一步 |
 | 空会话列表 | "No sessions yet." | 缺一个下一步;旁边要有 "New session" |
-| 没有 agent | "No agent is available on this host." | 缺原因和下一步:是没装还是没登录? |
+| 没有 agent | "No agent is available on this environment." | 缺原因和下一步:是没装还是没登录? |
 | 设置提示 | "A change applies to the next thing the agent does." | 好,说的是后果 |
 | 加载 | "Loading the conversation…" | 可以 |

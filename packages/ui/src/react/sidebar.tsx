@@ -68,11 +68,15 @@ export function Sidebar(props: SidebarProps) {
               props.onAgentDefaults(environmentId);
           }}
         >
-          <MenuTrigger aria-label="Host actions" title="Host actions" data-variant="ghost">
+          <MenuTrigger
+            aria-label="Environment actions"
+            title="Environment actions"
+            data-variant="ghost"
+          >
             <MoreIcon />
           </MenuTrigger>
           <MenuContent>
-            <MenuItem value="add-environment">Add host</MenuItem>
+            <MenuItem value="add-environment">Add environment</MenuItem>
             {connected.map((h) => (
               <MenuItem key={h.id} value={`agent-defaults:${h.id}`}>
                 {several ? `Agent defaults · ${h.name}` : "Agent defaults"}

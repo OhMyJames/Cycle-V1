@@ -15,7 +15,7 @@ bun run start                          # 启动桌面端
 
 - 本地 host 通过 `cycle proxy` 连接(没有 daemon 在运行就先启动)。用哪个 daemon,取第一个存在的:`CYCLE_DAEMON_BIN`;`apps/daemon/dist` 里构建出的可执行文件;源码(`bun apps/daemon/src/main.ts`,开发时,可用 `CYCLE_BUN`、`CYCLE_DAEMON_MAIN` 覆盖)。数据目录:`CYCLE_HOME` 设了就用它;没设时,安装的应用用 daemon 的默认(`~/.cycle`),从源码运行(`bun run start`)用 `~/.cycle-dev`,所以开发时的 daemon、socket 和会话不会碰到安装版正在跑的那个。开发版因此没有稳定版的凭证配置(`config.json` 在数据目录里):要么在 `~/.cycle-dev` 里另写一份,要么显式设 `CYCLE_HOME` 指向要用的目录。
 - 在 xvfb 下用构建出的 daemon 启动过:Electron 起来,`proxy` 起 `serve`,数据目录里有 socket 和 pid。
-- 远程 host 用系统的 `ssh`(`BatchMode=yes`,没有密码提示),在远端运行 `cycle proxy`;命令可在"Add host"里改。
+- 远程 host 用系统的 `ssh`(`BatchMode=yes`,没有密码提示),在远端运行 `cycle proxy`;命令可在"Add environment"里改。
 - 设置(host 列表)在 Electron 的 `userData/settings.json`。
 
 ## 结构
@@ -61,20 +61,18 @@ type Environment = {
 
 ### 现状(哪些已经做了)
 
-代码里的名字是 environment(`EnvironmentConfig`、`environmentId`、桥上的 `environments()` 等);界面文案里仍写 "host"(Add host 等),文案是另一个决定:只有一个环境时界面里不该出现"环境"这个词。
+代码里的名字是 environment(`EnvironmentConfig`、`environmentId`、桥上的 `environments()` 等);界面文案里写 "environment"(Add environment 等),不写 "host"(决定:保留"环境"这个词,去掉 host)。词本身可以出现;只有一个环境时,不出现按环境分组、环境标题这类让人去选的东西。
 
 - 主进程在启动时连接所有 host,各自独立,连不上的不拖累别的;原因记在它的状态里,侧栏的 host 状态行里显示。
 - 会话是所有环境的一个汇总,身份是 `(environmentId, sessionId)`,按 `updatedAt` 排序;旧 daemon 的会话(没有 `updatedAt`)排在有的之后,彼此按 `lastSeq`,不同 daemon 的不混排。
 - 侧栏一次只显示一个 workspace(`sessions.ts` 的 `workspacesOf`、`currentWorkspace`)。显示哪个:switcher 里选的(只对选它时打开的那个 session 有效,打开了别的就放弃),然后是打开的 session 所在的,最后是最近有活动的。
-- Switcher 按 host 分组(本机在前,多于一个 host 时才有分组标题,标题带连接状态),组内最近有活动的在前;远程 workspace 带 server 图标,图标的可访问名和 tooltip 是"On <host> · <state>";同名目录跨 host 时名字后带 host 名。Switcher 上的方块数字是**其他** workspace 里最紧急的一类,完整的计数在 aria-label。
+- Switcher 按 host 分组(本机在前,多于一个 host 时才有分组标题,标题带连接状态),组内最近有活动的在前;远程 workspace 带 server 图标,图标的可访问名和 tooltip 是"On <environment> · <state>";同名目录跨 host 时名字后带 host 名。Switcher 上的方块数字是**其他** workspace 里最紧急的一类,完整的计数在 aria-label。
 - 当前 workspace 里的会话:Needs you、Running(包括有后台子 agent 的)、Today、Yesterday、Earlier(本地日界线)。older 的每个 workspace 先显示 20 条,有标记的和打开的永远显示。一行只有一个标记:needs-you > running > background > unread;断线 host 和已归档的会话没有标记。
 - 打开的会话有 `cycle/unread` 时,窗口在前台,就告诉 daemon 已读(`markRead`;main 用它自己最近读到的那一行的 `lastSeq`,不会超出日志;不支持的 daemon 不会被问,失败也不弹错误条)。
 - 断线的 host:会话灰显、tooltip 说明原因,不算在标记里,侧栏里有它的状态、原因和"Retry"。
 - 新建 session:默认在当前 workspace 的 host 和目录;可以选 host(只列已连接的);"Browse…"只对本机有。Agent defaults 按 host 分别设置。
 
 设置文件 `settings.json` 是 `{ "environments": [{ id, name, kind: "local" | "remote", transport?: { type: "ssh", host, command? } }] }`。旧格式 `{ "hosts": [{ id, name, kind: "ssh", host, command? }] }` 读作 remote 加 ssh transport,id 不变(会话和草稿都按 id 认);只有保存时才写新格式;这个版本读不懂的条目(更新的版本写的)不显示,但保存时原样写回。
-
-还没做:界面文案里的 "host" 改成 environment(文案决定:保留"环境"这个词,去掉 host)。
 
 ### workspace
 
@@ -88,7 +86,7 @@ type Environment = {
 一次只显示一个 workspace(沿用 old-cycle 2026-11-08 的决定):
 
 - 显示哪个:你在 switcher 里选的,直到打开了别的东西;然后是当前打开的 session 或草稿所在的 workspace;最后是最近有活动的(`updatedAt` 最大的)。从列表里打开任何一行,都会放弃 switcher 的选择。
-- **Switcher** 是一个菜单,列出所有 workspace,按环境分组(本地在前;多于一个环境时才显示分组标题,标题带连接状态),组内按 `updatedAt` 倒序。只有一个环境时,界面里不出现"环境"这个词。
+- **Switcher** 是一个菜单,列出所有 workspace,按环境分组(本地在前;多于一个环境时才显示分组标题,标题带连接状态),组内按 `updatedAt` 倒序。只有一个环境时,没有按环境分组的标题(没有可选的东西)。
 - Switcher 上有一个方块数字徽章,数**其他 workspace**(所有环境)里最紧急的那一类;完整的计数写进 aria-label。
 - 搜索跨所有 workspace 和环境,结果按 workspace 分组。
 
@@ -125,7 +123,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 
 - 门禁里(`bun run check`):会话模型、store(假桥接)、`ConnectionManager`(真 daemon)、页面组件和 Markdown 安全(happy-dom,`*.dom.tsx`,单独一步,因为它们需要浏览器全局,会破坏其他测试)。
 - `packages/client`:`bun run test:integration` 把客户端打成包,用 Electron 自带的 Node 跑,证明它在 Node 下能用(Bun 通过自己的测试说明不了这一点)。
-- `apps/desktop`:`bun run test:integration smoke`(会先 `build`)。在 xvfb 下启动真实 Electron,用真实的鼠标和键盘事件操作真实窗口,后面是真 daemon、Claude 适配、真 SDK 和模拟 API:连上 host、点击和打字创建 session、发消息、看到流式回答、出现权限卡片并点击 Allow(工具真的运行了)、重载页面后会话回来。
+- `apps/desktop`:`bun run test:integration smoke`(会先 `build`)。在 xvfb 下启动真实 Electron,用真实的鼠标和键盘事件操作真实窗口,后面是真 daemon、Claude 适配、真 SDK 和模拟 API:连上环境、点击和打字创建 session、发消息、看到流式回答、出现权限卡片并点击 Allow(工具真的运行了)、重载页面后会话回来。
 
 ## 真实模型下的窗口
 

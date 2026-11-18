@@ -570,7 +570,7 @@ test("a remote host whose daemon is older shows what to run on it, and a current
     state: "connected",
     daemon: { version: "0.1.0", upgrade: "curl -fsSLO https://example/x && sh install.sh" },
   });
-  expect(screen.getByText(/Cycle on this host is 0.1.0, older than this app/)).toBeTruthy();
+  expect(screen.getByText(/Cycle on this environment is 0.1.0, older than this app/)).toBeTruthy();
   expect(screen.getByText("curl -fsSLO https://example/x && sh install.sh")).toBeTruthy();
   await emit({
     type: "environment-status",
@@ -589,7 +589,7 @@ test("a host that cannot be reached says why, not only that it is not connected"
     state: "closed",
     error: "bash: /home/james/.local/bin/cycle-daemon: No such file or directory",
   });
-  expect(screen.getByText("Not connected to this host.")).toBeTruthy();
+  expect(screen.getByText("Not connected to this environment.")).toBeTruthy();
   expect(screen.getByRole("alert").textContent).toContain("No such file or directory");
 });
 

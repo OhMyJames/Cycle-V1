@@ -264,7 +264,7 @@ export class ConnectionManager
 
   #connection(environmentId: string): Connection {
     const connection = this.#connections.get(environmentId);
-    if (connection === undefined) throw new Error("Not connected to that host");
+    if (connection === undefined) throw new Error("Not connected to that environment");
     return connection;
   }
 

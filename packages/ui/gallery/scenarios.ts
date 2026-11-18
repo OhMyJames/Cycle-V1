@@ -220,7 +220,7 @@ const clickByLabel = async (root: HTMLElement, label: string) => {
 
 /** An item of the environment's menu, opened as a click would. */
 const hostAction = async (root: HTMLElement, item: string) => {
-  await clickByLabel(root, "Host actions");
+  await clickByLabel(root, "Environment actions");
   await new Promise((r) => setTimeout(r, 200));
   await click(root, item);
 };
@@ -669,7 +669,7 @@ export const scenarios: Record<string, Scenario> = {
     status: [UP("build"), UP("local")],
     sessions: [],
     after: async (root) => {
-      await clickByLabel(root, "Host actions");
+      await clickByLabel(root, "Environment actions");
       await new Promise((r) => setTimeout(r, 200));
     },
   },
@@ -770,9 +770,9 @@ export const scenarios: Record<string, Scenario> = {
     after: (root) => click(root, "New session"),
   },
   "dialog-add-host": {
-    title: "Add host dialog",
+    title: "Add environment dialog",
     sessions: [],
-    after: (root) => hostAction(root, "Add host"),
+    after: (root) => hostAction(root, "Add environment"),
   },
   "dialog-agent-defaults": {
     title: "Agent defaults dialog",

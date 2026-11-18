@@ -341,7 +341,7 @@ export function App() {
               <div data-slot="banner" data-severity="warning" role="status">
                 <WarningIcon />
                 {t("session.awayBanner", {
-                  host:
+                  environment:
                     environments.find((h) => h.id === selectedEnvironment)?.name ??
                     selectedEnvironment ??
                     "",
@@ -412,11 +412,11 @@ export function App() {
                 {environmentState === "connected" ? (
                   <p>Choose a session, or start a new one.</p>
                 ) : environmentState === "connecting" || environmentState === "reconnecting" ? (
-                  <p>Connecting to this host…</p>
+                  <p>Connecting to this environment…</p>
                 ) : (
                   <div data-slot="empty-block" role="alert">
                     <ErrorCircleIcon size={20} />
-                    <p data-slot="empty-title">Not connected to this host.</p>
+                    <p data-slot="empty-title">Not connected to this environment.</p>
                     {environmentError !== undefined ? (
                       <code data-slot="reason">{environmentError}</code>
                     ) : null}
