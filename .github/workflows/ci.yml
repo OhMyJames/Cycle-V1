@@ -2,9 +2,12 @@
 #
 #  check        every push and pull request. The same `bun run check` as the pre-commit hook: about
 #               7 s of work and under 0.6 GB at its peak, so nearly all of the time is installing.
-#  integration  by hand, and every night. Starts real processes (Claude, a daemon, Electron under
-#               xvfb): serial, a deadline per suite, about 1.5 GB at its peak. It needs no secrets: the
-#               model is a mock, and nothing here may read an API key from the environment.
+#  integration  every pull request (only the suites the change can affect: scripts/integration-plan.ts says
+#               which, and the log and the run's summary say why), and by hand and every night (all of
+#               them). Starts real processes (Claude, a daemon, Electron under xvfb): serial, a deadline per
+#               suite, about 1.5 GB at its peak. It needs no secrets: the model is a mock, and nothing here
+#               may read an API key from the environment. --strict: a suite that skipped itself because the
+#               runner lacks Electron, xvfb or sshd is a failure here, not an "ok".
 name: ci
 
 on:
@@ -41,15 +44,25 @@ jobs:
       - run: bun run check
 
   integration:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # A pull request: what it changed against its base. Anything else: no change given, so all of them.
+      CHANGED: ${{ github.event_name == 'pull_request' && format('--changed origin/{0}', github.base_ref) || '' }}
     steps:
+      # The whole history: the plan compares this commit with the base.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+      # Needs no install: it reads package.json files and git's diff. Says which suites, and why.
+      - name: Which suites
+        id: plan
+        run: bun scripts/integration.ts --plan $CHANGED --github-output "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
+        if: steps.plan.outputs.any == 'true'
         with:
           path: |
             ~/.bun/install/cache
@@ -57,10 +70,17 @@ jobs:
           key: integration-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: integration-${{ runner.os }}-
       - name: Libraries Electron needs, and xvfb
+        if: steps.plan.outputs.machine == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends xvfb libgtk-3-0 libnss3 libgbm1 libasound2t64 libxss1
       - run: bun install --frozen-lockfile --ignore-scripts
+        if: steps.plan.outputs.any == 'true'
       # bun does not run Electron's postinstall, which is what downloads the binary.
       - run: bun node_modules/.bun/electron@*/node_modules/electron/install.js
-      - run: bun run test:integration
+        if: steps.plan.outputs.machine == 'true'
+      - run: bun run test:integration $CHANGED --strict --summary "$GITHUB_STEP_SUMMARY"
+        if: steps.plan.outputs.any == 'true'
+      - name: Nothing to run
+        if: steps.plan.outputs.any != 'true'
+        run: echo "No integration suite is reached by this change; the plan is in the log of 'Which suites'." >> "$GITHUB_STEP_SUMMARY"

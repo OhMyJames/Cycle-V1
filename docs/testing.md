@@ -11,7 +11,7 @@
 
 门禁依次是:边界检查、Tailwind 生成 css、类型检查、lint、常规测试(约 110 个,1.5 秒)、界面测试(约 17 个,2 秒,需要 happy-dom 所以单独一步)。`check.ts` 在最后打印每一步的耗时。
 
-集成测试会启动真实进程(Claude、daemon、xvfb 下的 Electron),所以不在门禁里。5 个套件**串行**,每个有自己的时限:
+集成测试会启动真实进程(Claude、daemon、xvfb 下的 Electron),所以不在门禁里。6 个套件**串行**,每个有自己的时限:
 
 | 套件    | 证明什么                                                                                                                                                                                                 | 时限   |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
@@ -19,7 +19,21 @@
 | adapter | 真实 SDK 上:不带 replayFrom 恢复后上下文完整;权限的允许和拒绝真的决定工具是否运行;模型输出到一半时取消                                                                                                   | 90 秒  |
 | ssh     | **真实的 ssh**:一个私有的 sshd(非特权、回环端口、测试自己生成的主机密钥和用户密钥,不读不改 `~/.ssh`)加系统的 `ssh` 客户端;一个回合,断开,新连接拿到历史。设了 `CYCLE_DAEMON_BIN` 就用构建出的可执行文件跑 | 60 秒  |
 | backend | `proxy` 自动启动 daemon、daemon 脱离、断线后新客户端拿到历史并继续、daemon 的环境变量不会到 Claude                                                                                                       | 120 秒 |
+| package | 打包后的应用在干净的环境里(没有 bun、node、仓库)找到自带的 daemon 和 Claude,启动 daemon,窗口显示已连接                                                                                                   | 90 秒  |
 | smoke   | 真实窗口、真实鼠标键盘:连接、建会话、聊天、回答权限、重载                                                                                                                                                | 150 秒 |
+
+## 按改动选套件
+
+`bun run test:integration --changed origin/main` 只跑这次改动能碰到的套件;`--plan`(可以和 `--changed` 或 `--files a b c` 连用)只打印选了哪些、每个是哪个文件、通过什么关系选上的,不运行。规则和套件清单在 `scripts/integration-plan.ts`,一个地方:
+
+- 一个套件覆盖它自己所在的包,加上这个包在 `package.json` 里依赖的所有工作区包(包括 devDependencies)。
+- import 推不出来的运行时启动关系写在套件的 `launches` 里:桌面应用把 daemon 当进程启动(`package`、`smoke` 因此也覆盖 `apps/daemon`,连带它依赖的 Claude 适配器)。新的这类关系要在这里加。
+- 文档、技能和笔记、门禁自己的脚本、单元测试文件(门禁已经跑它们)不选任何套件;`*.integration.ts` 只选它自己的套件,不在默认清单里的(真实模型那几个)不选。
+- **不认识的路径、锁文件、根配置、集成脚本、ci.yml 全选。** 比对失败(没有这个 ref、不是 git 仓库)也是全选,计划里会写原因。漏跑一个套件是看不见的洞,多跑只是花时间。
+
+CI 的 PR 用同一套规则,每晚和手动触发仍是全部(完整模拟模型的验证);真实模型继续只能显式开启。
+
+套件的结果不只看退出码:一个套件的测试如果全被跳过(没有 Electron、xvfb 或 sshd)退出码是 0,以前汇总里会显示 ok。现在汇总每个套件是 ok、FAIL、skip(带原因)还是 not selected(带原因);没有任何测试运行是 FAIL。加 `--strict`(CI 用)时,在应该有这些前置条件的机器上跳过就是 FAIL。`--summary <文件>` 把同样的表写成 markdown(CI 写进步骤摘要)。
 
 ## 为什么不并行
 
@@ -54,7 +68,7 @@ CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd packages/daemon test:real    
 `.github/workflows/ci.yml`:
 
 - `check`:每次 push 和 PR。`bun install --frozen-lockfile --ignore-scripts`,然后 `bun run check`。同一个分支的新提交会取消上一次还在跑的。10 分钟上限。
-- `integration`:手动触发和每晚一次。装 xvfb 和 Electron 需要的库,下载 Electron 二进制(bun 不跑它的 postinstall),`bun run test:integration`。20 分钟上限。不需要任何密钥:模型是模拟的。
+- `integration`:每个 PR(只跑计划选中的套件,先在 "Which suites" 一步里列出并说明原因;没选中任何套件时跳过安装,在步骤摘要里写一句)、手动触发和每晚一次(全部)。装 xvfb 和 Electron 需要的库(只有选中的套件需要它们时),下载 Electron 二进制(bun 不跑它的 postinstall),`bun run test:integration --strict`。工作流 checkout 完整历史,因为计划要和 base 比对。20 分钟上限。不需要任何密钥:模型是模拟的。
 
 `check` 已经在 GitHub 上跑过:最近几次 push 全部通过,约 20 秒。**`integration`(每晚和手动)还没跑过**:装 xvfb 和 Electron 的库、真实 sshd 能否在 runner 上启动,要等第一次运行才知道,可能要调整 apt 包名。
 
