@@ -59,6 +59,7 @@ export const agentsFor = (
       PATH: inherited.PATH ?? "",
       CYCLE_ADAPTER_CONFIG: JSON.stringify({
         env: claudeEnv(config.claude, dataDir, inherited),
+        warmStart: true,
         ...(claudeExecutable() !== undefined ? { claudeExecutable: claudeExecutable() } : {}),
       }),
     },

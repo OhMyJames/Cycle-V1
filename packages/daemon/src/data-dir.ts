@@ -12,5 +12,7 @@ export const defaultDataDir = (env: Record<string, string | undefined> = process
   env[DATA_DIR_ENV] ?? join(homedir(), ".cycle");
 
 export const sessionsDir = (dataDir: string): string => join(dataDir, "sessions");
+/** One directory of attachment bytes for each session (decision 0013). */
+export const blobsDir = (dataDir: string): string => join(dataDir, "blobs");
 export const indexPath = (dataDir: string): string => join(dataDir, "index.json");
 export const defaultsPath = (dataDir: string): string => join(dataDir, "agent-defaults.json");

@@ -18,6 +18,7 @@ import {
 import { answersOf, formOf, type Question, questionsOf } from "./ask.ts";
 import { type SdkContent, toSdkContent } from "./content.ts";
 import { NO_SETUP, type SessionSetup, setupOf } from "./setup.ts";
+import { Subagents } from "./subagents.ts";
 import { PlanState, type StopReason, stopReasonOf, TurnTranslator, toolKind } from "./translate.ts";
 
 /** The SDK's `query`, in streaming-input mode: the prompt is a stream, so one process serves many turns. */
@@ -41,6 +42,12 @@ export type AdapterConfig = {
   idleMs?: number;
   /** How long a cancelled turn may take to stop before its process is killed (ms). Default 3 seconds. */
   cancelGraceMs?: number;
+  /**
+   * Start the session's process when the session is made, not at its first prompt, so that what a
+   * process can say (the slash commands) is known before anything is typed. It costs a process
+   * (about 230 MB) for each new session until it is let go after `idleMs`. Default off.
+   */
+  warmStart?: boolean;
   /**
    * What Claude has recorded about a session, to learn the title it gave it. The SDK's own
    * `getSessionInfo` in the real process; absent means titles are not looked for.
@@ -109,6 +116,8 @@ type SessionState = {
   cwd: string;
   /** False until a process has started the session: then the id exists on disk and is resumed, not created. */
   started: boolean;
+  /** The sub-agents the model has started, as far as clients were told. */
+  subagents: Subagents;
   mode: PermissionMode;
   model: string | undefined;
   turn: Turn | undefined;
@@ -194,11 +203,20 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     } as SessionUpdate).catch(() => undefined);
   };
 
+  /** Sub-agents that were running when their process went are over, and clients are told. */
+  const endSubagents = (session: SessionState) => {
+    const ended = session.subagents.endAll();
+    if (session.client === undefined) return;
+    const client = session.client;
+    for (const update of ended) void notify(client, session.id, update).catch(() => undefined);
+  };
+
   /** Lets the session's process go: gracefully, or at once. The next prompt starts another. */
   const release = (session: SessionState, hard: boolean) => {
     const live = session.live;
     if (live === undefined) return;
     endCompaction(session);
+    endSubagents(session);
     session.live = undefined;
     clearTimeout(live.idle);
     live.end();
@@ -249,7 +267,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
   const aside = async (client: AgentContext, session: SessionState, message: SDKMessage) => {
     if (message.type !== "system") return;
     const m = message as unknown as Record<string, unknown> & { subtype: string };
-    if (m.subtype === "commands_changed") {
+    if (m.subtype.startsWith("task_")) {
+      const update = session.subagents.update(m);
+      if (update !== undefined) await notify(client, session.id, update);
+    } else if (m.subtype === "commands_changed") {
       await notify(client, session.id, commandsUpdate(m.commands as SlashCommand[]));
     } else if (m.subtype === "status") {
       const mode = m.permissionMode as PermissionMode | undefined;
@@ -405,10 +426,12 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     if (answer.action !== "accept") {
       return { behavior: "deny", message: "The user declined to answer" };
     }
-    return {
-      behavior: "allow",
-      updatedInput: { ...input, answers: answersOf(questions, answer.content) },
-    };
+    const answers = answersOf(questions, answer.content);
+    // Nothing is required, so a form can come back empty: that is not an answer.
+    if (Object.keys(answers).length === 0) {
+      return { behavior: "deny", message: "The user did not answer" };
+    }
+    return { behavior: "allow", updatedInput: { ...input, answers } };
   };
 
   /** Starts a process for the session. Its messages go to whatever turn is running. */
@@ -443,6 +466,8 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       onElicitation: (request, { signal }) => elicit(client, session, request, signal),
       abortController: abort,
       includePartialMessages: true,
+      // So that a sub-agent's row can say what it is doing, not only that it is busy.
+      agentProgressSummaries: true,
       permissionMode: session.mode,
       ...(session.model !== undefined ? { model: session.model } : {}),
       ...(config.claudeExecutable !== undefined
@@ -540,7 +565,14 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       try {
         for await (const message of query as AsyncIterable<SDKMessage>) {
           if (session.live !== live) continue; // let go: nothing it says matters now
-          if (message.type === "system" && message.subtype === "init") session.started = true;
+          // Only once there is a prompt: a process started ahead of one has made no session on disk to resume.
+          if (
+            message.type === "system" &&
+            message.subtype === "init" &&
+            session.turn !== undefined
+          ) {
+            session.started = true;
+          }
           await aside(client, session, message).catch(() => undefined);
           const turn = session.turn;
           if (turn === undefined || turn.done) continue;
@@ -564,6 +596,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       if (session.live === live) {
         session.live = undefined;
         endCompaction(session);
+        endSubagents(session);
       }
       clearTimeout(live.idle);
       const turn = session.turn;
@@ -634,7 +667,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         },
       };
     })
-    .onRequest(methods.agent.session.new, ({ params }) => {
+    .onRequest(methods.agent.session.new, ({ params, client }) => {
       const proposed = (params._meta as Record<string, unknown> | null | undefined)?.[PROPOSED_ID];
       // Take the daemon's id when it is a UUID, which is all the SDK accepts; otherwise make one.
       const id = typeof proposed === "string" && UUID.test(proposed) ? proposed : randomUUID();
@@ -642,6 +675,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         id,
         cwd: params.cwd,
         started: false,
+        subagents: new Subagents(),
         mode: "default",
         model: undefined,
         turn: undefined,
@@ -654,6 +688,17 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         modeChanging: false,
       };
       sessions.set(id, session);
+      if (config.warmStart === true) {
+        try {
+          const live = start(client, session);
+          session.live = live;
+          // Not used soon: let it go, as any idle process is.
+          live.idle = setTimeout(() => release(session, false), idleMs);
+          live.idle.unref?.();
+        } catch {
+          // A process that cannot start now is started, or fails, at the first prompt.
+        }
+      }
       return { sessionId: id, configOptions: configOptions(session) };
     })
     .onRequest(methods.agent.session.resume, async ({ params, client }) => {
@@ -670,6 +715,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           cwd: params.cwd,
           // The id is on disk in the Claude config directory: resume it.
           started: true,
+          subagents: new Subagents(),
           mode: "default",
           model: undefined,
           turn: undefined,

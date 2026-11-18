@@ -129,6 +129,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 - `cycle/agent`:agent id。
 - `cycle/state`:`"running"`、`"idle"`、`"requires_action"` 或 `"stopped"`(agent 进程不在)。
 - `cycle/lastSeq`:该 session 的最新序号。
+- `cycle/usage`:最近一次 `usage_update`,`{used, size, cost?: {amount, currency}}`:已用的上下文 token、窗口大小、累计费用。daemon 存在索引里,列表不用重放日志就能显示;还没有过 `usage_update` 的 session 没有这个字段。
 
 列表变化(新建、删除、归档、状态改变)通过通知 `_cycle/session_list_changed` 告诉所有客户端,通知里不带内容,客户端收到后重新拉列表。
 
@@ -220,6 +221,11 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 - **没有这样的客户端附着时立即回答**(最后一个有能力的客户端断开时,正在等的表单同样如此回答) `{action: "cancel", _meta: {"cycle/noClient": true}}`,不挂起。agent 据此回退:MCP 的 elicitation 当作拒绝,`AskUserQuestion` 走权限请求。
 - `session/cancel`、agent 退出:未解决的 elicitation 以 `{action: "cancel"}` 结束,并发 `_cycle/request_resolved`。
 - URL 模式 v1 不支持,daemon 不声明。
+- **`AskUserQuestion` 的表单**:每个问题一个选择字段(`q0`,`q1`…:单选 `oneOf`、多选 `array`)和一个可选的自由输入字段(`q0_other`…,最多 2000 字符)。都没有 `required`:一个字段表达不了"二选一"。自由输入非空时,单选以它为答案,多选把它加在所选标签之后;全部为空等于没回答,工具得到"The user did not answer"。
+
+### 子 agent
+
+`subagent_update`(决策 0014)原样转给客户端:`sessionId` 是子的 id(不是可以打开的 session),`title`、`description`、`state`,以及 `_meta["cycle/subagent"]`:`toolCallId`、`background`、`parentId`、`summary`、`lastTool`、`usage`。只是通告:子 agent 的对话不转发,也不能对它发 `session/*` 请求。
 
 ## 10. agent 与配置
 
@@ -303,6 +309,7 @@ ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集
 - `request`:agent 发来的需要回答的请求,`data` 含 `requestId`、`method`、`params`。
 - `response`:对某个 `request` 的回答,`data` 含 `requestId` 和结果,以及回答来自哪个客户端。
 - `aborted`:某个 `request` 被中止。
+- 附件的字节(决策 0013):`update` 里 `image` 块的 `data` 和嵌入资源的 `blob`,base64 不小于 16 KiB 时不写进日志,而写在 `<数据目录>/blobs/<sessionId>/<sha256>`,日志里该字段为 `""`,所在对象的 `_meta["cycle/blob"]` 记 `{field, sha256, bytes}`。daemon 读日志时还原,客户端不会看到引用;文件丢了的那一块是 `data: ""` 加 `_meta["cycle/blobMissing"]: true`,其余照常。旧日志里内联的字节照常读。
 - `meta`:daemon 自己的事件(session 创建、agent 启动和退出、配置变更)。
 
 要求:

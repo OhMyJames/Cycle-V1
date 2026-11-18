@@ -18,6 +18,7 @@ import {
   META,
   NOTIFICATIONS,
   ReplayFromSeqSchema,
+  SessionUsageSchema,
   sessionArchive,
   sessionSetTitle,
   sessionUnarchive,
@@ -25,7 +26,7 @@ import {
 import type { z } from "zod";
 import { AgentLink } from "./agent-link.ts";
 import type { AgentDefinition } from "./agents.ts";
-import { defaultsPath, indexPath, sessionsDir } from "./data-dir.ts";
+import { blobsDir, defaultsPath, indexPath, sessionsDir } from "./data-dir.ts";
 import { AgentDefaults } from "./defaults-file.ts";
 import {
   INVALID_PARAMS,
@@ -35,6 +36,7 @@ import {
   UNSUPPORTED_VERSION,
 } from "./errors.ts";
 import { type SessionEntry, SessionIndex } from "./index-file.ts";
+import { BlobLogStore } from "./log/blobs.ts";
 import { JsonlLogStore } from "./log/jsonl.ts";
 import { attach } from "./log/replay.ts";
 import type { LogRecord, LogStore } from "./log/types.ts";
@@ -82,7 +84,12 @@ export class Daemon {
   private constructor(options: DaemonOptions, index: SessionIndex, defaults: AgentDefaults) {
     this.#version = options.version ?? "dev";
     this.#agents = new Map(options.agents.map((a) => [a.id, a]));
-    this.#store = options.store ?? new JsonlLogStore({ dir: sessionsDir(options.dataDir) });
+    this.#store =
+      options.store ??
+      new BlobLogStore(
+        new JsonlLogStore({ dir: sessionsDir(options.dataDir) }),
+        blobsDir(options.dataDir),
+      );
     this.#index = index;
     this.#defaults = defaults;
   }
@@ -291,6 +298,9 @@ export class Daemon {
         }
       }
       this.#remember(session, { config });
+    } else if (u.sessionUpdate === "usage_update") {
+      const usage = SessionUsageSchema.safeParse(update);
+      if (usage.success) this.#remember(session, { usage: usage.data });
     } else if (u.sessionUpdate === "session_info_update") {
       // The user's own name for a session wins over the agent's: a title that is not marked as the
       // agent's is the user's, which includes every title written before agents named sessions.
@@ -477,6 +487,7 @@ export class Daemon {
         [META.state]: session.status(),
         [META.lastSeq]: session.log.lastSeq(),
         ...(entry.config !== undefined ? { [META.config]: entry.config } : {}),
+        ...(entry.usage !== undefined ? { [META.usage]: entry.usage } : {}),
         ...(entry.title !== undefined ? { title: entry.title } : {}),
       },
     };

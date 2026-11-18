@@ -300,6 +300,55 @@ test("the adapter announces the commands the real Claude process has", async () 
   }
 }, 60_000);
 
+test("with warmStart the real Claude process has the commands before any prompt, and then takes the first prompt", async () => {
+  const mock = startMock(() => textReply("Ok."));
+  const config = await tempConfigDir();
+  const id = "b0526374-5555-4666-8777-d88899900022";
+  try {
+    await withAdapter(
+      { mockUrl: mock.url, configDir: config.dir, adapter: { warmStart: true } },
+      async ({ agent, idle, updates }) => {
+        await agent.request(methods.agent.session.new, { cwd, _meta: { "cycle/sessionId": id } });
+        const deadline = Date.now() + 20_000;
+        const commands = () =>
+          updates.filter((u) => u.sessionUpdate === "available_commands_update");
+        while (commands().length === 0 && Date.now() < deadline) await Bun.sleep(50);
+        expect(commands().length).toBe(1);
+        // Learning them did not need a turn: nothing the user typed has been sent anywhere.
+        expect(mock.requests.filter((r) => r.method === "POST")).toEqual([]);
+        // The process that was started ahead takes the first prompt, and the session exists after it.
+        const done = idle();
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: id,
+          prompt: [{ type: "text", text: "hello" }],
+        });
+        await done;
+        const stop = updates.filter((u) => (u as { stopReason?: string }).stopReason !== undefined);
+        expect((stop.at(-1) as { stopReason: string }).stopReason).toBe("end_turn");
+        expect(commands().length).toBe(1);
+      },
+    );
+    // And it is on disk for the next process to resume.
+    await withAdapter(
+      { mockUrl: mock.url, configDir: config.dir },
+      async ({ agent, idle, updates }) => {
+        await agent.request(methods.agent.session.resume, { sessionId: id, cwd });
+        const done = idle();
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: id,
+          prompt: [{ type: "text", text: "again" }],
+        });
+        await done;
+        const stop = updates.filter((u) => (u as { stopReason?: string }).stopReason !== undefined);
+        expect((stop.at(-1) as { stopReason: string }).stopReason).toBe("end_turn");
+      },
+    );
+  } finally {
+    mock.stop();
+    await config.dispose();
+  }
+}, 90_000);
+
 const questions = {
   questions: [
     {
@@ -356,5 +405,43 @@ test("AskUserQuestion on the real Claude process: a form when a client can answe
       mock.stop();
       await config.dispose();
     }
+  }
+}, 90_000);
+
+test("AskUserQuestion on the real Claude process: what a person wrote is the answer the model gets", async () => {
+  const mock = startMock((requests) =>
+    JSON.stringify(asked(requests).at(-1)?.body).includes("tool_result")
+      ? textReply("Noted.")
+      : toolReply("AskUserQuestion", questions),
+  );
+  const config = await tempConfigDir();
+  const id = "c1637485-6666-4777-8888-e99900011133";
+  try {
+    await withAdapter(
+      {
+        mockUrl: mock.url,
+        configDir: config.dir,
+        onElicitation: () => ({ action: "accept", content: { q0_other: "Temporal" } }),
+      },
+      async ({ agent, idle, elicitations }) => {
+        await agent.request(methods.agent.session.new, { cwd, _meta: { "cycle/sessionId": id } });
+        const done = idle();
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: id,
+          prompt: [{ type: "text", text: "pick a date library" }],
+        });
+        await done;
+        const form = elicitations[0] as {
+          requestedSchema: { properties: Record<string, unknown> };
+        };
+        expect(Object.keys(form.requestedSchema.properties)).toEqual(["q0", "q0_other"]);
+      },
+    );
+    const last = JSON.stringify(asked(mock.requests).at(-1)?.body);
+    expect(last).toContain("tool_result");
+    expect(last).toContain("Temporal");
+  } finally {
+    mock.stop();
+    await config.dispose();
   }
 }, 90_000);
