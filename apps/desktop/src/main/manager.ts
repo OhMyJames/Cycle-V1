@@ -77,6 +77,10 @@ export class ConnectionManager
   readonly #options: ManagerOptions;
   #hosts: HostConfig[] = [LOCAL_HOST];
   readonly #connections = new Map<string, Connection>();
+  /** The last list read from each host, kept when its connection goes: what the interface greys out. */
+  readonly #lastSessions = new Map<string, SessionSummary[]>();
+  /** Why the last attempt to connect to a host failed, for a renderer that asks after the event went by. */
+  readonly #lastError = new Map<string, string>();
 
   constructor(options: ManagerOptions) {
     this.#options = options;
@@ -96,11 +100,26 @@ export class ConnectionManager
   async hosts() {
     return {
       hosts: this.#hosts,
-      status: this.#hosts.map(
-        (host): HostStatus =>
-          this.#connections.get(host.id)?.status ?? { hostId: host.id, state: "closed" },
-      ),
+      status: this.#hosts.map((host): HostStatus => {
+        const error = this.#lastError.get(host.id);
+        return (
+          this.#connections.get(host.id)?.status ?? {
+            hostId: host.id,
+            state: "closed",
+            ...(error !== undefined ? { error } : {}),
+          }
+        );
+      }),
+      sessions: Object.fromEntries(this.#lastSessions),
     };
+  }
+
+  /**
+   * Connects to every host, each on its own: one that cannot be reached is closed, with why, and the others
+   * are not held up by it. What is wrong with a host is in its status; nothing is thrown.
+   */
+  async connectAll(): Promise<void> {
+    await Promise.allSettled(this.#hosts.map((host) => this.connect(host.id)));
   }
 
   async saveHost(host: HostConfig): Promise<void> {
@@ -114,6 +133,8 @@ export class ConnectionManager
   async removeHost(hostId: string): Promise<void> {
     if (hostId === LOCAL_HOST.id) throw new Error("The local daemon cannot be removed");
     await this.disconnect(hostId);
+    this.#lastSessions.delete(hostId);
+    this.#lastError.delete(hostId);
     this.#hosts = this.#hosts.filter((h) => h.id !== hostId);
     await this.#options.settings.save(this.#hosts);
     this.#options.emit({ type: "hosts", hosts: this.#hosts });
@@ -169,10 +190,21 @@ export class ConnectionManager
       await connection.client.start();
     } catch (error) {
       this.#connections.delete(hostId);
+      this.#lastError.set(hostId, messageOf(error));
       this.#options.emit({ type: "host-status", hostId, state: "closed", error: messageOf(error) });
       throw error;
     }
-    await this.#refreshSessions(hostId, connection);
+    this.#lastError.delete(hostId);
+    try {
+      await this.#refreshSessions(hostId, connection);
+    } catch (error) {
+      // A daemon that answers but cannot list is not usable: say so, instead of sitting connected with no list.
+      this.#connections.delete(hostId);
+      await connection.client.close().catch(() => undefined);
+      this.#lastError.set(hostId, messageOf(error));
+      this.#options.emit({ type: "host-status", hostId, state: "closed", error: messageOf(error) });
+      throw error;
+    }
   }
 
   /** What a connected remote host's daemon is, and whether it is behind this app. */
@@ -232,6 +264,7 @@ export class ConnectionManager
         agent: String(meta["cycle/agent"] ?? ""),
         state: (meta["cycle/state"] as SessionSummary["state"]) ?? "stopped",
         lastSeq: Number(meta["cycle/lastSeq"] ?? 0),
+        ...(typeof row.updatedAt === "string" ? { updatedAt: row.updatedAt } : {}),
         ...(typeof meta["cycle/config"] === "object" && meta["cycle/config"] !== null
           ? { config: meta["cycle/config"] as Record<string, string> }
           : {}),
@@ -240,8 +273,11 @@ export class ConnectionManager
     // An answer to an older question, arriving after the answer to a newer one, would put the list back.
     if (asked < connection.applied) return connection.sessions;
     connection.applied = asked;
+    // The host may have been removed while the question was out: its list must not come back.
+    if (this.#connections.get(hostId) !== connection) return sessions;
     const before = new Map(connection.sessions.map((s) => [s.sessionId, s]));
     connection.sessions = sessions;
+    this.#lastSessions.set(hostId, sessions);
     this.#options.emit({ type: "sessions", hostId, sessions });
     this.#tell(hostId, before, sessions, afterOutage);
     return sessions;

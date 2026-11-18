@@ -15,6 +15,12 @@ export const enUS = {
   "search.archived": "archived",
   "search.open": "Search sessions",
 
+  // Hosts that are away, and starting a session on one of several
+  "session.away": "{host} · {state}",
+  "session.awayBanner": "{host} is not connected. This is what the session had when it went away.",
+  "newSession.host": "Host",
+  "newSession.onHost": "The agent works in this directory, on {host}.",
+
   // Images in a conversation
   "image.open": "Open image: {name}",
   "image.alt.agent": "Image from the agent",
