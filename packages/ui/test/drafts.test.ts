@@ -69,13 +69,37 @@ test("a deleted session, and a removed host, lose their drafts", () => {
   expect(drafts.get("h2:a").text).toBe("3");
 });
 
-test("only the most recently written drafts are kept", () => {
+test("only the most recently written drafts are kept, and writing to one again makes it the newest", () => {
   const drafts = createDraftStore();
-  for (let n = 0; n < MAX_DRAFTS + 3; n += 1) drafts.update(`s${n}`, (d) => ({ ...d, text: "x" }));
-  expect(drafts.get("s0")).toBe(EMPTY_DRAFT);
-  expect(drafts.get(`s${MAX_DRAFTS + 2}`).text).toBe("x");
-  // Writing to one again makes it the newest.
-  drafts.update("s5", (d) => ({ ...d, text: "y" }));
+  for (let n = 0; n < MAX_DRAFTS; n += 1) drafts.update(`s${n}`, (d) => ({ ...d, text: "x" }));
+  // s0 is the oldest: written to again, it is the newest, and s1 is now the oldest.
+  drafts.update("s0", (d) => ({ ...d, text: "y" }));
   drafts.update("another", (d) => ({ ...d, text: "z" }));
-  expect(drafts.get("s5").text).toBe("y");
+  expect(drafts.get("s0").text).toBe("y");
+  expect(drafts.get("s1")).toBe(EMPTY_DRAFT);
+  expect(drafts.get("s2").text).toBe("x");
+});
+
+test("a copy of the draft as it is changes nothing: no new recency, no notice", () => {
+  const drafts = createDraftStore();
+  drafts.update("a", (d) => ({ ...d, text: "x" }));
+  let heard = 0;
+  drafts.subscribe(() => {
+    heard += 1;
+  });
+  drafts.update("a", (d) => ({ ...d }));
+  drafts.update("a", (d) => ({ text: d.text, attachments: d.attachments }));
+  expect(heard).toBe(0);
+});
+
+test("a deleted session or removed host tells a read in flight it is too late, though nothing was ever sent", () => {
+  const drafts = createDraftStore();
+  const reading = drafts.generation("h1:a");
+  drafts.forget("h1:a");
+  expect(drafts.generation("h1:a")).not.toBe(reading);
+  const other = drafts.generation("h1:b");
+  const elsewhere = drafts.generation("h2:a");
+  drafts.forgetHost("h1");
+  expect(drafts.generation("h1:b")).not.toBe(other);
+  expect(drafts.generation("h2:a")).toBe(elsewhere);
 });

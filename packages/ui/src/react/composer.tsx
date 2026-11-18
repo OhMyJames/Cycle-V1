@@ -32,7 +32,11 @@ export type ComposerProps = {
   drafts: DraftStore;
   /** Names the session the box is for. The box is made again for another, so its own state does not carry over. */
   draftKey: string;
-  onSend: (text: string, attachments: readonly Attachment[]) => void | Promise<void>;
+  /** False when the message could not be sent: what was written is put back, so that it is not lost. */
+  onSend: (
+    text: string,
+    attachments: readonly Attachment[],
+  ) => boolean | void | Promise<boolean | void>;
   onStop: () => void | Promise<void>;
 };
 
@@ -129,7 +133,14 @@ export function Composer({
     const message = drafts.get(draftKey);
     drafts.sent(draftKey);
     setProblem(undefined);
-    await onSend(message.text, message.attachments);
+    const sentOk = await onSend(message.text, message.attachments);
+    if (sentOk === false) {
+      // Put back what was written, in front of whatever has been written since.
+      drafts.update(draftKey, (d) => ({
+        text: d.text === "" ? message.text : `${message.text}\n${d.text}`,
+        attachments: [...message.attachments, ...d.attachments],
+      }));
+    }
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {

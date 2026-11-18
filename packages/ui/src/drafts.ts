@@ -18,6 +18,9 @@ export const createDraftStore = () => {
   // In the order they were last written: the oldest is first.
   const drafts = new Map<string, Draft>();
   const generations = new Map<string, number>();
+  // Per host: a removed host tells every read in flight for any of its sessions, also those with no count of their own yet.
+  const epochs = new Map<string, number>();
+  const hostOf = (key: string): string => key.slice(0, Math.max(0, key.indexOf(":")));
   const listeners = new Set<() => void>();
   const notify = () => {
     for (const listener of [...listeners]) listener();
@@ -28,7 +31,12 @@ export const createDraftStore = () => {
     update: (key: string, change: (draft: Draft) => Draft): void => {
       const before = drafts.get(key) ?? EMPTY_DRAFT;
       const after = change(before);
-      if (after === before) return;
+      // Nothing changed (also when a copy of the same text and images is given): no new recency, no new render.
+      if (
+        after === before ||
+        (after.text === before.text && after.attachments === before.attachments)
+      )
+        return;
       drafts.delete(key);
       if (!isEmpty(after)) {
         drafts.set(key, after);
@@ -45,21 +53,26 @@ export const createDraftStore = () => {
       generations.set(key, (generations.get(key) ?? 0) + 1);
       if (drafts.delete(key)) notify();
     },
-    generation: (key: string): number => generations.get(key) ?? 0,
-    /** The session is gone: so is what was written for it. */
+    generation: (key: string): number =>
+      (generations.get(key) ?? 0) + (epochs.get(hostOf(key)) ?? 0),
+    /**
+     * The session is gone: so is what was written for it, and an image still being read for it is told it is too late (the
+     * count is kept and goes up, not reset: a count that went back to what the read saw would let it write the draft again).
+     */
     forget: (key: string): void => {
-      generations.delete(key);
+      generations.set(key, (generations.get(key) ?? 0) + 1);
       if (drafts.delete(key)) notify();
     },
-    /** Every draft of a host (its sessions' keys begin with its id and a colon). */
+    /**
+     * Every draft of a host. A session's key is its host's id, a colon and its id, and a host's id has no colon (they are
+     * `local` or `ssh-` and letters, digits and hyphens: see HostDialog), so the prefix names one host's sessions only.
+     */
     forgetHost: (hostId: string): void => {
+      const prefix = `${hostId}:`;
+      epochs.set(hostId, (epochs.get(hostId) ?? 0) + 1);
       let any = false;
       for (const key of [...drafts.keys()]) {
-        if (key.startsWith(`${hostId}:`)) {
-          drafts.delete(key);
-          generations.delete(key);
-          any = true;
-        }
+        if (key.startsWith(prefix) && drafts.delete(key)) any = true;
       }
       if (any) notify();
     },

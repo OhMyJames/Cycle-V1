@@ -279,14 +279,14 @@ export class AppStore {
     if (sessionId !== undefined) await this.selectSession(sessionId);
   };
 
-  /** Sends a message: its text, and the images attached to it, if any. */
   /** What is written for each session and not yet sent (drafts.ts). */
   readonly drafts = createDraftStore();
 
-  send = async (text: string, attachments: readonly Attachment[] = []): Promise<void> => {
+  /** Sends a message: its text, and the images attached to it, if any. True if it was handed on, false if it failed (the person is told). */
+  send = async (text: string, attachments: readonly Attachment[] = []): Promise<boolean> => {
     const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
-    if (hostId === undefined || sessionId === undefined) return;
-    if (text.trim() === "" && attachments.length === 0) return;
+    if (hostId === undefined || sessionId === undefined) return false;
+    if (text.trim() === "" && attachments.length === 0) return false;
     // Text alone goes as it always did; with images, as the blocks an agent reads (the text first).
     const content: string | PromptBlock[] =
       attachments.length === 0
@@ -295,7 +295,11 @@ export class AppStore {
             ...(text.trim() === "" ? [] : [{ type: "text" as const, text }]),
             ...attachments.map((a) => ({ type: "image" as const, data: a.data, mimeType: a.type })),
           ];
-    await this.#attempt(() => this.#bridge.prompt(hostId, sessionId, content));
+    const handed = await this.#attempt(async () => {
+      await this.#bridge.prompt(hostId, sessionId, content);
+      return true;
+    });
+    return handed === true;
   };
 
   cancel = async (): Promise<void> => {

@@ -110,3 +110,33 @@ test("a deleted session takes its draft with it", async () => {
   await act(() => store.deleteSession("s1"));
   expect(store.drafts.get("local:s1").text).toBe("");
 });
+
+test("an image still being read when its session is deleted does not bring the draft back", async () => {
+  const { store, user, open } = await mount();
+  await open("alpha");
+  let finish: (bytes: ArrayBuffer) => void = () => {};
+  const slow = png("slow.png");
+  Object.defineProperty(slow, "arrayBuffer", {
+    value: () =>
+      new Promise<ArrayBuffer>((resolve) => {
+        finish = resolve;
+      }),
+  });
+  await user.upload(picker(), slow);
+  await act(() => store.deleteSession("s1"));
+  await act(async () => finish(Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]).buffer));
+  expect(store.drafts.get("local:s1").attachments).toEqual([]);
+});
+
+test("a message that could not be sent is put back, in front of what has been written since", async () => {
+  const { user, open, bridge } = await mount();
+  bridge.prompt = async () => {
+    throw new Error("The daemon is not reachable");
+  };
+  const box = (await open("alpha")) as HTMLTextAreaElement;
+  await user.type(box, "do not lose me");
+  await user.keyboard("{Enter}");
+  // The failure is shown, and the text is in the box again.
+  await screen.findByText(/The daemon is not reachable/);
+  await waitFor(() => expect(box.value).toBe("do not lose me"));
+});
