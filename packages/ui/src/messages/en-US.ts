@@ -59,6 +59,7 @@ export const enUS = {
   "work.failed": { one: "{count} failed", other: "{count} failed" },
   "work.running": "running",
   "work.done": "done",
+  "work.unfinished": "not finished",
   "turn.end.error": "The turn failed.",
   "turn.end.errorWith": "The turn failed: {message}",
   "turn.end.cancelled": "Stopped before it finished.",
@@ -76,7 +77,6 @@ export const enUS = {
   "step.fetch": "Fetching a page",
   "step.other": "Using {name}",
   "thinking.show": "Show thinking",
-  "thinking.hide": "Hide thinking",
 
   // The code colours choice
   "codeTheme.label": "Code colours",

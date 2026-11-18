@@ -138,6 +138,21 @@ test("a hidden thought after the last stretch does not stop its failures being p
   expect(shape(c)).toEqual(["user", "failed", "end"]);
 });
 
+test("a turn that ended with nothing in it still says how", () => {
+  const c = reduce([
+    idle("error", { error: { message: "The agent exited" } }),
+    you("u2"),
+    say("a"),
+  ]);
+  expect(shape(c)).toEqual(["end", "user", "agent"]);
+  expect(blocksOf(c, OFF)[0]).toMatchObject({ kind: "end", turn: 0, startsTurn: true });
+});
+
+test("a message sent while a turn was going belongs to that turn, so the turn's ending comes after it", () => {
+  const c = reduce([you("u1"), tool("a", "Bash"), you("queued"), say("m"), idle("cancelled")]);
+  expect(shape(c)).toEqual(["user", "work(a)", "user", "agent", "end"]);
+});
+
 test("every block has a key that is its own, across turns", () => {
   const c = reduce([
     you("u1"),

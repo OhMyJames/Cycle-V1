@@ -7,7 +7,14 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@ui-sdk/react/dialog";
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuContent,
+  MenuItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "@ui-sdk/react/menu";
 import {
   createResizableController,
   Resizable,
@@ -239,7 +246,6 @@ export function App() {
                   <Menu
                     onAction={(value) => {
                       if (value === "rename") setPanel("rename");
-                      else if (value === "thinking") thinking.set(!showThinking);
                       else if (value === "archive")
                         void store.archiveSession(session.sessionId, !session.archived);
                       else if (value === "delete") setPanel("delete");
@@ -254,9 +260,13 @@ export function App() {
                     </MenuTrigger>
                     <MenuContent>
                       <MenuItem value="rename">Rename</MenuItem>
-                      <MenuItem value="thinking">
-                        {showThinking ? t("thinking.hide") : t("thinking.show")}
-                      </MenuItem>
+                      <MenuCheckboxItem
+                        value="thinking"
+                        checked={showThinking}
+                        onCheckedChange={(checked) => thinking.set(checked)}
+                      >
+                        {t("thinking.show")}
+                      </MenuCheckboxItem>
                       <MenuItem value="archive">
                         {session.archived ? "Restore" : "Archive"}
                       </MenuItem>

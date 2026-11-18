@@ -773,13 +773,13 @@ html[data-platform="darwin"]
   white-space: nowrap;
 }
 
-[data-kind="work"][data-status="failed"] [data-slot="tool-status"] {
+[data-kind="work"] [data-slot="tool-status"][data-tone="danger"] {
   color: var(--ui-destructive);
 }
 
+/* Rows inside a card share its edge: only a line above each, in the row's own colour (a failed row keeps its red). */
 [data-kind="work"] [data-kind="tool"] {
-  border: 0;
-  border-top: 1px solid var(--ui-border);
+  border-width: 1px 0 0;
   border-radius: 0;
 }
 

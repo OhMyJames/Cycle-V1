@@ -181,7 +181,7 @@ export function ConversationView({
         <div key={block.key} data-slot="block" data-turn-start={block.startsTurn || undefined}>
           <BlockView
             block={block}
-            streaming={working && index === lastAgent}
+            streaming={working && index === lastAgent && block.turn === conversation.turns}
             live={working && block.turn === conversation.turns}
           />
         </div>

@@ -178,14 +178,18 @@ export const blocksOf = (
   options: BlockOptions,
   cache?: BlockCache,
 ): LaidBlock[] => {
+  const byTurn = new Map<number, Item[]>();
+  for (const item of c.items) {
+    const items = byTurn.get(item.turn);
+    if (items === undefined) byTurn.set(item.turn, [item]);
+    else items.push(item);
+  }
   const result: LaidBlock[] = [];
-  let at = 0;
-  while (at < c.items.length) {
-    const turn = c.items[at]?.turn ?? 0;
-    let end = at;
-    while (end < c.items.length && c.items[end]?.turn === turn) end += 1;
-    const items = c.items.slice(at, end);
+  // Up to the turn that is going (its number is how many have ended). A turn that ended with nothing in it still says how.
+  for (let turn = 0; turn <= c.stops.length; turn += 1) {
+    const items = byTurn.get(turn) ?? [];
     const stop = c.stops[turn];
+    if (items.length === 0 && stop === undefined) continue;
     const cached = cache?.get(turn);
     let blocks: LaidBlock[];
     if (
@@ -200,7 +204,6 @@ export const blocksOf = (
       cache?.set(turn, { items, stop, showThinking: options.showThinking, blocks });
     }
     result.push(...blocks);
-    at = end;
   }
   return result;
 };

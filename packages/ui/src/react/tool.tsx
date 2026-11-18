@@ -1,4 +1,5 @@
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
+import { useEffect, useRef, useState } from "react";
 import type { Block, ToolItem } from "../model/index.ts";
 import { textOf } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
@@ -13,6 +14,20 @@ import {
   ToolIcon,
   WebIcon,
 } from "./icons.tsx";
+
+/**
+ * Whether a card or row is open: it starts open when it holds a failure (that is what the person came to read), opens by
+ * itself when a failure arrives while it is on screen, and after that follows the person's own clicks.
+ */
+export function useOpenOnFailure(failed: boolean): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(failed);
+  const was = useRef(failed);
+  useEffect(() => {
+    if (failed && !was.current) setOpen(true);
+    was.current = failed;
+  }, [failed]);
+  return [open, setOpen];
+}
 
 /** The status words a tool call has in the catalog; any other is shown as it came. */
 const STATUS_WORDS = new Set([
@@ -80,6 +95,7 @@ export function ToolStatus({ status }: { status: string }) {
 export function ToolCard({ tool }: { tool: ToolItem }) {
   const { t } = useI18n();
   const status = tool.status ?? "pending";
+  const [open, setOpen] = useOpenOnFailure(status === "failed");
   const output =
     tool.content.length > 0
       ? textOf(tool.content.flatMap((c) => (c.type === "content" ? [c.content as Block] : [c])))
@@ -88,7 +104,7 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
   const Icon = TOOL_ICONS[tool.name ?? ""] ?? ToolIcon;
   return (
     // A failure is what the person came to read: it starts open.
-    <Collapsible data-kind="tool" data-status={status} defaultOpen={status === "failed"}>
+    <Collapsible data-kind="tool" data-status={status} open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger>
         <Icon size={14} data-slot="tool-icon" />
         <span data-slot="tool-name">{tool.name ?? t("tool.unnamed")}</span>

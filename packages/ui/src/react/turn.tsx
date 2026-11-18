@@ -10,7 +10,7 @@ import {
 } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
 import { ErrorCircleIcon, ToolIcon, WarningIcon } from "./icons.tsx";
-import { ToolCard, ToolStatus, toolSummary } from "./tool.tsx";
+import { ToolCard, ToolStatus, toolSummary, useOpenOnFailure } from "./tool.tsx";
 
 /** A notice from the daemon or the agent, in the conversation. */
 export function Notice({ severity, title }: { severity: string; title: string }) {
@@ -24,39 +24,58 @@ export function Notice({ severity, title }: { severity: string; title: string })
 
 /**
  * The tool calls of one stretch. One call is a row of its own; two or more are a card that says what they were in a line
- * (and, while one is going, which), and opens to the rows. A card with a failure starts open: that is what the person
- * came to read.
+ * (and, while one is going, which), and opens to the rows. A card with a failure is open: that is what the person came to read.
  */
 export function WorkBlock({ tools, live }: { tools: readonly ToolItem[]; live: boolean }) {
-  const { t, list, locale } = useI18n();
   const only = tools[0];
   if (tools.length === 1 && only !== undefined) return <ToolCard tool={only} />;
+  return <WorkCard tools={tools} live={live} />;
+}
+
+function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }) {
+  const { t, list, locale } = useI18n();
   const failed = tools.filter((tool) => tool.status === "failed").length;
   const going = live ? tools.findLast(isLive) : undefined;
+  const [open, setOpen] = useOpenOnFailure(failed > 0);
   // The pieces are written to follow one another ("ran 2 commands"), and the line begins as a sentence does.
   const pieces = list(
     activityCounts(tools).map(({ activity, count }) => t(`work.summary.${activity}`, { count })),
   );
   const summary = pieces.charAt(0).toLocaleUpperCase(locale) + pieces.slice(1);
-  const status = failed > 0 ? "failed" : going !== undefined ? "in_progress" : "completed";
+  // What is going on now comes first; a call that never ended (the turn did not wait for it) is not "done".
+  const mark =
+    going !== undefined
+      ? "in_progress"
+      : failed > 0
+        ? "failed"
+        : tools.some(isLive)
+          ? "pending"
+          : "completed";
   return (
-    <Collapsible data-kind="work" data-status={status} defaultOpen={failed > 0}>
+    <Collapsible
+      data-kind="work"
+      data-status={failed > 0 ? "failed" : mark}
+      open={open}
+      onOpenChange={setOpen}
+    >
       <CollapsibleTrigger>
         <ToolIcon size={14} data-slot="tool-icon" />
         <span data-slot="work-summary">{summary}</span>
-        {going !== undefined ? (
-          <span data-slot="tool-summary">{toolSummary(going)}</span>
-        ) : (
-          <span data-slot="tool-summary" />
-        )}
-        <ToolStatus status={status} />
+        <span data-slot="tool-summary">{going !== undefined ? toolSummary(going) : ""}</span>
+        <ToolStatus status={mark} />
+        {going !== undefined ? <span data-slot="tool-status">{t("work.running")}</span> : null}
         {failed > 0 ? (
-          <span data-slot="tool-status">{t("work.failed", { count: failed })}</span>
-        ) : going !== undefined ? (
-          <span data-slot="tool-status">{t("work.running")}</span>
-        ) : (
-          <span data-slot="visually-hidden">{t("work.done")}</span>
-        )}
+          <span data-slot="tool-status" data-tone="danger">
+            {t("work.failed", { count: failed })}
+          </span>
+        ) : null}
+        {going === undefined && failed === 0 ? (
+          mark === "pending" ? (
+            <span data-slot="tool-status">{t("work.unfinished")}</span>
+          ) : (
+            <span data-slot="visually-hidden">{t("work.done")}</span>
+          )
+        ) : null}
       </CollapsibleTrigger>
       <CollapsiblePanel>
         {tools.map((tool) => (
