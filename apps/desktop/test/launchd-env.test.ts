@@ -51,3 +51,16 @@ test("a variable that was not set is removed, and one that cannot be restored do
   };
   expect(await withLaunchdEnv(broken, { CYCLE_HOME: "/tmp/test" }, async () => 8)).toBe(8);
 });
+
+test("if what was there cannot be read, nothing is set: it could not be put back", async () => {
+  const d = fakeLaunchd({ CYCLE_HOME: "/the/owners" });
+  const unreadable = (args: string[]): string => {
+    if (args[0] === "getenv") throw new Error("launchctl failed");
+    return d.launchctl(args);
+  };
+  await expect(
+    withLaunchdEnv(unreadable, { CYCLE_HOME: "/tmp/test" }, async () => 1),
+  ).rejects.toThrow("launchctl failed");
+  expect(d.calls.some((call) => call[0] === "setenv" || call[0] === "unsetenv")).toBe(false);
+  expect(d.env.get("CYCLE_HOME")).toBe("/the/owners");
+});

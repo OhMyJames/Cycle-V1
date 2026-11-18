@@ -66,19 +66,26 @@ if (chosen.length === 0) {
 // Every temporary directory a suite makes is under this run's own: a process that a killed suite leaves
 // behind has it in its command line, so it is found by that and by nothing else. Another checkout's run, or
 // the person's own app, is not matched by a pattern that happens to look like it.
-const scratch = mkdtempSync(join(tmpdir(), "cv1-run-"));
+// The name is short: a unix socket's path has about 100 characters on macOS, and a suite's temporary directory is under this.
+const scratch = mkdtempSync(join(tmpdir(), "cv1-r-"));
+let running: ReturnType<typeof Bun.spawn> | undefined;
 const cleanUp = () => {
+  // The suite itself has this directory in its environment, not on its command line.
+  running?.kill(9);
   Bun.spawnSync(["pkill", "-9", "-f", scratch]);
-  rmSync(scratch, { recursive: true, force: true });
+  try {
+    rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {}
 };
-process.on("SIGINT", () => {
-  cleanUp();
-  process.exit(130);
-});
-process.on("SIGTERM", () => {
-  cleanUp();
-  process.exit(143);
-});
+for (const [signal, code] of [
+  ["SIGINT", 130],
+  ["SIGTERM", 143],
+  ["SIGHUP", 129],
+] as const)
+  process.on(signal, () => {
+    cleanUp();
+    process.exit(code);
+  });
 
 const run = async (cmd: string[], cwd: string, seconds: number): Promise<number> => {
   const proc = Bun.spawn(cmd, {
@@ -87,9 +94,11 @@ const run = async (cmd: string[], cwd: string, seconds: number): Promise<number>
     stderr: "inherit",
     env: { ...process.env, TMPDIR: scratch },
   });
+  running = proc;
   const timer = setTimeout(() => proc.kill(9), seconds * 1000);
   const code = await proc.exited;
   clearTimeout(timer);
+  running = undefined;
   return code;
 };
 

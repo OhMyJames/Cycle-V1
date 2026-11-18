@@ -11,12 +11,19 @@ import { join } from "node:path";
 const main = join(import.meta.dir, "..", "src", "main.ts");
 let root: string;
 const started: ReturnType<typeof Bun.spawn>[] = [];
+const killAll = (procs: ReturnType<typeof Bun.spawn>[]) => {
+  for (const proc of procs) proc.kill(9);
+};
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "cv1-side-"));
 });
 afterEach(async () => {
-  for (const proc of started.splice(0)) proc.kill();
-  await Bun.sleep(100);
+  const procs = started.splice(0);
+  for (const proc of procs) proc.kill();
+  // Gone before the directory is: a daemon that is slow to stop must not write into a deleted one.
+  const timer = setTimeout(() => killAll(procs), 3_000);
+  await Promise.all(procs.map((proc) => proc.exited));
+  clearTimeout(timer);
   await rm(root, { recursive: true, force: true });
 });
 
