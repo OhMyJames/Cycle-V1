@@ -26,7 +26,6 @@ const COLORS = [
   "cycle-surface-message",
   "cycle-surface-hover",
   "cycle-surface-selected",
-  "cycle-surface-pressed",
   "cycle-border-subtle",
   "cycle-border-default",
   "cycle-ink",

@@ -78,8 +78,7 @@ ui-sdk 的中性令牌不再是浅灰和黑白,而是**暖灰**一套(表面 sur
 | `--cycle-surface-raised`    | 盖在上面的:权限卡、候选列表                       | #ffffff | #1c1b1a |
 | `--cycle-surface-message`   | 用户消息、代码和一切下沉的填充(`--ui-muted`)      | #f2f1ee | #262523 |
 | `--cycle-surface-hover`     | 行和控件的悬停                                    | #f0efec | #2a2927 |
-| `--cycle-surface-selected`  | 选中                                              | #e8e7e3 | #33312e |
-| `--cycle-surface-pressed`   | 按下                                              | #e8e7e3 | #3a3835 |
+| `--cycle-surface-selected`  | 选中和按下(为之后的控件状态预留)                  | #e8e7e3 | #33312e |
 | `--cycle-border-subtle`     | 卡片里行与行的分隔                                | #efeeeb | #2a2927 |
 | `--cycle-border-default`    | 卡片、分隔线(`--ui-border`)                       | #e5e4e0 | #34322f |
 | `--cycle-ink`               | 正文、标题                                        | #1c1b1a | #f2f1ee |
@@ -92,6 +91,7 @@ ui-sdk 的中性令牌不再是浅灰和黑白,而是**暖灰**一套(表面 sur
 - **控件的边不用 `border-default`。** 它对 workspace 只有 1.24:1,只是分隔用;输入框等控件的边仍用 `--cycle-input-border`(≥ 3:1)。old-cycle 的 `border-control` 只有 1.5:1,我们不取。
 - 选中的会话行仍是 workspace 色加边加靛蓝左条;悬停是 `surface-hover`;侧栏的行平时是 `ink-secondary`,选中时是 `ink`。
 - 浮层的阴影和遮罩:`--cycle-shadow-popover`(菜单、权限卡、候选列表)、`--cycle-shadow-dialog`(对话框)、`--cycle-scrim`(模态的遮罩)。深色下阴影更深,因为浅色的阴影在深底上看不见。
+- 三个动效时长令牌和 `--cycle-surface-selected` 先定义在这里,等控件(Segmented、Tabs、Switch 的状态和展开收起)做的时候引用;现在 `app.css` 里还没有过渡动画,所以没有规则用到它们。
 - 主题跟随系统。`light-dark()` 只能装颜色;阴影和字重在 `@media (prefers-color-scheme: dark)` 里换。
 
 ### 其他令牌
@@ -160,7 +160,7 @@ ui-sdk 的中性令牌不再是浅灰和黑白,而是**暖灰**一套(表面 sur
 按 `data-slot`。只写和现状不同的地方;没写的保持现状。
 
 - **host-bar**:主机选择加一个状态点(第 3 节);"Add environment"、"Remove"、"Agent defaults"收进选择器旁的"…"菜单。
-- **session row**:左侧状态点,标题一行省略,第二行 meta(路径末段、相对时间);选中行用 `--ui-muted` 底加 2px accent 左条;
+- **session row**:左侧状态点,标题一行省略,第二行 meta(路径末段、相对时间);选中行用 workspace 底、1px 边加 2px accent 左条(平时的行在 sidebar 底上,悬停是 surface-hover);
   "Needs you"行加粗标题。归档的 60% 透明。
 - **New session**:次要按钮(描边),放在侧栏顶部。**只有 Send 和权限卡的"Allow once"是 accent 实心按钮。**
 - **message**:用户消息 `--ui-muted` 底、16px 圆角;agent 消息无底无边,直接排版。

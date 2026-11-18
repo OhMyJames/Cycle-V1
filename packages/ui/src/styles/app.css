@@ -22,7 +22,7 @@
   --color-primary: var(--ui-primary);
   --color-primary-foreground: var(--ui-primary-foreground);
   --color-destructive: var(--ui-destructive);
-  --color-sidebar: var(--ui-muted);
+  --color-sidebar: var(--cycle-surface-sidebar);
 }
 
 /* PingFang has fixed weights, so a weight of 420 would pick Medium and set all Chinese bold. These faces give it
@@ -62,7 +62,6 @@
   --cycle-surface-message: light-dark(#f2f1ee, #262523);
   --cycle-surface-hover: light-dark(#f0efec, #2a2927);
   --cycle-surface-selected: light-dark(#e8e7e3, #33312e);
-  --cycle-surface-pressed: light-dark(#e8e7e3, #3a3835);
   --cycle-border-subtle: light-dark(#efeeeb, #2a2927);
   --cycle-border-default: light-dark(#e5e4e0, #34322f);
 
@@ -301,12 +300,14 @@ svg[data-slot="dot"] {
 /* What floats: a 1px edge, a shadow, and the raised surface. Corners nest: a menu of 12 with 4 of padding holds rows of 8,
    and a dialog is 16. */
 :is([data-slot="menu-content"], [data-slot="select-content"]) {
+  border: 1px solid var(--ui-border);
   border-radius: var(--cycle-radius-card);
   background: var(--cycle-surface-raised);
   box-shadow: var(--cycle-shadow-popover);
 }
 
 :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) {
+  border: 1px solid var(--ui-border);
   border-radius: var(--cycle-radius-message);
   background: var(--cycle-surface-raised);
   box-shadow: var(--cycle-shadow-dialog);
@@ -930,7 +931,7 @@ html[data-platform="darwin"]
 /* A stretch of tool calls: one card, opening to its rows. Same edge as a row; the rows inside share it. */
 [data-kind="work"] {
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: var(--cycle-radius-card);
   font-size: var(--cycle-text-ui);
   line-height: var(--cycle-leading-ui);
 }
