@@ -8,7 +8,7 @@
 //   bun run test:integration smoke                only those whose name contains "smoke"
 //   bun run test:integration --changed origin/main   only those the files changed since that ref can affect
 //   bun run test:integration --plan --changed origin/main   say which, and why, and run nothing
-//   bun run test:integration --plan --files a/b.ts c.md      the same for a list of paths
+//   bun run test:integration --plan --files a/b.ts c.md      the same for a list of paths (to the next option)
 // Options: --strict (a suite that was skipped, or ran no test, fails: for a machine that is meant to have
 // Electron, xvfb and sshd), --summary <file> (a markdown table of the result: CI's step summary),
 // --github-output <file> (what a workflow's later steps need to know about the plan), --record <file> (a JSON
@@ -44,11 +44,20 @@ const option = (name: string): string | undefined => {
   return at === -1 ? undefined : args[at + 1];
 };
 const filesAt = args.indexOf("--files");
-const files = filesAt === -1 ? undefined : args.slice(filesAt + 1);
+// The paths after --files, up to the next option.
+const filesEnd = (() => {
+  if (filesAt === -1) return -1;
+  const next = args.findIndex((a, i) => i > filesAt && a.startsWith("--"));
+  return next === -1 ? args.length : next;
+})();
+const files = filesAt === -1 ? undefined : args.slice(filesAt + 1, filesEnd);
 const base = option("--changed");
 const named = new Set(["--changed", "--summary", "--github-output", "--record"]);
 const only = args.find(
-  (a, i) => !a.startsWith("--") && !named.has(args[i - 1] ?? "") && (filesAt === -1 || i < filesAt),
+  (a, i) =>
+    !a.startsWith("--") &&
+    !named.has(args[i - 1] ?? "") &&
+    (filesAt === -1 || i < filesAt || i >= filesEnd),
 );
 
 const unknownChange = (why: string): Plan => ({
@@ -138,12 +147,15 @@ const cleanUp = () => {
     rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {}
 };
+let onSignal: ((name: string) => void) | undefined;
 for (const [signal, code] of [
   ["SIGINT", 130],
   ["SIGTERM", 143],
   ["SIGHUP", 129],
 ] as const)
   process.on(signal, () => {
+    // What was finished is kept: a cancelled or timed-out job is a run that has a record, not one that vanishes.
+    onSignal?.(signal);
     cleanUp();
     process.exit(code);
   });
@@ -189,6 +201,51 @@ const run = async (
 
 const rows: Row[] = [];
 let failed = false;
+let current: string | undefined;
+
+const writeRecord = (table: Row[]) => {
+  if (recordFile === undefined) return;
+  const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
+    cwd: root,
+    env: withoutGit(process.env),
+  });
+  const record = buildRecord({
+    rows: table,
+    limits: Object.fromEntries(suites.map((s) => [s.name, s.seconds])),
+    slowest,
+    scope: chosen.run.length === suites.length ? "all" : "selected",
+    strict,
+    commit: head.exitCode === 0 ? head.stdout.toString().trim() : undefined,
+    env: process.env,
+    now: new Date(),
+  });
+  // A record that cannot be written is a pity, not a reason to fail the suites that passed.
+  try {
+    writeFileSync(recordFile, `${JSON.stringify(record, null, 2)}\n`);
+  } catch (error) {
+    console.error(
+      `could not write ${recordFile}: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+};
+
+onSignal = (name) => {
+  const table: Row[] = suites.map(
+    (s) =>
+      rows.find((r) => r.name === s.name) ??
+      (s.name === current
+        ? { name: s.name, status: "FAIL" as const, reason: `interrupted by ${name} while it ran` }
+        : chosen.run.includes(s)
+          ? {
+              name: s.name,
+              status: "skip" as const,
+              reason: `not run: the run was interrupted by ${name}`,
+            }
+          : { name: s.name, status: "not selected" as const, reason: chosen.skipped.get(s.name) }),
+  );
+  writeRecord(table);
+};
+
 const finish = () => {
   cleanUp();
   const table = suites.map(
@@ -208,23 +265,7 @@ const finish = () => {
       .join("\n")}`,
   );
   if (summaryFile !== undefined) appendFileSync(summaryFile, `${markdown(table)}\n`);
-  if (recordFile !== undefined) {
-    const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
-      cwd: root,
-      env: withoutGit(process.env),
-    });
-    const record = buildRecord({
-      rows: table,
-      limits: Object.fromEntries(suites.map((s) => [s.name, s.seconds])),
-      slowest,
-      scope: chosen.run.length === suites.length ? "all" : "selected",
-      strict,
-      commit: head.exitCode === 0 ? head.stdout.toString().trim() : undefined,
-      env: process.env,
-      now: new Date(),
-    });
-    writeFileSync(recordFile, `${JSON.stringify(record, null, 2)}\n`);
-  }
+  writeRecord(table);
   process.exit(failed ? 1 : 0);
 };
 
@@ -247,6 +288,7 @@ if (chosen.run.some((s) => s.name === "smoke")) {
 
 for (const suite of chosen.run) {
   const started = Date.now();
+  current = suite.name;
   console.log(`\n== ${suite.name} (limit ${suite.seconds}s)`);
   // The junit file is where each test's own time is: bun's summary has only the whole.
   const junit = join(scratch, `${suite.name}.xml`);

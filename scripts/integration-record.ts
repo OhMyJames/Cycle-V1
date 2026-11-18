@@ -60,7 +60,8 @@ export const junitTimes = (xml: string, top = 5): TestTime[] => {
           .replace(/&quot;/g, '"')
           .replace(/&amp;/g, "&")
           .replace(/&lt;/g, "<")
-          .replace(/&gt;/g, ">"),
+          .replace(/&gt;/g, ">")
+          .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code))),
         seconds: Number(Number(time).toFixed(3)),
       });
   }

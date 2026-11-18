@@ -21,12 +21,18 @@ export const MIN_SAMPLES = 10;
 export const SLOWER_FACTOR = 1.5;
 export const SLOWER_BY_SECONDS = 3;
 
+// The same kind of machine: system, architecture, cores, runner OS. The runner image is not part of it: GitHub's
+// images change about weekly, and a baseline that began again each time would never reach MIN_SAMPLES. The image is
+// recorded, and the table says how many of the samples were on another one, so a step in the times at an image change is seen.
 export const sameMachine = (a: RunRecord, b: RunRecord): boolean =>
   a.machine.platform === b.machine.platform &&
   a.machine.arch === b.machine.arch &&
   a.machine.cpus === b.machine.cpus &&
-  a.machine.runnerOs === b.machine.runnerOs &&
-  a.machine.image === b.machine.image;
+  a.machine.runnerOs === b.machine.runnerOs;
+
+/** The earlier runs this one is compared with. */
+export const comparable = (latest: RunRecord, earlier: RunRecord[]): RunRecord[] =>
+  earlier.filter((r) => sameMachine(r, latest));
 
 export const median = (values: number[]): number => {
   const sorted = [...values].sort((x, y) => x - y);
@@ -51,9 +57,10 @@ export type Line = {
 };
 
 export const trend = (latest: RunRecord, earlier: RunRecord[]): Line[] => {
-  const comparable = earlier.filter((r) => r !== latest && sameMachine(r, latest));
   return latest.suites.map((suite) => {
-    const mine = comparable.flatMap((r) => r.suites.filter((s) => s.name === suite.name));
+    const mine = comparable(latest, earlier).flatMap((r) =>
+      r.suites.filter((s) => s.name === suite.name),
+    );
     const passes = mine.filter((s) => s.status === "ok" && s.seconds !== undefined);
     const history = {
       ok: passes.length,
@@ -79,7 +86,7 @@ export const trend = (latest: RunRecord, earlier: RunRecord[]): Line[] => {
         kind: slower ? "slower" : "ok",
         samples: passes.length,
         median: base,
-        ratio: base === 0 ? 1 : suite.seconds / base,
+        ...(base === 0 ? {} : { ratio: suite.seconds / base }),
       };
     }
     return { suite: suite.name, status: suite.status, seconds: suite.seconds, verdict, history };
@@ -95,14 +102,16 @@ const describe = (v: Verdict): string => {
     case "too few samples":
       return `${v.samples} earlier passes here; judged from ${MIN_SAMPLES}`;
     case "slower":
-      return `**slower**: ${v.ratio?.toFixed(1)}x the median ${v.median?.toFixed(1)}s of ${v.samples} earlier passes`;
+      return `**slower**: ${v.ratio === undefined ? "" : `${v.ratio.toFixed(1)}x `}the median ${v.median?.toFixed(1)}s of ${v.samples} earlier passes`;
     case "ok":
-      return `in line: ${v.ratio?.toFixed(1)}x the median ${v.median?.toFixed(1)}s of ${v.samples} earlier passes`;
+      return `in line: ${v.ratio === undefined ? "" : `${v.ratio.toFixed(1)}x `}the median ${v.median?.toFixed(1)}s of ${v.samples} earlier passes`;
   }
 };
 
-export const markdown = (latest: RunRecord, lines: Line[], earlierCount: number): string => {
-  const head = `Integration timing: ${latest.commit?.slice(0, 9) ?? "no commit"} on ${latest.machine.runnerOs ?? latest.machine.platform}/${latest.machine.cpus} cores, against ${earlierCount} earlier runs on the same kind of machine (${latest.scope} suites).`;
+export const markdown = (latest: RunRecord, lines: Line[], earlier: RunRecord[]): string => {
+  const same = comparable(latest, earlier);
+  const otherImage = same.filter((r) => r.machine.image !== latest.machine.image).length;
+  const head = `Integration timing: ${latest.commit?.slice(0, 9) ?? "no commit"} on ${latest.machine.runnerOs ?? latest.machine.platform}/${latest.machine.cpus} cores (image ${latest.machine.image ?? "unknown"}), against ${same.length} of ${earlier.length} earlier runs that were on the same kind of machine${otherImage > 0 ? `, ${otherImage} of them on another image` : ""} (${latest.scope} suites).`;
   return [
     head,
     "",
@@ -152,5 +161,5 @@ if (import.meta.main) {
   const earlier = readRecords(rest).filter(
     (r) => !(r.at === latest.at && r.commit === latest.commit),
   );
-  console.log(markdown(latest, trend(latest, earlier), earlier.length));
+  console.log(markdown(latest, trend(latest, earlier), earlier));
 }

@@ -134,17 +134,27 @@ describe("what happened to a suite", () => {
 });
 
 describe("comparable machines", () => {
-  test("another operating system, image, core count or architecture is not a baseline", () => {
+  test("another operating system, core count or architecture is not a baseline", () => {
     const here = run([suite("smoke", "ok", 5)]);
     expect(sameMachine(here, run([], {}))).toBe(true);
     for (const other of [
       { runnerOs: "macOS" },
-      { image: "ubuntu24/20270101" },
       { cpus: 2 },
       { arch: "arm64" },
       { platform: "darwin" },
     ])
       expect(sameMachine(here, run([], other))).toBe(false);
+  });
+
+  test("a new runner image does not start the baseline again, and the header says how many samples were on another", () => {
+    const earlier = passes([5, 5, 5, 5, 5, 5, 5, 5, 5, 5], { image: "ubuntu24/20261001" });
+    const latest = run([suite("smoke", "ok", 5)]);
+    expect(sameMachine(latest, earlier[0] as RunRecord)).toBe(true);
+    expect(lineFor(latest, earlier).history.ok).toBe(10);
+    expect(markdown(latest, trend(latest, earlier), earlier)).toContain("10 of 10 earlier runs");
+    expect(markdown(latest, trend(latest, earlier), earlier)).toContain(
+      "10 of them on another image",
+    );
   });
 
   test("runs on another machine do not count as samples, and do not raise a slower", () => {
@@ -154,9 +164,19 @@ describe("comparable machines", () => {
     expect(line.verdict.kind).toBe("too few samples");
   });
 
+  test("a median of zero is not shown as a ratio of one", () => {
+    const zero = passes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const line = lineFor(run([suite("smoke", "ok", 5)]), zero);
+    expect(line.verdict.kind).toBe("slower");
+    expect(markdown(run([suite("smoke", "ok", 5)]), [line], zero)).toContain(
+      "**slower**: the median 0.0s",
+    );
+  });
+
   test("the latest run is not compared with itself", () => {
     const latest = run([suite("smoke", "ok", 5)]);
-    expect(lineFor(latest, [latest]).history.ok).toBe(0);
+    const other = run([suite("smoke", "ok", 5)], {}, "2026-10-01T00:00:00Z");
+    expect(lineFor(latest, [other]).history.ok).toBe(1);
   });
 });
 
@@ -170,10 +190,11 @@ test("the table says what each suite did, in words", () => {
     suite("node", "ok", 2),
     suite("smoke", "not selected", undefined, "no changed file reaches it"),
   ]);
-  const text = markdown(latest, trend(latest, passes([5])), 1);
+  const earlier = passes([5]);
+  const text = markdown(latest, trend(latest, earlier), earlier);
   expect(text).toContain("| node | ok | 2.0s |");
   expect(text).toContain("not run: no changed file reaches it");
-  expect(text).toContain("against 1 earlier runs");
+  expect(text).toContain("against 1 of 1 earlier runs");
 });
 
 describe("a record", () => {
@@ -262,6 +283,8 @@ describe("bun's junit file", () => {
       { name: "quick", seconds: 0.5 },
     ]);
     expect(junitTimes("not xml")).toEqual([]);
+    // bun writes a newline in a name as an entity, with its own ampersand escaped.
+    expect(junitTimes('<testcase name="a&amp;#10;b" time="1">')[0]?.name).toBe("a\nb");
   });
 });
 
@@ -300,6 +323,8 @@ describe("the command line", () => {
       const out = Bun.spawnSync(["bun", `${import.meta.dir}/integration-trend.ts`, latest, dir]);
       expect(out.exitCode).toBe(0);
       expect(out.stdout.toString()).toContain("**slower**");
+      // latest.json is in the directory with the earlier ones, and is not one of them.
+      expect(out.stdout.toString()).toContain("against 10 of 10 earlier runs");
       expect(
         Bun.spawnSync(["bun", `${import.meta.dir}/integration-trend.ts`, join(dir, "nothing.json")])
           .exitCode,
@@ -319,6 +344,7 @@ describe("the CI workflow's record and comparison", () => {
     const upload = job.slice(job.indexOf("actions/upload-artifact"));
     expect(upload).toContain("if: always()");
     expect(upload).toContain("name: integration-timing");
+    expect(upload).toContain("overwrite: true");
   });
 
   test("the comparison is not for pull requests, never fails the job, and may read the artifacts", () => {
@@ -327,6 +353,9 @@ describe("the CI workflow's record and comparison", () => {
       job.indexOf("actions/upload-artifact"),
     );
     expect(step).toContain("github.event_name != 'pull_request'");
+    // Only what main's own runs made: a pull request's code is not main's, and a fork's artifact could say anything.
+    expect(step).toContain('.workflow_run.head_branch == "main"');
+    expect(step).toContain(".workflow_run.head_repository_id == .workflow_run.repository_id");
     expect(step).toContain("continue-on-error: true");
     expect(step).toContain("integration-trend.ts");
     expect(job).toMatch(/permissions:\n {6}contents: read\n(?: {6}#.*\n)? {6}actions: read/);
