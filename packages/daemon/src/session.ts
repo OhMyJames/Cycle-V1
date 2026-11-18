@@ -48,6 +48,8 @@ export class Session {
   link: AgentLink | undefined;
   /** The agent's last say on what it is doing. */
   agentState: "running" | "idle" | "requires_action" = "idle";
+  /** The turn in progress has a turn end on record (the agent's, or the daemon's for a failure): a second is not written. */
+  turnEnded = true;
   readonly pending = new Map<string, Pending>();
   /** Prompts sent while the agent was working, oldest first (docs/protocol.md §8). */
   queue: QueueEntry[] = [];

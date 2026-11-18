@@ -6,6 +6,8 @@ export class RpcError extends RequestError {}
 
 /** JSON-RPC's own "Invalid params". */
 export const INVALID_PARAMS = -32602;
+/** JSON-RPC's own "internal error": what a failure that carries no code is recorded as. */
+export const INTERNAL_ERROR = -32603;
 /** ACP's "Resource not found", with `SessionNotFoundErrorData`. */
 export const RESOURCE_NOT_FOUND = -32002;
 /** ACP's "Unsupported protocol version". */
