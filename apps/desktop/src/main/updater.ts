@@ -168,10 +168,15 @@ export class Updater {
     return this.#state;
   }
 
-  async #get(url: string, headers: Record<string, string> = {}): Promise<Response> {
+  async #get(
+    url: string,
+    headers: Record<string, string> = {},
+    signal?: AbortSignal,
+  ): Promise<Response> {
     const response = await this.#d.fetch(url, {
       headers: { "user-agent": "Cycle-updater", ...headers },
       redirect: "follow",
+      ...(signal !== undefined ? { signal } : {}),
     });
     if (response.status === 403 || response.status === 429)
       throw new Limited("GitHub is limiting requests from this network. Try again in a while.");
@@ -300,6 +305,10 @@ export class Updater {
       try {
         return await check(await this.#byDifference(pending, manifest.tree, staging));
       } catch (error) {
+        // What would stop the whole download as well is not a reason to start it: a limit on requests
+        // from this network, or a disk with no room.
+        if (error instanceof Limited || (error as NodeJS.ErrnoException)?.code === "ENOSPC")
+          throw error;
         const reason = error instanceof Error ? error.message : String(error);
         log(
           error instanceof DeltaDeclined
@@ -333,7 +342,7 @@ export class Updater {
       archiveUrl: pending.archiveUrl,
       archiveSize: pending.manifest.size,
       tree,
-      get: (url, headers) => this.#get(url, headers),
+      get: (url, headers, signal) => this.#get(url, headers, signal),
       onPlan: (total) => progress(0, total, true),
       onProgress: (received, total) => progress(received, total, false),
       log: this.#d.log,

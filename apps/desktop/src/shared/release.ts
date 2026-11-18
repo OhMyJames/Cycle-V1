@@ -100,12 +100,18 @@ const HEX = /^[0-9a-f]{64}$/;
 /** Where a link at `base` that points at `target` lands, or undefined when that is outside the bundle. */
 const resolveInside = (base: string, target: string): string | undefined => {
   const parts = base.split("/").slice(0, -1);
+  let named = false;
   for (const part of target.split("/")) {
     if (part === "" || part === ".") continue;
     if (part === "..") {
-      if (parts.length === 0) return undefined;
+      // Only at the start: after a name, it would go up from wherever that name leads, and that may be
+      // another link, which this table cannot see through without walking the bundle.
+      if (named || parts.length === 0) return undefined;
       parts.pop();
-    } else parts.push(part);
+    } else {
+      named = true;
+      parts.push(part);
+    }
   }
   return parts.join("/");
 };

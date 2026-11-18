@@ -43,8 +43,16 @@ const hashOf = async (path: string): Promise<string> => {
   return hash.digest("hex");
 };
 
-/** At most `limit` of these at a time; the first failure is thrown once the running ones end. */
-const pool = async <T>(items: readonly T[], limit: number, work: (item: T) => Promise<void>) => {
+/**
+ * At most `limit` of these at a time. The first failure stops the rest: `stop` is called at once (to
+ * abort what is in flight), and it is thrown when the running ones have ended.
+ */
+const pool = async <T>(
+  items: readonly T[],
+  limit: number,
+  work: (item: T) => Promise<void>,
+  stop: () => void = () => {},
+) => {
   let next = 0;
   let failure: unknown;
   let failed = false;
@@ -54,8 +62,11 @@ const pool = async <T>(items: readonly T[], limit: number, work: (item: T) => Pr
       try {
         await work(item);
       } catch (error) {
-        if (!failed) failure = error;
-        failed = true;
+        if (!failed) {
+          failure = error;
+          failed = true;
+          stop();
+        }
       }
     }
   };
@@ -169,7 +180,7 @@ export type DeltaOptions = {
   archiveSize: number;
   tree: readonly TreeEntry[];
   /** A GET that follows redirects and throws for a network that limits requests. */
-  get: (url: string, headers: Record<string, string>) => Promise<Response>;
+  get: (url: string, headers: Record<string, string>, signal: AbortSignal) => Promise<Response>;
   /** Called once what has to be fetched is known; `total` is a count of bytes to be read from the network. */
   onPlan: (total: number) => void;
   onProgress: (received: number, total: number) => void;
@@ -184,8 +195,17 @@ type Group = { start: number; end: number; items: Wanted[] };
 /** What a bundle's entry is called in the archive: the bundle's own folder is its first part. */
 const entryName = (path: string): string => `${MAC_BUNDLE}/${path}`;
 
-const rangeOf = async (options: DeltaOptions, start: number, end: number): Promise<Response> => {
-  const response = await options.get(options.archiveUrl, { range: `bytes=${start}-${end}` });
+const rangeOf = async (
+  options: DeltaOptions,
+  start: number,
+  end: number,
+  signal: AbortSignal,
+): Promise<Response> => {
+  const response = await options.get(
+    options.archiveUrl,
+    { range: `bytes=${start}-${end}` },
+    signal,
+  );
   if (response.status !== 206 || response.body === null) {
     await response.body?.cancel().catch(() => {});
     throw new Error(`The server did not answer a range request with a range (${response.status}).`);
@@ -203,8 +223,13 @@ const rangeOf = async (options: DeltaOptions, start: number, end: number): Promi
   return response;
 };
 
-const bodyOf = async (options: DeltaOptions, start: number, end: number): Promise<Uint8Array> => {
-  const response = await rangeOf(options, start, end);
+const bodyOf = async (
+  options: DeltaOptions,
+  start: number,
+  end: number,
+  signal: AbortSignal,
+): Promise<Uint8Array> => {
+  const response = await rangeOf(options, start, end, signal);
   const bytes = new Uint8Array(end - start + 1);
   let filled = 0;
   for await (const chunk of Readable.fromWeb(response.body as never) as AsyncIterable<Uint8Array>) {
@@ -218,10 +243,13 @@ const bodyOf = async (options: DeltaOptions, start: number, end: number): Promis
 };
 
 /** The archive's directory, read from the end of the archive with one or two requests. */
-const readDirectory = async (options: DeltaOptions): Promise<Map<string, ZipEntry>> => {
+const readDirectory = async (
+  options: DeltaOptions,
+  signal: AbortSignal,
+): Promise<Map<string, ZipEntry>> => {
   const size = options.archiveSize;
   const tailStart = Math.max(0, size - END_SEARCH - 512 * 1024);
-  const tail = await bodyOf(options, tailStart, size - 1);
+  const tail = await bodyOf(options, tailStart, size - 1, signal);
   const end = parseEnd(tail);
   let directory: Uint8Array;
   if (end.directoryOffset >= tailStart) {
@@ -234,6 +262,7 @@ const readDirectory = async (options: DeltaOptions): Promise<Map<string, ZipEntr
       options,
       end.directoryOffset,
       end.directoryOffset + end.directorySize - 1,
+      signal,
     );
   }
   if (directory.length !== end.directorySize)
@@ -270,6 +299,9 @@ const grouped = (wanted: Wanted[], archiveSize: number): Group[] => {
 export const assembleDelta = async (options: DeltaOptions): Promise<DeltaResult> => {
   const { installed, tree } = options;
   const app = join(options.into, MAC_BUNDLE);
+  // Aborted when one of the parallel parts fails, so that a big file in flight is not read to its end.
+  const abort = new AbortController();
+  const { signal } = abort;
   await rm(app, { recursive: true, force: true });
   await mkdir(app, { recursive: true });
 
@@ -289,8 +321,12 @@ export const assembleDelta = async (options: DeltaOptions): Promise<DeltaResult>
     // lstat: a link in the installed bundle is not a file to take, whatever it points at.
     const stat = await lstat(from).catch(() => undefined);
     if (stat?.isFile() === true && stat.size === entry.size) {
-      await copyFile(from, to, constants.COPYFILE_FICLONE);
-      if ((await hashOf(to)) === entry.sha256) {
+      // A file that cannot be read, or that changed while it was, is one to fetch, not a reason to give up.
+      const taken = await copyFile(from, to, constants.COPYFILE_FICLONE)
+        .then(() => hashOf(to))
+        .then((hash) => hash === entry.sha256)
+        .catch(() => false);
+      if (taken) {
         await chmod(to, entry.mode);
         reused += 1;
         return;
@@ -301,7 +337,8 @@ export const assembleDelta = async (options: DeltaOptions): Promise<DeltaResult>
   });
 
   // Where the rest is in the archive.
-  const directory = missing.length > 0 ? await readDirectory(options) : new Map<string, ZipEntry>();
+  const directory =
+    missing.length > 0 ? await readDirectory(options, signal) : new Map<string, ZipEntry>();
   const wanted: Wanted[] = missing.map((entry) => {
     const zip = directory.get(entryName(entry.path));
     if (zip === undefined) throw new Error(`The archive has no ${entry.path}.`);
@@ -318,28 +355,33 @@ export const assembleDelta = async (options: DeltaOptions): Promise<DeltaResult>
   options.onPlan(total);
 
   let received = 0;
-  await pool(groups, PARALLEL, async (group) => {
-    const response = await rangeOf(options, group.start, group.end);
-    const reader = new ByteReader(
-      Readable.fromWeb(response.body as never) as AsyncIterable<Uint8Array>,
-      (bytes) => {
-        received += bytes;
-        options.onProgress(Math.min(received, total), total);
-      },
-    );
-    try {
-      for (const { entry, zip } of group.items) {
-        await reader.skip(zip.offset - group.start - reader.position);
-        const local = parseLocal(await reader.read(LOCAL_HEADER));
-        if (local.nameLength !== zip.nameLength || local.extraLength > HEADER_ROOM)
-          throw new Error(`The archive's header for ${entry.path} is not as its directory says.`);
-        await reader.skip(local.nameLength + local.extraLength);
-        await writeEntry(join(app, entry.path), entry, zip, reader);
+  await pool(
+    groups,
+    PARALLEL,
+    async (group) => {
+      const response = await rangeOf(options, group.start, group.end, signal);
+      const reader = new ByteReader(
+        Readable.fromWeb(response.body as never) as AsyncIterable<Uint8Array>,
+        (bytes) => {
+          received += bytes;
+          options.onProgress(Math.min(received, total), total);
+        },
+      );
+      try {
+        for (const { entry, zip } of group.items) {
+          await reader.skip(zip.offset - group.start - reader.position);
+          const local = parseLocal(await reader.read(LOCAL_HEADER));
+          if (local.nameLength !== zip.nameLength || local.extraLength > HEADER_ROOM)
+            throw new Error(`The archive's header for ${entry.path} is not as its directory says.`);
+          await reader.skip(local.nameLength + local.extraLength);
+          await writeEntry(join(app, entry.path), entry, zip, reader);
+        }
+      } finally {
+        await reader.close().catch(() => {});
       }
-    } finally {
-      await reader.close().catch(() => {});
-    }
-  });
+    },
+    () => abort.abort(),
+  );
   options.onProgress(total, total);
 
   await checkShape(app, tree);

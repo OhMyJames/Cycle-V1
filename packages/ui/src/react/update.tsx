@@ -5,7 +5,9 @@ import { ConfirmDialog } from "./dialogs.tsx";
 import { DownloadIcon, ErrorCircleIcon, WarningIcon } from "./icons.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 
-const megabytes = (bytes: number): string => (bytes / 1e6).toFixed(0);
+/** Whole megabytes, and tenths while the whole is small (an update that changed a little). */
+const megabytes = (bytes: number, total: number): string =>
+  (bytes / 1e6).toFixed(total < 10e6 ? 1 : 0);
 
 /** What the update is doing, in a few words, or nothing when there is nothing to say. */
 export const updateLine = (update: UpdateState): string => {
@@ -17,7 +19,7 @@ export const updateLine = (update: UpdateState): string => {
     case "available":
       return `Version ${update.version} is available`;
     case "downloading":
-      return `Downloading ${update.how === "difference" ? "the changes for " : ""}${update.version}: ${megabytes(update.received)} of ${megabytes(update.total)} MB`;
+      return `Downloading ${update.how === "difference" ? "the changes for " : ""}${update.version}: ${megabytes(update.received, update.total)} of ${megabytes(update.total, update.total)} MB`;
     case "installing":
       return `Installing ${update.version}…`;
     case "error":

@@ -26,6 +26,8 @@ const github = {
   /** Whether a range request is answered with the range (as GitHub does), and what was sent of an archive. */
   ranges: true,
   ranged: 0,
+  /** What a range request is answered with when it is not 206. */
+  rangeStatus: 0,
 };
 
 beforeEach(async () => {
@@ -37,6 +39,7 @@ beforeEach(async () => {
   github.etag = '"v1"';
   github.ranges = true;
   github.ranged = 0;
+  github.rangeStatus = 0;
   server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -52,6 +55,7 @@ beforeEach(async () => {
       if (!file) return new Response("missing", { status: 404 });
       const range = /^bytes=(\d+)-(\d+)$/.exec(request.headers.get("range") ?? "");
       if (range === null || !github.ranges) return new Response(Buffer.from(file));
+      if (github.rangeStatus !== 0) return new Response("no", { status: github.rangeStatus });
       const start = Number(range[1]);
       const end = Math.min(Number(range[2]), file.length - 1);
       github.ranged += end - start + 1;
@@ -528,4 +532,14 @@ test("with the difference turned off nothing is fetched piecewise", async () => 
   await updater.install();
   expect(log).toContain("extract");
   expect(github.ranged).toBe(0);
+});
+
+test("a limit on requests is told to the user, not answered with the whole download that would meet it too", async () => {
+  await installAndPublish("0.2.0");
+  github.rangeStatus = 429;
+  const { updater, log, states } = make(unpack());
+  await updater.check(false);
+  await expect(updater.install()).rejects.toThrow(/limiting/);
+  expect(log).not.toContain("extract");
+  expect(states.at(-1)).toMatchObject({ kind: "error", version: "0.2.0" });
 });

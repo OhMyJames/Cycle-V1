@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { lstat, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdtemp,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assembleDelta, DeltaDeclined, scanBundle } from "../src/main/delta.ts";
@@ -42,7 +51,9 @@ const NEW: Spec = {
 delete NEW["Contents/Resources/app/gone.txt"];
 
 type Server = {
-  get: (url: string, headers: Record<string, string>) => Promise<Response>;
+  get: (url: string, headers: Record<string, string>, signal: AbortSignal) => Promise<Response>;
+  /** The signal each request was given. */
+  signals: AbortSignal[];
   /** The ranges asked for, and how many bytes they cover. */
   asked: [number, number][];
   served: () => number;
@@ -50,10 +61,13 @@ type Server = {
 /** A server for an archive: it answers ranges, unless asked to ignore them or to lie about them. */
 const serve = (zip: Uint8Array, mode: "ranges" | "ignores" | "lies" = "ranges"): Server => {
   const asked: [number, number][] = [];
+  const signals: AbortSignal[] = [];
   return {
     asked,
+    signals,
     served: () => asked.reduce((sum, [a, b]) => sum + (b - a + 1), 0),
-    get: async (_url, headers) => {
+    get: async (_url, headers, signal) => {
+      signals.push(signal);
       const match = /^bytes=(\d+)-(\d+)$/.exec(headers.range ?? "");
       if (match === null || mode === "ignores") return new Response(Buffer.from(zip));
       const start = Number(match[1]);
@@ -188,3 +202,32 @@ test("when nearly everything changed it is declined, and nothing was fetched but
   await expect(run(made, server)).rejects.toBeInstanceOf(DeltaDeclined);
   expect(server.asked.length).toBe(1);
 });
+
+test("the requests are stopped when one part fails, and not before", async () => {
+  const good = await prepare(NEW);
+  const quiet = serve(good.zip);
+  await run(good, quiet);
+  expect(quiet.signals.length).toBeGreaterThan(0);
+  expect(quiet.signals.every((signal) => !signal.aborted)).toBe(true);
+
+  for (const name of ["into", "installed", "fresh"])
+    await rm(join(dir, name), { recursive: true, force: true });
+  const bad = await prepare(NEW, OLD, {
+    stored: ["Contents/Resources/app/main.js"],
+    corrupt: { "Contents/Resources/app/main.js": new TextEncoder().encode("main of 0.2.X") },
+  });
+  const loud = serve(bad.zip);
+  await expect(run(bad, loud)).rejects.toThrow(/does not match/);
+  expect(loud.signals.every((signal) => signal.aborted)).toBe(true);
+});
+
+test.skipIf(process.getuid?.() === 0)(
+  "an installed file that cannot be read is fetched like one that changed, not a reason to give up",
+  async () => {
+    const made = await prepare(NEW);
+    await chmod(join(made.installed, "Contents/MacOS/Electron"), 0o000);
+    const done = await run(made, serve(made.zip));
+    expect(done.changed).toBe(4);
+    expect(await scanBundle(done.app)).toEqual(made.tree);
+  },
+);

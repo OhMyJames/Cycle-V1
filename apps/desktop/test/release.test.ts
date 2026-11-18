@@ -106,6 +106,11 @@ test("a file table may only describe the inside of the bundle", () => {
     [[{ path: "a", kind: "link", target: "b" }, file("a/b")], /before its folder/],
     [[dir("a"), { path: "a/l", kind: "link", target: "../../outside" }], /outside the bundle/],
     [[{ path: "l", kind: "link", target: "/etc/passwd" }], /not relative/],
+    // ".." after a name goes up from wherever that name leads, which may be another link.
+    [
+      [dir("a"), dir("a/b"), { path: "a/b/l", kind: "link", target: "x/../../.." }],
+      /outside the bundle/,
+    ],
     [[file("a", { mode: 0o4755 })], /mode/],
     [[file("a", { mode: -1 })], /mode/],
     [[file("a", { size: -1 })], /size/],
