@@ -32,6 +32,8 @@ export interface SessionLog {
   readonly sessionId: string;
   /** The seq of the last record written, 0 if none. A record counts once it is on disk. */
   lastSeq(): number;
+  /** The `ts` of the last record that is not a `meta` one, or undefined if there is none. */
+  updatedAt(): string | undefined;
   append(record: NewRecord): Promise<LogRecord>;
   read(range?: ReadRange): Promise<LogRecord[]>;
   /** Called, in seq order, after each record is written. Returns what stops the calls. */

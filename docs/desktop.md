@@ -34,6 +34,58 @@ bun run start                          # 启动桌面端
 
 页面重载后只会收到之后的更新;`CycleClient` 也按 `seq` 去重。所以 **main 为每个被观看的 session 保存会话和未回答的权限请求**,页面(重新)打开时一次拿到整个状态和一个 `version`;之后每个事件带 `version`,页面只接受 `version + 1`,更小的忽略,出现空洞就重新向 main 要。冒烟测试里重载页面后会话完整回来。
 
+## 环境、workspace 与侧栏
+
+状态:daemon 一侧(协议 0.2:`updatedAt`、`cycle/unread`、`cycle/background`、`mark_read`)已实现;客户端一侧(environment、workspace、侧栏)是设计,未实现。代码里现在叫 host(`HostConfig`、`hostId`),落地时改叫 environment。设计依据见决定笔记 [2026-11-18-sidebar-workspace-environment](../.agents/notes/2026-11-18-sidebar-workspace-environment.md)。
+
+### 环境(environment)
+
+环境是**客户端**的概念:daemon 不知道自己被当作本地还是远程(协议只看到一个连接)。
+
+```ts
+type Environment = {
+  id: string; // 客户端分配,稳定;会话在列表里的身份是 (environmentId, sessionId)
+  name: string;
+  kind: "local" | "remote"; // 以后可能有 "cloud"
+  transport: // 只有 remote 有
+  { type: "ssh"; host: string; command?: string[] }; // 以后可以加 websocket 等,不改别的字段
+};
+```
+
+- `remote` 不等于 SSH:SSH 只是现在唯一的 `transport`。
+- 可以**同时连着多个** daemon,侧栏的会话是它们的**汇总**。每个环境有自己的连接状态。
+- 环境的能力(能做什么)来自 daemon 的 `initialize`(§3 `_meta["cycle/capabilities"]`),界面按能力开关功能,不写 `if (remote)`。
+- 一个 session 在创建时绑定到它的环境,不能换:远程的 cwd 在本机不存在。
+- **版本落后的远程 daemon** 要能用:列表里没有的字段按缺失处理(protocol.md §3、§6),界面不报错。
+
+### workspace
+
+- **workspace = 环境里的一个 cwd**,即 `(environmentId, cwd)`。同一个路径在两个环境里是两个 workspace。
+- 不把 git 仓库的子目录或 worktree 合并成一个项目(old-cycle 是按 git 主 checkout 合并的;咱们 v1 没有 worktree,以后要合并时再决定)。
+- 远程环境的 workspace 在侧栏里带一个**图标**,hover 的 tooltip 写它属于哪个环境(名字,以及连接状态);本地的没有图标。环境名不能只靠 tooltip:图标有可访问名,里面包含环境名。不同环境里同名的目录,标题再带上环境名区分。
+- 在一个 workspace 里新建 session,就在它的环境里新建。要在别的环境里工作,就是选另一个 workspace,或者"New workspace…"时先选环境、再在那个环境的文件系统里选文件夹。
+
+### 侧栏
+
+一次只显示一个 workspace(沿用 old-cycle 2026-11-08 的决定):
+
+- 显示哪个:你在 switcher 里选的,直到打开了别的东西;然后是当前打开的 session 或草稿所在的 workspace;最后是最近有活动的(`updatedAt` 最大的)。从列表里打开任何一行,都会放弃 switcher 的选择。
+- **Switcher** 是一个菜单,列出所有 workspace,按环境分组(本地在前;多于一个环境时才显示分组标题,标题带连接状态),组内按 `updatedAt` 倒序。只有一个环境时,界面里不出现"环境"这个词。
+- Switcher 上有一个方块数字徽章,数**其他 workspace**(所有环境)里最紧急的那一类;完整的计数写进 aria-label。
+- 搜索跨所有 workspace 和环境,结果按 workspace 分组。
+
+当前 workspace 里的会话分组:**Needs you**(`requires_action`)、**Running**(`running`,以及有后台子 agent 的)、然后 Today / Yesterday / Earlier,按本地日界线分,用 `updatedAt`。每个 workspace 默认显示 20 条,"Show N more";有状态的和当前打开的永远显示。
+
+一行只带一个状态标记,优先级:`requires_action` > `running` > background(`cycle/background` > 0)> unread(`cycle/unread`)。来源都是 daemon 的列表字段。
+
+排序用 `updatedAt`,不用 `cycle/lastSeq`(后者按记录条数,不是时间)。旧 daemon 的 session 没有 `updatedAt` 时排在有的之后,彼此按 `lastSeq`。
+
+### 待定
+
+- 一个环境断线时,它的会话:保留最后一次的列表(灰显),还是隐藏。
+- 远程环境上选文件夹的界面:要在那个环境的文件系统里浏览,daemon 还没有对应的方法。
+- Switcher 分组:同一个 workspace 里有 session 在别的环境的情况不会出现(workspace 属于一个环境),所以不需要处理。如果以后同一个仓库要在本地和远程之间对应起来,那是另一个决定。
+
 ## 页面的安全设置
 
 agent 的输出是不可信的:里面可以有原始 HTML、链接、图片。

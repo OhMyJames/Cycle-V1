@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { methods } from "@cycle/acp";
 import { CycleErrorCode } from "@cycle/protocol";
 import { Daemon } from "../src/index.ts";
@@ -399,4 +401,254 @@ test("a session's own settings are in the list, and a change is announced", asyn
   expect(((listed.sessions[0]?._meta ?? {}) as Record<string, unknown>)["cycle/config"]).toEqual({
     mode: "acceptEdits",
   });
+});
+
+// ---- what the list says of a session: when, unread, background (docs/protocol.md §6) ----
+
+type Row = { sessionId: string; updatedAt?: string | null; _meta?: unknown };
+const rowOf = async (c: Awaited<ReturnType<typeof connectClient>>, sessionId: string) => {
+  const listed = await c.agent.request(methods.agent.session.list, {});
+  const row = (listed.sessions as Row[]).find((each) => each.sessionId === sessionId);
+  if (row === undefined) throw new Error("the session is not listed");
+  return { row, meta: (row._meta ?? {}) as Record<string, unknown> };
+};
+const lastSeqOf = async (c: Awaited<ReturnType<typeof connectClient>>, sessionId: string) =>
+  (await rowOf(c, sessionId)).meta["cycle/lastSeq"] as number;
+
+const startedSession = async (c: Awaited<ReturnType<typeof connectClient>>) => {
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  return sessionId;
+};
+
+test("the list says when a session last had something happen, and that is not the daemon's own notes", async () => {
+  const { daemon, fake } = await start();
+  const c = await connectClient(daemon);
+  const sessionId = await startedSession(c);
+  // Nothing but the daemon's own record yet: the time it was made.
+  const fresh = (await rowOf(c, sessionId)).row.updatedAt;
+  expect(Number.isNaN(Date.parse(fresh ?? ""))).toBe(false);
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
+  await until(() => c.ended() >= 1, "the turn to end");
+  const worked = (await rowOf(c, sessionId)).row.updatedAt ?? "";
+  expect(worked >= (fresh ?? "")).toBe(true);
+  // The agent going away is a note of the daemon's: it moves nothing.
+  const announced = c.listChanged();
+  fake.crash();
+  await until(() => c.listChanged() > announced, "the agent's exit to be announced");
+  expect((await rowOf(c, sessionId)).row.updatedAt).toBe(worked);
+});
+
+test("a turn that ended is unread until a client says it has seen it, and that is kept across a restart", async () => {
+  const first = await start();
+  const c = await connectClient(first.daemon);
+  const sessionId = await startedSession(c);
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(false);
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
+  await until(() => c.ended() >= 1, "the turn to end");
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(true);
+
+  const before = c.listChanged();
+  const seen = await lastSeqOf(c, sessionId);
+  await c.agent.request("_cycle/session/mark_read", { sessionId, seq: seen });
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(false);
+  await until(() => c.listChanged() > before, "the change to be announced");
+
+  // It never goes back: an older seq changes nothing, and a seq past the log is refused.
+  await c.agent.request("_cycle/session/mark_read", { sessionId, seq: 1 });
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(false);
+  await expect(
+    c.agent.request("_cycle/session/mark_read", { sessionId, seq: seen + 1000 }),
+  ).rejects.toMatchObject({ code: -32602 });
+
+  // A second turn is unread again; a restart keeps both what was read and what was not.
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("again") });
+  await until(() => c.ended() >= 2, "the second turn to end");
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(true);
+  await first.daemon.close();
+  open = [];
+  const second = await start();
+  const d = await connectClient(second.daemon);
+  expect((await rowOf(d, sessionId)).meta["cycle/unread"]).toBe(true);
+  await d.agent.request("_cycle/session/mark_read", {
+    sessionId,
+    seq: await lastSeqOf(d, sessionId),
+  });
+  await second.daemon.close();
+  open = [];
+  const third = await start();
+  const e = await connectClient(third.daemon);
+  expect((await rowOf(e, sessionId)).meta["cycle/unread"]).toBe(false);
+});
+
+test("two clients marking at once cannot move the mark back", async () => {
+  const { daemon } = await start();
+  const c = await connectClient(daemon);
+  const sessionId = await startedSession(c);
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
+  await until(() => c.ended() >= 1, "the turn to end");
+  const seen = await lastSeqOf(c, sessionId);
+  // The higher mark first, the lower one right behind it, neither waiting for the other.
+  await Promise.all([
+    c.agent.request("_cycle/session/mark_read", { sessionId, seq: seen }),
+    c.agent.request("_cycle/session/mark_read", { sessionId, seq: 1 }),
+  ]);
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(false);
+});
+
+test("a session waiting on the owner is unread and announced even if the agent says nothing of it, and answering is announced", async () => {
+  // As the Claude adapter does: it asks for permission and sends no state_update of its own.
+  const { daemon } = await start(
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        await ask();
+      },
+    }),
+  );
+  const c = await connectClient(daemon, { onPermission: () => "never" });
+  const sessionId = await startedSession(c);
+  // Attached and resumed: the snapshot of idle was sent, and logged nowhere. Nothing to see yet.
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(false);
+  const before = c.listChanged();
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
+  await until(() => c.permissions.length > 0, "the request");
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(true);
+  expect(stateOf((await rowOf(c, sessionId)).row)).toBe("requires_action");
+  await until(() => c.listChanged() > before, "the wait to be announced");
+
+  // A second client answers it: the list is announced again, with the session no longer waiting.
+  const waiting = c.listChanged();
+  const d = await connectClient(daemon, { onPermission: () => "allow" });
+  await d.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await until(() => d.permissions.length > 0, "the second client to be asked");
+  await until(() => c.listChanged() > waiting, "the answer to be announced");
+  expect(stateOf((await rowOf(c, sessionId)).row)).not.toBe("requires_action");
+});
+
+test("a long answer does not announce the list again for every piece of it", async () => {
+  const { daemon } = await start(
+    fakeAgent({
+      onPrompt: async ({ say }) => {
+        for (let i = 0; i < 30; i++) {
+          await say({
+            sessionUpdate: "agent_message_chunk",
+            messageId: "a1",
+            content: { type: "text", text: "x" },
+          });
+        }
+      },
+    }),
+  );
+  const c = await connectClient(daemon);
+  const sessionId = await startedSession(c);
+  await Bun.sleep(50);
+  const before = c.listChanged();
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("go") });
+  await until(() => c.ended() >= 1, "the turn to end");
+  // Running and ended are announced: waited for. Then a moment for anything more to arrive.
+  await until(() => c.listChanged() - before >= 2, "the two changes of state to be announced");
+  await Bun.sleep(100);
+  // And nowhere near one for each of the thirty chunks.
+  expect(c.listChanged() - before).toBeLessThanOrEqual(6);
+});
+
+test("background sub-agents are counted while they run, and are gone with the agent", async () => {
+  const sub = (state: object, background?: boolean, id = "task-1") => ({
+    sessionUpdate: "subagent_update",
+    sessionId: id,
+    state,
+    _meta: {
+      "cycle/subagent": { toolCallId: id, ...(background === undefined ? {} : { background }) },
+    },
+  });
+  const running = { state: "running" };
+  const idle = { state: "idle", stopReason: "end_turn" };
+  const { daemon, fake } = await start(
+    fakeAgent({
+      onPrompt: async ({ prompt, say }) => {
+        if (prompt === "start") await say(sub(running, true));
+        if (prompt === "foreground") await say(sub(running, false));
+        // A later update that leaves the flag out keeps it as it was.
+        if (prompt === "progress") await say(sub(running));
+        if (prompt === "second") await say(sub(running, true, "task-2"));
+        if (prompt === "end") await say(sub(idle));
+        if (prompt === "end second") await say(sub(idle, undefined, "task-2"));
+      },
+    }),
+  );
+  const c = await connectClient(daemon);
+  const sessionId = await startedSession(c);
+  let turns = 0;
+  const turn = async (word: string) => {
+    turns += 1;
+    await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text(word) });
+    await until(() => c.ended() >= turns, `the "${word}" turn to end`);
+  };
+  const background = async () => (await rowOf(c, sessionId)).meta["cycle/background"];
+  expect(await background()).toBeUndefined();
+
+  await turn("foreground");
+  expect(await background()).toBeUndefined();
+  await turn("end");
+
+  const before = c.listChanged();
+  await turn("start");
+  await turn("progress");
+  // The turn is over and the session is idle, with one sub-agent still at work.
+  expect(stateOf((await rowOf(c, sessionId)).row)).toBe("idle");
+  expect(await background()).toBe(1);
+  expect(c.listChanged()).toBeGreaterThan(before);
+
+  // The number is announced whenever it changes, not only to and from none.
+  let announced = c.listChanged();
+  await turn("second");
+  expect(await background()).toBe(2);
+  await until(() => c.listChanged() > announced, "1 to 2 to be announced");
+  announced = c.listChanged();
+  await turn("end");
+  expect(await background()).toBe(1);
+  await until(() => c.listChanged() > announced, "2 to 1 to be announced");
+  await turn("end second");
+  expect(await background()).toBeUndefined();
+
+  // The agent process going takes its sub-agents with it, and the list is told.
+  await turn("start");
+  expect(await background()).toBe(1);
+  announced = c.listChanged();
+  fake.crash();
+  await until(() => c.listChanged() > announced, "the list to be announced");
+  expect(await background()).toBeUndefined();
+});
+
+test("a mark the index holds past the end of the log is brought back to it", async () => {
+  const first = await start();
+  const c = await connectClient(first.daemon);
+  const sessionId = await startedSession(c);
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
+  await until(() => c.ended() >= 1, "the turn to end");
+  await first.daemon.close();
+  open = [];
+  // As after a crash that cost the log its tail: the index says more than the log has.
+  const path = join(dir, "index.json");
+  const stored = JSON.parse(await readFile(path, "utf8"));
+  stored.sessions[sessionId].readSeq = 9999;
+  stored.sessions[sessionId].attentionSeq = 9999;
+  await writeFile(path, JSON.stringify(stored));
+
+  const second = await start();
+  const d = await connectClient(second.daemon);
+  expect((await rowOf(d, sessionId)).meta["cycle/unread"]).toBe(false);
+  await d.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await d.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("again") });
+  await until(() => d.ended() >= 1, "the next turn to end");
+  // Its records number past the log's old end, and the mark does not hide them.
+  expect((await rowOf(d, sessionId)).meta["cycle/unread"]).toBe(true);
+});
+
+test("the daemon says it takes mark_read, and speaks protocol 0.2", async () => {
+  const { daemon } = await start();
+  const c = await connectClient(daemon);
+  const meta = (c.init as { _meta?: Record<string, unknown> })._meta ?? {};
+  expect(meta["cycle/protocolVersion"]).toBe("0.2");
+  expect((meta["cycle/capabilities"] as { sessionOps: string[] }).sessionOps).toContain("markRead");
 });

@@ -60,6 +60,8 @@ export type ClientOptions = {
 export type SessionRow = {
   sessionId: string;
   cwd: string;
+  /** When the session last had something happen in it. Absent from a daemon older than protocol 0.2. */
+  updatedAt?: string | null;
   _meta?: Record<string, unknown> | null;
 };
 
@@ -204,6 +206,16 @@ export class CycleClient {
 
   async rename(sessionId: string, title: string): Promise<void> {
     await this.#request("_cycle/session/set_title", { sessionId, title });
+  }
+
+  /**
+   * Says this client has seen the session up to `seq`: its unread mark clears (protocol 0.2).
+   * A daemon that does not say it takes `markRead` is older, and is not asked.
+   */
+  async markRead(sessionId: string, seq: number): Promise<void> {
+    const ops = this.#capabilities.sessionOps;
+    if (!Array.isArray(ops) || !ops.includes("markRead")) return;
+    await this.#request("_cycle/session/mark_read", { sessionId, seq });
   }
 
   async archive(sessionId: string, archived = true): Promise<void> {

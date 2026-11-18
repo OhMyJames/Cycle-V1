@@ -21,6 +21,7 @@ import {
   ReplayFromSeqSchema,
   SessionUsageSchema,
   sessionArchive,
+  sessionMarkRead,
   sessionSetTitle,
   sessionUnarchive,
 } from "@cycle/protocol";
@@ -163,6 +164,8 @@ export class Daemon {
       await session.log.close();
     }
     this.#sessions.clear();
+    // What the sessions noted as they went (an unread mark, a usage) is written by now, not dropped.
+    await this.#index.flush();
   }
 
   #dropped(conn: ClientConn): void {
@@ -218,6 +221,8 @@ export class Daemon {
     if (entry === undefined) throw sessionNotFound(sessionId);
     const log = await this.#store.open(sessionId);
     const session = new Session(sessionId, entry, log);
+    this.#clamp(session);
+    this.#watch(session);
     this.#sessions.set(sessionId, session);
     return session;
   }
@@ -304,10 +309,57 @@ export class Daemon {
     }
     if (!this.#learn(session, update)) return;
     // Called in the order the updates arrive, so seq follows the agent's order.
+    // The list shows what a session is doing, not what it said: only a change of state is announced
+    // (docs/protocol.md §6). Anything else that changes the list says so where it changes it.
+    const announce = state.sessionUpdate === "state_update";
     void session.log.append({ kind: "update", data: update }).then(
-      () => this.#changed(),
+      () => {
+        if (announce) this.#changed();
+      },
       () => undefined,
     );
+  }
+
+  /**
+   * A crash can cost a log its last, half-written line, and with it the seqs after it, which are
+   * then given out again. A mark made in the index for one of those would hide the new records of
+   * the same number: it never stands past the log's end.
+   */
+  #clamp(session: Session): void {
+    const last = session.log.lastSeq();
+    const patch: Partial<SessionEntry> = {};
+    if ((session.entry.readSeq ?? 0) > last) patch.readSeq = last;
+    if ((session.entry.attentionSeq ?? 0) > last) patch.attentionSeq = last;
+    if (Object.keys(patch).length > 0) this.#remember(session, patch, false);
+  }
+
+  /** Follows what is written to a session's log, for what the list shows of it. */
+  #watch(session: Session): void {
+    session.log.subscribe((record) => this.#observe(session, record));
+  }
+
+  #observe(session: Session, record: LogRecord): void {
+    // A request put to the owner (a permission, a form) is worth seeing whatever the agent says of
+    // its own state: the Claude adapter says nothing, and the daemon knows it is waiting.
+    if (record.kind === "request") {
+      this.#remember(session, { attentionSeq: record.seq });
+      return;
+    }
+    if (record.kind !== "update") return;
+    const update = record.data as Record<string, unknown>;
+    if (update.sessionUpdate === "state_update") {
+      // Worth seeing: the agent waits on the owner, or a turn has ended (an idle that says why: the
+      // one the agent sends on resume is a snapshot, not an end). See docs/protocol.md §6.
+      if (
+        update.state === "requires_action" ||
+        (update.state === "idle" && update.stopReason !== undefined)
+      ) {
+        // `#onUpdate` announces a change of state once the record is written: not twice.
+        this.#remember(session, { attentionSeq: record.seq }, false);
+      }
+    } else if (update.sessionUpdate === "subagent_update") {
+      if (session.noteSubagent(update)) this.#changed();
+    }
   }
 
   /**
@@ -357,12 +409,14 @@ export class Daemon {
     return true;
   }
 
-  #remember(session: Session, patch: Partial<SessionEntry>): void {
+  #remember(session: Session, patch: Partial<SessionEntry>, announce = true): void {
     session.entry = { ...session.entry, ...patch };
     // A session that is still being made is not in the index yet; it is put there with this entry.
     if (this.#index.get(session.id) === undefined) return;
     void this.#index.update(session.id, patch).then(
-      () => this.#changed(),
+      () => {
+        if (announce) this.#changed();
+      },
       () => undefined,
     );
   }
@@ -449,6 +503,8 @@ export class Daemon {
     if (pending.settled) return;
     pending.settled = true;
     session.pending.delete(pending.requestId);
+    // The session is no longer waiting on the owner: the list says so (the agent may say nothing).
+    this.#changed();
     // What a person typed into a form can be a password or a token: the agent gets all of it, the
     // log and the other clients get that it was answered, and how.
     const shown = pending.method === ELICITATION ? withoutContent(outcome) : outcome;
@@ -489,6 +545,8 @@ export class Daemon {
       }
     }
     void session.log.append({ kind: "meta", data: { event: "agent_exited" } });
+    // The sub-agents went with the process. The list is announced as changed at the end.
+    session.endSubagents();
     if (wasWorking) {
       // Whoever is watching is told the turn is over, rather than left waiting for an idle.
       session.agentState = "idle";
@@ -525,14 +583,18 @@ export class Daemon {
 
   async #row(sessionId: string, entry: SessionEntry) {
     const session = await this.#session(sessionId);
+    const background = session.backgroundCount();
     return {
       sessionId,
       cwd: entry.cwd,
+      updatedAt: session.updatedAt(),
       _meta: {
         [META.archived]: entry.archived === true,
         [META.agent]: entry.agent,
         [META.state]: session.status(),
         [META.lastSeq]: session.log.lastSeq(),
+        [META.unread]: session.unread(),
+        ...(background > 0 ? { [META.background]: background } : {}),
         ...(entry.config !== undefined ? { [META.config]: entry.config } : {}),
         ...(entry.usage !== undefined ? { [META.usage]: entry.usage } : {}),
         ...(entry.title !== undefined ? { title: entry.title } : {}),
@@ -572,7 +634,7 @@ export class Daemon {
           [META.capabilities]: {
             replay: ["start", "_cycle.seq"],
             agents: [...this.#agents.keys()],
-            sessionOps: ["archive", "rename", "delete"],
+            sessionOps: ["archive", "rename", "delete", "markRead"],
           },
         },
       } as never;
@@ -622,6 +684,7 @@ export class Daemon {
       };
       const log = await this.#store.open(id);
       const session = new Session(id, entry, log);
+      this.#watch(session);
       try {
         await log.append({
           kind: "meta",
@@ -745,6 +808,7 @@ export class Daemon {
         throw sessionBusy(session.id);
       // Marked at once: the agent's own "running" comes later, and a second prompt must not slip in.
       session.agentState = "running";
+      this.#changed();
       try {
         const link = await this.#ensureAgent(session);
         const answer = await link.agent.request(methods.agent.session.prompt, {
@@ -754,6 +818,7 @@ export class Daemon {
         return answer as never;
       } catch (error) {
         session.agentState = "idle";
+        this.#changed();
         throw error;
       }
     });
@@ -876,6 +941,29 @@ export class Daemon {
       })(params),
     );
     cycle(sessionUnarchive, (params) => change(async () => ({ archived: false }))(params));
+    cycle(sessionMarkRead, async (params) => {
+      const session = await this.#session(params.sessionId);
+      const lastSeq = session.log.lastSeq();
+      if (params.seq > lastSeq) {
+        throw new RpcError(INVALID_PARAMS, "seq is past the session's last record", {
+          sessionId: session.id,
+          seq: params.seq,
+          lastSeq,
+        });
+      }
+      const before = session.entry.readSeq ?? 0;
+      if (params.seq <= before) return {};
+      const unread = session.unread();
+      // On disk first: if that fails, what the list says and what a restart reads stay the same.
+      // Decided in the index's queue, so a lower mark that arrives meanwhile cannot undo this one.
+      await this.#index.update(session.id, (entry) => ({
+        readSeq: Math.max(entry.readSeq ?? 0, params.seq),
+      }));
+      const readSeq = this.#index.get(session.id)?.readSeq ?? params.seq;
+      session.entry = { ...session.entry, readSeq };
+      if (session.unread() !== unread) this.#changed();
+      return {};
+    });
     cycle(sessionSetTitle, (params) =>
       change(async () => ({ title: params.title, titleFromAgent: false }))(params),
     );

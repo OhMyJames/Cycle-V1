@@ -57,6 +57,16 @@ export const sessionSetTitle = cycleMethod(
   DoneSchema,
 );
 
+/**
+ * Says the client has seen the session up to `seq`. `readSeq` only moves forward; `seq` beyond the
+ * session's last record is refused. See docs/protocol.md §6 "已读".
+ */
+export const sessionMarkRead = cycleMethod(
+  "_cycle/session/mark_read",
+  z.object({ sessionId: SessionId, seq: z.number().int().nonnegative() }),
+  DoneSchema,
+);
+
 /** Notifications the daemon sends. */
 export const sessionListChanged = z.object({});
 
