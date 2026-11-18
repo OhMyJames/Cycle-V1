@@ -24,5 +24,10 @@ The interface: React components, and the model of a conversation they draw. Buil
 
 - The reducer that turns `session/update` into a conversation (`src/model/`) is pure TypeScript. It must not
   import React or anything DOM: the Electron main process uses it too.
+- The gate keeps these boundaries (`scripts/boundaries.ts`, `tsconfig.model.json`, `tsconfig.renderer.json`): the model
+  (`src/model/`, `src/api.ts`) sees no DOM, Node or Bun globals and imports only relative files and `@cycle/acp`; the
+  page (`src/`, `apps/desktop/src/renderer`) sees the DOM but no Node or Bun, and imports no Node, Electron or daemon-side
+  package; the preload imports only `electron` and `@cycle/ui/api`. Anything the page needs from the main process goes
+  through the bridge in `api.ts`.
 - Model output is untrusted: markdown from an agent can contain raw HTML, links and images. See
   `docs/desktop.md` for what is blocked.
