@@ -32,6 +32,7 @@ import { blobsDir, defaultsPath, indexPath, sessionsDir } from "./data-dir.ts";
 import { AgentDefaults } from "./defaults-file.ts";
 import {
   INVALID_PARAMS,
+  logUnavailable,
   RpcError,
   sessionBusy,
   sessionNotFound,
@@ -41,8 +42,14 @@ import { type SessionEntry, SessionIndex } from "./index-file.ts";
 import { BlobLogStore } from "./log/blobs.ts";
 import { JsonlLogStore } from "./log/jsonl.ts";
 import { attach } from "./log/replay.ts";
-import type { LogRecord, LogStore } from "./log/types.ts";
-import { type Attachment, type ClientConn, type Pending, Session } from "./session.ts";
+import type { LogRecord, LogStore, NewRecord } from "./log/types.ts";
+import {
+  type Attachment,
+  type ClientConn,
+  HISTORY_NOT_SAVED,
+  type Pending,
+  Session,
+} from "./session.ts";
 
 export type DaemonOptions = {
   /** Where the daemon keeps its data. Always given: nothing here guesses a home. */
@@ -103,6 +110,8 @@ export class Daemon {
   readonly #index: SessionIndex;
   readonly #defaults: AgentDefaults;
   readonly #sessions = new Map<string, Session>();
+  /** Sessions being loaded, so a second request for one waits for the first load. */
+  readonly #loading = new Map<string, Promise<Session>>();
   readonly #conns = new Set<ClientConn>();
   #counter = 0;
 
@@ -213,18 +222,29 @@ export class Daemon {
     return definition;
   }
 
-  /** A loaded session, loading it from the index and its log if it is not yet. */
-  async #session(sessionId: string): Promise<Session> {
+  /**
+   * A loaded session, loading it from the index and its log if it is not yet. Everyone who asks
+   * while it loads gets the one load: a log has a single writer, and two loads would be two.
+   */
+  #session(sessionId: string): Promise<Session> {
     const loaded = this.#sessions.get(sessionId);
-    if (loaded !== undefined) return loaded;
+    if (loaded !== undefined) return Promise.resolve(loaded);
+    const loading = this.#loading.get(sessionId);
+    if (loading !== undefined) return loading;
     const entry = this.#index.get(sessionId);
-    if (entry === undefined) throw sessionNotFound(sessionId);
-    const log = await this.#store.open(sessionId);
-    const session = new Session(sessionId, entry, log);
-    this.#clamp(session);
-    this.#watch(session);
-    this.#sessions.set(sessionId, session);
-    return session;
+    if (entry === undefined) return Promise.reject(sessionNotFound(sessionId));
+    const load = (async () => {
+      const log = await this.#store.open(sessionId);
+      const session = new Session(sessionId, entry, log);
+      this.#clamp(session);
+      this.#watch(session);
+      this.#sessions.set(sessionId, session);
+      return session;
+    })().finally(() => {
+      this.#loading.delete(sessionId);
+    });
+    this.#loading.set(sessionId, load);
+    return load;
   }
 
   // ---- agents ----
@@ -312,12 +332,66 @@ export class Daemon {
     // The list shows what a session is doing, not what it said: only a change of state is announced
     // (docs/protocol.md §6). Anything else that changes the list says so where it changes it.
     const announce = state.sessionUpdate === "state_update";
-    void session.log.append({ kind: "update", data: update }).then(
-      () => {
-        if (announce) this.#changed();
-      },
-      () => undefined,
-    );
+    if (session.historyError !== undefined) return;
+    void this.#write(session, { kind: "update", data: update }).then((written) => {
+      if (written && announce) this.#changed();
+    });
+  }
+
+  /**
+   * Appends to a session's log. A write that fails is not lost quietly: the session is marked,
+   * clients are told by a path that does not go through the log, and false is returned.
+   */
+  async #write(session: Session, record: NewRecord): Promise<boolean> {
+    try {
+      await session.log.append(record);
+      return true;
+    } catch (error) {
+      this.#historyFailed(session, error);
+      return false;
+    }
+  }
+
+  /**
+   * The history cannot be written. What happens next would not be on record, so the turn is
+   * stopped (the agent is cancelled, what it waits on is answered as cancelled), every client
+   * attached is told, and no new turn starts until the daemon is started again.
+   */
+  #historyFailed(session: Session, error: unknown): void {
+    if (session.historyError !== undefined) return;
+    session.historyError = error instanceof Error ? error.message : String(error);
+    for (const pending of [...session.pending.values()]) {
+      pending.settled = true;
+      session.pending.delete(pending.requestId);
+      pending.resolve(pending.cancelled);
+      for (const attachment of pending.asked) {
+        void attachment.conn
+          .notify(NOTIFICATIONS.requestResolved, {
+            sessionId: session.id,
+            requestId: pending.requestId,
+            outcome: pending.cancelled,
+          })
+          .catch(() => {});
+      }
+    }
+    const wasWorking = session.agentState !== "idle";
+    session.agentState = "idle";
+    void session.link?.agent
+      .notify(methods.agent.session.cancel, { sessionId: session.entry.agentSessionId } as never)
+      .catch(() => undefined);
+    // Not logged: the log is what failed. Like a snapshot it carries no seq.
+    const update = {
+      sessionUpdate: "state_update",
+      state: "idle",
+      stopReason: "error",
+      error: { code: CycleErrorCode.LogUnavailable, message: HISTORY_NOT_SAVED },
+    };
+    for (const attachment of session.attachments) {
+      void attachment.conn
+        .notify(SESSION_UPDATE, { sessionId: session.id, update })
+        .catch(() => {});
+    }
+    if (wasWorking || session.attachments.size > 0) this.#changed();
   }
 
   /**
@@ -451,11 +525,17 @@ export class Daemon {
       resolve,
     };
     session.pending.set(requestId, pending);
-    // Delivery is by the log: attached clients get it as the record is written.
-    await session.log.append({
+    // Delivery is by the log: attached clients get it as the record is written. A request that
+    // could not be written was shown to no one: the agent is told it was cancelled.
+    const written = await this.#write(session, {
       kind: "request",
       data: { requestId, method, params: clientParams },
     });
+    if (!written) {
+      pending.settled = true;
+      session.pending.delete(requestId);
+      return how.cancelled;
+    }
     // A request written while nobody is attached waits here until a client attaches.
     return outcome;
   }
@@ -508,21 +588,26 @@ export class Daemon {
     // What a person typed into a form can be a password or a token: the agent gets all of it, the
     // log and the other clients get that it was answered, and how.
     const shown = pending.method === ELICITATION ? withoutContent(outcome) : outcome;
-    void session.log.append({
+    // The agent gets the answer once the answer is on record: a permission it was given that the
+    // history does not show is worse than none. If the record cannot be written, it is told no.
+    void this.#write(session, {
       kind: "response",
       data: { requestId: pending.requestId, outcome: shown, by: by?.conn.id ?? "daemon" },
+    }).then((written) => {
+      const given = written ? outcome : pending.cancelled;
+      const told = written ? shown : pending.cancelled;
+      pending.resolve(given);
+      for (const other of pending.asked) {
+        if (other === by) continue;
+        void other.conn
+          .notify(NOTIFICATIONS.requestResolved, {
+            sessionId: session.id,
+            requestId: pending.requestId,
+            outcome: told,
+          })
+          .catch(() => {});
+      }
     });
-    pending.resolve(outcome);
-    for (const other of pending.asked) {
-      if (other === by) continue;
-      void other.conn
-        .notify(NOTIFICATIONS.requestResolved, {
-          sessionId: session.id,
-          requestId: pending.requestId,
-          outcome: shown,
-        })
-        .catch(() => {});
-    }
   }
 
   #onAgentClosed(session: Session, link: AgentLink | undefined): void {
@@ -532,7 +617,7 @@ export class Daemon {
     for (const pending of [...session.pending.values()]) {
       pending.settled = true;
       session.pending.delete(pending.requestId);
-      void session.log.append({ kind: "aborted", data: { requestId: pending.requestId } });
+      void this.#write(session, { kind: "aborted", data: { requestId: pending.requestId } });
       pending.resolve(pending.cancelled);
       for (const attachment of pending.asked) {
         void attachment.conn
@@ -544,13 +629,13 @@ export class Daemon {
           .catch(() => {});
       }
     }
-    void session.log.append({ kind: "meta", data: { event: "agent_exited" } });
+    void this.#write(session, { kind: "meta", data: { event: "agent_exited" } });
     // The sub-agents went with the process. The list is announced as changed at the end.
     session.endSubagents();
     if (wasWorking) {
       // Whoever is watching is told the turn is over, rather than left waiting for an idle.
       session.agentState = "idle";
-      void session.log.append({
+      void this.#write(session, {
         kind: "update",
         data: {
           sessionUpdate: "state_update",
@@ -595,6 +680,7 @@ export class Daemon {
         [META.lastSeq]: session.log.lastSeq(),
         [META.unread]: session.unread(),
         ...(background > 0 ? { [META.background]: background } : {}),
+        ...(session.historyError !== undefined ? { [META.historyFailed]: true } : {}),
         ...(entry.config !== undefined ? { [META.config]: entry.config } : {}),
         ...(entry.usage !== undefined ? { [META.usage]: entry.usage } : {}),
         ...(entry.title !== undefined ? { title: entry.title } : {}),
@@ -794,6 +880,9 @@ export class Daemon {
 
     app.onRequest(methods.agent.session.prompt, async ({ params }) => {
       const session = await this.#session(params.sessionId);
+      // A turn that could not be written down is not started: it would be lost on the next restart.
+      if (session.historyError !== undefined)
+        throw logUnavailable(session.id, session.historyError);
       // Refused whole, before anything is started or written: a block is never dropped (decision 0010).
       const problem = checkPrompt(
         params.prompt,

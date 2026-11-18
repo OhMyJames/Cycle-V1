@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { methods } from "@cycle/acp";
 import { CycleErrorCode } from "@cycle/protocol";
-import { Daemon } from "../src/index.ts";
+import { Daemon, JsonlLogStore, type LogStore, type SessionLog } from "../src/index.ts";
 import { connectClient, until } from "./client.ts";
 import { fakeAgent } from "./fake-agent.ts";
 import { tempDir } from "./support.ts";
@@ -651,4 +651,189 @@ test("the daemon says it takes mark_read, and speaks protocol 0.2", async () => 
   const meta = (c.init as { _meta?: Record<string, unknown> })._meta ?? {};
   expect(meta["cycle/protocolVersion"]).toBe("0.2");
   expect((meta["cycle/capabilities"] as { sessionOps: string[] }).sessionOps).toContain("markRead");
+});
+
+/**
+ * The real JSONL store, with a hand on it: it counts how often each log is opened, and can be told
+ * to refuse the writes of some kinds (all kinds with "*").
+ */
+const flaky = () => {
+  const real = new JsonlLogStore({ dir: join(dir, "sessions") });
+  const state = { opens: new Map<string, number>(), failing: new Set<string>() };
+  const store: LogStore = {
+    exists: (id) => real.exists(id),
+    remove: (id) => real.remove(id),
+    open: async (id) => {
+      state.opens.set(id, (state.opens.get(id) ?? 0) + 1);
+      const log = await real.open(id);
+      const wrapped: SessionLog = {
+        sessionId: log.sessionId,
+        lastSeq: () => log.lastSeq(),
+        updatedAt: () => log.updatedAt(),
+        read: (range) => log.read(range),
+        subscribe: (listener) => log.subscribe(listener),
+        close: () => log.close(),
+        append: async (record) => {
+          if (state.failing.has("*") || state.failing.has(record.kind))
+            throw new Error("disk full");
+          return log.append(record);
+        },
+      };
+      return wrapped;
+    },
+  };
+  return { store, state };
+};
+
+const startOn = async (store: LogStore, fake = fakeAgent()) => {
+  const daemon = await Daemon.start({ dataDir: dir, agents: [fake.definition], store });
+  open.push(daemon);
+  return { daemon, fake };
+};
+
+const afterWriteFails = async (script: Parameters<typeof fakeAgent>[0] = {}) => {
+  const { store, state } = flaky();
+  const { daemon, fake } = await startOn(store, fakeAgent(script));
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  return { c, daemon, fake, state, sessionId };
+};
+
+test("a turn whose history cannot be written is stopped, every client is told, and no new turn starts", async () => {
+  const { c, fake, state, sessionId } = await afterWriteFails();
+  const lastSeq = () => c.seen.filter((s) => s.seq !== undefined).length;
+  const before = lastSeq();
+  state.failing.add("*");
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
+  await until(() => c.ended() >= 1, "the client to be told the turn stopped");
+  const told = c.seen.find((s) => (s.update as { stopReason?: string }).stopReason === "error");
+  // By a path that is not the log: it has no seq, and nothing after the failure was logged.
+  expect(told?.seq).toBeUndefined();
+  expect(told?.update).toMatchObject({
+    state: "idle",
+    error: { code: CycleErrorCode.LogUnavailable },
+  });
+  expect(lastSeq()).toBe(before);
+  // The agent was told to stop; the next prompt is refused, and says why, and never reaches it.
+  await until(() => fake.log.cancels >= 1, "the agent to be cancelled");
+  await expect(
+    c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("again") }),
+  ).rejects.toMatchObject({ code: CycleErrorCode.LogUnavailable });
+  expect(fake.log.prompts).toEqual(["hi"]);
+});
+
+test("a client that attaches after the history failed is told so in the state it opens with", async () => {
+  const { c, daemon, state, sessionId } = await afterWriteFails();
+  state.failing.add("*");
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
+  await until(() => c.ended() >= 1, "the failure to be told");
+  const late = await connectClient(daemon);
+  await late.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  expect(late.seen.at(-1)?.update).toMatchObject({
+    sessionUpdate: "state_update",
+    state: "idle",
+    _meta: { "cycle/historyFailed": true },
+  });
+  const row = (await late.agent.request(methods.agent.session.list, {})).sessions[0];
+  expect(((row?._meta ?? {}) as Record<string, unknown>)["cycle/historyFailed"]).toBe(true);
+});
+
+test("a permission answer is given to the agent only once it is on record: if it cannot be written, the answer is no", async () => {
+  const outcomes: unknown[] = [];
+  const { store, state } = flaky();
+  const { daemon } = await startOn(
+    store,
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        outcomes.push(await ask());
+      },
+    }),
+  );
+  // The request is written and shown; the disk refuses as the client's answer ("allow") goes back.
+  const c = await connectClient(daemon, {
+    onPermission: () => {
+      state.failing.add("response");
+      return "allow";
+    },
+  });
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("ask") });
+  await until(() => outcomes.length === 1, "the agent to be answered");
+  expect(outcomes[0]).toMatchObject({ outcome: { outcome: "cancelled" } });
+});
+
+test("a permission request that cannot be written is shown to no one, and the agent is told no", async () => {
+  const outcomes: unknown[] = [];
+  const { c, state, sessionId } = await afterWriteFails({
+    onPrompt: async ({ ask }) => {
+      outcomes.push(await ask());
+    },
+  });
+  state.failing.add("request");
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("ask") });
+  await until(() => outcomes.length === 1, "the agent to be answered");
+  expect(outcomes[0]).toMatchObject({ outcome: { outcome: "cancelled" } });
+  expect(c.permissions).toHaveLength(0);
+});
+
+test("two clients that open the same stored session at once share one load: one log, one history for both", async () => {
+  const first = flaky();
+  const one = await startOn(first.store);
+  const seed = await connectClient(one.daemon);
+  const { sessionId } = await seed.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await seed.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await seed.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("first") });
+  await until(() => seed.ended() >= 1, "the first turn");
+  await one.daemon.close();
+  open = [];
+
+  const cold = flaky();
+  const { daemon } = await startOn(cold.store);
+  const a = await connectClient(daemon);
+  const b = await connectClient(daemon);
+  await Promise.all(
+    [a, b].map((c) => c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" })),
+  );
+  await a.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("second") });
+  await until(() => a.ended() >= 1 && b.ended() >= 1, "both clients to see the turn end");
+  expect(cold.state.opens.get(sessionId)).toBe(1);
+  const users = (c: typeof a) => c.seen.filter((s) => s.update.sessionUpdate === "user_message");
+  expect(users(b)).toHaveLength(1);
+  expect(users(b).map((s) => s.seq)).toEqual(users(a).map((s) => s.seq));
+});
+
+test("a session that cannot be loaded can be asked for again", async () => {
+  const first = flaky();
+  const one = await startOn(first.store);
+  const seed = await connectClient(one.daemon);
+  const { sessionId } = await seed.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await one.daemon.close();
+  open = [];
+
+  const file = join(dir, "sessions", `${sessionId}.jsonl`);
+  const good = await readFile(file, "utf8");
+  await writeFile(file, `${good}{not json}\n`);
+  const { daemon } = await startOn(flaky().store);
+  const c = await connectClient(daemon);
+  await expect(
+    c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" }),
+  ).rejects.toMatchObject({ code: CycleErrorCode.LogUnavailable });
+  await writeFile(file, good);
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+});
+
+test("an agent that asks for permission after the history failed is not left waiting", async () => {
+  const outcomes: unknown[] = [];
+  const { c, state, sessionId } = await afterWriteFails({
+    onPrompt: async ({ ask }) => {
+      outcomes.push(await ask());
+    },
+  });
+  state.failing.add("*");
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("ask") });
+  await until(() => outcomes.length === 1, "the agent to be answered");
+  expect(outcomes[0]).toMatchObject({ outcome: { outcome: "cancelled" } });
+  expect(c.permissions).toHaveLength(0);
 });
