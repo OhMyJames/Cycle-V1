@@ -54,6 +54,7 @@ import { BlobLogStore } from "./log/blobs.ts";
 import { JsonlLogStore } from "./log/jsonl.ts";
 import { attach } from "./log/replay.ts";
 import type { LogRecord, LogStore, NewRecord, SessionLog } from "./log/types.ts";
+import { redactParams, redactRecord } from "./redact.ts";
 import {
   type Attachment,
   type ClientConn,
@@ -457,7 +458,8 @@ export class Daemon {
     // Once it has failed nothing more is written: what comes after a gap would not be the history.
     if (session.historyError !== undefined || session.closed) return false;
     try {
-      await session.log.append(record);
+      // What is kept, and so what clients see, is what has been through this (docs/protocol.md §12).
+      await session.log.append({ ...record, data: redactRecord(record.kind, record.data) });
       return true;
     } catch (error) {
       // A log that was closed on purpose (the session is deleted, the daemon stops) is not a failure.
@@ -630,8 +632,9 @@ export class Daemon {
     const requestId = session.nextRequestId();
     // The id is in _meta so a client can match `_cycle/request_resolved` to the dialog it is showing.
     const meta = (params._meta ?? {}) as Record<string, unknown>;
+    // What a client is shown has been through the same filter as what is kept: it is not the log that sends this.
     const clientParams = {
-      ...params,
+      ...redactParams(params),
       sessionId: session.id,
       _meta: { ...meta, [META.requestId]: requestId },
     };

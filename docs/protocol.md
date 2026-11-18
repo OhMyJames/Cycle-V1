@@ -399,7 +399,11 @@ ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集
 
 - 只追加。写入单行,崩溃留下的末尾半行在读取时丢弃。
 - `seq` 严格递增且连续。读取时发现不连续视为日志损坏,以 `-32015` 报告,不静默跳过。
-- 日志不包含任何凭证。写入前过滤已知的敏感字段。待定:过滤规则。
+- 日志不包含已知的凭证。写入前过滤,过滤发生在 daemon 把记录交给存储的那一处;客户端收到的是日志写下的那份,所以磁盘、实时推送和重放看到的一样。给客户端的权限请求(它不经过日志)用同一个过滤。规则刻意收得窄,因为猜错会改掉用户自己历史里的内容:
+  1. **键名**:`tool_call` / `tool_call_update` 和权限请求里的工具调用(`subject.toolCall`)中,键名表示秘密的值换成 `"[redacted]"`,不论嵌套多深。键名按小写、去掉 `_ - .` 和空格后比较,以 password、passwd、passphrase、secret、apikey、accesskey、privatekey、credential、authorization、cookie 结尾(可带复数 s),或以 token 结尾(单数:`inputTokens` 这类计数不算),或恰好是 auth、bearer、pwd、pin。`{name, value}` 形式的列表(环境变量),`name` 符合上面的规则时换掉 `value`。
+  2. **字符串**:工具调用里的所有字符串(命令、输出、文件内容、标题),把确定是凭证的部分换掉:常见令牌形态(`sk-ant-`、`sk-`、GitHub、Slack、AWS、Google、JWT)、私钥块、`Bearer`/`Basic` 后面又长又带数字的串(`Basic configuration` 这类文字不动)、`://用户:密码@主机` 里的密码、等号两边没有空格的赋值(全大写的 `NAME_KEY=值`,即 `cat .env` 的输出;小写的 `token=值`,如查询串)、`--token=值` 这类命令行参数、文本里 JSON 的 `"password": "值"`。等号两边有空格的(`const API_KEY = x`)、`==` 是代码,不动。
+  3. **不过滤**:用户和模型说的话(`user_message`、`agent_message_chunk` 等):它们分块到达,模式跨不过块;也是用户自己的话。表单(elicitation)的答案不进日志,见 §9。
+     这是已知凭证的过滤,不是保证:没有固定形态、也不在带名字的键里的秘密(命令输出里的一串随机字符)认不出来。已经写下的历史不会被改写,回放时也不会补过滤:升级前的会话里原有的内容仍在盘上,也仍会回放给客户端。
 
 session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session id、`cwd`、归档标记、标题、创建时间,以及 `readSeq` 和 `attentionSeq`(§6"已读")。`lastSeq` 和 `updatedAt` 不存在索引里,以日志为准(`updatedAt` 取最后一条非 `meta` 记录的 `ts`),避免每条记录都改写索引。`attentionSeq` 在每条值得看的记录(通常每个 turn 一两条)后改写一次,`readSeq` 每次标记已读改写一次,都不是每条记录一次。daemon 打开 session 时,若 `readSeq` 或 `attentionSeq` 超过日志的 `lastSeq`(崩溃截掉了日志末尾的半行,之后的 seq 会重新分配),把它们压回 `lastSeq`。
 
@@ -424,7 +428,7 @@ session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session
 - 排队退回时,多个客户端附着:现在是**每个**附着的客户端都把 `returned` 放进自己那个 session 的输入框(桌面端是每个窗口的渲染进程各放一份;一个窗口里,重载页面不会再放第二次,按 `queueId` 去重)。两个窗口同时开着同一个 session 时,同一批消息会在两边都出现;要不要只让发出那条 prompt 的客户端接收,留到实际用起来再定。
 - 排队的上限(8)和"只有 `end_turn` 才自动发下一条"是否合适。
 - L3:Claude 适配需要产生哪些 `session/update` 变体,以及配置 schema 的具体字段。
-- 日志里敏感字段的过滤规则。
+- 日志过滤的规则能否让用户加自己的键名和模式;已有历史是否提供一次性清理。
 - fork 时新 session 的 id 怎么分配(Claude SDK 允许 fork 时指定新 id,待验证)。
 - 日志的压缩和滚动(上云时再定)。
 - 云端 sandbox 下 daemon 与适配进程的连接方向(见决策 0001)。
