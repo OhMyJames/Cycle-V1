@@ -35,7 +35,7 @@ bun install      # 安装依赖,并启用 pre-commit 钩子
 bun run check    # 边界、类型、lint、测试
 ```
 
-目前是骨架:`packages/acp`、`packages/protocol` 有内容和测试,`daemon`、Claude 适配和 `desktop` 还是空壳。
+目前:`packages/acp`、`packages/protocol`、`packages/daemon`(会话层)和 Claude 适配有实现和测试;还没有可运行的 daemon 进程、unix socket 与 SSH 传输,`desktop` 还是空壳。
 
 ## v1 不做
 
@@ -45,5 +45,6 @@ git worktree、终端、diff 视图、多 provider、Web 端。
 
 - [docs/architecture.md](docs/architecture.md):架构与分层
 - [docs/protocol.md](docs/protocol.md):协议规范(草稿)
+- [docs/daemon.md](docs/daemon.md):daemon:做了什么、没做什么、验证结果
 - [docs/adapters/claude.md](docs/adapters/claude.md):Claude 适配:做了什么、没做什么、验证结果
 - [docs/decisions/](docs/decisions/):设计决策记录

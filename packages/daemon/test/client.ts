@@ -67,6 +67,12 @@ export const connectClient = async (
     resolved,
     listChanged: () => listChanged,
     kinds: () => seen.map((s) => s.update.sessionUpdate),
+    /** Turns that have ended: an idle that says why, as opposed to a state snapshot. */
+    ended: () =>
+      seen.filter((s) => {
+        const u = s.update as { state?: string; stopReason?: string };
+        return u.state === "idle" && u.stopReason !== undefined;
+      }).length,
     idle: () => seen.filter((s) => (s.update as { state?: string }).state === "idle").length,
     close: () => handle.close(),
     closed: handle.closed,

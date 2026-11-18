@@ -1,0 +1,41 @@
+import { ndJsonStream } from "@cycle/acp";
+import type { AgentDefinition } from "./agents.ts";
+
+export type ProcessAgentOptions = {
+  id: string;
+  name: string;
+  configSchema?: Record<string, unknown>;
+  command: string[];
+  /**
+   * The child's whole environment. Nothing is inherited from the daemon: the daemon's own variables
+   * hold keys that override a user's login and bill an API (AGENTS.md).
+   */
+  env: Record<string, string>;
+  cwd?: string;
+};
+
+/** An agent that is a child process speaking ACP v2 on its stdin and stdout. */
+export const processAgent = (options: ProcessAgentOptions): AgentDefinition => ({
+  id: options.id,
+  name: options.name,
+  configSchema: options.configSchema ?? { type: "object", properties: {} },
+  launch: async () => {
+    const proc = Bun.spawn(options.command, {
+      env: options.env,
+      ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "inherit",
+    });
+    const input = new WritableStream<Uint8Array>({
+      write: (chunk) => {
+        proc.stdin.write(chunk);
+        proc.stdin.flush();
+      },
+      close: () => {
+        proc.stdin.end();
+      },
+    });
+    return { target: ndJsonStream(input, proc.stdout), kill: () => proc.kill() };
+  },
+});

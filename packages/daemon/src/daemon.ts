@@ -175,6 +175,7 @@ export class Daemon {
         } as never);
         return { link, created };
       }
+      session.resuming = true;
       try {
         await link.agent.request(methods.agent.session.resume, {
           sessionId: session.entry.agentSessionId,
@@ -185,6 +186,8 @@ export class Daemon {
           sessionId: session.id,
           detail: error instanceof Error ? error.message : String(error),
         });
+      } finally {
+        session.resuming = false;
       }
       for (const [configId, value] of Object.entries(session.entry.config ?? {})) {
         await link.agent
@@ -216,6 +219,7 @@ export class Daemon {
   }
 
   #onUpdate(session: Session, update: SessionUpdate): void {
+    if (session.resuming) return;
     const state = update as { sessionUpdate: string; state?: string };
     if (state.sessionUpdate === "state_update" && typeof state.state === "string") {
       if (

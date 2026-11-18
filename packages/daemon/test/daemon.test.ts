@@ -245,9 +245,21 @@ test("an agent that exits stops the session, ends the turn, and the next prompt 
   expect(stateOf(listed.sessions[0])).toBe("stopped");
 
   release();
-  const idles = c.idle();
+  const ended = c.ended();
   await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("again") });
-  await until(() => c.idle() > idles, "the second turn");
+  await until(() => c.ended() > ended, "the second turn");
+  // The state the agent sent when it resumed is a handshake: it is not in the history.
+  const history = await c.agent.request(methods.agent.session.resume, {
+    sessionId,
+    cwd: "/work",
+    replayFrom: { type: "start" },
+  });
+  void history;
+  const idlesWithoutReason = c.seen.filter((s) => {
+    const u = s.update as { state?: string; stopReason?: string; sessionUpdate: string };
+    return s.seq !== undefined && u.state === "idle" && u.stopReason === undefined;
+  });
+  expect(idlesWithoutReason).toEqual([]);
   expect(fake.log.launches).toBe(2);
   // It was resumed under the agent's own id, with the directory it was created in.
   expect(fake.log.resumes.at(-1)).toMatchObject({ sessionId, cwd: "/work" });

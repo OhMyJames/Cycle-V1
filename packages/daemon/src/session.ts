@@ -39,6 +39,11 @@ export class Session {
   readonly pending = new Map<string, Pending>();
   readonly attachments = new Set<Attachment>();
   #requests = 0;
+  /**
+   * True while the agent is being asked to resume the session. ACP v2 has it send its current
+   * state first; that is a handshake, not history, and is not logged.
+   */
+  resuming = false;
   /** Set while an agent process is being started, so two prompts do not start two. */
   starting: Promise<AgentLink> | undefined;
 

@@ -7,4 +7,5 @@ export * from "./index-file.ts";
 export * from "./log/jsonl.ts";
 export * from "./log/replay.ts";
 export * from "./log/types.ts";
+export * from "./process-agent.ts";
 export * from "./session.ts";

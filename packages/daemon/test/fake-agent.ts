@@ -49,9 +49,14 @@ export const fakeAgent = (script: Script = {}) => {
         sessions.add(id);
         return { sessionId: id, configOptions: [] };
       })
-      .onRequest(methods.agent.session.resume, ({ params }) => {
+      .onRequest(methods.agent.session.resume, async ({ params, client }) => {
         log.resumes.push(params as unknown as Record<string, unknown>);
         sessions.add(params.sessionId);
+        // ACP v2: the state, before the answer.
+        await client.notify(methods.client.session.update, {
+          sessionId: params.sessionId,
+          update: { sessionUpdate: "state_update", state: "idle" } as SessionUpdate,
+        });
         return {};
       })
       .onRequest(methods.agent.session.setConfigOption, ({ params }) => {
