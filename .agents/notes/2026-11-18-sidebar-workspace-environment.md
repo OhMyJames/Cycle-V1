@@ -15,7 +15,7 @@ The sidebar is one flat list sorted by `cycle/lastSeq`, with a host selector on 
 - **The sidebar shows one workspace at a time** (old-cycle's decision), with environment shown only as grouping inside the workspace switcher, not as top-level navigation.
 - **Order by `updatedAt`**, a top-level field of ACP `SessionInfo` filled by the daemon from the last non-`meta` record's `ts`. `lastSeq` stays for replay only. A change of `updatedAt` alone does not send `_cycle/session_list_changed`.
 - **Unread is kept by the daemon**: the index stores `readSeq` (set by `_cycle/session/mark_read`, never decreasing) and `attentionSeq` (last turn end or approval request); the list exposes `cycle/unread`. `cycle/background` counts running background sub-agents, in memory only. Both are added in protocol 0.2 and degrade to "absent" for older daemons.
-- Status: the owner reviewed the protocol and `docs/desktop.md` drafts on 2026-11-18 and asked to proceed. The daemon side (protocol 0.2) is implemented. On the client side, connecting every host from main, one aggregated list ordered by `updatedAt` (with the missing-field fallback), and greyed rows for a host that is away are implemented, still under the name `host`; the `environment` naming and its settings format, the one-workspace switcher, the remote icon, and unread/background marks are not.
+- Status: the owner reviewed the protocol and `docs/desktop.md` drafts on 2026-11-18 and asked to proceed. The daemon side (protocol 0.2) is implemented. On the client side, every host connected from main, one aggregated list ordered by `updatedAt` (with the missing-field fallback), greyed rows for a host that is away, the one-workspace sidebar with its switcher and remote icon, one mark per row and `markRead` are implemented, still under the name `host`; the `environment` naming and its settings format are not.
 
 ## Alternatives considered
 
@@ -31,7 +31,7 @@ The sidebar is one flat list sorted by `cycle/lastSeq`, with a host selector on 
 - Older remote daemons lag the app. Clients must treat `updatedAt`, `cycle/unread`, `cycle/background` as optional; sessions without `updatedAt` sort after dated ones, by `lastSeq` among themselves.
 - An index written before these fields has neither `readSeq` nor `attentionSeq`; both count as 0, so no old session turns unread.
 - Remote and cloud environments will differ in capability; the interface reads the daemon's declared capabilities, not the environment's kind.
-- Unverified: what happens to an environment's sessions while it is disconnected, and how a remote folder is chosen (no daemon method exists). Both are in `docs/desktop.md` under 待定. The Claude and Codex documentation was read on 2026-11-18 and may change; Codex's remote-connection page was not read.
+- A disconnected environment keeps its last list, greyed (owner's decision, 2026-11-18), for as long as the app runs. How a remote folder is chosen is unverified (no daemon method exists); it is in `docs/desktop.md` under 待定. The Claude and Codex documentation was read on 2026-11-18 and may change; Codex's remote-connection page was not read.
 
 ## Related
 

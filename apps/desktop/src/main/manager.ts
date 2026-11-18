@@ -278,6 +278,10 @@ export class ConnectionManager
         agent: String(meta["cycle/agent"] ?? ""),
         state: (meta["cycle/state"] as SessionSummary["state"]) ?? "stopped",
         lastSeq: Number(meta["cycle/lastSeq"] ?? 0),
+        ...(typeof meta["cycle/unread"] === "boolean" ? { unread: meta["cycle/unread"] } : {}),
+        ...(typeof meta["cycle/background"] === "number"
+          ? { background: meta["cycle/background"] }
+          : {}),
         ...(typeof row.updatedAt === "string" ? { updatedAt: row.updatedAt } : {}),
         ...(typeof meta["cycle/config"] === "object" && meta["cycle/config"] !== null
           ? { config: meta["cycle/config"] as Record<string, string> }
@@ -412,6 +416,20 @@ export class ConnectionManager
 
   async archiveSession(hostId: string, sessionId: string, archived: boolean): Promise<void> {
     await this.#connection(hostId).client.archive(sessionId, archived);
+  }
+
+  /**
+   * The person has seen the session up to what the daemon has now. Never a seq past the log: the row's own
+   * `lastSeq`. A daemon that cannot is not asked.
+   */
+  async markRead(hostId: string, sessionId: string): Promise<void> {
+    const connection = this.#connection(hostId);
+    // The list as the daemon has it now: a row read before the news came in would say a seq below it.
+    const row = (await this.#refreshSessions(hostId, connection)).find(
+      (s) => s.sessionId === sessionId,
+    );
+    if (row === undefined) return;
+    await connection.client.markRead(sessionId, row.lastSeq);
   }
 
   async deleteSession(hostId: string, sessionId: string): Promise<void> {

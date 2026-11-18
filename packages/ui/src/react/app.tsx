@@ -23,7 +23,13 @@ import {
 } from "@ui-sdk/react/resizable";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { usageLabel } from "../model/index.ts";
-import { sessionKey, sessionList } from "../sessions.ts";
+import {
+  currentWorkspace,
+  elsewhere as elsewhereOf,
+  sessionKey,
+  sessionList,
+  workspacesOf,
+} from "../sessions.ts";
 import { viewKey } from "../store/index.ts";
 import { thinking } from "../thinking.ts";
 import { CodeThemePicker } from "./code-theme-picker.tsx";
@@ -39,6 +45,7 @@ import {
 } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
 import { ErrorCircleIcon, MoreIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
+import { useDay, useInFront } from "./in-front.ts";
 import { PermissionCard } from "./permission.tsx";
 import { SearchDialog } from "./search.tsx";
 import type { Away } from "./session-list.tsx";
@@ -108,6 +115,10 @@ export function App() {
   const [showArchived, setShowArchived] = useState(false);
   const [sent, setSent] = useState(0);
   const [showAll, setShowAll] = useState(false);
+  // The workspace chosen in the switcher holds until something else is opened: it is only good for the open session it was chosen on.
+  const [chosen, setChosen] = useState<{ workspace: string; on: string | undefined } | undefined>(
+    undefined,
+  );
 
   // The sessions of every host, in one list; what is open is on the host `selectedHost` names.
   const sessions = useMemo(
@@ -141,18 +152,48 @@ export function App() {
   );
   const close = () => setPanel("none");
   const [layout] = useState(createResizableController);
-  // The list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
+  // The workspaces, and the one the sidebar shows; the list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
+  const hostLabels = useMemo(
+    () => hosts.map((h) => ({ id: h.id, name: h.name, local: h.kind === "local" })),
+    [hosts],
+  );
+  const awayHosts = useMemo(() => new Set(away.keys()), [away]);
+  const workspaces = useMemo(
+    () => workspacesOf(sessions, { hosts: hostLabels, away: awayHosts, showArchived }),
+    [sessions, hostLabels, awayHosts, showArchived],
+  );
+  const openKey = session !== undefined ? sessionKey(session) : undefined;
+  const current = currentWorkspace(workspaces, {
+    chosen: chosen !== undefined && chosen.on === openKey ? chosen.workspace : undefined,
+    open: session,
+  });
+  // A new session starts in the workspace that is shown, if its host can have one started.
+  const startOn =
+    current !== undefined && connectedHosts.some((h) => h.id === current.hostId)
+      ? current
+      : undefined;
+  const elsewhere = useMemo(() => elsewhereOf(workspaces, current), [workspaces, current]);
+  const day = useDay();
   const list = useMemo(
     () =>
-      sessionList(sessions, {
-        showArchived,
+      sessionList(current?.sessions ?? [], {
         showAll,
-        selected: session !== undefined ? sessionKey(session) : undefined,
-        hosts: hosts.map((h) => ({ id: h.id, name: h.name, local: h.kind === "local" })),
-        away: new Set(away.keys()),
+        selected: openKey,
+        away: awayHosts,
+        now: new Date(day),
       }),
-    [sessions, showArchived, showAll, session, hosts, away],
+    [current, showAll, openKey, awayHosts, day],
   );
+
+  // What is on screen has been seen: the daemon is told, so the mark goes and stays gone (also on another client).
+  // Only while the app is in front, and only for a daemon that says there is news.
+  const inFront = useInFront();
+  // Run again with each list that still says so: a mark that could not be told is tried again with the next list.
+  useEffect(() => {
+    if (session?.unread !== true || !inFront) return;
+    if (status[session.hostId]?.state !== "connected") return;
+    void store.markRead(session.hostId, session.sessionId);
+  }, [session, inFront, status, store]);
 
   const working = view !== undefined && view.conversation.status !== "idle";
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
@@ -199,7 +240,8 @@ export function App() {
         const at = session === undefined ? -1 : list.order.indexOf(session);
         // A row on a host that is away and was never opened cannot be opened: the walk goes past it.
         const step = key === "]" ? 1 : -1;
-        let to = at + step;
+        // The open session is not in the workspace that is shown: the walk starts at the end it is going from.
+        let to = at === -1 ? (step === 1 ? 0 : list.order.length - 1) : at + step;
         while (list.order[to] !== undefined && away.has(list.order[to]?.hostId ?? "")) to += step;
         const next = list.order[to];
         if (next !== undefined) run(() => void store.selectSession(next.hostId, next.sessionId));
@@ -225,8 +267,12 @@ export function App() {
           <Sidebar
             hosts={hosts}
             status={status}
+            workspaces={workspaces}
+            current={current}
+            elsewhere={elsewhere}
+            onChooseWorkspace={(workspace) => setChosen({ workspace, on: openKey })}
             list={list}
-            selected={session !== undefined ? sessionKey(session) : undefined}
+            selected={openKey}
             away={away}
             showArchived={showArchived}
             onSelectSession={(chosen) => void store.selectSession(chosen.hostId, chosen.sessionId)}
@@ -401,7 +447,8 @@ export function App() {
         open={panel === "new-session"}
         onOpenChange={(open) => !open && close()}
         hosts={connectedHosts}
-        defaultHost={selectedHost}
+        defaultHost={startOn?.hostId ?? selectedHost}
+        defaultCwd={startOn?.cwd}
         agents={agentsByHost}
         readDefaults={readDefaults}
         chooseDirectory={store.chooseDirectory}

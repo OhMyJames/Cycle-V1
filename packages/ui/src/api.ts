@@ -46,6 +46,10 @@ export type SessionSummary = {
   agent: string;
   state: "running" | "idle" | "requires_action" | "stopped";
   lastSeq: number;
+  /** News the person has not seen (`cycle/unread`, protocol 0.2). Absent from an older daemon: then nothing is unread. */
+  unread?: boolean;
+  /** How many background sub-agents are working (`cycle/background`). Absent from an older daemon. */
+  background?: number;
   /**
    * When something last happened in the session (ISO 8601). Absent from a daemon older than protocol 0.2:
    * then the sessions of that daemon are ordered by `lastSeq`, which only compares within one daemon.
@@ -174,6 +178,8 @@ export type AppApi = {
   ): Promise<void>;
   renameSession(hostId: string, sessionId: string, title: string): Promise<void>;
   archiveSession(hostId: string, sessionId: string, archived: boolean): Promise<void>;
+  /** Says the session has been seen: its unread mark clears. Does nothing on a daemon that cannot. */
+  markRead(hostId: string, sessionId: string): Promise<void>;
   deleteSession(hostId: string, sessionId: string): Promise<void>;
   answerPermission(key: string, optionId: string | "cancelled"): Promise<void>;
 
@@ -213,6 +219,7 @@ export const API_METHODS = [
   "setSessionConfig",
   "renameSession",
   "archiveSession",
+  "markRead",
   "deleteSession",
   "answerPermission",
   "agents",

@@ -1,10 +1,10 @@
 import { Listbox, ListboxGroup, ListboxGroupLabel, ListboxItem } from "@ui-sdk/react/listbox";
 import type { SessionSummary } from "../api.ts";
-import { projectKey, type SessionGroup, type SessionList, sessionKey } from "../sessions.ts";
+import { markOf, type SessionGroup, type SessionList, sessionKey } from "../sessions.ts";
 import { useI18n } from "./i18n.tsx";
-import { SESSION_STATE, StatusDot } from "./status.tsx";
+import { MARK_STYLE, MARK_WORD, StatusDot } from "./status.tsx";
 
-/** The last part of a path, for a second line that says where a session works. */
+/** The last part of a path, for a session that has no title yet. */
 const place = (cwd: string): string => cwd.split("/").filter(Boolean).at(-1) ?? cwd;
 
 export const sessionTitle = (session: SessionSummary): string => {
@@ -15,58 +15,49 @@ export const sessionTitle = (session: SessionSummary): string => {
 /** A host that is not connected, as a row of its sessions says it: who, and in what words. */
 export type Away = { name: string; word: string };
 
-function Row({
-  session,
-  place: where,
-  away,
-}: {
-  session: SessionSummary;
-  /** Set when the session's host is not connected: the row is the last one read, and is shown greyed. */
-  away: Away | undefined;
-  /** Where the session works, said under its title in the groups that are not a project; absent in a project. */
-  place: string | undefined;
-}) {
+function Row({ session, away }: { session: SessionSummary; away: Away | undefined }) {
   const { t } = useI18n();
   const tip =
     away !== undefined ? t("session.away", { host: away.name, state: away.word }) : undefined;
-  // The state is told by the dot's colour and shape, and in words by the heading of the group the row is in. An archived
-  // session is put away, whatever its state says.
-  const doing = session.archived || away !== undefined ? undefined : SESSION_STATE[session.state];
+  // One thing a row says. A session of a host that is away is the last list read: it says nothing.
+  const mark = away !== undefined ? undefined : markOf(session);
+  const style = mark !== undefined ? MARK_STYLE[mark] : undefined;
   return (
     <ListboxItem
       value={sessionKey(session)}
       data-session={session.sessionId}
       data-host={session.hostId}
       data-archived={session.archived || undefined}
-      data-needs-you={(away === undefined && session.state === "requires_action") || undefined}
+      data-mark={mark}
       data-away={away !== undefined || undefined}
       title={tip}
     >
       <span data-slot="session-dot">
-        {doing !== undefined ? <StatusDot tone={doing.tone} shape={doing.shape} /> : null}
+        {style !== undefined ? <StatusDot tone={style.tone} shape={style.shape} /> : null}
       </span>
-      <span data-slot="session-main">
-        <span data-slot="session-title">{sessionTitle(session)}</span>
-        <span data-slot="session-meta" data-state={session.state}>
-          {where}
-        </span>
-      </span>
+      {mark !== undefined ? <span data-slot="visually-hidden">{t(MARK_WORD[mark])}. </span> : null}
+      <span data-slot="session-title">{sessionTitle(session)}</span>
     </ListboxItem>
   );
 }
 
 function Heading({ group }: { group: SessionGroup }) {
   const { t } = useI18n();
-  return group.kind === "needs-you"
-    ? t("sessions.group.needsYou")
-    : group.kind === "working"
-      ? t("sessions.group.working")
-      : group.label === ""
-        ? t("sessions.noFolder")
-        : group.label;
+  switch (group.kind) {
+    case "needs-you":
+      return t("sessions.group.needsYou");
+    case "running":
+      return t("sessions.group.running");
+    case "today":
+      return t("sessions.group.today");
+    case "yesterday":
+      return t("sessions.group.yesterday");
+    case "earlier":
+      return t("sessions.group.earlier");
+  }
 }
 
-/** What waits on the person, what is working, then the projects: one list, so the arrow keys walk all of it. */
+/** What waits on the person, what is running, then the days: one list, so the arrow keys walk all of it. */
 export function SessionListView({
   list,
   selected,
@@ -99,12 +90,7 @@ export function SessionListView({
               <Heading group={group} />
             </ListboxGroupLabel>
             {group.sessions.map((session) => (
-              <Row
-                key={sessionKey(session)}
-                session={session}
-                away={away.get(session.hostId)}
-                place={group.kind === "project" ? undefined : list.names.get(projectKey(session))}
-              />
+              <Row key={sessionKey(session)} session={session} away={away.get(session.hostId)} />
             ))}
           </ListboxGroup>
         ))}

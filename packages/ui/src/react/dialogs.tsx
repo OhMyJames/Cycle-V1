@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@ui-sdk/react/select";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentInfo, HostConfig } from "../api.ts";
 import { ConfigForm } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
@@ -68,6 +68,8 @@ export type NewSessionProps = OpenProps & {
   hosts: HostConfig[];
   /** Where it starts unless the person says: the host of the session that is open, else the first. */
   defaultHost: string | undefined;
+  /** The folder it starts in unless the person says: the workspace that is shown. */
+  defaultCwd?: string | undefined;
   agents: Record<string, AgentInfo[]>;
   readDefaults: (hostId: string, agent: string) => Promise<Record<string, string> | undefined>;
   /** Opens this computer's folder chooser: only what is on this computer can be chosen with it. */
@@ -87,6 +89,7 @@ export function NewSessionDialog({
   onOpenChange,
   hosts,
   defaultHost,
+  defaultCwd,
   agents,
   readDefaults,
   chooseDirectory,
@@ -107,8 +110,15 @@ export function NewSessionDialog({
     available[0];
 
   // Each time it opens it starts again from where the person is; and another host has other agents.
+  // The folder it starts in is read as it opens: a workspace that changes under an open dialog does not rewrite what is typed.
+  const startCwd = useRef(defaultCwd);
+  startCwd.current = defaultCwd;
+  const startHost = useRef(defaultHost);
+  startHost.current = defaultHost;
   useEffect(() => {
-    if (open) setChosenHost(null);
+    if (!open) return;
+    setChosenHost(startHost.current ?? null);
+    setCwd(startCwd.current ?? "");
   }, [open]);
 
   // Start each session from what the user set as the agent's defaults, on that host.

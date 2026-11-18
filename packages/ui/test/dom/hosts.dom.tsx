@@ -30,15 +30,43 @@ const mount = async (states: Record<string, "connected" | "closed" | "reconnecti
   return { store, user, ...script, emit };
 };
 
-test("the sessions of every host are in one list, and a project on another host is named after it", async () => {
-  await mount();
-  expect(screen.getAllByRole("option")).toHaveLength(2);
-  expect(screen.getByRole("group", { name: "work" })).toBeTruthy();
-  expect(screen.getByRole("group", { name: "work · Build box" })).toBeTruthy();
+// The workspace the sidebar shows is one at a time: the others are chosen in the switcher.
+const choose = async (user: ReturnType<typeof userEvent.setup>, name: RegExp) => {
+  await user.click(screen.getByRole("button", { name: /Switch workspace/ }));
+  await user.click(await screen.findByRole("menuitem", { name }));
+};
+
+test("the workspaces of every host are in the switcher, and one on another host says which", async () => {
+  const { user } = await mount();
+  // One workspace is shown: the newest, on this computer.
+  expect(screen.getAllByRole("option")).toHaveLength(1);
+  expect(screen.getAllByRole("option")[0]?.getAttribute("data-host")).toBe("local");
+  const trigger = screen.getByRole("button", { name: /Switch workspace/ });
+  // The same folder on two hosts: each named after its host.
+  expect(trigger.textContent).toContain("work · This computer");
+  expect(within(trigger).queryByRole("img")).toBeNull();
+  await user.click(trigger);
+  const remote = await screen.findByRole("menuitem", { name: /work · Build box/ });
+  // The icon's name says where, and how it stands: for the tooltip and for a reader.
+  expect(within(remote).getByRole("img", { name: "On Build box · Connected" })).toBeTruthy();
+  // Several hosts: the menu is grouped by them.
+  expect(screen.getByText(/This computer · Connected/)).toBeTruthy();
+  expect(screen.getByText(/Build box · Connected/)).toBeTruthy();
+  await user.click(remote);
+  await waitFor(() =>
+    expect(screen.getAllByRole("option")[0]?.getAttribute("data-host")).toBe("far"),
+  );
+  // Shown, it is named by the icon in the switcher.
+  expect(
+    within(screen.getByRole("button", { name: /Switch workspace/ })).getByRole("img", {
+      name: "On Build box · Connected",
+    }),
+  ).toBeTruthy();
 });
 
 test("a host that is away: its sessions stay, greyed and saying why, and it can be tried again", async () => {
   const { user, named } = await mount({ far: "closed" });
+  await choose(user, /work · Build box/);
   const rows = screen.getAllByRole("option");
   const greyed = rows.filter((row) => row.getAttribute("data-away") !== null);
   expect(greyed).toHaveLength(1);
@@ -54,6 +82,7 @@ test("a host that is away: its sessions stay, greyed and saying why, and it can 
 
 test("a session of a host that is away is not asked of, and opening one that was never opened says why", async () => {
   const { user, named } = await mount({ far: "closed" });
+  await choose(user, /work · Build box/);
   await user.click(
     screen.getAllByRole("option").find((o) => o.getAttribute("data-host") === "far") as HTMLElement,
   );
@@ -64,7 +93,8 @@ test("a session of a host that is away is not asked of, and opening one that was
 });
 
 test("when the host comes back its rows are no longer greyed", async () => {
-  const { emit } = await mount({ far: "closed" });
+  const { user, emit } = await mount({ far: "closed" });
+  await choose(user, /work · Build box/);
   expect(screen.getAllByRole("option").some((o) => o.getAttribute("data-away") !== null)).toBe(
     true,
   );

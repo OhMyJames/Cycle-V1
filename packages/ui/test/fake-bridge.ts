@@ -19,6 +19,8 @@ export const summary = (sessionId: string, hostId = "local"): SessionSummary => 
   agent: "fake",
   state: "idle",
   lastSeq: 0,
+  // This computer's is the newer, so that it is the workspace shown unless a test says otherwise.
+  updatedAt: hostId === "local" ? "2020-01-02T00:00:00.000Z" : "2020-01-01T00:00:00.000Z",
 });
 export const text = (t: string, id = "a") =>
   ({
@@ -104,6 +106,7 @@ export const fakeBridge = (
     setSessionConfig: record("setSessionConfig", async () => {}),
     renameSession: record("renameSession", async () => {}),
     archiveSession: record("archiveSession", async () => {}),
+    markRead: record("markRead", async () => {}),
     deleteSession: record("deleteSession", async () => {}),
     answerPermission: record("answerPermission", async () => {}),
     agents: record("agents", async () => [
