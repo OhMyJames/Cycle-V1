@@ -64,7 +64,7 @@ cycle stop     # 停掉(会话中的回合会中断)
 ## 4. 在应用里添加远端主机
 
 1. 先在 Mac 终端里手动 `ssh user@host true` 一次。应用的 ssh 是非交互的(`BatchMode=yes`),不会问你是否信任主机、也不会问密码,所以主机密钥要已经在 `known_hosts` 里,登录要用密钥(或 ssh-agent)。
-2. 应用里点 "Add host":名字随便起;Host 填 `ssh` 能认的(`user@host`,或 `~/.ssh/config` 里的别名);命令默认 `cycle proxy`。
+2. 应用里点 "Add environment":名字随便起;Address 填 `ssh` 能认的(`user@host`,或 `~/.ssh/config` 里的别名);命令默认 `cycle proxy`。
 3. 如果连不上并提示找不到命令,是因为 ssh 非交互会话的 PATH 里没有 `~/.local/bin`。把命令改成绝对路径:`/home/<用户>/.local/bin/cycle proxy`。
 
 ## 更新

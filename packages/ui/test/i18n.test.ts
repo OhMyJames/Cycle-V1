@@ -5,8 +5,8 @@ import { enUS } from "../src/messages/en-US.ts";
 const en = createTranslator(SOURCE_LOCALE, enUS);
 
 test("fills placeholders, and leaves one that has no value as it is", () => {
-  expect(en.t("workspace.on", { host: "build-1" })).toBe("On build-1");
-  expect(en.t("workspace.on")).toBe("On {host}");
+  expect(en.t("workspace.on", { environment: "build-1" })).toBe("On build-1");
+  expect(en.t("workspace.on")).toBe("On {environment}");
 });
 
 test("chooses the plural form of the language, and writes the number as the language does", () => {
@@ -39,7 +39,9 @@ test("a key a language lacks falls back to the source language; one nobody has i
 });
 
 test("a parameter is text, never markup or a template", () => {
-  expect(en.t("workspace.on", { host: "<b>{host}</b>" })).toBe("On <b>{host}</b>");
+  expect(en.t("workspace.on", { environment: "<b>{environment}</b>" })).toBe(
+    "On <b>{environment}</b>",
+  );
 });
 
 test("dates and numbers come from the locale", () => {

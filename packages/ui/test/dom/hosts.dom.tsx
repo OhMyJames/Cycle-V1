@@ -282,6 +282,6 @@ test("a host that is not connected cannot have a session started on it", async (
   await user.click(await screen.findByRole("button", { name: "New session" }));
   const dialog = await screen.findByRole("dialog");
   // Only the environment that is connected: nothing to choose.
-  expect(within(dialog).queryByRole("combobox", { name: /host/i })).toBeNull();
+  expect(within(dialog).queryByRole("combobox", { name: /environment/i })).toBeNull();
   expect(within(dialog).queryByText("Build box")).toBeNull();
 });

@@ -180,13 +180,13 @@ export function NewSessionDialog({
             <DialogTitle>New session</DialogTitle>
             <DialogDescription>
               {environment !== undefined && environments.length > 1
-                ? t("newSession.onHost", { host: environment.name })
-                : "The agent works in this directory, on the host you are connected to."}
+                ? t("newSession.onEnvironment", { environment: environment.name })
+                : "The agent works in this directory, on the environment you are connected to."}
             </DialogDescription>
             <div data-slot="stack">
               {environments.length > 1 ? (
                 <Field name="host">
-                  <FieldLabel>{t("newSession.host")}</FieldLabel>
+                  <FieldLabel>{t("newSession.environment")}</FieldLabel>
                   <Select
                     items={environments.map((h) => ({ value: h.id, label: h.name }))}
                     value={environmentId ?? null}
@@ -263,7 +263,7 @@ export function NewSessionDialog({
                 <ConfigForm schema={agent.configSchema} value={config} onChange={setConfig} />
               ) : null}
               {agent === undefined ? (
-                <p data-slot="hint">No agent is available on this host.</p>
+                <p data-slot="hint">No agent is available on this environment.</p>
               ) : null}
             </div>
             <div data-slot="row">
@@ -311,14 +311,14 @@ export function EnvironmentDialog({ open, onOpenChange, onSave }: EnvironmentDia
     <Dialog open={open} onOpenChange={(next) => onOpenChange(next)}>
       <DialogBackdrop />
       <DialogContent>
-        <DialogTitle>Add a host</DialogTitle>
+        <DialogTitle>Add an environment</DialogTitle>
         <DialogDescription>
           Cycle connects with your system's ssh, so your keys and ~/.ssh/config apply. There is no
           password prompt.
         </DialogDescription>
         <div data-slot="stack">
           <Field name="host">
-            <FieldLabel>Host</FieldLabel>
+            <FieldLabel>Address</FieldLabel>
             <Input
               value={host}
               placeholder="user@host, or an alias"
@@ -334,7 +334,7 @@ export function EnvironmentDialog({ open, onOpenChange, onSave }: EnvironmentDia
             />
           </Field>
           <Field name="command">
-            <FieldLabel>Command on the host</FieldLabel>
+            <FieldLabel>Command on the environment</FieldLabel>
             <Input value={command} onChange={(e) => setCommand(e.currentTarget.value)} />
           </Field>
         </div>

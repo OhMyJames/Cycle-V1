@@ -87,7 +87,7 @@ cycle claude auth status   # 用同样的环境跑 claude 的其他命令
 
 **登录**:`login` 和 `claude` 用的环境和目录,正是 daemon 给它启动的 Claude 的那份(`config.json` 里的 `configDir`,默认 `<数据目录>/claude`;`HOME` 回落到它),所以登录落在 Claude 以后会去找的地方,不会碰 `~/.claude`。全新的数据目录里 `claude auth status` 报 `loggedIn: false`(已验证)。**登录流程本身没有验证过**:它要在浏览器里完成 OAuth,我没法替你做。验证过的做法是把 OAuth token 或 API key 写进 `config.json` 的 `claude.env`。构建目录里缺 `claude` 时,`agents/list` 里 Claude 是 `available: false`,不是等到第一个 prompt 才失败。
 
-**装到远端机器**:解开 tarball,把目录放到 `$PATH` 上(或在桌面端 "Add host" 里把命令写成绝对路径,如 `/opt/cycle/cycle proxy`)。`<os>-<arch>` 要和那台机器一致:在哪个平台构建就产出哪个平台的;跨平台要在对应平台构建。凭证写进那台机器上的 `<数据目录>/config.json`(见下)。
+**装到远端机器**:解开 tarball,把目录放到 `$PATH` 上(或在桌面端 "Add environment" 里把命令写成绝对路径,如 `/opt/cycle/cycle proxy`)。`<os>-<arch>` 要和那台机器一致:在哪个平台构建就产出哪个平台的;跨平台要在对应平台构建。凭证写进那台机器上的 `<数据目录>/config.json`(见下)。
 
 ## 配置:`<数据目录>/config.json`
 

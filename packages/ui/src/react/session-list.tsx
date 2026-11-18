@@ -18,7 +18,9 @@ export type Away = { name: string; word: string };
 function Row({ session, away }: { session: SessionSummary; away: Away | undefined }) {
   const { t } = useI18n();
   const tip =
-    away !== undefined ? t("session.away", { host: away.name, state: away.word }) : undefined;
+    away !== undefined
+      ? t("session.away", { environment: away.name, state: away.word })
+      : undefined;
   // One thing a row says. A session of an environment that is away is the last list read: it says nothing.
   const mark = away !== undefined ? undefined : markOf(session);
   const style = mark !== undefined ? MARK_STYLE[mark] : undefined;

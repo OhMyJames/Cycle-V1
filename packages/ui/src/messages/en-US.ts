@@ -7,7 +7,7 @@ import type { Messages } from "../i18n.ts";
 export const enUS = {
   // The session search (Cmd+K)
   "search.label": "Search sessions",
-  "search.placeholder": "Search sessions by title, folder, agent or host",
+  "search.placeholder": "Search sessions by title, folder, agent or environment",
   "search.empty": "No session matches that.",
   "search.group.actions": "Actions",
   "search.action.newSession": "New session",
@@ -15,10 +15,11 @@ export const enUS = {
   "search.open": "Search sessions",
 
   // Environments that are away, and starting a session on one of several
-  "session.away": "{host} · {state}",
-  "session.awayBanner": "{host} is not connected. This is what the session had when it went away.",
-  "newSession.host": "Host",
-  "newSession.onHost": "The agent works in this directory, on {host}.",
+  "session.away": "{environment} · {state}",
+  "session.awayBanner":
+    "{environment} is not connected. This is what the session had when it went away.",
+  "newSession.environment": "Environment",
+  "newSession.onEnvironment": "The agent works in this directory, on {environment}.",
 
   // Images in a conversation
   "image.open": "Open image: {name}",
@@ -148,8 +149,8 @@ export const enUS = {
   "workspace.label": "Workspace",
   "workspace.switch": "Switch workspace",
   "workspace.none": "No workspace yet",
-  "workspace.on": "On {host}",
-  "workspace.onState": "On {host} · {state}",
+  "workspace.on": "On {environment}",
+  "workspace.onState": "On {environment} · {state}",
   "workspace.elsewhere.needsYou": {
     one: "{count} session needs you",
     other: "{count} sessions need you",
