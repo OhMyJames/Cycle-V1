@@ -337,3 +337,49 @@ test("lists the agents it can run, and says what it can do", async () => {
     agents: ["fake"],
   });
 });
+
+test("an agent's defaults are kept, applied to new sessions, and overridden by what the session asks for", async () => {
+  const fake = fakeAgent();
+  const { daemon } = await start(fake);
+  const c = await connectClient(daemon);
+  expect(await c.agent.request("_cycle/agent_defaults/read", { agent: "fake" })).toEqual({
+    config: {},
+  });
+  await c.agent.request("_cycle/agent_defaults/set", { agent: "fake", config: { mode: "plan" } });
+  await until(() => c.defaultsChanged() === 1, "the change to be announced");
+  expect(await c.agent.request("_cycle/agent_defaults/read", { agent: "fake" })).toEqual({
+    config: { mode: "plan" },
+  });
+
+  await c.agent.request(methods.agent.session.new, { cwd: "/work" });
+  expect(fake.log.configs.map((x) => [x.configId, x.value])).toEqual([["mode", "plan"]]);
+  await c.agent.request(methods.agent.session.new, {
+    cwd: "/work",
+    _meta: { "cycle/config": { mode: "acceptEdits" } },
+  });
+  expect(fake.log.configs.map((x) => [x.configId, x.value]).at(-1)).toEqual([
+    "mode",
+    "acceptEdits",
+  ]);
+});
+
+test("a default for a setting the agent does not have is refused, and defaults survive a restart", async () => {
+  const first = await start();
+  const c = await connectClient(first.daemon);
+  await expect(
+    c.agent.request("_cycle/agent_defaults/set", { agent: "fake", config: { nope: "x" } }),
+  ).rejects.toMatchObject({ code: CycleErrorCode.InvalidConfig });
+  await c.agent.request("_cycle/agent_defaults/set", { agent: "fake", config: { mode: "plan" } });
+  await first.daemon.close();
+  open = [];
+  const second = await start();
+  const d = await connectClient(second.daemon);
+  expect(await d.agent.request("_cycle/agent_defaults/read", { agent: "fake" })).toEqual({
+    config: { mode: "plan" },
+  });
+  await expect(
+    d.agent.request("_cycle/agent_defaults/read", { agent: "nobody" }),
+  ).rejects.toMatchObject({
+    code: CycleErrorCode.AgentUnavailable,
+  });
+});

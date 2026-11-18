@@ -230,3 +230,17 @@ test("a request while disconnected fails clearly", async () => {
   await until(() => client.state === "reconnecting", "the loss");
   await expect(client.listSessions()).rejects.toThrow("Not connected");
 });
+
+test("reads and sets an agent's defaults, and hears of a change made by someone else", async () => {
+  const { make } = await setup();
+  const heard: string[] = [];
+  const a = make({ defaultsChanged: (agent) => heard.push(agent) });
+  const b = make();
+  await a.start();
+  await b.start();
+  expect(await a.agentDefaults("fake")).toEqual({});
+  await b.setAgentDefaults("fake", { mode: "plan" });
+  expect(await a.agentDefaults("fake")).toEqual({ mode: "plan" });
+  await until(() => heard.length === 1, "the change");
+  expect(heard).toEqual(["fake"]);
+});

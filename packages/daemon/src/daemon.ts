@@ -23,7 +23,8 @@ import {
 import type { z } from "zod";
 import { AgentLink } from "./agent-link.ts";
 import type { AgentDefinition } from "./agents.ts";
-import { indexPath, sessionsDir } from "./data-dir.ts";
+import { defaultsPath, indexPath, sessionsDir } from "./data-dir.ts";
+import { AgentDefaults } from "./defaults-file.ts";
 import {
   INVALID_PARAMS,
   RpcError,
@@ -67,19 +68,25 @@ export class Daemon {
   readonly #agents: Map<string, AgentDefinition>;
   readonly #store: LogStore;
   readonly #index: SessionIndex;
+  readonly #defaults: AgentDefaults;
   readonly #sessions = new Map<string, Session>();
   readonly #conns = new Set<ClientConn>();
   #counter = 0;
 
-  private constructor(options: DaemonOptions, index: SessionIndex) {
+  private constructor(options: DaemonOptions, index: SessionIndex, defaults: AgentDefaults) {
     this.#agents = new Map(options.agents.map((a) => [a.id, a]));
     this.#store = options.store ?? new JsonlLogStore({ dir: sessionsDir(options.dataDir) });
     this.#index = index;
+    this.#defaults = defaults;
   }
 
   /** Reads the index, and refuses to start if it is there and cannot be read. */
   static async start(options: DaemonOptions): Promise<Daemon> {
-    return new Daemon(options, await SessionIndex.load(indexPath(options.dataDir)));
+    return new Daemon(
+      options,
+      await SessionIndex.load(indexPath(options.dataDir)),
+      await AgentDefaults.load(defaultsPath(options.dataDir)),
+    );
   }
 
   /** Serves one client on a stream. */
@@ -432,7 +439,8 @@ export class Daemon {
         // The agent may have taken our id or kept its own; either way the pair is on record.
         await this.#index.put(id, session.entry);
         this.#sessions.set(id, session);
-        const config = stringConfig(meta[META.config]);
+        // What the user set as the agent's defaults, then what they asked of this one.
+        const config = { ...this.#defaults.get(agentId), ...stringConfig(meta[META.config]) };
         for (const [configId, value] of Object.entries(config)) {
           try {
             await session.link?.agent.request(methods.agent.session.setConfigOption, {
@@ -609,8 +617,33 @@ export class Daemon {
         })),
       ),
     }));
-    cycle(agentDefaultsRead, () => ({ config: {} }));
-    cycle(agentDefaultsSet, () => ({}));
+    cycle(agentDefaultsRead, (params) => {
+      this.#definition(params.agent);
+      return { config: this.#defaults.get(params.agent) };
+    });
+    cycle(agentDefaultsSet, async (params) => {
+      const definition = this.#definition(params.agent);
+      // Only settings the agent says it has, when it says: a typo should not be saved and then ignored.
+      const known = (definition.configSchema as { properties?: Record<string, unknown> })
+        .properties;
+      if (known !== undefined) {
+        for (const key of Object.keys(params.config)) {
+          if (!(key in known)) {
+            throw new RpcError(CycleErrorCode.InvalidConfig, "The agent has no such setting", {
+              agent: params.agent,
+              configId: key,
+            });
+          }
+        }
+      }
+      await this.#defaults.set(params.agent, params.config as Record<string, string>);
+      for (const conn of this.#conns) {
+        void conn
+          .notify(NOTIFICATIONS.agentDefaultsChanged, { agent: params.agent })
+          .catch(() => {});
+      }
+      return {};
+    });
 
     const change =
       (apply: (session: Session) => Promise<Partial<SessionEntry>>) =>

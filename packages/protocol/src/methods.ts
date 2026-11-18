@@ -20,15 +20,18 @@ export const agentsList = cycleMethod(
   z.object({ agents: z.array(AgentInfoSchema) }),
 );
 
+/** What a session of an agent is configured with: setting by name, each a string. */
+export const AgentConfigSchema = z.record(z.string(), z.string());
+
 export const agentDefaultsRead = cycleMethod(
   "_cycle/agent_defaults/read",
   z.object({ agent: z.string() }),
-  z.object({ config: z.record(z.string(), z.unknown()) }),
+  z.object({ config: AgentConfigSchema }),
 );
 
 export const agentDefaultsSet = cycleMethod(
   "_cycle/agent_defaults/set",
-  z.object({ agent: z.string(), config: z.record(z.string(), z.unknown()) }),
+  z.object({ agent: z.string(), config: AgentConfigSchema }),
   DoneSchema,
 );
 

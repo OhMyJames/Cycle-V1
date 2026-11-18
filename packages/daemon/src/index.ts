@@ -2,6 +2,7 @@ export * from "./agent-link.ts";
 export * from "./agents.ts";
 export * from "./daemon.ts";
 export * from "./data-dir.ts";
+export * from "./defaults-file.ts";
 export * from "./errors.ts";
 export * from "./index-file.ts";
 export * from "./log/jsonl.ts";

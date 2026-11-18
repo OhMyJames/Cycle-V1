@@ -22,6 +22,7 @@ export const connectClient = async (
   const permissions: unknown[] = [];
   const resolved: unknown[] = [];
   let listChanged = 0;
+  let defaultsChanged = 0;
   const app = client({ name: "test-client" })
     .onConnect((connection) => {
       agent = connection.agent;
@@ -35,6 +36,13 @@ export const connectClient = async (
       (p: unknown) => p as object,
       ({ params }) => {
         resolved.push(params);
+      },
+    )
+    .onNotification(
+      "_cycle/agent_defaults_changed",
+      (p: unknown) => p as object,
+      () => {
+        defaultsChanged++;
       },
     )
     .onNotification(
@@ -66,6 +74,7 @@ export const connectClient = async (
     permissions,
     resolved,
     listChanged: () => listChanged,
+    defaultsChanged: () => defaultsChanged,
     kinds: () => seen.map((s) => s.update.sessionUpdate),
     /** Turns that have ended: an idle that says why, as opposed to a state snapshot. */
     ended: () =>

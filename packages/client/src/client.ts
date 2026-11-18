@@ -22,6 +22,8 @@ export type ClientEvents = {
   resolved?: (sessionId: string, requestId: string | number, outcome: unknown) => void;
   /** Sessions were created, deleted, archived, renamed or changed state: list them again. */
   listChanged?: () => void;
+  /** An agent's defaults were changed, here or by another client. */
+  defaultsChanged?: (agent: string) => void;
   connection?: (state: ConnectionState, error?: unknown) => void;
 };
 
@@ -100,6 +102,18 @@ export class CycleClient {
         configSchema: Record<string, unknown>;
       }[];
     };
+  }
+
+  /** What new sessions of an agent start with. */
+  async agentDefaults(agent: string): Promise<Record<string, string>> {
+    const answer = (await this.#request("_cycle/agent_defaults/read", { agent })) as {
+      config: Record<string, string>;
+    };
+    return answer.config;
+  }
+
+  async setAgentDefaults(agent: string, config: Record<string, string>): Promise<void> {
+    await this.#request("_cycle/agent_defaults/set", { agent, config });
   }
 
   async listSessions(): Promise<SessionRow[]> {
@@ -220,6 +234,11 @@ export class CycleClient {
         NOTIFICATIONS.requestResolved,
         (p: unknown) => p as { sessionId: string; requestId: string | number; outcome: unknown },
         ({ params }) => this.#events.resolved?.(params.sessionId, params.requestId, params.outcome),
+      )
+      .onNotification(
+        NOTIFICATIONS.agentDefaultsChanged,
+        (p: unknown) => p as { agent: string },
+        ({ params }) => this.#events.defaultsChanged?.(params.agent),
       )
       .onNotification(
         NOTIFICATIONS.sessionListChanged,
