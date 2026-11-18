@@ -7,7 +7,7 @@ import { Daemon } from "@cycle/daemon";
 import { type Channel, commandChannel, connectUnix } from "@cycle/transport/client";
 import { listenUnix } from "@cycle/transport/server";
 import { fakeAgent } from "../../daemon/test/fake-agent.ts";
-import { CycleClient, type PermissionAnswer } from "../src/index.ts";
+import { CycleClient, type ElicitationAnswer, type PermissionAnswer } from "../src/index.ts";
 
 let dir: string;
 let cleanup: (() => void | Promise<void>)[] = [];
@@ -247,4 +247,40 @@ test("a command that cannot run fails with what it said, not only that the conne
       }),
   });
   await expect(client.start()).rejects.toThrow(/cycle-daemon: No such file or directory/);
+});
+
+test("a client with a form handler is asked forms; one without is not, and the agent is told", async () => {
+  const answers: unknown[] = [];
+  const fake = fakeAgent({
+    onPrompt: async ({ elicit }) => {
+      answers.push(await elicit());
+    },
+  });
+  const { make } = await setup(fake);
+
+  // Without the handler the client does not claim the capability: nobody is asked, nobody waits.
+  const plain = make();
+  await plain.start();
+  const sessionId = await plain.newSession({ cwd: "/tmp" });
+  await plain.watch(sessionId, "/tmp");
+  await plain.prompt(sessionId, text("ask"));
+  await until(() => answers.length === 1, "the agent to be answered");
+  expect(answers[0]).toEqual({ action: "cancel", _meta: { "cycle/noClient": true } });
+  await plain.close();
+
+  const asked: Record<string, unknown>[] = [];
+  const client = make({
+    elicitation: async (_id, request): Promise<ElicitationAnswer> => {
+      asked.push(request);
+      return { action: "accept", content: { pick: "b" } };
+    },
+  });
+  await client.start();
+  await client.watch(sessionId, "/tmp");
+  await Bun.sleep(30); // the first turn is over
+  await client.prompt(sessionId, text("ask again"));
+  await until(() => answers.length === 2, "the agent to be answered again");
+  expect(asked).toHaveLength(1);
+  expect(asked[0]).toMatchObject({ mode: "form", message: "Which one?" });
+  expect(answers[1]).toEqual({ action: "accept", content: { pick: "b" } });
 });

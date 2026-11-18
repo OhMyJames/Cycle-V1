@@ -10,6 +10,7 @@ export type Run = {
   agent: Parameters<Parameters<ReturnType<typeof client>["connectWith"]>[1]>[0];
   updates: SessionUpdate[];
   permissions: unknown[];
+  elicitations: unknown[];
   idle: () => Promise<SessionUpdate>;
 };
 
@@ -20,6 +21,8 @@ export type Options = {
   configDir: string;
   /** How to answer a permission request. */
   onPermission?: (request: unknown) => "allow" | "deny" | "cancel";
+  /** Says this client can answer forms, and how it does. Without it the daemon-side rule applies: none can. */
+  onElicitation?: (request: unknown) => Record<string, unknown>;
 };
 
 /**
@@ -56,6 +59,7 @@ export const withAdapter = async <T>(
   });
   const updates: SessionUpdate[] = [];
   const permissions: unknown[] = [];
+  const elicitations: unknown[] = [];
   const waiting: ((u: SessionUpdate) => void)[] = [];
   const app = client()
     .onNotification(methods.client.session.update, ({ params }) => {
@@ -64,6 +68,13 @@ export const withAdapter = async <T>(
       if (update.sessionUpdate === "state_update" && update.state === "idle") {
         for (const resolve of waiting.splice(0)) resolve(params.update);
       }
+    })
+    .onRequest(methods.client.elicitation.create, ({ params }) => {
+      elicitations.push(params);
+      return (options.onElicitation?.(params) ?? {
+        action: "cancel",
+        _meta: { "cycle/noClient": true },
+      }) as never;
     })
     .onRequest(methods.client.session.requestPermission, ({ params }) => {
       permissions.push(params);
@@ -77,11 +88,15 @@ export const withAdapter = async <T>(
       await agent.request(methods.agent.initialize, {
         protocolVersion: 2,
         info: { name: "integration-test", version: "0" },
+        ...(options.onElicitation !== undefined
+          ? { capabilities: { elicitation: { form: {} } } }
+          : {}),
       } as never);
       return body({
         agent,
         updates,
         permissions,
+        elicitations,
         idle: () => new Promise((resolve) => waiting.push(resolve)),
       });
     });

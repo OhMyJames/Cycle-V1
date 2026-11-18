@@ -46,6 +46,8 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 }
 ```
 
+- 客户端在 `initialize` 的 `capabilities.elicitation.form` 里声明自己能回答表单式的提问(见 §9)。不声明就不会收到 `elicitation/create`。
+- 每个 agent 能收什么样的 prompt 内容、能不能带 MCP 服务器等,不在这里:daemon 的 `initialize` 不依赖具体 agent,放在 `_cycle/agents/list`(§10)。
 - 客户端不认识的能力忽略。daemon 不认识的客户端能力同样忽略。
 - ACP 的 `fs/*` 和 `terminal/*` 能力 v1 不支持(v2 稳定版里本来也没有 `fs/*`)。`initialize` 的客户端能力里相应字段缺省即视为不支持。
 
@@ -101,6 +103,10 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 }
 ```
 
+- `additionalDirectories`、`mcpServers`、`systemPrompt` 由 daemon 校验并**保存在索引里**,agent 每次启动(新建,以及停止后的恢复)都带着它们,所以 agent 进程被释放或重启后它们仍然有效。`session/resume` 发给 agent 时 daemon 重新带上;客户端不需要重发。
+  - `systemPrompt`:只支持 `mode: "append"`,内容只能是 `text` 块。`override` 以 `-32602` 拒绝:它会换掉 agent 自带的指令,包括工具的用法。
+  - `mcpServers`:支持 `stdio` 和 `http`。条目里可能有密钥(`env`、`headers`),所以**只存在索引里**(目录 0700,文件 0600);不进 JSONL 日志(日志会补发给每个客户端),`session/list` 也不返回它们,`_cycle/agents/list` 不提它们。Claude 适配用 `mcpServersDelivery: "initialize"` 交给 Claude 进程,密钥不出现在命令行上。
+  - `additionalDirectories`:绝对路径,在 daemon 所在的机器上;和 `cwd` 一样要求存在。
 - `cycle/agent`:agent 的 id,必须在 daemon 声明的 `agents` 里。缺省时使用 daemon 的默认 agent。
 - `cycle/config`:创建时的初始配置,键由该 agent 的配置 schema 决定(见 §10)。daemon 校验后翻译成 agent 能理解的形式。
 - 响应是 ACP 的 `NewSessionResponse`。`sessionId` 由 daemon 分配,格式是 UUID。
@@ -181,6 +187,14 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 - turn 的状态由 `state_update` 表达:`running`、`requires_action`、`idle`。`idle` 带 `stopReason`(`end_turn`、`max_tokens`、`max_turn_requests`、`refusal`、`cancelled`、`error`),它标志 turn 结束。
 - 用户消息通过 `user_message` 更新进入日志。agent 没有发出时,daemon 用 `session/prompt` 的内容合成一条,保证历史里一定有用户消息。Claude 适配自己会发这一条(用 `session/prompt` 返回的 `messageId`),所以对 Claude 不会触发合成;合成只是对其他 agent 的兜底。daemon 通过 `messageId` 去重。
 
+**内容校验**(决策 0010):daemon 在启动 agent 之前检查 `prompt` 的每一块,不合格就以 `-32602` 拒绝,`data` 为 `{reason, index}`,不会丢掉其中一部分再继续:
+
+- 允许的类型:`text`、`resource_link`(每个 agent 都接受),以及该 agent 的 `promptCapabilities` 允许的:`image`(PNG、JPEG、GIF、WebP)、`resource`(`embeddedContext`:文本,或 `application/pdf` 的二进制)。`audio` 一律不收。
+- 上限:每块解码后 5 MiB,整个 prompt 12 MiB,最多 32 块;文本块按 UTF-8 字节数算。常量在 `@cycle/protocol`(`PROMPT_LIMITS`),客户端可以用同一个函数 `checkPrompt` 提前检查。
+- `reason`:(空数组在 ACP 的 schema 那一层就被拒绝,没有 `reason`;下面这些是 daemon 自己给的。)`too_many_blocks`、`unsupported_block`、`unsupported_media_type`、`block_too_large`、`prompt_too_large`、`invalid_base64`。
+
+附件和图片进入日志的 `user_message`,历史补发时和文字一起到达。
+
 多个客户端同时附着的规则:
 
 - 只有 session 为 `idle` 时才接受 `session/prompt`。否则以 `-32010`(`session_busy`)拒绝。
@@ -196,6 +210,16 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 3. 没有客户端附着时,请求保持挂起。新客户端附着时,daemon 在补发之后重新发送所有未解决的请求。
 4. 客户端收到 `session/cancel` 之后,按 ACP 的规定,所有未解决的权限请求必须以"已取消"的结果回复。这一步由 daemon 代为完成,不依赖客户端。
 5. agent 进程退出时,未解决的请求在日志中标记为"已中止",并发 `_cycle/request_resolved`。
+
+### elicitation(决策 0011)
+
+`elicitation/create` 用上面同一套机制,差别只有这些:
+
+- 只有在 `initialize` 里声明了 `elicitation.form` 的、已附着的客户端才会被问。请求的 `_meta["cycle/requestId"]` 和权限请求一样。
+- 回答是 ACP 的 `{action: "accept" | "decline" | "cancel", content?}`;日志的 `response` 记录整个回答。
+- **没有这样的客户端附着时立即回答** `{action: "cancel", _meta: {"cycle/noClient": true}}`,不挂起。agent 据此回退:MCP 的 elicitation 当作拒绝,`AskUserQuestion` 走权限请求。
+- `session/cancel`、agent 退出:未解决的 elicitation 以 `{action: "cancel"}` 结束,并发 `_cycle/request_resolved`。
+- URL 模式 v1 不支持,daemon 不声明。
 
 ## 10. agent 与配置
 
@@ -217,6 +241,12 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 ```
 
 `configSchema` 是 JSON Schema,客户端用它渲染配置界面,不需要认识具体 agent。候选配置项(Claude):模型、权限模式、思考强度、MCP 服务、环境变量白名单、系统提示。具体字段在 L3 文档里定义。
+
+每个 agent 还有 `promptCapabilities`(ACP 的 `PromptCapabilities`:`image`、`embeddedContext`,缺省都是没有),客户端据此决定是否提供附件入口,daemon 据此校验 prompt(§8)。Claude 的 `model` 是一个枚举(`default`、`sonnet`、`opus`、`haiku`),`mode` 是权限模式。
+
+agent 自己改了配置(例如 Claude 在 plan 模式里被批准后切回常规模式),通过 `config_option_update` 回报;daemon 把变化写进索引的 `config`,恢复时才不会把它改回去。
+
+**标题**:agent 的 `session_info_update.title` 只在用户没有改过名的 session 上生效:`_cycle/session/set_title` 设置的标题优先,之后 agent 给的标题忽略。agent 给出的标题写入索引,`session/list` 的 `_meta.title` 反映它,并发 `_cycle/session_list_changed`。
 
 ### 默认配置
 

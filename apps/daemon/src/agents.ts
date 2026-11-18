@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { CLAUDE_PROMPT_CAPABILITIES } from "@cycle/adapter-claude";
 import { type AgentDefinition, processAgent } from "@cycle/daemon";
 import type { Config } from "./config.ts";
 import { claudeExecutable, selfCommand } from "./self.ts";
@@ -13,7 +14,12 @@ export const CLAUDE_CONFIG_SCHEMA = {
       enum: ["default", "acceptEdits", "plan"],
       default: "default",
     },
-    model: { type: "string", title: "Model" },
+    model: {
+      type: "string",
+      title: "Model",
+      enum: ["default", "sonnet", "opus", "haiku"],
+      default: "default",
+    },
   },
 } as const;
 
@@ -45,6 +51,7 @@ export const agentsFor = (
     id: "claude",
     name: "Claude",
     configSchema: CLAUDE_CONFIG_SCHEMA,
+    promptCapabilities: CLAUDE_PROMPT_CAPABILITIES,
     // In the executable, the Claude binary shipped beside it must be there: say so now, not on the first prompt.
     available: () => claudeExecutable() === undefined || existsSync(claudeExecutable() as string),
     command: [...selfCommand(), "adapter", "claude"],

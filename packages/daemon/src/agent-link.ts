@@ -13,6 +13,8 @@ export type LinkHandlers = {
   update: (update: SessionUpdate) => void;
   /** The agent asks the user something. Answers when someone has decided. */
   permission: (params: Record<string, unknown>) => Promise<unknown>;
+  /** The agent asks the user for structured input (a form). Answers when someone has, or at once if no one can. */
+  elicitation: (params: Record<string, unknown>) => Promise<unknown>;
   /** The connection to the agent ended, however it ended. */
   closed: () => void;
 };
@@ -37,6 +39,9 @@ export class AgentLink {
       })
       .onRequest(methods.client.session.requestPermission, async ({ params }) => {
         return (await handlers.permission(params as unknown as Record<string, unknown>)) as never;
+      })
+      .onRequest(methods.client.elicitation.create, async ({ params }) => {
+        return (await handlers.elicitation(params as unknown as Record<string, unknown>)) as never;
       });
     const connection =
       launched.target instanceof AgentApp
@@ -47,7 +52,8 @@ export class AgentLink {
       await connection.agent.request(methods.agent.initialize, {
         protocolVersion: 2,
         info: { name: "cycle", version: "0.0.0" },
-        capabilities: {},
+        // Forms only: whether there is anyone to ask is the daemon's to decide, per request.
+        capabilities: { elicitation: { form: {} } },
       } as never);
     } catch (error) {
       connection.close();

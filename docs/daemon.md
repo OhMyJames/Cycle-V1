@@ -29,10 +29,14 @@
 - agent 进程退出:挂起的请求中止,进行中的 turn 以错误结束,下一次 prompt 重新启动并恢复。
 - daemon 重启:索引和日志在磁盘上,历史可读,不启动 agent。
 - 协议主版本不一致时以 ACP 的 `-32022` 拒绝。
+- **附件**(决策 0010):`session/prompt` 在启动 agent 之前按 agent 的 `promptCapabilities` 和上限(`PROMPT_LIMITS`)检查每一块,不合格整个拒绝(`-32602`,`data` 里有 `reason` 和 `index`);`_cycle/agents/list` 给出每个 agent 的 `promptCapabilities`;图片等进入日志的 `user_message`,补发时和文字一起到。
+- **session 的启动参数**:`additionalDirectories`、`mcpServers`、`systemPrompt` 在 `session/new` 里校验(目录必须在 daemon 的机器上存在),存进索引,每次启动或恢复 agent 时重新发送。索引文件权限 0600,MCP 的 `env`/`headers` 只在这里,不进日志,也不在 `session/list` 里。
+- **agent 自己的变化回写**:`config_option_update` 写进索引的 `config`(agent 重启后按它恢复,不会改回去);`session_info_update.title` 写进标题,但用户起的名字不被覆盖(索引里标了 `titleFromAgent` 的才是 agent 起的;没有标记的一律当作用户的,包括这个功能之前写下的)。
+- **elicitation**(决策 0011):`elicitation/create` 和权限请求同一套机制(写日志、先到先得、`_cycle/request_resolved`、取消和 agent 退出时以 `cancel` 结束),但只发给在 `initialize` 里声明了 `elicitation.form` 的客户端;没有这样的客户端附着时立刻回 `{action:"cancel", _meta:{"cycle/noClient":true}}`,不挂起。
+- **`_cycle/agent_defaults/*`**:读写都有实现,存在 `<数据目录>/agent-defaults.json`,新 session 按它开始,session 自己的配置覆盖它(此前这份文档误写成占位)。
 
 ## 没做
 
-- **`_cycle/agent_defaults/*`**:只是占位,读返回空,写什么都不存。
 - **配置校验**:`cycle/config` 不按 `configSchema` 校验,直接交给 agent,由 agent 拒绝(映射为 `invalid_config`)。
 - **合成 `user_message`**:协议 §8 写的"agent 不发时 daemon 合成"没有实现。Claude 自己会发,所以现在不需要;接入不发的 agent 时再做。
 - **`session/list` 的分页和过滤**。

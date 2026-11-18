@@ -10,6 +10,8 @@ export type ClientConn = {
   notify: (method: string, params: unknown) => Promise<void>;
   /** Asks the client something and waits for the answer. */
   request: (method: string, params: unknown) => Promise<unknown>;
+  /** Whether the client said, in `initialize`, that it can answer a form (`elicitation/create`). */
+  elicitation: boolean;
 };
 
 /** A client watching one session: what it is sent comes through the session's log. */
@@ -18,6 +20,12 @@ export type Attachment = { conn: ClientConn; detach: () => void };
 /** An agent's request that is waiting for a client's answer. See docs/protocol.md §9. */
 export type Pending = {
   requestId: string;
+  /** What clients are asked: `session/request_permission` or `elicitation/create`. */
+  method: string;
+  /** What the agent is told when the request ends without an answer: a cancel, an agent that exits. */
+  cancelled: unknown;
+  /** The part of a client's answer that settles it. */
+  answer: (response: unknown) => unknown;
   /** What clients are asked, with the daemon's session id. */
   params: Record<string, unknown>;
   settled: boolean;

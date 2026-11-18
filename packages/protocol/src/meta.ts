@@ -20,6 +20,8 @@ export const META = {
   lastSeq: "cycle/lastSeq",
   /** On a permission request sent to a client: the daemon's id for it, as `_cycle/request_resolved` names it. */
   requestId: "cycle/requestId",
+  /** On the answer to an `elicitation/create` nobody could be asked: no attached client has the capability. */
+  noClient: "cycle/noClient",
 } as const;
 
 /** The version of Cycle's protocol, "major.minor". A different major is refused. */

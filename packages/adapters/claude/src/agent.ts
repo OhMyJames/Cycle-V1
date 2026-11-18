@@ -1,14 +1,23 @@
 import { randomUUID } from "node:crypto";
-import type { Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  ElicitationRequest,
+  Options,
+  Query,
+  SDKMessage,
+  SDKUserMessage,
+  SlashCommand,
+} from "@anthropic-ai/claude-agent-sdk";
 import {
   type AgentContext,
   agent as acpAgent,
-  type ContentBlock,
   methods,
   RequestError,
   type SessionConfigOption,
   type SessionUpdate,
 } from "@cycle/acp";
+import { answersOf, formOf, type Question, questionsOf } from "./ask.ts";
+import { type SdkContent, toSdkContent } from "./content.ts";
+import { NO_SETUP, type SessionSetup, setupOf } from "./setup.ts";
 import { PlanState, type StopReason, stopReasonOf, TurnTranslator, toolKind } from "./translate.ts";
 
 /** The SDK's `query`, in streaming-input mode: the prompt is a stream, so one process serves many turns. */
@@ -32,10 +41,43 @@ export type AdapterConfig = {
   idleMs?: number;
   /** How long a cancelled turn may take to stop before its process is killed (ms). Default 3 seconds. */
   cancelGraceMs?: number;
+  /**
+   * What Claude has recorded about a session, to learn the title it gave it. The SDK's own
+   * `getSessionInfo` in the real process; absent means titles are not looked for.
+   */
+  sessionInfo?: (sessionId: string, cwd: string) => Promise<SessionInfo | undefined>;
 };
+
+export type SessionInfo = { summary?: string; customTitle?: string; firstPrompt?: string };
+
+/** The models offered. Aliases: Claude Code resolves them to whatever is current. */
+const MODELS = [
+  { value: "default", name: "Default" },
+  { value: "sonnet", name: "Sonnet" },
+  { value: "opus", name: "Opus" },
+  { value: "haiku", name: "Haiku" },
+];
+
+/** What this agent takes in a prompt beyond text and links (decision 0010). */
+export const CLAUDE_PROMPT_CAPABILITIES = { image: {}, embeddedContext: {} } as const;
 
 const PERMISSION_MODES = ["default", "acceptEdits", "plan"] as const;
 type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+type FormResponse = {
+  action: string;
+  content?: Record<string, unknown> | undefined;
+  _meta?: Record<string, unknown>;
+};
+
+/** What asking for a form came to: an answer, the turn being cancelled, or no one to ask. */
+type FormAnswer =
+  | "aborted"
+  | "unavailable"
+  | { action: string; content?: Record<string, unknown> | undefined };
+
+/** `_meta` key on the daemon's answer when no attached client could be asked (docs/protocol.md §9). */
+const NO_CLIENT = "cycle/noClient";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -56,7 +98,7 @@ type Live = {
   query: Query;
   abort: AbortController;
   /** Hands the process a user message. */
-  push: (text: string) => void;
+  push: (content: string | SdkContent[]) => void;
   /** Ends the input: the process finishes what it is doing and exits. */
   end: () => void;
   idle: ReturnType<typeof setTimeout> | undefined;
@@ -73,16 +115,28 @@ type SessionState = {
   live: Live | undefined;
   /** The task list, which outlives a turn. */
   plan: PlanState;
+  /** Directories, MCP servers and system prompt: what a process is started with, every time. */
+  setup: SessionSetup;
+  /** The title last told to the client, so it is not told twice. */
+  title: string | undefined;
+  /** The id of the compaction that is running, if one is. */
+  compaction: string | undefined;
 };
 
-const textOf = (blocks: ContentBlock[]): string =>
-  blocks
-    .map((block) => (block.type === "text" ? block.text : ""))
-    .filter((text) => text !== "")
-    .join("\n\n");
+const modelOptions = (session: SessionState) =>
+  session.model === undefined || MODELS.some((m) => m.value === session.model)
+    ? MODELS
+    : [...MODELS, { value: session.model, name: session.model }];
 
 const configOptions = (session: SessionState): SessionConfigOption[] =>
   [
+    {
+      configId: "model",
+      name: "Model",
+      type: "select",
+      currentValue: session.model ?? "default",
+      options: modelOptions(session),
+    },
     {
       configId: "mode",
       name: "Permission mode",
@@ -107,6 +161,8 @@ const configOptions = (session: SessionState): SessionConfigOption[] =>
  */
 export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
   const sessions = new Map<string, SessionState>();
+  /** Whether the client said, in `initialize`, that it can answer a form. One client per adapter. */
+  let clientCanElicit = false;
   const idleMs = config.idleMs ?? 300_000;
   const cancelGraceMs = config.cancelGraceMs ?? 3_000;
 
@@ -130,6 +186,81 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     live.end();
     if (hard) live.abort.abort();
     else setTimeout(() => live.abort.abort(), 2_000).unref?.();
+  };
+
+  /** Tells the client the title Claude gave the session, once per change. Never throws. */
+  const announceTitle = async (client: AgentContext, session: SessionState) => {
+    if (config.sessionInfo === undefined) return;
+    try {
+      const info = await config.sessionInfo(session.id, session.cwd);
+      if (info === undefined) return;
+      // `summary` falls back to the first prompt when Claude has not given the session a title.
+      const generated = info.summary !== info.firstPrompt ? info.summary : undefined;
+      const title = info.customTitle ?? generated;
+      if (title === undefined || title === "" || title === session.title) return;
+      session.title = title;
+      await notify(client, session.id, {
+        sessionUpdate: "session_info_update",
+        title,
+      } as SessionUpdate);
+    } catch {
+      // No title is not a failure.
+    }
+  };
+
+  const commandsUpdate = (commands: readonly SlashCommand[]): SessionUpdate => {
+    const seen = new Set<string>();
+    const availableCommands = [];
+    for (const command of commands) {
+      if (seen.has(command.name)) continue;
+      seen.add(command.name);
+      availableCommands.push({
+        type: "command",
+        name: command.name,
+        description: command.description,
+        ...(command.argumentHint ? { input: { type: "text", hint: command.argumentHint } } : {}),
+      });
+    }
+    return { sessionUpdate: "available_commands_update", availableCommands } as SessionUpdate;
+  };
+
+  /**
+   * What a process says that is not part of a turn: the mode it changed itself (a plan approved),
+   * a compaction, a new list of commands. These are the session's, and can come between turns.
+   */
+  const aside = async (client: AgentContext, session: SessionState, message: SDKMessage) => {
+    if (message.type !== "system") return;
+    const m = message as unknown as Record<string, unknown> & { subtype: string };
+    if (m.subtype === "commands_changed") {
+      await notify(client, session.id, commandsUpdate(m.commands as SlashCommand[]));
+    } else if (m.subtype === "status") {
+      const mode = m.permissionMode as PermissionMode | undefined;
+      if (mode !== undefined && PERMISSION_MODES.includes(mode) && mode !== session.mode) {
+        session.mode = mode;
+        await notify(client, session.id, {
+          sessionUpdate: "config_option_update",
+          configOptions: configOptions(session),
+        } as SessionUpdate);
+      }
+      if (m.status === "compacting" && session.compaction === undefined) {
+        session.compaction = randomUUID();
+        await notify(client, session.id, {
+          sessionUpdate: "compaction_update",
+          compactionId: session.compaction,
+          status: "in_progress",
+        } as SessionUpdate);
+      } else if (m.status !== "compacting" && session.compaction !== undefined) {
+        const failed = m.compact_result === "failed";
+        const compactionId = session.compaction;
+        session.compaction = undefined;
+        await notify(client, session.id, {
+          sessionUpdate: "compaction_update",
+          compactionId,
+          status: failed ? "failed" : "completed",
+          ...(failed && typeof m.compact_error === "string" ? { error: m.compact_error } : {}),
+        } as SessionUpdate);
+      }
+    }
   };
 
   /** Ends the turn that is running, once: the usage, then the idle state that tells clients it is over. */
@@ -159,6 +290,98 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     } catch {
       // The connection is gone: there is no one to tell.
     }
+    if (!turn.cancelled) void announceTitle(client, session);
+  };
+
+  /**
+   * Asks the user a form, through the daemon. Ends when someone answers, or when the turn is
+   * cancelled or the process gives up on it (`signal`). `undefined`: it was cancelled.
+   */
+  const askForm = async (
+    client: AgentContext,
+    session: SessionState,
+    form: { message: string; requestedSchema: unknown },
+    signal: AbortSignal,
+  ): Promise<FormAnswer> => {
+    // A client that did not say it can show a form is not sent one (ACP: the capability is the opt-in).
+    if (!clientCanElicit) return "unavailable";
+    const all = session.turn ? AbortSignal.any([signal, session.turn.permissions.signal]) : signal;
+    const aborted = new Promise<"aborted">((resolve) => {
+      if (all.aborted) resolve("aborted");
+      all.addEventListener("abort", () => resolve("aborted"), { once: true });
+    });
+    const answer = client
+      .request(
+        methods.client.elicitation.create,
+        { sessionId: session.id, mode: "form", ...form } as never,
+        { signal: all } as never,
+      )
+      .then(
+        (r) => r as unknown as FormResponse,
+        () => "failed" as const,
+      );
+    const response = await Promise.race([answer, aborted]);
+    if (response === "aborted") return "aborted";
+    // A request that failed (a host that does not know the method, a broken connection) is not the
+    // user saying no: it is nobody to ask. Only an abort ends the turn.
+    if (response === "failed") return all.aborted ? "aborted" : "unavailable";
+    if (response._meta?.[NO_CLIENT] === true) return "unavailable";
+    return { action: response.action, content: response.content };
+  };
+
+  /** An MCP server asks the user for input. Without a client that can answer it is declined. */
+  const elicit = async (
+    client: AgentContext,
+    session: SessionState,
+    request: ElicitationRequest,
+    signal: AbortSignal,
+  ) => {
+    if (request.mode === "url" || request.requestedSchema === undefined) {
+      return { action: "decline" as const };
+    }
+    const answer = await askForm(
+      client,
+      session,
+      { message: request.message, requestedSchema: request.requestedSchema },
+      signal,
+    );
+    if (answer === "aborted") return { action: "cancel" as const };
+    if (answer === "unavailable") return { action: "decline" as const };
+    if (answer.action === "accept") {
+      return {
+        action: "accept" as const,
+        content: (answer.content ?? {}) as Record<string, string>,
+      };
+    }
+    return { action: answer.action === "decline" ? ("decline" as const) : ("cancel" as const) };
+  };
+
+  /**
+   * `AskUserQuestion` as a form. `undefined` when it cannot be one (no client can answer a form, or
+   * the input is not what the tool takes): the caller asks it as a permission, which is what it was.
+   */
+  const askQuestions = async (
+    client: AgentContext,
+    session: SessionState,
+    input: Record<string, unknown>,
+    context: { signal: AbortSignal },
+  ): Promise<
+    | { behavior: "allow"; updatedInput: Record<string, unknown> }
+    | { behavior: "deny"; message: string; interrupt?: boolean }
+    | undefined
+  > => {
+    const questions: Question[] | undefined = questionsOf(input);
+    if (questions === undefined) return undefined;
+    const answer = await askForm(client, session, formOf(questions), context.signal);
+    if (answer === "aborted") return { behavior: "deny", message: "Cancelled", interrupt: true };
+    if (answer === "unavailable") return undefined;
+    if (answer.action !== "accept") {
+      return { behavior: "deny", message: "The user declined to answer" };
+    }
+    return {
+      behavior: "allow",
+      updatedInput: { ...input, answers: answersOf(questions, answer.content) },
+    };
   };
 
   /** Starts a process for the session. Its messages go to whatever turn is running. */
@@ -179,6 +402,17 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     const options: Options = {
       cwd: session.cwd,
       env: config.env,
+      ...(session.setup.additionalDirectories.length > 0
+        ? { additionalDirectories: session.setup.additionalDirectories }
+        : {}),
+      ...(Object.keys(session.setup.mcpServers).length > 0
+        ? // Over stdin, not argv: a server's env and headers can hold secrets.
+          { mcpServers: session.setup.mcpServers, mcpServersDelivery: "initialize" as const }
+        : {}),
+      ...(session.setup.systemPrompt !== undefined
+        ? { systemPrompt: session.setup.systemPrompt }
+        : {}),
+      onElicitation: (request, { signal }) => elicit(client, session, request, signal),
       abortController: abort,
       includePartialMessages: true,
       permissionMode: session.mode,
@@ -188,6 +422,11 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         : {}),
       ...(session.started ? { resume: session.id } : { sessionId: session.id }),
       canUseTool: async (toolName, toolInput, context) => {
+        if (toolName === "AskUserQuestion") {
+          const answered = await askQuestions(client, session, toolInput, context);
+          if (answered !== undefined) return answered;
+          // Nobody behind the daemon can answer a form: it is a permission card, as it was.
+        }
         // A cancel ends the question, whether or not the SDK also aborts the signal it gave us.
         const signal = session.turn
           ? AbortSignal.any([context.signal, session.turn.permissions.signal])
@@ -240,10 +479,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     const live: Live = {
       query,
       abort,
-      push: (text) => {
+      push: (content) => {
         queue.push({
           type: "user",
-          message: { role: "user", content: text },
+          message: { role: "user", content },
           parent_tool_use_id: null,
         } as SDKUserMessage);
         wake?.();
@@ -255,6 +494,18 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       idle: undefined,
     };
 
+    // The commands it has: the list of what a user can type after a slash.
+    void (async () => {
+      try {
+        const commands = await query.supportedCommands();
+        if (session.live === live && commands.length > 0) {
+          await notify(client, session.id, commandsUpdate(commands));
+        }
+      } catch {
+        // A process that cannot say is a process with no commands to show.
+      }
+    })();
+
     // One loop for the life of the process. Whatever turn is running owns what comes out.
     void (async () => {
       let failure: unknown;
@@ -262,6 +513,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         for await (const message of query as AsyncIterable<SDKMessage>) {
           if (session.live !== live) continue; // let go: nothing it says matters now
           if (message.type === "system" && message.subtype === "init") session.started = true;
+          await aside(client, session, message).catch(() => undefined);
           const turn = session.turn;
           if (turn === undefined || turn.done) continue;
           for (const update of turn.translator.feed(message)) {
@@ -307,14 +559,19 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     return live;
   };
 
-  const runTurn = async (client: AgentContext, session: SessionState, turn: Turn, text: string) => {
+  const runTurn = async (
+    client: AgentContext,
+    session: SessionState,
+    turn: Turn,
+    content: string | SdkContent[],
+  ) => {
     // A cancel can arrive before there is a process: then there is nothing to interrupt.
     if (turn.cancelled) return finish(client, session, turn, { stopReason: "cancelled" });
     try {
       const live = session.live ?? start(client, session);
       session.live = live;
       clearTimeout(live.idle);
-      live.push(text);
+      live.push(content);
     } catch (error) {
       await finish(client, session, turn, {
         stopReason: "error",
@@ -331,11 +588,21 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
   };
 
   return acpAgent({ name: "cycle-claude-adapter" })
-    .onRequest(methods.agent.initialize, () => ({
-      protocolVersion: 2,
-      info: { name: "cycle-claude-adapter", version: "0.0.0" },
-      capabilities: { session: { prompt: {} } },
-    }))
+    .onRequest(methods.agent.initialize, ({ params }) => {
+      clientCanElicit = params.capabilities?.elicitation?.form != null;
+      return {
+        protocolVersion: 2,
+        info: { name: "cycle-claude-adapter", version: "0.0.0" },
+        capabilities: {
+          session: {
+            prompt: CLAUDE_PROMPT_CAPABILITIES,
+            mcp: { stdio: {}, http: {} },
+            additionalDirectories: {},
+            systemPrompt: {},
+          },
+        },
+      };
+    })
     .onRequest(methods.agent.session.new, ({ params }) => {
       const proposed = (params._meta as Record<string, unknown> | null | undefined)?.[PROPOSED_ID];
       // Take the daemon's id when it is a UUID, which is all the SDK accepts; otherwise make one.
@@ -349,6 +616,9 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         turn: undefined,
         live: undefined,
         plan: new PlanState(),
+        setup: setupOf(params),
+        title: undefined,
+        compaction: undefined,
       };
       sessions.set(id, session);
       return { sessionId: id, configOptions: configOptions(session) };
@@ -372,7 +642,12 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           turn: undefined,
           live: undefined,
           plan: new PlanState(),
+          setup: NO_SETUP,
+          title: undefined,
+          compaction: undefined,
         } satisfies SessionState);
+      // What the daemon sends again on a resume is what the next process is started with.
+      session.setup = setupOf(params);
       sessions.set(session.id, session);
       // ACP v2: a successful resume sends the current state before it answers.
       await notify(client, session.id, {
@@ -386,6 +661,8 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       if (session.turn !== undefined) {
         throw new RequestError(-32600, "A turn is already running", { sessionId: session.id });
       }
+      // Refused whole, before there is a turn: a block that cannot be carried is not dropped.
+      const content = toSdkContent(params.prompt);
       const messageId = randomUUID();
       // The turn exists from here, before anything is awaited: a cancel or a second prompt that
       // arrives while the first notifications are going out must find it.
@@ -409,7 +686,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
             sessionUpdate: "state_update",
             state: "running",
           } as SessionUpdate);
-          await runTurn(client, session, turn, textOf(params.prompt));
+          await runTurn(client, session, turn, content);
         } catch {
           // The connection is gone: there is no one to tell.
         }
@@ -445,8 +722,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         session.mode = value as PermissionMode;
         apply(session, (query) => query.setPermissionMode(session.mode));
       } else if (params.configId === "model" && typeof value === "string") {
-        session.model = value;
-        apply(session, (query) => query.setModel(value));
+        // "default" is no choice: Claude Code picks.
+        session.model = value === "default" ? undefined : value;
+        const model = session.model;
+        apply(session, (query) => query.setModel(model));
       } else {
         throw new RequestError(-32602, "Unknown configuration option", {
           configId: params.configId,
