@@ -5,8 +5,8 @@ const MAIN = new URL("./main.ts", import.meta.url).pathname;
 /** True in the single-file executable `bun build --compile` makes: its code is inside it. */
 export const compiled = (): boolean => Bun.main.startsWith("/$bunfs");
 
-/** The command that runs this program again: the executable itself, or `bun main.ts` from source. */
-export const selfCommand = (): string[] => (compiled() ? [process.execPath] : ["bun", MAIN]);
+/** The command that runs this program again: the executable itself, or this same Bun running main.ts from source (by path, not by name: an ssh session has no PATH to find `bun` on). */
+export const selfCommand = (): string[] => [process.execPath, ...(compiled() ? [] : [MAIN])];
 
 /**
  * The Claude Code binary the SDK drives. In the executable it cannot find its own platform package,
