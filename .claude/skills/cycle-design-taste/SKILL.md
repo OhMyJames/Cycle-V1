@@ -15,7 +15,7 @@ Cycle 是一个人每天开几个小时的工具:盯着 agent 干活、批准它
 出了什么问题、该做什么。
 
 > 这份 skill 的方法借自 tasteskill(去模板味、一个系统、真图标、先写文案、动效要有理由、用真实浏览器检查),
-> 内容按 Cycle 重写:它原本做公司官网,这里只留适用于工具型桌面应用的部分。
+> 检查流程也参考了 [Hallmark 的 app scope](https://github.com/Nutlope/hallmark/blob/04977e15f3dfd6ee4b74c887dac3eb52665d6c92/skills/hallmark/references/flow.md#L49-L65) 和改版前后核对的方法。Cycle 的设计以 `DESIGN.md` 为准。
 
 ## 开始之前
 
@@ -29,9 +29,9 @@ Cycle 是一个人每天开几个小时的工具:盯着 agent 干活、批准它
 
 这十条压过其余所有内容。
 
-1. **只用令牌。** DESIGN.md 里的 `--cycle-*` 加 ui-sdk 的 `--ui-*`(门禁检查 DESIGN.md 与 `app.css` 的 `--cycle-*` 一致:新增令牌要两边都写)。 颜色只写 `var(--ui-*)`,圆角 `var(--ui-radius)`(8px,`app.css` 里设的;不要给个别组件另写圆角值),间距 `var(--cycle-gap)` 或 `--ui-spacing` 的倍数。不写十六进制颜色、
+1. **只用令牌。** DESIGN.md 里的 `--cycle-*` 加 ui-sdk 的 `--ui-*`(门禁检查 DESIGN.md 与 `app.css` 的 `--cycle-*` 一致:新增令牌要两边都写)。颜色引用这两组语义令牌,圆角 `var(--ui-radius)`(8px),间距 `var(--cycle-gap)` 或 `--ui-spacing` 的倍数。不写十六进制颜色、
    不加新的强调色、不加渐变、毛玻璃、发光、阴影装饰。令牌用 `light-dark()`,跟随系统深浅色;每一处都得跟着换,深浅色都要看。
-2. **一个系统。** 根字号 14px(`app.css`),其余用 `em` 相对它(ui-sdk 的 `--ui-font-size` 是 13px,组件内部用它);一种字体栈(系统字体),等宽只用于代码、命令、路径、id;
+2. **一个系统。** 根字号 16px,组件和正文使用 `DESIGN.md` 的四档字阶;一种字体栈(系统字体),等宽只用于代码、命令、路径、id;
    两种内容宽度(侧栏、主区),主区里的对话有最大行宽。不新增字号、不新增圆角值、不新增间距值。
 3. **样式写在 `app.css` 里,用 `data-slot`。** 我们自己的组件不用 Tailwind 工具类,不用行内样式。Tailwind 只服务 Streamdown。ui-sdk 的部件(Collapsible、Command 等)自己设 `data-slot`,会盖掉我们写的:给它们写样式用 `data-kind`(或 `data-palette`),先看渲染出来的 DOM。
 4. **状态要齐。** 每块界面都有:空、加载、出错、断线、内容很长、数量很多。出错时写**原因和下一步**,不写"出错了"。
@@ -54,11 +54,8 @@ Cycle 是一个人每天开几个小时的工具:盯着 agent 干活、批准它
 2. **先写文案。** 把这块界面会出现的每一个字写下来(标题、按钮、空状态、错误、确认),按 `references/copy.md` 过一遍,再写代码。
 3. **做。** 在 `packages/ui/src/react` 里写组件,样式加进 `app.css`。先让最坏的状态(很长的标题、断线、几百个会话)看起来对,
    再调正常状态。
-4. **查。** 按 `references/check.md`:
-   - `bun run check`(DOM 测试里加这块的各个状态,这是回归的底线);
-   - `bun .claude/skills/cycle-design-taste/scripts/scan-copy.mjs` 扫界面文案;
-   - 在真实窗口里看一遍:浅色、深色、窗口最窄和默认大小,键盘从头走到尾。
-5. **报告。** 说清:改了什么、看过哪些状态和主题、哪些没看(例如没在 Mac 上看)、留下哪些已知缺口。
+4. **查。** 按 [验收指南](references/check.md)跑门禁并查看真实窗口。改变现有交互或布局时,用相同状态、尺寸和主题对照前后,核对受影响的操作路径。扫出的命中要在画面、DOM 或实际操作里复核。
+5. **报告。** 区分影响操作的缺陷和体验打磨。给出复现状态、证据和改动结果,说明实际覆盖的范围和剩余缺口。
 
 ## 清单
 

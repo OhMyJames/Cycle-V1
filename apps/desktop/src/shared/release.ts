@@ -8,6 +8,16 @@ export const RELEASE_REPO = "OhMyJames/Cycle-V1";
 /** A release's tag for a version, and the only tags the workflow builds. */
 export const tagOf = (version: string): string => `v${version}`;
 
+/**
+ * One thing in the app bundle, by its path from the bundle's folder (`Contents/MacOS/Electron`). The
+ * table of these is what lets an update fetch only the files that changed: whatever is assembled is
+ * checked against it, file by file.
+ */
+export type TreeEntry =
+  | { path: string; kind: "dir" }
+  | { path: string; kind: "file"; mode: number; size: number; sha256: string }
+  | { path: string; kind: "link"; target: string };
+
 /** `latest-<platform>-<arch>.json`, one per platform in a release: the archive, and what it must hash to. */
 export type ReleaseManifest = {
   readonly version: string;
@@ -19,6 +29,10 @@ export type ReleaseManifest = {
   readonly sha256: string;
   /** Of the archive, in bytes. */
   readonly size: number;
+  /** What the bundle in the archive holds, for updating by the difference. Absent in older releases. */
+  readonly tree?: readonly TreeEntry[];
+  /** Why `tree` was left out, when the manifest had one that cannot be used (for the log). */
+  readonly treeProblem?: string;
 };
 
 export const manifestName = (platform: string, arch: string): string =>
@@ -70,6 +84,7 @@ export const daemonUpgradeCommand = (version: string): string => {
 export const manifestFor = (
   build: { version: string; platform: string; arch: string },
   archive: { sha256: string; size: number },
+  tree?: readonly TreeEntry[],
 ): ReleaseManifest => ({
   version: build.version,
   platform: build.platform,
@@ -77,7 +92,80 @@ export const manifestFor = (
   file: archiveName(build.version, build.platform, build.arch),
   sha256: archive.sha256,
   size: archive.size,
+  ...(tree !== undefined ? { tree } : {}),
 });
+
+const HEX = /^[0-9a-f]{64}$/;
+
+/** Where a link at `base` that points at `target` lands, or undefined when that is outside the bundle. */
+const resolveInside = (base: string, target: string): string | undefined => {
+  const parts = base.split("/").slice(0, -1);
+  let named = false;
+  for (const part of target.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      // Only at the start: after a name, it would go up from wherever that name leads, and that may be
+      // another link, which this table cannot see through without walking the bundle.
+      if (named || parts.length === 0) return undefined;
+      parts.pop();
+    } else {
+      named = true;
+      parts.push(part);
+    }
+  }
+  return parts.join("/");
+};
+
+/**
+ * Reads the table of a bundle, and throws unless every path in it stays inside the bundle: relative,
+ * without `..`, listed once, under a folder that is itself listed (as a folder, never a link), and
+ * links that point at something inside. Modes are plain permission bits. What it lets through is
+ * what the updater will create on disk, so nothing here may name a place outside the bundle.
+ */
+export const parseTree = (value: unknown): TreeEntry[] => {
+  if (!Array.isArray(value) || value.length === 0) throw new Error("the file table is empty");
+  const seen = new Map<string, TreeEntry["kind"]>();
+  const tree: TreeEntry[] = [];
+  for (const raw of value as Record<string, unknown>[]) {
+    if (typeof raw !== "object" || raw === null)
+      throw new Error("a file table entry is not an object");
+    const { path, kind } = raw;
+    if (typeof path !== "string" || path === "" || path.includes("\0") || path.startsWith("/"))
+      throw new Error("a file table path is not a relative path");
+    if (path.split("/").some((part) => part === "" || part === "." || part === ".."))
+      throw new Error(`the file table path ${path} is not plain`);
+    if (seen.has(path)) throw new Error(`the file table lists ${path} twice`);
+    const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : undefined;
+    if (parent !== undefined && seen.get(parent) !== "dir")
+      throw new Error(`the file table has ${path} before its folder`);
+    if (kind === "dir") {
+      tree.push({ path, kind });
+    } else if (kind === "file") {
+      const { mode, size, sha256 } = raw;
+      if (typeof mode !== "number" || !Number.isInteger(mode) || mode < 0 || mode > 0o777)
+        throw new Error(`the file table gives ${path} a mode that is not plain permission bits`);
+      if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0)
+        throw new Error(`the file table gives ${path} no size`);
+      if (typeof sha256 !== "string" || !HEX.test(sha256))
+        throw new Error(`the file table gives ${path} no SHA-256`);
+      tree.push({ path, kind, mode, size, sha256 });
+    } else if (kind === "link") {
+      const { target } = raw;
+      if (
+        typeof target !== "string" ||
+        target === "" ||
+        target.includes("\0") ||
+        target.startsWith("/")
+      )
+        throw new Error(`the file table links ${path} to something that is not relative`);
+      if (resolveInside(path, target) === undefined)
+        throw new Error(`the file table links ${path} to something outside the bundle`);
+      tree.push({ path, kind, target });
+    } else throw new Error(`the file table has a ${String(kind)} at ${path}`);
+    seen.set(path, kind);
+  }
+  return tree;
+};
 
 /**
  * Reads a manifest, and throws unless it is whole. The archive's name must be the one a build of that
@@ -104,5 +192,13 @@ export const parseManifest = (text: string): ReleaseManifest => {
     throw new Error("The release's manifest has no SHA-256.");
   if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0)
     throw new Error("The release's manifest has no size.");
-  return { version, platform, arch, file, sha256, size };
+  const manifest = { version, platform, arch, file, sha256, size };
+  // A table that cannot be used costs the saving, not the update: the whole archive is still there.
+  const table = (value as Record<string, unknown>).tree;
+  if (table === undefined) return manifest;
+  try {
+    return { ...manifest, tree: parseTree(table) };
+  } catch (error) {
+    return { ...manifest, treeProblem: error instanceof Error ? error.message : String(error) };
+  }
 };

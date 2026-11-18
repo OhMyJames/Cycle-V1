@@ -169,7 +169,8 @@ test("a tool call shows what it is doing and how it went", async () => {
 test("a permission request is shown with its options, and the click answers it", async () => {
   const { user, emit, named } = await mount();
   await openFirstSession(user);
-  await screen.findByRole("textbox", { name: "Message" });
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
   const request: PermissionRequest = {
     key: "local:s1:p1",
     environmentId: "local",
@@ -188,7 +189,29 @@ test("a permission request is shown with its options, and the click answers it",
   // By label and text: a role query walks the whole page's accessibility tree, which is slow here.
   const card = await screen.findByLabelText("Allow Bash?");
   expect(card.textContent).toContain("rm -rf build");
-  await user.click(within(card).getByText("Deny"));
+  const log = screen.getByRole("log", { name: "Conversation" });
+  expect(within(log).getByText("Waiting for your answer")).toBeDefined();
+  expect(box.getAttribute("aria-placeholder")).toBe("Waiting for your answer");
+  const deny = within(card).getByText<HTMLButtonElement>("Deny");
+  emit({ type: "environment-status", environmentId: "local", state: "reconnecting" });
+  await waitFor(() => expect(deny.disabled).toBe(true));
+  await emit({
+    type: "environment-status",
+    environmentId: "local",
+    state: "connected",
+    capabilities: { queue: true, files: false },
+  });
+  await waitFor(() => expect(deny.disabled).toBe(false));
+  await write(box, "next message");
+  const queue = screen.getByRole<HTMLButtonElement>("button", { name: "Queue" });
+  expect(queue.disabled).toBe(false);
+  await user.click(queue);
+  await waitFor(() =>
+    expect(named("prompt")).toEqual([
+      ["prompt", "local", "s1", [{ type: "text", text: "next message" }]],
+    ]),
+  );
+  await user.click(deny);
   expect(named("answerPermission")).toEqual([["answerPermission", "local:s1:p1", "deny"]]);
   emit({
     type: "permission-closed",
@@ -198,6 +221,7 @@ test("a permission request is shown with its options, and the click answers it",
     version: 2,
   });
   await waitFor(() => expect(screen.queryByLabelText("Allow Bash?")).toBeNull());
+  expect(within(log).queryByText("Waiting for your answer")).toBeNull();
 });
 
 test("shows what went wrong, and lets it be dismissed", async () => {
@@ -224,6 +248,28 @@ test("says so when the connection is lost", async () => {
   emit({ type: "environment-status", environmentId: "local", state: "reconnecting" });
   const note = await screen.findByText(/Connection lost/);
   expect(note.getAttribute("role") ?? note.parentElement?.getAttribute("role")).toBe("status");
+});
+
+test("an open session keeps its draft offline and can send it after reconnecting", async () => {
+  const { user, emit, named } = await mount();
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "Keep this");
+  await emit({ type: "environment-status", environmentId: "local", state: "reconnecting" });
+  await screen.findByText("Connection lost. You can keep editing your draft.");
+  await ready(box);
+  await write(box, " draft");
+  await press(box, "Enter");
+  expect(boxText(box)).toBe("Keep this draft");
+  expect(named("prompt")).toHaveLength(0);
+  await emit({ type: "environment-status", environmentId: "local", state: "connected" });
+  await press(box, "Enter");
+  await waitFor(() =>
+    expect(named("prompt")).toEqual([
+      ["prompt", "local", "s1", [{ type: "text", text: "Keep this draft" }]],
+    ]),
+  );
 });
 
 test("starts a session from the defaults of the agent, in the directory typed", async () => {
@@ -299,8 +345,12 @@ test("Ctrl or Cmd+Enter allows a pending request, but not while typing in the me
   await user.click(box);
   await user.keyboard(`{${mod}>}{Enter}{/${mod}}`);
   expect(named("answerPermission")).toHaveLength(0);
-  // Out of the message box, the same keys allow it.
   await user.click(document.body);
+  emit({ type: "environment-status", environmentId: "local", state: "reconnecting" });
+  await user.keyboard(`{${mod}>}{Enter}{/${mod}}`);
+  expect(named("answerPermission")).toHaveLength(0);
+  emit({ type: "environment-status", environmentId: "local", state: "connected" });
+  // Out of the message box and connected, the same keys allow it.
   await user.keyboard(`{${mod}>}{Enter}{/${mod}}`);
   await waitFor(() =>
     expect(named("answerPermission")).toEqual([["answerPermission", "local:s1:p1", "allow"]]),
@@ -322,7 +372,11 @@ test("the colours of code can be chosen, and the choice is kept", async () => {
 });
 
 test("Ctrl or Cmd+K searches the sessions by what each shows, and Enter opens the one found", async () => {
-  const { user, named } = await mount();
+  const { user, named } = await mount({
+    configure: (script) => {
+      script.bridge.sessions = async () => [{ ...summary("s1"), state: "requires_action" }];
+    },
+  });
   await screen.findByRole("option", { name: /work/ });
   const mod = /Mac/.test(navigator.userAgent) ? "Meta" : "Control";
   await user.keyboard(`{${mod}>}k{/${mod}}`);
@@ -332,6 +386,7 @@ test("Ctrl or Cmd+K searches the sessions by what each shows, and Enter opens th
   expect(await screen.findByText("No session matches that.")).toBeTruthy();
   await user.clear(box);
   await user.type(box, "work");
+  expect(await screen.findByRole("option", { name: /work.*Needs you/ })).toBeDefined();
   await user.keyboard("{Enter}");
   await waitFor(() => expect(named("openSession")).toEqual([["openSession", "local", "s1"]]));
 });
@@ -473,6 +528,21 @@ test("an update that is found is offered, asks before it restarts, and the foote
     state: { current: "0.1.0", kind: "downloading", version: "0.2.0", received: 5e6, total: 2e7 },
   });
   expect(screen.getAllByText(/Downloading 0.2.0: 5 of 20 MB/).length).toBeGreaterThan(0);
+  // By the difference it says so, and how much it is: the changes, not the app.
+  await emit({
+    type: "app-update",
+    state: {
+      current: "0.1.0",
+      kind: "downloading",
+      version: "0.2.0",
+      received: 5e6,
+      total: 4e7,
+      how: "difference",
+    },
+  });
+  expect(
+    screen.getAllByText(/Downloading the changes for 0.2.0: 5 of 40 MB/).length,
+  ).toBeGreaterThan(0);
   // No button to start it again while it works, and no second check.
   expect(screen.queryByRole("button", { name: "Update and restart" })).toBeNull();
   expect(

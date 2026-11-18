@@ -29,7 +29,7 @@ export const enUS = {
   "image.unsupported": "An image that cannot be shown ({type})",
   "image.tooLarge": "An image too large to show ({size})",
 
-  // Attaching images to a message
+  // Writing a message and attaching images
   "composer.attach": "Attach image",
   "composer.remove": "Remove {name}",
   "composer.attached": "Attached images",
@@ -45,10 +45,10 @@ export const enUS = {
 
   // The box a message is written in
   "composer.message": "Message",
+  "composer.offline": "Connection lost. You can keep editing your draft.",
   "composer.placeholder.idle": "Message the agent",
   "composer.placeholder.working": "Queue a message for when the agent is done",
   "composer.placeholder.busy": "The agent is working. Stop it to send a message now.",
-  "composer.placeholder.none": "Choose or start a session",
   "composer.send": "Send",
   "composer.queue": "Queue",
   "composer.stop": "Stop",
@@ -120,6 +120,7 @@ export const enUS = {
   "sessions.group.today": "Today",
   "sessions.group.yesterday": "Yesterday",
   "sessions.group.earlier": "Earlier",
+  "sessions.unavailable": "Connect to an environment to see its sessions.",
   "sessions.empty": "No sessions in this workspace yet.",
   // What a row says of its session, in words (the dot is its colour and shape)
   "mark.needsYou": "Needs you",

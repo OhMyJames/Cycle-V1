@@ -5,6 +5,8 @@ import {
   isNewer,
   manifestFor,
   parseManifest,
+  parseTree,
+  type TreeEntry,
 } from "../src/shared/release.ts";
 
 const hash = "a".repeat(64);
@@ -49,4 +51,72 @@ test("the command for a remote machine downloads this release's daemon, checks i
     steps.indexOf("sh cycle-linux-x64/install.sh"),
   );
   expect(steps.at(-1)).toBe('"$HOME/.local/bin/cycle" stop');
+});
+
+const TREE: TreeEntry[] = [
+  { path: "Contents", kind: "dir" },
+  { path: "Contents/Frameworks", kind: "dir" },
+  { path: "Contents/Frameworks/Lib", kind: "link", target: "../Resources/Lib" },
+  { path: "Contents/Resources", kind: "dir" },
+  { path: "Contents/Resources/Lib", kind: "file", mode: 0o755, size: 3, sha256: hash },
+];
+
+test("a manifest with a file table keeps it, and one without is the manifest it always was", () => {
+  const build = { version: "0.2.0", platform: "darwin", arch: "arm64" };
+  const plain = manifestFor(build, { sha256: hash, size: 5 });
+  expect("tree" in plain).toBe(false);
+  const withTable = manifestFor(build, { sha256: hash, size: 5 }, TREE);
+  expect(parseManifest(JSON.stringify(withTable)).tree).toEqual(TREE);
+  // What a client from before the table reads is the same top of it.
+  const { tree: _tree, ...top } = withTable;
+  expect(top).toEqual(plain);
+});
+
+test("a file table that cannot be used leaves the manifest usable, without the table", () => {
+  const build = { version: "0.2.0", platform: "darwin", arch: "arm64" };
+  const bad = {
+    ...manifestFor(build, { sha256: hash, size: 5 }),
+    tree: [{ path: "../x", kind: "dir" }],
+  };
+  const parsed = parseManifest(JSON.stringify(bad));
+  expect(parsed.tree).toBeUndefined();
+  expect(parsed.treeProblem).toMatch(/not plain/);
+  expect(parsed.sha256).toBe(hash);
+});
+
+test("a file table may only describe the inside of the bundle", () => {
+  const dir = (path: string): TreeEntry => ({ path, kind: "dir" });
+  const file = (path: string, over: object = {}) => ({
+    path,
+    kind: "file",
+    mode: 0o644,
+    size: 1,
+    sha256: hash,
+    ...over,
+  });
+  expect(parseTree(TREE)).toEqual(TREE);
+  const refused: [unknown, RegExp][] = [
+    [[], /empty/],
+    [[dir("/etc")], /relative/],
+    [[dir("a/../b")], /not plain/],
+    [[dir("a//b")], /not plain/],
+    [[dir("..")], /not plain/],
+    [[dir("a"), dir("a")], /twice/],
+    [[file("a/b")], /before its folder/],
+    [[{ path: "a", kind: "link", target: "b" }, file("a/b")], /before its folder/],
+    [[dir("a"), { path: "a/l", kind: "link", target: "../../outside" }], /outside the bundle/],
+    [[{ path: "l", kind: "link", target: "/etc/passwd" }], /not relative/],
+    // ".." after a name goes up from wherever that name leads, which may be another link.
+    [
+      [dir("a"), dir("a/b"), { path: "a/b/l", kind: "link", target: "x/../../.." }],
+      /outside the bundle/,
+    ],
+    [[file("a", { mode: 0o4755 })], /mode/],
+    [[file("a", { mode: -1 })], /mode/],
+    [[file("a", { size: -1 })], /size/],
+    [[file("a", { sha256: "zz" })], /SHA-256/],
+    [[{ path: "a", kind: "device" }], /device/],
+    [["a"], /not an object/],
+  ];
+  for (const [value, message] of refused) expect(() => parseTree(value)).toThrow(message);
 });

@@ -97,6 +97,7 @@ const updateDeps = (daemon: string[], localEnv: Record<string, string>) => {
     extract: (zip: string, into: string) =>
       run("/usr/bin/ditto", ["-x", "-k", zip, into], 300_000).then(() => {}),
     verifyBundle: verifySameTeam(codesign),
+    log: (message: string) => console.warn(`[update] ${message}`),
     // The daemon the old app started runs from inside it and would outlive the swap, with its Claude gone.
     beforeSwap: () =>
       run(daemon[0] ?? "", [...daemon.slice(1), "stop"], 20_000, localEnv).then(() => {}),

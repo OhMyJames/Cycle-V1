@@ -10,10 +10,11 @@ import {
 } from "@ui-sdk/react/command";
 import { Dialog, DialogBackdrop, DialogContent, DialogTitle } from "@ui-sdk/react/dialog";
 import type { EnvironmentConfig, EnvironmentStatus, SessionSummary } from "../api.ts";
+import { markOf } from "../sessions.ts";
 import { useI18n } from "./i18n.tsx";
 import { PlusIcon, SearchIcon } from "./icons.tsx";
 import { sessionTitle } from "./sidebar.tsx";
-import { SESSION_STATE, StatusDot } from "./status.tsx";
+import { MARK_STYLE, MARK_WORD, StatusDot } from "./status.tsx";
 
 const NEW_SESSION = "action:new-session";
 
@@ -72,20 +73,20 @@ export function SearchDialog(props: SearchDialogProps) {
                 (a, b) => b.lastSeq - a.lastSeq,
               );
               return ordered.map((session) => {
-                const doing = SESSION_STATE[session.state];
+                const mark =
+                  props.status[environment.id]?.state === "connected" ? markOf(session) : undefined;
                 return (
                   <CommandItem
                     key={rowValue(environment.id, session.sessionId)}
                     value={rowValue(environment.id, session.sessionId)}
                   >
                     <CommandItemIcon>
-                      {doing !== undefined ? (
-                        <StatusDot tone={doing.tone} shape={doing.shape} />
-                      ) : null}
+                      {mark !== undefined ? <StatusDot {...MARK_STYLE[mark]} /> : null}
                     </CommandItemIcon>
                     <span data-slot="search-row">
                       <span data-slot="search-title">{sessionTitle(session)}</span>
                       <span data-slot="search-meta">
+                        {mark !== undefined ? <span>{t(MARK_WORD[mark])}</span> : null}
                         <span>{place(session.cwd)}</span>
                         <span>{session.agent}</span>
                         {several ? <span>{t("search.on", { host: environment.name })}</span> : null}

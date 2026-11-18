@@ -164,11 +164,13 @@ const NEAR_END_PX = 48;
 export function ConversationView({
   conversation,
   loading,
+  awaitingApproval,
   sessionKey,
   follow,
 }: {
   conversation: Conversation;
   loading: boolean;
+  awaitingApproval: boolean;
   /** Names the session, to remember where it was being read. */
   sessionKey: string;
   /** Changes each time the person sends a message: it is shown, wherever they were reading. */
@@ -298,7 +300,9 @@ export function ConversationView({
           />
         </div>
       ))}
-      {!loading ? <StepLine conversation={conversation} /> : null}
+      {!loading ? (
+        <StepLine conversation={conversation} awaitingApproval={awaitingApproval} />
+      ) : null}
     </div>
   );
 }

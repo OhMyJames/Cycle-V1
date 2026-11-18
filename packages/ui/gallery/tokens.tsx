@@ -19,6 +19,7 @@ const COLORS = [
   "cycle-accent",
   "cycle-attention",
   "cycle-success",
+  "cycle-input-border",
 ];
 const SIZES = [0.8, 0.85, 0.9, 1, 1.1];
 
