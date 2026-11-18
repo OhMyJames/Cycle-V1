@@ -538,6 +538,12 @@ test("a prompt that fails is a turn that ended in error: on record, and unread",
     () => c.seen.some((s) => (s.update as { stopReason?: string }).stopReason === "error"),
     "the turn end to be on record",
   );
+  const ends = c.seen.filter((s) => (s.update as { stopReason?: string }).stopReason === "error");
+  expect(ends).toHaveLength(1);
+  expect(ends[0]?.update).toMatchObject({
+    state: "idle",
+    error: { code: expect.any(Number), message: "The agent cannot start" },
+  });
   expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(true);
 });
 
