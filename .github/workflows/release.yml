@@ -108,6 +108,11 @@ jobs:
       - name: The app opens a window that connects to its own daemon
         run: CYCLE_PACKAGED_APP="$PWD/apps/desktop/build/Cycle.app" bun test ./apps/desktop/test/integration/packaged.integration.ts
 
+      # An installed copy finds a newer release (served from this machine), downloads it, swaps itself
+      # and opens again as the new version. Uses a temporary data directory, never this Mac's own.
+      - name: The app updates itself
+        run: CYCLE_PACKAGED_APP="$PWD/apps/desktop/build/Cycle.app" bun test ./apps/desktop/test/integration/update.integration.ts
+
       - name: Import the signing certificate
         if: env.SIGN == 'true' && env.APPLE_NOTARY_PROFILE == ''
         env:

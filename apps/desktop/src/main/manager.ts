@@ -52,7 +52,9 @@ const messageOf = (error: unknown): string =>
  * being watched. It is the whole of what the renderer can ask for (`AppApi`) and knows nothing of
  * Electron, so it is tested against a real daemon without a window.
  */
-export class ConnectionManager implements Omit<AppApi, "chooseDirectory"> {
+export class ConnectionManager
+  implements Omit<AppApi, "chooseDirectory" | "updateState" | "checkForUpdate" | "installUpdate">
+{
   readonly #options: ManagerOptions;
   #hosts: HostConfig[] = [LOCAL_HOST];
   readonly #connections = new Map<string, Connection>();

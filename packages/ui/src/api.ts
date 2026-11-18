@@ -64,6 +64,22 @@ export type SessionSnapshot = {
   version: number;
 };
 
+/** Where the app's own updating stands. `current` is the version that is running. */
+export type UpdateState = {
+  current: string;
+} /** Not an installed app (a development run), or not a build that can replace itself. */ & (
+  | { kind: "disabled"; reason: string }
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "up-to-date"; checkedAt: number }
+  | { kind: "available"; version: string }
+  | { kind: "downloading"; version: string; received: number; total: number }
+  /** Unpacked and checked; the app is about to close and open again as the new version. */
+  | { kind: "installing"; version: string }
+  /** `version` is set when it was installing that version that failed: the user can try again. */
+  | { kind: "error"; message: string; version?: string }
+);
+
 /** What main tells the renderer. */
 export type AppEvent =
   | { type: "hosts"; hosts: HostConfig[] }
@@ -79,7 +95,8 @@ export type AppEvent =
     }
   | { type: "permission"; request: PermissionRequest; version: number }
   | { type: "permission-closed"; hostId: string; sessionId: string; key: string; version: number }
-  | { type: "agent-defaults"; hostId: string; agent: string };
+  | { type: "agent-defaults"; hostId: string; agent: string }
+  | { type: "app-update"; state: UpdateState };
 
 export type NewSession = { cwd: string; agent?: string; config?: Record<string, string> };
 
@@ -114,6 +131,12 @@ export type AppApi = {
 
   /** A directory chosen by the user, or undefined if they cancelled. */
   chooseDirectory(): Promise<string | undefined>;
+
+  updateState(): Promise<UpdateState>;
+  /** Asks now, and answers with what it found (or why it could not). */
+  checkForUpdate(): Promise<UpdateState>;
+  /** Downloads the update that was found, checks it, and restarts the app as the new version. */
+  installUpdate(): Promise<void>;
 };
 
 /** Subscribes to events. Returns the function that stops it. */
@@ -142,6 +165,9 @@ export const API_METHODS = [
   "agentDefaults",
   "setAgentDefaults",
   "chooseDirectory",
+  "updateState",
+  "checkForUpdate",
+  "installUpdate",
 ] as const satisfies readonly (keyof AppApi)[];
 
 export const channel = (method: string): string => `cycle:${method}`;

@@ -10,6 +10,7 @@ import type {
   PermissionRequest,
   SessionSnapshot,
   SessionSummary,
+  UpdateState,
 } from "../api.ts";
 import { applyUpdate, type Conversation, emptyConversation } from "../model/index.ts";
 
@@ -38,6 +39,8 @@ export type AppState = {
   views: Record<string, SessionView>;
   /** The last thing that went wrong, for the user to read and dismiss. */
   error: string | undefined;
+  /** The app's own updating. Undefined until main has said. */
+  update: UpdateState | undefined;
 };
 
 const initial = (): AppState => ({
@@ -51,6 +54,7 @@ const initial = (): AppState => ({
   selectedSession: undefined,
   views: {},
   error: undefined,
+  update: undefined,
 });
 
 const messageOf = (error: unknown): string => {
@@ -99,6 +103,11 @@ export class AppStore {
   /** Starts listening to main and reads what it has. Call once. */
   async start(): Promise<void> {
     this.#stop = this.#bridge.onEvent((event) => this.#onEvent(event));
+    void this.#attempt(async () => {
+      const update = await this.#bridge.updateState();
+      // An event that came while this was asked is newer than the answer.
+      this.#set((s) => (s.update === undefined ? { update } : {}));
+    });
     await this.#attempt(async () => {
       const { hosts, status } = await this.#bridge.hosts();
       this.#set({
@@ -136,6 +145,9 @@ export class AppStore {
             [event.hostId]: (s.defaultsRevision[event.hostId] ?? 0) + 1,
           },
         }));
+        return;
+      case "app-update":
+        this.#set({ update: event.state });
         return;
       case "update":
         this.#onSessionEvent(viewKey(event.hostId, event.sessionId), event);
@@ -324,6 +336,15 @@ export class AppStore {
   };
 
   chooseDirectory = (): Promise<string | undefined> => this.#bridge.chooseDirectory();
+
+  checkForUpdate = async (): Promise<void> => {
+    await this.#attempt(async () => this.#set({ update: await this.#bridge.checkForUpdate() }));
+  };
+
+  /** Main says how it goes through app-update events; an error it throws is shown as any other. */
+  installUpdate = async (): Promise<void> => {
+    await this.#attempt(() => this.#bridge.installUpdate());
+  };
 }
 
 const toStatus = (event: AppEvent & { type: "host-status" }): HostStatus => ({

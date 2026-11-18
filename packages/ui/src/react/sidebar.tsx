@@ -7,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@ui-sdk/react/select";
+import type { ReactNode } from "react";
 import type { HostConfig, HostStatus, SessionSummary } from "../api.ts";
 
 export const sessionTitle = (session: SessionSummary): string => {
@@ -36,6 +37,8 @@ export type SidebarProps = {
   onRemoveHost: (hostId: string) => void;
   onToggleArchived: () => void;
   onAgentDefaults: () => void;
+  /** Below the rest: the update footer. */
+  children?: ReactNode;
 };
 
 export function Sidebar(props: SidebarProps) {
@@ -112,6 +115,7 @@ export function Sidebar(props: SidebarProps) {
       <Button data-variant="ghost" onClick={props.onToggleArchived}>
         {props.showArchived ? "Hide archived" : "Show archived"}
       </Button>
+      {props.children}
     </nav>
   );
 }

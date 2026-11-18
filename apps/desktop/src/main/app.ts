@@ -5,6 +5,7 @@ import { API_METHODS, type AppEvent, channel, EVENT_CHANNEL, type HostConfig } f
 import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import { ConnectionManager } from "./manager.ts";
 import { fileSettings } from "./settings.ts";
+import { cleanStale, Updater, type UpdaterDeps } from "./updater.ts";
 
 export type AppOptions = {
   /** Where the built page is: index.html, renderer.js, app.css. */
@@ -16,6 +17,8 @@ export type AppOptions = {
   localEnv: Record<string, string>;
   /** Show the window. A test turns it off. */
   show?: boolean;
+  /** How the app updates itself. Without it, updating is off. */
+  update?: Omit<UpdaterDeps, "emit" | "quit">;
 };
 
 const isWeb = (url: string): boolean => {
@@ -61,10 +64,32 @@ export const startApp = async (options: AppOptions) => {
   });
   await manager.init();
 
+  const updater = new Updater({
+    ...(options.update ?? {
+      current: { version: "0.0.0", platform: process.platform, arch: process.arch },
+      appPath: "",
+      repo: "",
+      fetch,
+      extract: async () => {},
+      beforeSwap: async () => {},
+      handOff: () => {},
+      disabled: "Updates are for the installed app.",
+    }),
+    emit: (state) => emit({ type: "app-update", state }),
+    quit: () => app.quit(),
+  });
+  const methods: Record<string, (...a: unknown[]) => unknown> = {
+    updateState: () => updater.state,
+    checkForUpdate: () => updater.check(true),
+    installUpdate: () => updater.install(),
+  };
+
   // Only our own page may ask main for anything.
   for (const method of API_METHODS) {
     ipcMain.handle(channel(method), (event, ...args: unknown[]) => {
       if (event.senderFrame?.url !== indexUrl) throw new Error("Refused: not from the app's page");
+      const own = methods[method];
+      if (own !== undefined) return own();
       return (manager as unknown as Record<string, (...a: unknown[]) => unknown>)[method]?.(
         ...args,
       );
@@ -102,10 +127,15 @@ export const startApp = async (options: AppOptions) => {
   });
   contents.on("will-attach-webview", (event) => event.preventDefault());
   await window.loadURL(indexUrl);
+  if (options.update !== undefined && options.update.disabled === undefined) {
+    await cleanStale(options.update.appPath);
+    updater.start();
+  }
 
   app.on("window-all-closed", () => app.quit());
   app.on("before-quit", () => {
+    updater.stop();
     void manager.close();
   });
-  return { window, manager, contents };
+  return { window, manager, contents, updater };
 };

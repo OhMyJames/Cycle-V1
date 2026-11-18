@@ -12,6 +12,7 @@ import { mkdtemp, readlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { packageApp } from "../../scripts/package.ts";
+import { evaluate } from "./cdp.ts";
 
 const linux = process.platform === "linux";
 const mac = process.platform === "darwin";
@@ -30,42 +31,6 @@ const locate = () => {
   const appDir = mac ? join(given, "Contents/Resources/app") : join(given, "resources/app");
   const executable = mac ? join(given, "Contents/MacOS/Electron") : join(given, "cycle");
   return { app: given, appDir, executable, version: "" };
-};
-
-/** Asks the page, over the DevTools protocol, to evaluate an expression. */
-const evaluate = async (port: number, expression: string): Promise<unknown> => {
-  const pages = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as {
-    type: string;
-    webSocketDebuggerUrl: string;
-  }[];
-  const page = pages.find((p) => p.type === "page");
-  if (page === undefined) throw new Error("no page yet");
-  const socket = new WebSocket(page.webSocketDebuggerUrl);
-  await new Promise<void>((resolve, reject) => {
-    socket.onopen = () => resolve();
-    socket.onerror = () => reject(new Error("devtools socket failed"));
-  });
-  try {
-    return await new Promise((resolve, reject) => {
-      socket.onmessage = (event) => {
-        const message = JSON.parse(String(event.data)) as {
-          id?: number;
-          result?: { result?: { value?: unknown } };
-        };
-        if (message.id === 1) resolve(message.result?.result?.value);
-      };
-      socket.onerror = () => reject(new Error("devtools socket failed"));
-      socket.send(
-        JSON.stringify({
-          id: 1,
-          method: "Runtime.evaluate",
-          params: { expression, returnByValue: true },
-        }),
-      );
-    });
-  } finally {
-    socket.close();
-  }
 };
 
 test.skipIf(!ready)(

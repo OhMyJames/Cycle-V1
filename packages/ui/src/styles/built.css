@@ -3590,6 +3590,14 @@ body {
 [data-slot="banner"][data-severity="error"] {
   color: var(--ui-destructive);
 }
+[data-slot="update-footer"] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  margin-top: auto;
+  padding-top: var(--cycle-gap);
+}
 [data-slot="session-header"] {
   display: flex;
   align-items: center;

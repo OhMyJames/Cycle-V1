@@ -170,3 +170,28 @@ test("creating a session opens it, and deleting one clears it", async () => {
   expect(store.getState().selectedSession).toBeUndefined();
   expect(store.getState().views[viewKey("local", "s2")]).toBeUndefined();
 });
+
+test("the update state is read at the start, follows main's events, and the user can ask for a check", async () => {
+  const { bridge, named, emit } = fakeBridge();
+  const store = new AppStore(bridge);
+  await store.start();
+  expect(store.getState().update).toEqual({ current: "0.1.0", kind: "idle" });
+  emit({ type: "app-update", state: { current: "0.1.0", kind: "available", version: "0.2.0" } });
+  expect(store.getState().update).toMatchObject({ kind: "available", version: "0.2.0" });
+  await store.checkForUpdate();
+  expect(named("checkForUpdate")).toHaveLength(1);
+  expect(store.getState().update?.kind).toBe("up-to-date");
+  await store.installUpdate();
+  expect(named("installUpdate")).toHaveLength(1);
+});
+
+test("an install that main refuses shows its reason, in the words main used", async () => {
+  const script = fakeBridge();
+  script.bridge.installUpdate = async () => {
+    throw new Error("Error invoking remote method 'cycle:installUpdate': Error: no room");
+  };
+  const store = new AppStore(script.bridge);
+  await store.start();
+  await store.installUpdate();
+  expect(store.getState().error).toBe("no room");
+});

@@ -1,19 +1,29 @@
 // The app's entry. Everything is in app.ts; this says where things are.
-import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { execFile, spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { RELEASE_REPO } from "../shared/release.ts";
 import { startApp } from "./app.ts";
 import { BUILD_FILE, daemonCommand, loginShellPath } from "./layout.ts";
+import { SWAP_SCRIPT, verifySameTeam } from "./updater.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const env = process.env;
 const packaged = existsSync(join(here, "..", BUILD_FILE));
 
-const run = (shell: string, args: string[], timeoutMs: number) =>
-  new Promise<string>((resolve, reject) => {
-    execFile(shell, args, { timeout: timeoutMs, encoding: "utf8" }, (error, stdout) =>
-      error ? reject(error) : resolve(stdout),
+const run = (
+  program: string,
+  args: string[],
+  timeoutMs: number,
+  environment?: Record<string, string>,
+) =>
+  new Promise<string>((done, fail) => {
+    execFile(
+      program,
+      args,
+      { timeout: timeoutMs, encoding: "utf8", ...(environment ? { env: environment } : {}) },
+      (error, stdout) => (error ? fail(error) : done(stdout)),
     );
   });
 
@@ -23,27 +33,91 @@ const main = async () => {
   // Started from Finder, the app has launchd's bare PATH. The user's own is what Claude's tools need.
   const path =
     packaged && process.platform === "darwin" ? await loginShellPath(env.SHELL, run) : undefined;
+  const daemon = daemonCommand({
+    here,
+    env,
+    platform: process.platform,
+    arch: process.arch,
+    exists: existsSync,
+  });
+  const localEnv = {
+    PATH: path ?? env.PATH ?? "",
+    ...(env.HOME !== undefined ? { HOME: env.HOME } : {}),
+    ...(env.LANG !== undefined ? { LANG: env.LANG } : {}),
+    // Where the daemon keeps its data, if the user chose.
+    ...(env.CYCLE_HOME !== undefined ? { CYCLE_HOME: env.CYCLE_HOME } : {}),
+  };
   await startApp({
     rendererDir: join(here, "renderer"),
     preloadPath: join(here, "preload.cjs"),
-    localCommand: [
-      ...daemonCommand({
-        here,
-        env,
-        platform: process.platform,
-        arch: process.arch,
-        exists: existsSync,
-      }),
-      "proxy",
-    ],
-    localEnv: {
-      PATH: path ?? env.PATH ?? "",
-      ...(env.HOME !== undefined ? { HOME: env.HOME } : {}),
-      ...(env.LANG !== undefined ? { LANG: env.LANG } : {}),
-      // Where the daemon keeps its data, if the user chose.
-      ...(env.CYCLE_HOME !== undefined ? { CYCLE_HOME: env.CYCLE_HOME } : {}),
-    },
+    localCommand: [...daemon, "proxy"],
+    localEnv,
+    update: updateDeps(daemon, localEnv),
   });
+};
+
+const localRelease = (url: string | undefined) => {
+  if (url === undefined) return {};
+  const parsed = new URL(url);
+  if (parsed.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(parsed.hostname))
+    return {};
+  const base = parsed.origin;
+  return { apiBase: base, assetPrefix: `${base}/dl/` };
+};
+
+/** What the updater needs from this machine. Only an installed macOS app can replace itself. */
+const updateDeps = (daemon: string[], localEnv: Record<string, string>) => {
+  const info = packaged
+    ? (JSON.parse(readFileSync(join(here, "..", BUILD_FILE), "utf8")) as {
+        version: string;
+        platform: string;
+        arch: string;
+      })
+    : { version: "0.0.0", platform: process.platform, arch: process.arch };
+  // dist -> app -> Resources -> Contents -> Cycle.app
+  const appPath = resolve(here, "../../../..");
+  const codesign = (args: string[]) =>
+    new Promise<string>((done, fail) =>
+      execFile("/usr/bin/codesign", args, { encoding: "utf8" }, (error, stdout, stderr) =>
+        error ? fail(error) : done(`${stdout}${stderr}`),
+      ),
+    );
+  return {
+    current: info,
+    appPath,
+    repo: RELEASE_REPO,
+    fetch,
+    // For the test that updates a real bundle against a release served on this machine. Only a
+    // loopback address is taken, so it can never point the app at somewhere else.
+    ...localRelease(env.CYCLE_UPDATE_URL),
+    disabled:
+      packaged && process.platform === "darwin"
+        ? undefined
+        : "Updates are for the installed macOS app.",
+    extract: (zip: string, into: string) =>
+      run("/usr/bin/ditto", ["-x", "-k", zip, into], 300_000).then(() => {}),
+    verifyBundle: verifySameTeam(codesign),
+    // The daemon the old app started runs from inside it and would outlive the swap, with its Claude gone.
+    beforeSwap: () =>
+      run(daemon[0] ?? "", [...daemon.slice(1), "stop"], 20_000, localEnv).then(() => {}),
+    handOff: (swap: { appPath: string; newApp: string; oldApp: string; staging: string }) => {
+      spawn(
+        "/bin/sh",
+        [
+          "-c",
+          SWAP_SCRIPT,
+          "cycle-swap",
+          String(process.pid),
+          swap.appPath,
+          swap.newApp,
+          swap.oldApp,
+          swap.staging,
+          "/usr/bin/open",
+        ],
+        { detached: true, stdio: "ignore" },
+      ).unref();
+    },
+  };
 };
 main().catch((error) => {
   console.error(error);

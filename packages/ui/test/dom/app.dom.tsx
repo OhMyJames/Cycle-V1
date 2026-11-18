@@ -232,3 +232,51 @@ test("deleting a session asks first", async () => {
   await user.click(within(dialog).getByRole("button", { name: "Delete" }));
   await waitFor(() => expect(named("deleteSession")).toEqual([["deleteSession", "local", "s1"]]));
 });
+
+test("an update that is found is offered, asks before it restarts, and the footer can check on demand", async () => {
+  const { user, emit, named } = await mount();
+  expect(await screen.findByText("Cycle 0.1.0")).toBeTruthy();
+  await emit({
+    type: "app-update",
+    state: { current: "0.1.0", kind: "available", version: "0.2.0" },
+  });
+  expect(screen.getByText("Version 0.2.0 is available")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Update and restart" }));
+  // Asked first: nothing is installed until the user agrees.
+  expect(named("installUpdate")).toHaveLength(0);
+  const dialog = await screen.findByRole("alertdialog");
+  await user.click(within(dialog).getByRole("button", { name: "Update and restart" }));
+  await waitFor(() => expect(named("installUpdate")).toHaveLength(1));
+
+  await emit({
+    type: "app-update",
+    state: { current: "0.1.0", kind: "downloading", version: "0.2.0", received: 5e6, total: 2e7 },
+  });
+  expect(screen.getAllByText(/Downloading 0.2.0: 5 of 20 MB/).length).toBeGreaterThan(0);
+  // No button to start it again while it works, and no second check.
+  expect(screen.queryByRole("button", { name: "Update and restart" })).toBeNull();
+  expect(
+    (screen.getByRole("button", { name: "Check for updates" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+
+  await emit({
+    type: "app-update",
+    state: { current: "0.1.0", kind: "error", message: "no room", version: "0.2.0" },
+  });
+  expect(screen.getByText("Updating to 0.2.0 failed: no room")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+
+  await emit({ type: "app-update", state: { current: "0.1.0", kind: "up-to-date", checkedAt: 0 } });
+  await user.click(screen.getByRole("button", { name: "Check for updates" }));
+  expect(named("checkForUpdate")).toHaveLength(1);
+});
+
+test("a development run says updates are for the installed app and offers no check", async () => {
+  const { emit } = await mount();
+  await emit({
+    type: "app-update",
+    state: { current: "0.0.0", kind: "disabled", reason: "Updates are for the installed app." },
+  });
+  expect(screen.getByText("Updates are for the installed app.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull();
+});

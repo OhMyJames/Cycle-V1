@@ -5,6 +5,7 @@ import type {
   HostConfig,
   SessionSnapshot,
   SessionSummary,
+  UpdateState,
 } from "../src/api.ts";
 import { emptyConversation } from "../src/model/index.ts";
 
@@ -32,6 +33,7 @@ export const fakeBridge = (
   options: {
     snapshot?: () => SessionSnapshot | Promise<SessionSnapshot>;
     connected?: boolean;
+    update?: UpdateState;
   } = {},
 ) => {
   const calls: [string, ...unknown[]][] = [];
@@ -86,6 +88,15 @@ export const fakeBridge = (
     agentDefaults: record("agentDefaults", async () => ({})),
     setAgentDefaults: record("setAgentDefaults", async () => {}),
     chooseDirectory: record("chooseDirectory", async () => "/chosen"),
+    updateState: record(
+      "updateState",
+      async () => options.update ?? { current: "0.1.0", kind: "idle" as const },
+    ),
+    checkForUpdate: record(
+      "checkForUpdate",
+      async () => options.update ?? { current: "0.1.0", kind: "up-to-date" as const, checkedAt: 0 },
+    ),
+    installUpdate: record("installUpdate", async () => {}),
   };
   return {
     bridge,
