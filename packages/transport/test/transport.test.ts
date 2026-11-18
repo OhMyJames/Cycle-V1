@@ -160,6 +160,12 @@ test("the stdio bridge copies bytes to the daemon and back", async () => {
   await done;
 });
 
+test("an address ssh would read as an option is refused", () => {
+  expect(() =>
+    sshChannel({ host: "-oProxyCommand=touch /tmp/x", command: ["cycle", "proxy"] }),
+  ).toThrow("not an address");
+});
+
 test("ssh reaches a command on the far side with ssh's own arguments", async () => {
   const path = join(dir, "d.sock");
   await echo(path);

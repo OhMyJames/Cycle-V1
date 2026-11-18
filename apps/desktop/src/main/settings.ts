@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { EnvironmentConfig } from "@cycle/ui";
@@ -17,6 +17,10 @@ export type Settings = {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** What ssh may be given as the place to go: an address or an alias, never something it would read as an option. */
+export const isSshHost = (host: string): boolean =>
+  host.trim() !== "" && !host.startsWith("-") && !/[\s\p{Cc}]/u.test(host);
 
 const strings = (value: unknown): string[] | undefined =>
   Array.isArray(value) && value.every((v) => typeof v === "string") ? value : undefined;
@@ -39,6 +43,7 @@ export const environmentOf = (entry: unknown): EnvironmentConfig | undefined => 
     // A command that is not a list of words is not one to run by guessing: the entry is left as it is.
     if (
       typeof host !== "string" ||
+      !isSshHost(host) ||
       (entry.transport.command !== undefined && command === undefined)
     )
       return undefined;
@@ -49,7 +54,7 @@ export const environmentOf = (entry: unknown): EnvironmentConfig | undefined => 
       transport: { type: "ssh", host, ...(command !== undefined ? { command } : {}) },
     };
   }
-  if (entry.kind === "ssh" && typeof entry.host === "string") {
+  if (entry.kind === "ssh" && typeof entry.host === "string" && isSshHost(entry.host)) {
     const command = strings(entry.command);
     if (entry.command !== undefined && command === undefined) return undefined;
     return {
@@ -72,6 +77,8 @@ export const fileSettings = (path: string): Settings => {
   let rest: Record<string, unknown> = {};
   // What each environment was in the file, to write back what it has no field for.
   const raw = new Map<string, Record<string, unknown>>();
+  // Saves one after the other: two at once would write the same temporary file.
+  let saving: Promise<void> = Promise.resolve();
   return {
     async load() {
       try {
@@ -100,33 +107,42 @@ export const fileSettings = (path: string): Settings => {
         return [LOCAL_ENVIRONMENT, ...known];
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return [LOCAL_ENVIRONMENT];
+        // A file that is not JSON (a crash while it was written by hand, an editor's leftovers) must not keep the app from
+        // opening: it is kept beside, as it was, and the app starts with this computer only.
+        if (error instanceof SyntaxError) {
+          await copyFile(path, `${path}.broken`).catch(() => undefined);
+          return [LOCAL_ENVIRONMENT];
+        }
         throw new Error(
           `${path} cannot be read: ${error instanceof Error ? error.message : error}`,
         );
       }
     },
-    async save(environments) {
-      await mkdir(dirname(path), { recursive: true });
-      const temporary = `${path}.${process.pid}.tmp`;
-      const saved = environments.filter((e) => e.id !== LOCAL_ENVIRONMENT.id);
-      const ids = new Set(saved.map((e) => e.id));
-      const written = [
-        // As it was in the file, with its fields we do not know, when it has not changed; else as it is now.
-        ...saved.map((e) => {
-          const before = raw.get(e.id);
-          // Only an entry already in the new format: the older one has other field names, which are not written again.
-          return before?.kind === e.kind && isDeepStrictEqual(environmentOf(before), e)
-            ? before
-            : e;
-        }),
-        // An entry with the id of one that is saved now would be two of one: the one the person saved wins.
-        ...unknown.filter((u) => !(isRecord(u) && typeof u.id === "string" && ids.has(u.id))),
-      ];
-      await writeFile(
-        temporary,
-        `${JSON.stringify({ ...rest, environments: written }, null, 2)}\n`,
+    save(environments) {
+      const done = saving.then(
+        () => write(environments),
+        () => write(environments),
       );
-      await rename(temporary, path);
+      saving = done;
+      return done;
     },
   };
+  async function write(environments: EnvironmentConfig[]): Promise<void> {
+    await mkdir(dirname(path), { recursive: true });
+    const temporary = `${path}.${process.pid}.tmp`;
+    const saved = environments.filter((e) => e.id !== LOCAL_ENVIRONMENT.id);
+    const ids = new Set(saved.map((e) => e.id));
+    const written = [
+      // As it was in the file, with its fields we do not know, when it has not changed; else as it is now.
+      ...saved.map((e) => {
+        const before = raw.get(e.id);
+        // Only an entry already in the new format: the older one has other field names, which are not written again.
+        return before?.kind === e.kind && isDeepStrictEqual(environmentOf(before), e) ? before : e;
+      }),
+      // An entry with the id of one that is saved now would be two of one: the one the person saved wins.
+      ...unknown.filter((u) => !(isRecord(u) && typeof u.id === "string" && ids.has(u.id))),
+    ];
+    await writeFile(temporary, `${JSON.stringify({ ...rest, environments: written }, null, 2)}\n`);
+    await rename(temporary, path);
+  }
 };

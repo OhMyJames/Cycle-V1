@@ -177,6 +177,29 @@ test("a prompt that cannot reach the agent hands back what was queued behind it"
   expect(queueTexts({ entries: back?.returned ?? [] })).toEqual(["behind"]);
 });
 
+test("a queued prompt whose turn is cut short by the agent exiting is a turn that ended in error, on record", async () => {
+  const first = gate();
+  const second = gate();
+  let turns = 0;
+  const fake = fakeAgent({ onPrompt: () => (++turns === 1 ? first.closed : second.closed) });
+  const daemon = await start(fake);
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("first") });
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("second") });
+  await until(() => queueUpdates(c.seen).length === 1, "the snapshot of the queue");
+  first.open();
+  // The first turn ended well, so the second goes: it is the turn that is running when the agent dies.
+  await until(() => queueUpdates(c.seen).length === 2, "the second prompt to be sent");
+  await until(() => turns === 2, "the agent to have the second prompt");
+  fake.crash();
+  const failed = () =>
+    c.seen.filter((s) => (s.update as { stopReason?: string }).stopReason === "error");
+  await until(() => failed().length === 1, "the end of the second turn to be on record");
+  expect(failed()[0]?.update).toMatchObject({ state: "idle" });
+});
+
 test("a queue that is full refuses the next prompt", async () => {
   const { c, sessionId } = await working();
   for (let i = 0; i < QUEUE_LIMIT; i++) {

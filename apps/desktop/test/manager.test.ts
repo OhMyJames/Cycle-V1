@@ -312,6 +312,20 @@ test("an agent's defaults are read and set", async () => {
   await until(() => of(events, "agent-defaults").length === 1, "the change");
 });
 
+test("an environment whose address ssh would read as an option is refused, not saved", async () => {
+  const { manager } = await setup();
+  const { m } = await manager("opt");
+  await expect(
+    m.saveEnvironment({
+      id: "x",
+      name: "X",
+      kind: "remote",
+      transport: { type: "ssh", host: "-oProxyCommand=touch /tmp/x" },
+    }),
+  ).rejects.toThrow("not an address");
+  expect((await m.environments()).environments.map((e) => e.id)).toEqual(["local"]);
+});
+
 test("environments are kept across runs, and the local one stays", async () => {
   const { manager } = await setup();
   const first = await manager("a");

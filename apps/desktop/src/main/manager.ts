@@ -21,7 +21,7 @@ import {
   type SessionSummary,
 } from "@cycle/ui";
 import { daemonUpgradeCommand, isNewer } from "../shared/release.ts";
-import { LOCAL_ENVIRONMENT, type Settings } from "./settings.ts";
+import { isSshHost, LOCAL_ENVIRONMENT, type Settings } from "./settings.ts";
 
 export type ManagerOptions = {
   settings: Settings;
@@ -127,6 +127,9 @@ export class ConnectionManager
   async saveEnvironment(environment: EnvironmentConfig): Promise<void> {
     if (environment.id === LOCAL_ENVIRONMENT.id)
       throw new Error("The local daemon cannot be changed");
+    // What the page sends is not trusted: an address ssh would read as an option is refused here, not passed on.
+    if (environment.kind === "remote" && !isSshHost(environment.transport.host))
+      throw new Error("That is not an address ssh can connect to");
     const rest = this.#environments.filter((h) => h.id !== environment.id);
     this.#environments = [...rest, environment];
     await this.#options.settings.save(this.#environments);
@@ -209,6 +212,8 @@ export class ConnectionManager
     try {
       await connection.client.start();
     } catch (error) {
+      // Removed or replaced while it was starting: what is there now is not this attempt's to change.
+      if (this.#connections.get(environmentId) !== connection) throw error;
       this.#connections.delete(environmentId);
       this.#lastError.set(environmentId, messageOf(error));
       this.#options.emit({
@@ -224,8 +229,10 @@ export class ConnectionManager
       await this.#refreshSessions(environmentId, connection);
     } catch (error) {
       // A daemon that answers but cannot list is not usable: say so, instead of sitting connected with no list.
-      this.#connections.delete(environmentId);
+      const current = this.#connections.get(environmentId) === connection;
+      if (current) this.#connections.delete(environmentId);
       await connection.client.close().catch(() => undefined);
+      if (!current) throw error;
       this.#lastError.set(environmentId, messageOf(error));
       this.#options.emit({
         type: "environment-status",
