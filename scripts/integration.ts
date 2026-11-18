@@ -26,6 +26,12 @@ const suites: Suite[] = [
     seconds: 90,
   },
   {
+    name: "ssh",
+    cwd: "apps/daemon",
+    file: "test/integration/ssh.integration.ts",
+    seconds: 60,
+  },
+  {
     name: "backend",
     cwd: "apps/daemon",
     file: "test/integration/full.integration.ts",
@@ -70,7 +76,7 @@ for (const suite of chosen) {
   results.push(`${code === 0 ? "ok  " : "FAIL"} ${suite.name.padEnd(8)} ${took}s`);
   if (code !== 0) failed = true;
   // A suite that was killed can leave processes behind: its temporary directories say whose they are.
-  Bun.spawnSync(["pkill", "-9", "-f", "(cv1-(smoke|full)|cycle-v1-claude)"]);
+  Bun.spawnSync(["pkill", "-9", "-f", "(cv1-(smoke|full|ssh)|cycle-v1-claude)"]);
 }
 console.log(`\n${results.join("\n")}`);
 process.exit(failed ? 1 : 0);
