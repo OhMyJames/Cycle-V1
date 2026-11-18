@@ -91,6 +91,7 @@ test.skipIf(!ready)(
           "disconnect",
           "hosts",
           "installUpdate",
+          "markRead",
           "onEvent",
           "openSession",
           "prompt",

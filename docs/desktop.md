@@ -61,15 +61,18 @@ type Environment = {
 
 ### 现状(哪些已经做了)
 
-名字还是 host,没有改成 environment(改名是单独的一步,等 `feat/composer` 合并之后做;设置文件的格式也在那时一起迁移)。已经做的是汇总:
+名字还是 host,没有改成 environment(改名是单独的一步,在侧栏这一步之后做;设置文件的格式也在那时一起迁移)。已经做的:
 
-- 主进程在启动时连接所有 host,各自独立,连不上的不拖累别的;原因记在它的状态里,不弹全局错误条。
-- 侧栏是所有 host 的会话的一个列表,会话的身份是 `(hostId, sessionId)`,按 `updatedAt` 排序;旧 daemon 的会话(没有 `updatedAt`)排在有的之后,彼此按 `lastSeq`。
-- 同一个文件夹在两个 host 上是两个项目,另一台机器上的项目名后面带 host 名("app · Build box")。
-- 断线的 host:会话灰显、tooltip 说明原因,不在"Needs you"和"Working"里,侧栏里有它的状态和"Retry"。
-- 新建 session 可以选 host(只列已连接的);"Browse…"只对本机有。Agent defaults 按 host 分别设置。
+- 主进程在启动时连接所有 host,各自独立,连不上的不拖累别的;原因记在它的状态里,侧栏的 host 状态行里显示。
+- 会话是所有 host 的一个汇总,身份是 `(hostId, sessionId)`,按 `updatedAt` 排序;旧 daemon 的会话(没有 `updatedAt`)排在有的之后,彼此按 `lastSeq`,不同 daemon 的不混排。
+- 侧栏一次只显示一个 workspace(`sessions.ts` 的 `workspacesOf`、`currentWorkspace`)。显示哪个:switcher 里选的(只对选它时打开的那个 session 有效,打开了别的就放弃),然后是打开的 session 所在的,最后是最近有活动的。
+- Switcher 按 host 分组(本机在前,多于一个 host 时才有分组标题,标题带连接状态),组内最近有活动的在前;远程 workspace 带 server 图标,图标的可访问名和 tooltip 是"On <host> · <state>";同名目录跨 host 时名字后带 host 名。Switcher 上的方块数字是**其他** workspace 里最紧急的一类,完整的计数在 aria-label。
+- 当前 workspace 里的会话:Needs you、Running(包括有后台子 agent 的)、Today、Yesterday、Earlier(本地日界线)。older 的每个 workspace 先显示 20 条,有标记的和打开的永远显示。一行只有一个标记:needs-you > running > background > unread;断线 host 和已归档的会话没有标记。
+- 打开的会话有 `cycle/unread` 时,窗口在前台,就告诉 daemon 已读(`markRead`;main 用它自己最近读到的那一行的 `lastSeq`,不会超出日志;不支持的 daemon 不会被问,失败也不弹错误条)。
+- 断线的 host:会话灰显、tooltip 说明原因,不算在标记里,侧栏里有它的状态、原因和"Retry"。
+- 新建 session:默认在当前 workspace 的 host 和目录;可以选 host(只列已连接的);"Browse…"只对本机有。Agent defaults 按 host 分别设置。
 
-还没做:environment 的命名和设置格式、一次只显示一个 workspace 的 switcher、远程 workspace 的图标、未读和后台状态的显示(`cycle/unread`、`cycle/background` 已经由 daemon 给出,`CycleClient.markRead` 还没有调用方)。
+还没做:environment 的命名和设置格式、远程 workspace 的"New workspace…"选文件夹(daemon 还没有对应的方法)、搜索按 workspace 分组。
 
 ### workspace
 
