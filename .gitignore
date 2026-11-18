@@ -26,3 +26,4 @@ build/
 # local agent settings
 .claude/settings.local.json
 src/styles/built.css
+apps/desktop/dist

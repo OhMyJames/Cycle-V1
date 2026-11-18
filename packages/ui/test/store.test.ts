@@ -1,17 +1,10 @@
 import { expect, test } from "bun:test";
 import type { SessionUpdate } from "@cycle/acp";
-import type {
-  AppEvent,
-  CycleBridge,
-  HostConfig,
-  PermissionRequest,
-  SessionSnapshot,
-  SessionSummary,
-} from "../src/api.ts";
+import type { AppEvent, PermissionRequest, SessionSnapshot } from "../src/api.ts";
 import { applyUpdate, emptyConversation } from "../src/model/index.ts";
 import { AppStore, viewKey } from "../src/store/index.ts";
 
-import { fakeBridge, idle, LOCAL, summary, text } from "./fake-bridge.ts";
+import { fakeBridge, idle, summary, text } from "./fake-bridge.ts";
 
 const update = (version: number, u: SessionUpdate, sessionId = "s1"): AppEvent => ({
   type: "update",

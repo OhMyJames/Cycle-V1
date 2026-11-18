@@ -120,3 +120,29 @@ export type AppApi = {
 export type AppEvents = (listener: (event: AppEvent) => void) => () => void;
 
 export type CycleBridge = AppApi & { onEvent: AppEvents };
+
+/** Every method of AppApi, as a value, so the preload and main agree on the channels without a list in each. */
+export const API_METHODS = [
+  "hosts",
+  "saveHost",
+  "removeHost",
+  "connect",
+  "disconnect",
+  "sessions",
+  "createSession",
+  "openSession",
+  "prompt",
+  "cancel",
+  "setSessionConfig",
+  "renameSession",
+  "archiveSession",
+  "deleteSession",
+  "answerPermission",
+  "agents",
+  "agentDefaults",
+  "setAgentDefaults",
+  "chooseDirectory",
+] as const satisfies readonly (keyof AppApi)[];
+
+export const channel = (method: string): string => `cycle:${method}`;
+export const EVENT_CHANNEL = "cycle:event";

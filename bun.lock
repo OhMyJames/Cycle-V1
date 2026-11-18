@@ -37,9 +37,13 @@
         "@cycle/transport": "workspace:*",
         "@cycle/ui": "workspace:*",
         "electron": "45.3.4",
+        "react": "19.3.1",
+        "react-dom": "19.3.1",
       },
       "devDependencies": {
         "@cycle/daemon": "workspace:*",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
       },
     },
     "packages/acp": {
