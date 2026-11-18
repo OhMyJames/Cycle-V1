@@ -63,6 +63,24 @@
 
 ## 还没验证
 
-- 真实模型和真实登录:没有。需要用户提供登录或 API 密钥,并且要走显式开关,不能从环境里继承 `ANTHROPIC_API_KEY`。
+- 真实模型:已验证,见文末。真实的登录流程(用户在专用的 `CLAUDE_CONFIG_DIR` 里 `claude login`)没验证,验证用的是显式传入的 OAuth token。
 - 云端 sandbox:适配进程本身是自包含的(配置全部由外部传入),但没有在 sandbox 里实际跑过。
 - 恢复时 `cwd` 变了的情况:Claude 的 transcript 按 cwd 存放,cwd 变了可能找不到。
+
+## 真实模型验证(2026-11-18)
+
+Claude Agent SDK 0.3.327,模型 haiku,账号的 OAuth token(`CLAUDE_CODE_OAUTH_TOKEN`),只在 Claude 进程的环境里。测试:`packages/adapters/claude` 下的 `bun run test:real`,`packages/daemon` 下的 `test:real`(见 [testing.md](../testing.md))。
+
+| 问题                                     | 结果                                                                                                                                   |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 流式回答                                 | 通过。一个单词的回答用时约 3 秒,以 `end_turn` 结束                                                                                     |
+| 权限请求                                 | 通过。真实的请求带着工具名和完整的 `rawInput`(命令和描述);允许后文件真的创建了;拒绝后没有创建,模型自己说明"被拒绝了,所以没有创建"      |
+| 工具的状态序列                           | pending、in_progress,然后 completed(或 failed)。**结果那条更新不带 name 和 kind**,靠 toolCallId 补丁到已有条目(会话模型本来就这样处理) |
+| 读文件                                   | 通过。`Read` 的结果是 `[{type:"content", content:{type:"text", text:"1\t…"}}]`,和模拟的形状一致,带行号                                 |
+| 思考                                     | 出现 `agent_thought_chunk`(拒绝那次有 2 条)。界面里是折叠的"Thinking"                                                                  |
+| 不带 replayFrom 的恢复,用真实 transcript | 通过。新进程、同一个 `CLAUDE_CONFIG_DIR`,模型记得文件里的词                                                                            |
+| 模型输出中途取消                         | 通过。取消后约 0.5 秒结束,之后没有任何更新到达;之后的新 prompt 正常                                                                    |
+| 通过 daemon,中间重启 daemon              | 通过。Claude 进程随 daemon 消失,只剩磁盘;历史从 JSONL 读回;再 prompt,Claude 恢复,模型记得口令                                          |
+| 真实更新里有没有我们没处理的种类         | 没有。整段真实历史喂给界面的会话模型,`ignored` 为 0                                                                                    |
+
+这次真实运行里没有出现的:`usage_update`、`plan_update`、`notice`、`compaction_update`、子 agent(适配器本来就没发)。图片、长输出、很长的会话没试过。

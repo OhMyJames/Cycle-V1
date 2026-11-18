@@ -34,6 +34,19 @@
 
 这次删了 17 个单元测试、1 个集成文件、1 个集成用例(142 个测试到 125 个)。**这不会让门禁变快**(它本来就只有几秒),减少的是要维护的东西。留下的测试里,抓到过真实问题的有:resume 的状态快照被当成历史、`replay_complete` 被去重丢掉、Streamdown 的颜色名没定义、turn 在 prompt 返回前不存在导致取消落空。
 
+## 真实模型
+
+`bun run test:integration` 全程用模拟的 API,不花额度。真实模型的测试要显式开启,凭证显式给:
+
+```bash
+CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd packages/adapters/claude test:real   # 适配器层,4 项
+CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd packages/daemon test:real            # 经过 daemon,中间重启它
+```
+
+- token 只放进 Claude 进程的环境,不进适配器自己的环境、不进日志(跑完检查过日志里没有它)。没设 `CYCLE_REAL_MODEL_TOKEN` 时这些测试是跳过的。
+- 默认用最小的模型(`CYCLE_REAL_MODEL`,默认 haiku)。断言是松的,因为真实模型不确定;这些测试的价值在它打印的报告,结果记在 [adapters/claude.md](adapters/claude.md)。
+- 两个套件加起来约 30 秒,花几个很短的回合。**不在 CI 里**:CI 不应该持有账号的 token。
+
 ## CI
 
 `.github/workflows/ci.yml`:

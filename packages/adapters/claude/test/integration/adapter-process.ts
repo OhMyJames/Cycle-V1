@@ -14,7 +14,9 @@ export type Run = {
 };
 
 export type Options = {
-  mockUrl: string;
+  mockUrl?: string;
+  /** The Claude process's whole environment, instead of the mock's. For a real model: explicit, never inherited. */
+  env?: Record<string, string>;
   configDir: string;
   /** How to answer a permission request. */
   onPermission?: (request: unknown) => "allow" | "deny" | "cancel";
@@ -29,11 +31,11 @@ export const withAdapter = async <T>(
   body: (run: Run) => Promise<T>,
 ): Promise<T> => {
   const config = {
-    env: {
+    env: options.env ?? {
       PATH: process.env.PATH ?? "",
       HOME: options.configDir,
       CLAUDE_CONFIG_DIR: options.configDir,
-      ANTHROPIC_BASE_URL: options.mockUrl,
+      ANTHROPIC_BASE_URL: options.mockUrl ?? "",
       ANTHROPIC_API_KEY: "mock-key-not-real",
     },
   };

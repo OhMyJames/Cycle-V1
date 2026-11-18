@@ -11,6 +11,7 @@
     "@cycle/acp": "workspace:*"
   },
   "scripts": {
-    "test:integration": "bun test ./test/integration/adapter.integration.ts"
+    "test:integration": "bun test ./test/integration/adapter.integration.ts",
+    "test:real": "bun test ./test/integration/real-model.integration.ts"
   }
 }
