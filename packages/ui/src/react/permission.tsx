@@ -16,10 +16,11 @@ export const describeSubject = (subject: unknown): string => {
 
 export type PermissionCardProps = {
   request: PermissionRequest;
+  disabled: boolean;
   onAnswer: (key: string, optionId: string | "cancelled") => void | Promise<void>;
 };
 
-export function PermissionCard({ request, onAnswer }: PermissionCardProps) {
+export function PermissionCard({ request, disabled, onAnswer }: PermissionCardProps) {
   const detail = describeSubject(request.subject);
   return (
     <section data-slot="permission" aria-label={request.title}>
@@ -34,6 +35,7 @@ export function PermissionCard({ request, onAnswer }: PermissionCardProps) {
             key={option.optionId}
             // One main answer: allowing once. The rest are quieter, so that the strong one is not a default to click through.
             data-variant={option.kind === "allow_once" ? "solid" : "outline"}
+            disabled={disabled}
             onClick={() => onAnswer(request.key, option.optionId)}
           >
             {option.name}
@@ -41,7 +43,8 @@ export function PermissionCard({ request, onAnswer }: PermissionCardProps) {
         ))}
         <Button
           data-variant="ghost"
-          data-slot="permission-dismiss"
+          data-kind="permission-dismiss"
+          disabled={disabled}
           onClick={() => onAnswer(request.key, "cancelled")}
         >
           Dismiss

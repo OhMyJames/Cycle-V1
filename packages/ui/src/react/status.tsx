@@ -1,5 +1,5 @@
 // How a state is drawn: a colour, a shape and a word, so it is never told by colour alone (DESIGN.md section 3).
-import type { ConnectionState, SessionSummary } from "../api.ts";
+import type { ConnectionState } from "../api.ts";
 import type { Mark } from "../sessions.ts";
 import { CloseIcon } from "./icons.tsx";
 
@@ -36,11 +36,3 @@ export const MARK_WORD = {
   background: "mark.background",
   unread: "mark.unread",
 } as const;
-
-/** What a session is doing that the person should see; idle and stopped say nothing. */
-export const SESSION_STATE: Partial<
-  Record<SessionSummary["state"], { word: string; tone: Tone; shape: Shape }>
-> = {
-  running: { word: "Working", tone: "accent", shape: "pulse" },
-  requires_action: { word: "Needs you", tone: "attention", shape: "square" },
-};

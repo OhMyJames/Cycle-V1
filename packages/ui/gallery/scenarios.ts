@@ -506,6 +506,15 @@ export const scenarios: Record<string, Scenario> = {
       permission("Allow Bash?", `rm -rf ${LONG_PATH} && find . -name '*.tmp' -delete && echo done`),
     ],
   },
+  "permission-queue": {
+    title: "Several permissions wait without pushing the composer out of the window",
+    sessions: [session("s1", { state: "requires_action", title: "Check the build" })],
+    history: [you("u1", "Check the build and compare the logs."), running()],
+    permissions: [
+      permission("Read the build log?", `cat ${LONG_PATH}`),
+      { ...permission("Compare the logs?", "diff build.log reference.log"), key: "local:s1:p2" },
+    ],
+  },
   "turn-error": {
     title: "A turn that ended in an error",
     sessions: [session("s1")],
@@ -533,6 +542,14 @@ export const scenarios: Record<string, Scenario> = {
     environments: [LOCAL],
     status: [{ environmentId: "local", state: "reconnecting" }],
     sessions: [session("s1", { title: "Fix the remote session" })],
+  },
+  "session-reconnecting": {
+    title: "An open session can still take a draft during reconnection",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    history: conversation,
+    after: async (_root, emit) => {
+      emit({ type: "environment-status", environmentId: "local", state: "reconnecting" });
+    },
   },
   "session-groups": {
     title:

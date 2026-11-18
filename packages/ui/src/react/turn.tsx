@@ -115,9 +115,15 @@ export function EndBlock({ stop }: { stop: StopReason }) {
 }
 
 /** What the agent is doing, at the end of the turn that is going, so a hidden thought or a long tool is not a silence. */
-export function StepLine({ conversation }: { conversation: Conversation }) {
+export function StepLine({
+  conversation,
+  awaitingApproval,
+}: {
+  conversation: Conversation;
+  awaitingApproval: boolean;
+}) {
   const { t } = useI18n();
-  const step = stepOf(conversation);
+  const step = awaitingApproval ? ({ kind: "approval" } as const) : stepOf(conversation);
   if (step === undefined) return null;
   const words =
     step.kind === "approval"

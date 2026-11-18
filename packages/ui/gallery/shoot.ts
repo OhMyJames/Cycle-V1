@@ -1,7 +1,7 @@
-// Screenshots of the gallery: `bun packages/ui/gallery/shoot.ts [--out dir] [--themes light,dark] [--sizes 1200x800,820x600] [names...]`.
-// It builds the gallery, then runs the real Electron under xvfb (as the integration tests do). Names are scenarios
-// (and `tokens`); none means all. Prints what each shot found: whether the page was ready, sideways overflow, errors.
-import { mkdirSync, writeFileSync } from "node:fs";
+// Screenshots of the gallery: `bun packages/ui/gallery/shoot.ts [--out dir] [--themes light,dark] [--sizes 1200x800,720x480] [names...]`.
+// Builds the gallery and runs Electron on macOS or under xvfb on Linux. With no names, captures every scenario.
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Scenario, scenarios } from "./scenarios.ts";
 
@@ -13,7 +13,7 @@ const flag = (name: string, fallback: string): string => {
 };
 const out = flag("out", join(here, "shots"));
 const themes = flag("themes", "light,dark").split(",");
-const sizes = flag("sizes", "1200x800").split(",");
+const sizes = flag("sizes", "1200x800,720x480").split(",");
 const platform = flag("platform", "");
 const VALUE_FLAGS = new Set(["--out", "--themes", "--sizes", "--platform"]);
 const flagged = new Set(
@@ -22,14 +22,15 @@ const flagged = new Set(
 const named = argv.filter((_, i) => !flagged.has(i));
 const names = named.length > 0 ? named : ["tokens", ...Object.keys(scenarios)];
 
+const mac = process.platform === "darwin";
+const bunModules = join(here, "../../../node_modules/.bun");
+const binary = mac ? "Electron.app/Contents/MacOS/Electron" : "electron";
 const electron = Array.from(
-  new Bun.Glob("electron@*/node_modules/electron/dist/electron").scanSync(
-    join(here, "../../../node_modules/.bun"),
-  ),
+  new Bun.Glob(`electron@*/node_modules/electron/dist/${binary}`).scanSync(bunModules),
 )[0];
-const xvfb = Bun.which("xvfb-run");
-if (electron === undefined || xvfb === null) {
-  console.error("needs Electron (bun install) and xvfb-run");
+const xvfb = mac ? null : Bun.which("xvfb-run");
+if (electron === undefined || (!mac && xvfb === null)) {
+  console.error(mac ? "needs the Electron binary" : "needs the Electron binary and xvfb-run");
   process.exit(1);
 }
 const build = Bun.spawn(["bun", join(here, "build.ts")], { stdout: "ignore", stderr: "inherit" });
@@ -54,43 +55,53 @@ const jobs = names.flatMap((name) =>
 );
 const jobFile = join(out, "jobs.json");
 writeFileSync(jobFile, JSON.stringify(jobs));
-const run = Bun.spawn(
-  [
-    xvfb,
-    "-a",
-    "-s",
-    "-screen 0 1600x1200x24",
-    join(here, "../../../node_modules/.bun", electron),
-    "--no-sandbox",
-    "--disable-gpu",
-    join(here, "shoot-main.cjs"),
-    jobFile,
-  ],
-  { stdout: "pipe", stderr: "pipe" },
-);
-const text = await new Response(run.stdout).text();
-await run.exited;
-const line = text.split("\n").find((l) => l.startsWith("REPORT "));
-if (line === undefined) {
-  console.error(text, await new Response(run.stderr).text());
-  process.exit(1);
+const profile = mkdtempSync(join(tmpdir(), "cycle-ui-gallery-"));
+let results: string;
+try {
+  const command = [join(bunModules, electron)];
+  if (xvfb !== null) command.unshift(xvfb, "-a", "-s", "-screen 0 1600x1200x24");
+  if (!mac) command.push("--no-sandbox");
+  // Screen captures do not need the GPU. macOS can drop the compositor between capturePage calls.
+  command.push("--disable-gpu");
+  command.push(`--user-data-dir=${profile}`, join(here, "shoot-main.cjs"), profile, jobFile);
+  const run = Bun.spawn(command, { stdout: "pipe", stderr: "pipe" });
+  const [text, errors, exitCode] = await Promise.all([
+    new Response(run.stdout).text(),
+    new Response(run.stderr).text(),
+    run.exited,
+  ]);
+  const line = text.split("\n").find((l) => l.startsWith("REPORT "));
+  if (exitCode !== 0 || line === undefined) throw new Error(`Electron: ${text}\n${errors}`);
+  results = line.slice(7);
+} finally {
+  rmSync(profile, { recursive: true, force: true });
 }
 let bad = 0;
 let total = 0;
-for (const r of JSON.parse(line.slice(7)) as {
+for (const r of JSON.parse(results) as {
   name: string;
   theme: string;
   width: number;
   height: number;
   ready: boolean;
-  overflow: number;
+  overflowX: number;
+  overflowY: number;
+  firstSessionVisible: boolean;
+  composerContrast: number | null;
   errors: string[];
   focus?: { on: string; visible?: boolean; outline?: string };
   out: string;
 }[]) {
   const problems = [
     !r.ready && "not ready",
-    r.overflow > 0 && `overflows by ${r.overflow}px`,
+    r.overflowX > 0 && `root overflows horizontally by ${r.overflowX}px`,
+    r.name !== "tokens" && r.overflowY > 0 && `root overflows vertically by ${r.overflowY}px`,
+    (r.name === "session-groups" || r.name === "many-sessions") &&
+      !r.firstSessionVisible &&
+      "first session is clipped",
+    r.composerContrast !== null &&
+      r.composerContrast < 3 &&
+      `composer border contrast is ${r.composerContrast.toFixed(2)}:1 (need 3:1)`,
     r.errors.length > 0 && r.errors.join("; "),
   ].filter(Boolean);
   // A tabbed shot says where the focus is, and fails if it is on a control that shows no ring.

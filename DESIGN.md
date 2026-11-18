@@ -61,6 +61,7 @@ Cycle 界面的设计:**什么样子、为什么**。给人和 coding agent 读�
 - 上表每一对文字色都已核对 ≥ 4.5:1(WCAG AA)。沿用的 `--ui-muted-foreground` 在 `--ui-background` 上为 5.32(浅)/7.58(深),
   在 `--ui-muted` 上为 4.84/6.53,也合格。
 - **焦点环用 `--cycle-accent`**,2px,偏移 2px。现有 `--ui-ring`(1.29:1)和 `--ui-ring-border`(2.68:1)都不够 3:1。
+- **消息框边框用 `--cycle-input-border`**,由现有的次要文字色和内容底色混合。未聚焦时在深浅色下都要与底色达到 3:1。
 - 底色层次:`--ui-background`(内容)、`--ui-muted`(侧栏、代码、用户消息、工具行)、浮层用 `--ui-background` 加 `--ui-shadow`。
 - **不新增别的颜色。** 要区分第四种状态时,先想能不能用形状或文字。
 
@@ -113,9 +114,10 @@ Cycle 界面的设计:**什么样子、为什么**。给人和 coding agent 读�
 - **窗口**:最小 720×480(BrowserWindow 的 `minWidth/minHeight`);默认 1200×800。
 - **侧栏**:默认 16rem(原 18rem);可拖动调宽(200–360px),宽度保存在本机;可折叠(⌘B,或聚焦分隔条按 Enter / 双击)。
   原先写的"窄于 900px 自动收起成抽屉"没有做:最小窗口 720px 时侧栏最窄 200px、主区最窄 480px,两者都能用,不需要抽屉。
+- **短窗口**:高度不超过 36rem 时侧栏统一滚动,会话列表优先占空间,配色、归档和更新操作可滚动到达。
 - **对话**:内容列最大 48rem(≈ 72 个字符),在主区内水平居中;用户消息靠右最大 80%,agent 消息占满内容列。
 - **头部**:标题一行,路径和用量放在标题下方的 meta 行;操作按钮收进一个"…"菜单,只留 Settings 外露。
-- **输入框**:固定在底部,与内容列同宽;断线或无会话时不显示,换成一行说明和下一步。
+- **输入框**:固定在底部,与内容列同宽。无会话时显示下一步说明。已打开的会话断线时仍可编辑草稿,发送和编辑队列、停止、权限操作在重连后恢复。
 
 ## 6. 组件
 
@@ -132,6 +134,7 @@ Cycle 界面的设计:**什么样子、为什么**。给人和 coding agent 读�
 - **plan**:勾框列表(第 3 节),不用删除线表示完成,改用 muted 颜色加勾。
 - **permission**:吸附在输入框上方,和对话分开:accent 的 2px 上边条、`--ui-background` 加浮层阴影;标题写"Bash wants to run",
   命令等宽、可滚动(最多 8 行);按钮顺序:Allow once(accent 实心)、Allow always(描边)、Deny(描边),Dismiss 放最右、文字按钮。
+  等待权限时对话和输入框都写明等待用户决定。多个请求的列表独立滚动,保留对话和输入框的空间。
 - **banner**(更新、daemon 版本、错误):一行,左侧图标,右侧一个主要动作和"Dismiss";更新用 accent,错误用 destructive,
   不用整行染色,只用左侧竖条和图标。
 - **empty / loading / error 的屏**:图标、一句话、一个动作;错误的原因在同一块里,等宽,可选中。
@@ -189,12 +192,12 @@ chevron、check、x、warning、tool(按工具)、thought、plan。
 ## 12. 状态画廊
 
 ```bash
-bun packages/ui/gallery/shoot.ts                                  # 所有场景,浅色和深色,1200x800 和 760x600
+bun packages/ui/gallery/shoot.ts                                  # 所有场景,浅色和深色,1200x800 和 720x480
 bun packages/ui/gallery/shoot.ts permission --themes dark         # 指定场景和主题
 bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸,列出每张
 ```
 
-截图在 `packages/ui/gallery/shots/`(不进 git)。每张还会报告页面是否就绪、是否横向溢出、有没有控制台错误。
+画廊运行在 macOS Electron 或 Linux xvfb,每次使用临时配置。截图在 `packages/ui/gallery/shots/`(不进 git),可用 `--out` 留存前后对照。它检查根页面溢出、控制台错误、指定的焦点环、会话列表可见性和输入框边界对比度。
 场景定义在 `packages/ui/gallery/scenarios.ts`:界面加了新状态,就加一个场景。在浏览器里直接看:
 `bun packages/ui/gallery/build.ts` 后打开 `packages/ui/gallery/dist/index.html`(带 `?s=<场景>` 或 `?s=tokens`)。
 
@@ -204,9 +207,9 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 | empty, empty-conversation                                  | 空状态                                           |
 | conversation                                               | 思考、三种工具状态、计划、表格、代码、列表、用量 |
 | streaming                                                  | 流式中的半句话                                   |
-| permission                                                 | 等待决定,命令很长                                |
+| permission, permission-queue                               | 等待决定,长命令和多个请求                        |
 | turn-error                                                 | 回合以错误结束                                   |
-| host-down, host-reconnecting                               | 连不上(带原话)、重连中                           |
+| host-down, host-reconnecting, session-reconnecting         | 未连接、重连中、已打开会话重连时的草稿入口       |
 | many-sessions                                              | 800 个会话、长标题、各种状态                     |
 | update-available, update-failed, daemon-old                | 三种横幅                                         |
 | dialog-new-session, dialog-add-host, dialog-agent-defaults | 对话框                                           |
@@ -320,7 +323,7 @@ old-cycle 的 daemon 是透明代理,日志里没有这些,所以它要从文字
 
 **没有 Pinned 和按天分组**:会话列表的一行没有"钉住"也没有时间,只有序号(`lastSeq`);要做,得 daemon 先给这两个字段(协议改动,在后端那边)。
 **没做**:worktree 归到仓库下(v1 范围外);每个项目单独的 "Show more"(放在 Listbox 里不合 ARIA,现在是一个全局的);选中的行在组之间移动后滚动到可见(没有测)。
-窗口最小(720×480)时侧栏的列表区只有一两行高:这是原来就有的(列表区是剩下的空间),这一轮没有改。
+最小窗口(720×480)使用侧栏自己的滚动区,让优先分组完整显示。搜索结果也直接写出会话标记。
 
 ## 19. 草稿(2026-11-18)
 

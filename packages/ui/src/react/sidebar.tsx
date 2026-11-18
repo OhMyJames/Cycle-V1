@@ -125,7 +125,7 @@ export function Sidebar(props: SidebarProps) {
       </Button>
       <Button
         data-variant="ghost"
-        data-slot="search-button"
+        data-kind="search-button"
         title={`${t("search.open")}  ${MOD}K`}
         onClick={props.onSearch}
       >
@@ -142,7 +142,13 @@ export function Sidebar(props: SidebarProps) {
           onShowAll={props.onShowAll}
         />
       ) : (
-        <p data-slot="hint">{t("sessions.empty")}</p>
+        <p data-slot="hint">
+          {t(
+            connected.length === 0 && props.environments.length > 0
+              ? "sessions.unavailable"
+              : "sessions.empty",
+          )}
+        </p>
       )}
       <Button data-variant="ghost" onClick={props.onToggleArchived}>
         {props.showArchived ? "Hide archived" : "Show archived"}

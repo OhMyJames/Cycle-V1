@@ -36,6 +36,7 @@
   --cycle-accent-foreground: light-dark(oklch(1 0 0), oklch(0.145 0 0));
   --cycle-attention: light-dark(oklch(0.52 0.13 65), oklch(0.8 0.15 80));
   --cycle-success: light-dark(oklch(0.48 0.12 150), oklch(0.76 0.16 150));
+  --cycle-input-border: color-mix(in oklch, var(--ui-muted-foreground) 80%, var(--ui-background));
 
   /* Type: four sizes. ui is ui-sdk's own (13px), so its controls and ours agree. */
   --cycle-text-meta: 0.75rem;
@@ -217,6 +218,8 @@ svg[data-slot="dot"] {
 
 /* Sidebar */
 [data-slot="sidebar"] {
+  /* Keep ui-sdk's offscreen form fields inside the sidebar scroller. */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--cycle-gap);
@@ -254,6 +257,14 @@ svg[data-slot="dot"] {
   border: 0;
   background: transparent;
   box-shadow: none;
+}
+
+/* In a short window the whole sidebar scrolls so fixed controls cannot squeeze the list. */
+@media (max-height: 36rem) {
+  [data-slot="sidebar"] > [role="listbox"] {
+    flex: none;
+    overflow: visible;
+  }
 }
 
 [data-slot="environment-bar"] {
@@ -516,12 +527,12 @@ html[data-platform="darwin"]
   user-select: all;
 }
 
-[data-slot="search-button"] {
+[data-kind="search-button"] {
   justify-content: flex-start;
   color: var(--ui-muted-foreground);
 }
 
-[data-slot="search-button"] kbd {
+[data-kind="search-button"] kbd {
   margin-left: auto;
 }
 
@@ -687,6 +698,8 @@ html[data-platform="darwin"]
 
 /* Conversation */
 [data-slot="conversation"] {
+  /* Hidden tool status labels belong to this scroller and must not extend the document. */
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -1000,6 +1013,8 @@ html[data-platform="darwin"]
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  max-height: 60%;
+  overflow-y: auto;
   padding: 0 var(--cycle-column-pad);
 }
 
@@ -1045,7 +1060,7 @@ html[data-platform="darwin"]
   flex-wrap: wrap;
 }
 
-[data-slot="permission-dismiss"] {
+[data-kind="permission-dismiss"] {
   margin-left: auto;
 }
 
@@ -1166,7 +1181,7 @@ html[data-platform="darwin"]
   max-height: 14rem;
   overflow-y: auto;
   padding: 0.5rem 0.75rem;
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--cycle-input-border);
   border-radius: var(--ui-radius);
   background: var(--ui-background);
   color: var(--ui-foreground);
