@@ -180,7 +180,11 @@ export function App() {
           layout.isCollapsed("sidebar") ? layout.expand("sidebar") : layout.collapse("sidebar"),
         );
       else if (key === "l")
-        run(() => document.querySelector<HTMLElement>('[data-slot="composer"] textarea')?.focus());
+        run(() =>
+          document
+            .querySelector<HTMLElement>('[data-slot="composer"] [data-slot="composer-input"]')
+            ?.focus(),
+        );
       else if (key === "." && working && hostState === "connected") run(() => void store.cancel());
       else if (
         key === "Enter" &&
@@ -366,18 +370,13 @@ export function App() {
             {view !== undefined ? (
               <Composer
                 key={`composer:${viewKey(view.hostId, view.sessionId)}`}
-                drafts={store.drafts}
-                draftKey={viewKey(view.hostId, view.sessionId)}
+                hostId={view.hostId}
+                sessionKey={viewKey(view.hostId, view.sessionId)}
                 canAttach={
                   agents.find((a) => a.id === session?.agent)?.promptCapabilities?.image != null
                 }
                 enabled={!view.loading && hostState === "connected"}
-                working={view.conversation.status !== "idle"}
-                onSend={(text, attachments) => {
-                  setSent((n) => n + 1);
-                  return store.send(text, attachments);
-                }}
-                onStop={store.cancel}
+                onSent={() => setSent((n) => n + 1)}
               />
             ) : null}
           </main>

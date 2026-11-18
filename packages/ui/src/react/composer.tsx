@@ -1,44 +1,50 @@
 import { Button } from "@ui-sdk/react/button";
-import { Textarea } from "@ui-sdk/react/textarea";
-import {
-  type ClipboardEvent,
-  type KeyboardEvent,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import type { FileSearch } from "../api.ts";
 import {
   ATTACHMENT_LIMITS,
-  type Attachment,
   type AttachmentProblem,
   base64Bytes,
   canAdd,
   IMAGE_TYPES,
   isImageType,
 } from "../attachments.ts";
-import type { DraftStore } from "../drafts.ts";
+import {
+  fileUri,
+  type Mention,
+  mentionText,
+  NOT_RECALLING,
+  type Recall,
+  recall,
+  sentTexts,
+} from "../draft.ts";
+import { mentionQuery, mentionRow } from "../mention.ts";
+import { type QueuedPrompt, textOf } from "../model/index.ts";
+import { commandText, filterCommands, slashQuery } from "../slash.ts";
 import { useI18n } from "./i18n.tsx";
 import { AttachIcon, CloseIcon } from "./icons.tsx";
+import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
+import { optionId, PickerMenu, type PickerRow } from "./picker-menu.tsx";
+import { useAppState, useAppStore } from "./store-context.tsx";
 
 export type ComposerProps = {
+  /** The host it is on, for what its daemon can do. */
+  hostId: string;
+  /** The session this box is for, as `viewKey` names it. A box is made anew for each session. */
+  sessionKey: string;
   /** False when there is no session, or it is still being read. */
   enabled: boolean;
-  /** A turn is going: the button stops it, and a new prompt waits. */
-  working: boolean;
   /** The agent takes images in a prompt: the person may attach them. Without it the controls are not there. */
   canAttach?: boolean;
-  /** What is written in the box, and the images attached, kept for each session (drafts.ts). */
-  drafts: DraftStore;
-  /** Names the session the box is for. The box is made again for another, so its own state does not carry over. */
-  draftKey: string;
-  /** False when the message could not be sent: what was written is put back, so that it is not lost. */
-  onSend: (
-    text: string,
-    attachments: readonly Attachment[],
-  ) => boolean | void | Promise<boolean | void>;
-  onStop: () => void | Promise<void>;
+  /** A message was sent from the box (not yet known to have arrived): the conversation follows it. */
+  onSent?: () => void;
 };
+
+/** What a box with no conversation behind it has of a list: one array, so that reading it twice is the same value. */
+const NONE: never[] = [];
+
+/** How long after the last key the files are asked for. */
+const MENTION_DELAY = 120;
 
 /** A file as ACP carries an image: base64. Read in pieces, so that a large one does not overflow the call. */
 const toBase64 = async (file: File): Promise<string> => {
@@ -52,27 +58,141 @@ const toBase64 = async (file: File): Promise<string> => {
 const imagesOf = (files: FileList | File[] | null | undefined): File[] =>
   Array.from(files ?? []).filter((f) => f.type.startsWith("image/"));
 
+/** What a queued message is called in the list: its words on one line, or what else it holds. */
+const previewOf = (prompt: QueuedPrompt): { text: string; images: number } => ({
+  text: textOf(prompt.prompt).replace(/\s+/g, " ").trim(),
+  images: prompt.prompt.filter((b) => b.type === "image").length,
+});
+
 export function Composer({
+  hostId,
+  sessionKey,
   enabled,
-  working,
   canAttach = false,
-  drafts,
-  draftKey,
-  onSend,
-  onStop,
+  onSent,
 }: ComposerProps) {
   const { t, number } = useI18n();
-  // The text and the images are the session's draft, kept outside the box: going to another session and back finds them.
-  const draft = useSyncExternalStore(
-    drafts.subscribe,
-    () => drafts.get(draftKey),
-    () => drafts.get(draftKey),
+  const store = useAppStore();
+  const draft = useSyncExternalStore(store.drafts.subscribe, () => store.drafts.get(sessionKey));
+  // Only what the box shows is watched: the conversation is made anew by every streamed update, and the box must not be drawn again for each.
+  const working = useAppState(
+    (s) => (s.views[sessionKey]?.conversation.status ?? "idle") !== "idle",
   );
+  const queue = useAppState((s) => s.views[sessionKey]?.conversation.queue ?? NONE);
+  const commands = useAppState((s) => s.views[sessionKey]?.conversation.commands ?? NONE);
   const { text, attachments } = draft;
+  // A daemon that has not said it queues is asked nothing it would refuse: a message waits for the turn to end.
+  const capabilities = useAppState((s) => s.status[hostId]?.capabilities);
+  const canQueue = capabilities?.queue === true;
+  const canFind = capabilities?.files === true;
+  const recalled = useRef<Recall>(NOT_RECALLING);
   const [problem, setProblem] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
-  const canSend = enabled && !working && (text.trim() !== "" || attachments.length > 0);
+  const root = useRef<HTMLDivElement>(null);
+  const input = useRef<InputHandle | null>(null);
+  // What is being named after a slash or an @, and which of the matches is under the arrows. Escape closes the menu until
+  // what was typed changes.
+  const menuId = useId();
+  const [typed, setTyped] = useState<{ slash?: string | undefined; mention?: string | undefined }>(
+    {},
+  );
+  const [dismissed, setDismissed] = useState<string | undefined>();
+  const [pointed, setPointed] = useState<{ query: string | undefined; index: number }>({
+    query: undefined,
+    index: 0,
+  });
+  const [found, setFound] = useState<{ query: string; result: FileSearch } | undefined>();
+  // Files are asked for a moment after the last key, and only what answers the query as it stands now is shown.
+  useEffect(() => {
+    const query = typed.mention;
+    if (query === undefined || !canFind) {
+      setFound(undefined);
+      return;
+    }
+    let current = true;
+    const timer = setTimeout(() => {
+      void store.searchFiles(query).then((result) => {
+        if (current && result !== undefined) setFound({ query, result });
+      });
+    }, MENTION_DELAY);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [typed.mention, canFind, store]);
+  const commandRows: PickerRow[] =
+    typed.slash === undefined
+      ? []
+      : filterCommands(commands, typed.slash).map((command) => ({
+          key: command.name,
+          name: `/${command.name}`,
+          ...(command.hint !== undefined ? { hint: command.hint } : {}),
+          description: command.description,
+        }));
+  const hits =
+    typed.mention !== undefined && found?.query === typed.mention ? found.result.entries : [];
+  const mentionRows: PickerRow[] = hits.map((hit) => {
+    const row = mentionRow(hit.path, hit.kind);
+    return { key: hit.path, name: row.name, description: row.folder };
+  });
+  const commandQuery = typed.slash === undefined ? undefined : `/${typed.slash}`;
+  const mentionQueryText = typed.mention === undefined ? undefined : `@${typed.mention}`;
+  const kind: "command" | "mention" | undefined =
+    commandRows.length > 0 && commandQuery !== dismissed
+      ? "command"
+      : mentionRows.length > 0 && mentionQueryText !== dismissed
+        ? "mention"
+        : undefined;
+  const rows = kind === "command" ? commandRows : kind === "mention" ? mentionRows : [];
+  const query = kind === "command" ? commandQuery : mentionQueryText;
+  const menuOpen = kind !== undefined;
+  // A new query starts at the first match.
+  const chosen = pointed.query === query ? pointed.index : 0;
+  const active = Math.min(chosen, Math.max(rows.length - 1, 0));
+  // Something was named that is not there: it is said, once, instead of showing nothing.
+  const nothingFound =
+    kind === undefined &&
+    typed.mention !== undefined &&
+    typed.mention !== "" &&
+    found?.query === typed.mention &&
+    hits.length === 0 &&
+    mentionQueryText !== dismissed;
+  const lookAtCaret = () => {
+    const caret = input.current?.caret();
+    setTyped({
+      slash: caret === undefined ? undefined : slashQuery(caret.before, caret.first),
+      mention: caret === undefined ? undefined : mentionQuery(caret.before),
+    });
+  };
+  const pick = (index: number) => {
+    if (kind === "command") {
+      const command = commands.find((c) => c.name === commandRows[index]?.key);
+      if (command === undefined) return;
+      // What was typed of it, the slash and the query, is replaced by the whole name and a space.
+      input.current?.replaceBeforeCaret((typed.slash?.length ?? 0) + 1, commandText(command));
+    } else if (kind === "mention") {
+      const hit = hits[index];
+      const root = found?.result.root;
+      if (hit === undefined || root === undefined) return;
+      const mention: Mention = {
+        path: hit.path,
+        kind: hit.kind,
+        uri: fileUri(root, hit.path, hit.kind),
+        name: mentionRow(hit.path, hit.kind).name.replace(/\/$/, ""),
+      };
+      // The @ and what was typed after it become the path and a space; the link for the agent is kept beside the text.
+      input.current?.replaceBeforeCaret(
+        (typed.mention?.length ?? 0) + 1,
+        `${mentionText(mention)} `,
+      );
+      store.drafts.addMention(sessionKey, mention);
+    }
+    input.current?.focus();
+  };
+  // While the agent works, a message is queued: it goes when the turn ends well (docs/protocol.md §8).
+  const canSend =
+    enabled && (!working || canQueue) && (text.trim() !== "" || attachments.length > 0);
 
   const megabytes = (bytes: number) =>
     number(bytes / 1048576, { style: "unit", unit: "megabyte", maximumFractionDigits: 0 });
@@ -97,12 +217,15 @@ export function Composer({
   /** Adds what can be added, one by one, by the limits of a prompt; says why for the first that cannot. */
   const attach = async (files: File[]) => {
     if (!canAttach || files.length === 0) return;
-    // What the box is for when the reading starts: the draft of this session, not of whichever is open when it ends.
-    const generation = drafts.generation(draftKey);
+    // An image still being read when the message goes out, or the session goes, is not for what is written next.
+    const generation = store.drafts.generation(sessionKey);
+    // The list as it is now, for the code that waits (reading a file) between looking and adding: two images pasted in
+    // a row must both stay, and a list captured when the first began would lose the first.
+    const now = () => store.drafts.get(sessionKey).attachments;
     let first: string | undefined;
     for (const file of files) {
       const next = { name: file.name, type: file.type, bytes: file.size };
-      const refused = canAdd(drafts.get(draftKey).attachments, next);
+      const refused = canAdd(now(), next);
       if (refused !== undefined) {
         first ??= say(refused);
         continue;
@@ -110,17 +233,19 @@ export function Composer({
       try {
         const data = await toBase64(file);
         // The message was sent while this was being read: the image is no longer for a message that is still being written.
-        if (drafts.generation(draftKey) !== generation) return;
+        if (store.drafts.generation(sessionKey) !== generation) return;
         const bytes = base64Bytes(data) ?? file.size;
         if (!isImageType(file.type)) continue;
-        // Another add may have finished while this one was reading: the limits are held to the draft as it is now.
-        const refusedNow = canAdd(drafts.get(draftKey).attachments, next);
+        // Another add may have finished while this one was reading: the limits are held to the list as it is now.
+        const refusedNow = canAdd(now(), next);
         if (refusedNow !== undefined) {
           first ??= say(refusedNow);
           continue;
         }
-        const added = { id: crypto.randomUUID(), name: file.name, type: file.type, data, bytes };
-        drafts.update(draftKey, (d) => ({ ...d, attachments: [...d.attachments, added] }));
+        store.drafts.setAttachments(sessionKey, [
+          ...now(),
+          { id: crypto.randomUUID(), name: file.name, type: file.type, data, bytes },
+        ]);
       } catch {
         first ??= t("composer.problem.unreadable", { name: file.name });
       }
@@ -130,37 +255,57 @@ export function Composer({
 
   const send = async () => {
     if (!canSend) return;
-    const message = drafts.get(draftKey);
-    drafts.sent(draftKey);
+    recalled.current = NOT_RECALLING;
     setProblem(undefined);
-    const sentOk = await onSend(message.text, message.attachments);
-    if (sentOk === false) {
-      // Put back what was written, in front of whatever has been written since.
-      drafts.update(draftKey, (d) => ({
-        text: d.text === "" ? message.text : `${message.text}\n${d.text}`,
-        attachments: [...message.attachments, ...d.attachments],
-      }));
+    onSent?.();
+    await store.send();
+  };
+
+  const edit = async (queueId: string) => {
+    if ((await store.dequeue(queueId)) !== undefined) {
+      input.current?.focus();
     }
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter sends; Shift+Enter is a new line; Enter that confirms an IME composition is not a send.
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-      event.preventDefault();
+  /** The keys the box asks about first. Enter sends (a new line is Shift+Enter); the arrows walk through what was sent. */
+  const onKey = (key: InputKey, event: KeyboardEvent): boolean => {
+    // An open menu has the keys first: the arrows choose, Enter and Tab take, Escape closes.
+    if (menuOpen) {
+      if (key === "up" || key === "down") {
+        setPointed({ query, index: (active + (key === "up" ? rows.length - 1 : 1)) % rows.length });
+        return true;
+      }
+      // `/compact` typed in full and Enter: the name is already there, and sending is what was meant. A file is still taken
+      // (its link is made when it is picked), and Tab always takes.
+      const complete = kind === "command" && rows[active]?.name === query;
+      if (key === "tab" || (key === "enter" && !complete)) {
+        pick(active);
+        return true;
+      }
+      if (key === "escape") {
+        setDismissed(query);
+        return true;
+      }
+    }
+    if (key === "enter") {
       void send();
+      return true;
     }
-  };
-
-  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const images = imagesOf(event.clipboardData.files);
-    if (!canAttach || images.length === 0) return;
-    // A pasted picture is attached; pasted text goes into the box as it always did.
-    event.preventDefault();
-    void attach(images);
+    if (key !== "up" && key !== "down") return false;
+    if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+    // They are the caret's unless it has nowhere to go: the first block going up, the last going down.
+    const caret = input.current?.caret();
+    if (caret === undefined || (key === "up" ? !caret.first : !caret.last)) return false;
+    // Read when the key is pressed, not watched.
+    const items = store.getState().views[sessionKey]?.conversation.items ?? [];
+    const found = recall(sentTexts(items), recalled.current, text, key);
+    if (found === undefined) return false;
+    recalled.current = found.state;
+    store.drafts.setText(sessionKey, found.text);
+    return true;
   };
 
   // Dropping files: listeners on the element itself (a drag is not something a keyboard does, so it is not a handler of the markup).
-  const root = useRef<HTMLDivElement>(null);
   const attachRef = useRef(attach);
   attachRef.current = attach;
   useEffect(() => {
@@ -193,6 +338,32 @@ export function Composer({
   return (
     <div data-slot="composer" data-dropping={dropping || undefined} ref={root}>
       {dropping ? <div data-slot="drop-hint">{t("composer.drop")}</div> : null}
+      {queue.length > 0 ? (
+        <ul data-slot="queued" aria-label={t("composer.queued.label")}>
+          {queue.map((entry) => {
+            const preview = previewOf(entry);
+            const label =
+              preview.text !== ""
+                ? preview.text
+                : t("composer.queued.images", { count: preview.images });
+            return (
+              <li key={entry.queueId} data-slot="queued-message">
+                <span data-slot="queued-tag">{t("composer.queued.tag")}</span>
+                <span data-slot="queued-text" title={label}>
+                  {label}
+                </span>
+                <Button
+                  data-variant="ghost"
+                  aria-label={t("composer.queued.edit", { preview: label })}
+                  onClick={() => void edit(entry.queueId)}
+                >
+                  {t("composer.queued.editShort")}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
       {attachments.length > 0 ? (
         <ul data-slot="attachments" aria-label={t("composer.attached")}>
           {attachments.map((a) => (
@@ -203,10 +374,10 @@ export function Composer({
                 type="button"
                 aria-label={t("composer.remove", { name: a.name })}
                 onClick={() =>
-                  drafts.update(draftKey, (d) => ({
-                    ...d,
-                    attachments: d.attachments.filter((x) => x.id !== a.id),
-                  }))
+                  store.drafts.setAttachments(
+                    sessionKey,
+                    store.drafts.get(sessionKey).attachments.filter((x) => x.id !== a.id),
+                  )
                 }
               >
                 <CloseIcon size={12} />
@@ -245,34 +416,59 @@ export function Composer({
             />
           </>
         ) : null}
-        <Textarea
-          autoResize
-          aria-label="Message"
-          placeholder={
-            enabled
-              ? working
-                ? "The agent is working…"
-                : "Message the agent"
-              : "Choose or start a session"
-          }
-          disabled={!enabled}
-          value={text}
-          onChange={(event) => {
-            const value = event.currentTarget.value;
-            drafts.update(draftKey, (d) => ({ ...d, text: value }));
-          }}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-        />
+        <div data-slot="composer-field">
+          {menuOpen ? (
+            <PickerMenu
+              id={menuId}
+              label={
+                kind === "command" ? t("composer.commands.label") : t("composer.mentions.label")
+              }
+              rows={rows}
+              active={active}
+              onPick={pick}
+              onHover={(index) => setPointed({ query, index })}
+            />
+          ) : nothingFound ? (
+            <div data-slot="picker" role="status">
+              {t("composer.mentions.empty")}
+            </div>
+          ) : null}
+          <MarkdownInput
+            value={text}
+            onChange={(markdown) => {
+              if (markdown !== recalled.current.shown) recalled.current = NOT_RECALLING;
+              store.drafts.setText(sessionKey, markdown);
+            }}
+            disabled={!enabled}
+            label={t("composer.message")}
+            placeholder={
+              enabled
+                ? working
+                  ? canQueue
+                    ? t("composer.placeholder.working")
+                    : t("composer.placeholder.busy")
+                  : t("composer.placeholder.idle")
+                : t("composer.placeholder.none")
+            }
+            onKey={onKey}
+            onPasteFiles={(files) => void attach(files)}
+            handle={input}
+            onCaret={lookAtCaret}
+            menu={{
+              id: menuId,
+              open: menuOpen,
+              activeId: menuOpen ? optionId(menuId, active) : undefined,
+            }}
+          />
+        </div>
         {working ? (
-          <Button data-variant="outline" onClick={() => onStop()}>
-            Stop
+          <Button data-variant="outline" onClick={() => void store.cancel()}>
+            {t("composer.stop")}
           </Button>
-        ) : (
-          <Button data-variant="solid" disabled={!canSend} onClick={send}>
-            Send
-          </Button>
-        )}
+        ) : null}
+        <Button data-variant="solid" disabled={!canSend} onClick={send}>
+          {working && canQueue ? t("composer.queue") : t("composer.send")}
+        </Button>
       </div>
     </div>
   );

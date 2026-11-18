@@ -57,6 +57,20 @@ export const sessionSetTitle = cycleMethod(
   DoneSchema,
 );
 
+/** What `_cycle/files/search` finds (docs/protocol.md §8): paths, never contents. */
+export const FileEntrySchema = z.object({ path: z.string(), kind: z.enum(["file", "folder"]) });
+export type FileEntry = z.infer<typeof FileEntrySchema>;
+
+export const filesSearch = cycleMethod(
+  "_cycle/files/search",
+  z.object({
+    sessionId: SessionId,
+    query: z.string().max(200),
+    limit: z.number().int().min(1).max(50).optional(),
+  }),
+  z.object({ root: z.string(), entries: z.array(FileEntrySchema), truncated: z.boolean() }),
+);
+
 /**
  * Says the client has seen the session up to `seq`. `readSeq` only moves forward; `seq` beyond the
  * session's last record is refused. See docs/protocol.md §6 "已读".

@@ -43,7 +43,9 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 {
   "replay": ["start", "seq"],
   "agents": ["claude"],
-  "sessionOps": ["archive", "rename", "delete", "markRead"]
+  "sessionOps": ["archive", "rename", "delete", "markRead"],
+  "queue": true,
+  "files": true
 }
 ```
 
@@ -64,7 +66,9 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 | `session/new`                | 客户端 → daemon | daemon 创建 session 并启动 agent,见 §6            |
 | `session/list`               | 客户端 → daemon | daemon 处理,只返回 Cycle 自己的 session,见 §6     |
 | `session/resume`             | 客户端 → daemon | daemon 处理,表示"附着并按需补发历史",见 §7        |
-| `session/prompt`             | 客户端 → daemon | 转发。仅在 session 空闲时接受,见 §8               |
+| `session/prompt`             | 客户端 → daemon | 转发。session 忙时入队,见 §8                      |
+| `_cycle/prompt/dequeue`      | 客户端 → daemon | daemon 处理:把排队的 prompt 撤回,见 §8            |
+| `_cycle/files/search`        | 客户端 → daemon | daemon 处理:在 session 的 `cwd` 里找文件,见 §8    |
 | `session/cancel`             | 客户端 → daemon | 转发(通知)                                        |
 | `session/close`              | 客户端 → daemon | daemon 处理:停止 agent 进程,保留历史              |
 | `session/delete`             | 客户端 → daemon | daemon 处理:删除日志和索引,客户端必须先向用户确认 |
@@ -75,7 +79,7 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 | `elicitation/create`         | daemon → 客户端 | 转发,处理方式同 §9                                |
 | `auth/*`                     | —               | v1 不用。agent 的登录由 agent 所在环境自己完成    |
 
-`session/update` 的变体沿用 ACP v2:`user_message(_chunk)`、`agent_message(_chunk)`、`agent_thought(_chunk)`、`state_update`、`tool_call_update`、`tool_call_content_chunk`、`terminal_update`、`terminal_output_chunk`、`plan_update`、`available_commands_update`、`config_option_update`、`session_info_update`、`usage_update`、`notice`、`compaction_update`、`compaction_summary_chunk`、`replay_complete`、`subagent_update`、`session_message(_chunk)`。客户端遇到不认识的变体应忽略,不得报错。
+`session/update` 的变体沿用 ACP v2:`user_message(_chunk)`、`agent_message(_chunk)`、`agent_thought(_chunk)`、`state_update`、`tool_call_update`、`tool_call_content_chunk`、`terminal_update`、`terminal_output_chunk`、`plan_update`、`available_commands_update`、`config_option_update`、`session_info_update`、`usage_update`、`notice`、`compaction_update`、`compaction_summary_chunk`、`replay_complete`、`subagent_update`、`session_message(_chunk)`,以及 Cycle 自己的 `_cycle/queue_update`(§8)。客户端遇到不认识的变体应忽略,不得报错。
 
 v1 的 Claude 适配只需产生其中的子集,见 L3 文档(待写)。
 
@@ -221,9 +225,54 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 多个客户端同时附着的规则:
 
-- 只有 session 为 `idle` 时才接受 `session/prompt`。否则以 `-32010`(`session_busy`)拒绝。
+- session 不是 `idle` 时,`session/prompt` 进入队列,不再被拒绝,见下面的"排队"。队列满了才以 `-32010`(`session_busy`)拒绝。daemon 的 `cycle/capabilities` 没有 `queue` 时,客户端只在 session 空闲时发送。
 - `session/cancel` 任何附着的客户端都可以发。
-- 一个客户端发出的 prompt,对所有附着的客户端都可见(通过 `user_message` 更新)。
+- 一个客户端发出的 prompt,对所有附着的客户端都可见(通过 `user_message` 更新;排队的 prompt 通过 `_cycle/queue_update`,发出时才有 `user_message`)。
+
+### 排队(session 忙时发的 prompt)
+
+session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不再被拒绝,daemon 把它放进该 session 的**队列**。队列由 daemon 持有、写进日志,所以客户端断线、关窗口、换客户端都不会丢。
+
+- **id**:`messageId` 是 agent 在收到 prompt 时自己生成的(Claude 适配用 `randomUUID`),排队的 prompt 还没到 agent,所以没有。队列条目用 daemon 生成的 `queueId`。它**不是**之后历史里 `user_message` 的 `messageId`,两者没有对应关系,客户端不得假设相同。
+- **响应**:立即返回,`messageId` 填 `queueId`(ACP 的响应必须有这个字段),`_meta["cycle/queued"]` 为 `true`。内容校验(`checkPrompt`)在入队时就做,不合格同样以 `-32602` 拒绝。
+- **上限**:每个 session 最多排 8 条,满了以 `-32010`(`session_busy`)拒绝。
+- **`stopped` 的 session 不排队**:照 §7 启动 agent 并直接发送。如果它的队列里还留着东西(崩溃留下的),先把旧队列以 `reason: "interrupted"` 退回,再处理这条 prompt。
+- **队列的表达**:`session/update` 的一个 Cycle 变体 `sessionUpdate: "_cycle/queue_update"`,每次队列变化发一条**完整快照**,占一个序号,写进日志。它由 daemon 产生,不是 agent 发的:
+
+```json
+{
+  "sessionUpdate": "_cycle/queue_update",
+  "entries": [{ "queueId": "…", "prompt": [{ "type": "text", "text": "…" }] }],
+  "returned": [{ "queueId": "…", "prompt": [] }],
+  "reason": "cancelled"
+}
+```
+
+- **`entries` 是状态,`returned` 是事件。** 客户端以最后一条的 `entries` 为当前队列,所以从任意位置补发都能得到它。`returned` 和 `reason` 只在队列被退回的那一条里出现,客户端**只在它实时到达时**(`replay_complete` 之后)把内容放回输入框;补发过程中遇到的 `returned` 一律忽略,否则重启应用后每次历史里的退回都会再放一遍。
+- **附件字节**照决策 0013 存进 blob(daemon 的提取是递归的,覆盖快照里的 `entries[].prompt[]` 和 `returned[].prompt[]`),同一份内容按 sha256 只存一次,快照反复出现不会反复占用空间。
+- **发出**:turn 以 `idle` 加 `stopReason: "end_turn"` 结束时,daemon 取队头发给 agent,再发一条新的 `_cycle/queue_update`。它的 `user_message` 和直接发的 prompt 一样,来自 agent 收到时的回显(Claude 适配会发),所以也是此时才进历史,历史里的顺序就是真实发生的顺序。
+- **退回,不自动发**:turn 以 `end_turn` 之外的原因结束(`cancelled`、`error`、`max_tokens`、`max_turn_requests`、`refusal`),或者 `session/cancel`、`session/close` 到达时,队列里剩下的**整体退回**:`entries` 清空,原内容放在 `returned`,`reason` 说明原因(`cancelled`、`error`、`closed`、`interrupted`)。客户端把 `returned` 的内容放回输入框,不当作错误显示。宁可退回,也不在用户已经叫停或出错之后替他发出他可能想改的消息。
+- **退回时没有客户端附着**(窗口都关了),或者 **daemon 重启**(进程被中断,没有机会退回):daemon 不退回,也不自动发送,队列留着。下一次有客户端附着时,daemon 在补发、`replay_complete` 和状态快照**之后**退回:原因照旧(重启则是 `interrupted`)。这条 `_cycle/queue_update` 是新写的记录(占新的序号),所以附着的客户端是实时收到它的。daemon 自己关闭时杀掉 agent 进程,不算退回的理由。
+- **撤回**:`_cycle/prompt/dequeue`(客户端 → daemon),参数 `{sessionId, queueId}`。成功时响应里带那条 prompt 的内容(`{prompt}`),客户端放回输入框编辑,并发一条 `_cycle/queue_update`。那条已经发出或不在队列里,以 `-32016`(`not_queued`)拒绝。
+
+### 提及(@)文件与文件夹
+
+客户端在输入框里用 `@` 引用 session 的 `cwd` 下的文件或文件夹。
+
+**搜索**:`_cycle/files/search`(客户端 → daemon),参数 `{sessionId, query, limit?}`,响应 `{root, entries: [{path, kind}], truncated}`:
+
+- `root` 是 `cwd` 的绝对路径;`path` 是相对 `root` 的路径,用 `/` 分隔;`kind` 是 `"file"` 或 `"folder"`。
+- 排序:名字以 `query` 开头的在前,名字包含的次之,路径包含的最后;`query` 含 `/` 时只匹配路径。`query` 为空时给顶层的文件夹和文件。`limit` 缺省 20,最大 50。
+- **只在 `cwd` 内**:daemon 对每个候选取 `realpath`,不在 `cwd` 的 `realpath` 之内的丢掉;符号链接不跟随,也不列出。`cwd` 不存在时返回空列表,不是错误。
+- **有上限**:最多检查 50,000 个条目、最多走 2 秒;到了上限就带 `truncated: true` 返回已找到的。跳过 `.git` 和 `node_modules`;名字以 `.` 开头的文件,只有 `query` 里含 `.` 时才给。
+- 这是 daemon 读本机文件系统的新入口:不返回文件内容,只返回路径;只在 loopback、unix socket 或 SSH 通道上服务,不放宽。session 不存在以 `-32002` 拒绝。
+
+**发送**:composer 里的 `@路径` 在发送时变成两样东西:
+
+1. 文本块里保留可读的 `@相对路径`,所以历史、其他客户端、别的 agent 都看得懂。
+2. 在 prompt 末尾追加一个 `resource_link` 块:`{type: "resource_link", name: 文件名, uri: "file:///绝对路径"}`,文件夹的 `uri` 以 `/` 结尾。同一个 `uri` 只追加一次。结构化引用才是准的:路径里有空格时,文本里的 `@` 形式可能有歧义。
+
+`resource_link` 和图片共用 32 块的上限;超了,多出的 `resource_link` 不发(文字里的 `@路径` 还在,agent 仍读得到路径),文字和图片不受影响。只有文字里还完整写着 `@路径`(前后是空白或标点,不是更长名字的开头)的提及才发。`resource_link` 怎么交给模型是 agent 适配的事:Claude 适配把它写成 XML 标签(见 [docs/adapters/claude.md](adapters/claude.md)),不是协议的一部分。
 
 ## 9. 权限请求与交互请求
 
@@ -309,6 +358,7 @@ daemon 启动 agent 时只传入显式白名单里的环境变量,不继承自�
 | -32013 | `resume_failed`     | agent 无法恢复该 session。历史仍可读,但不能继续对话               |
 | -32014 | `invalid_config`    | 配置不符合 `configSchema`                                         |
 | -32015 | `log_unavailable`   | 历史日志读写失败。写入失败后,该 session 的 prompt 都以它拒绝(§12) |
+| -32016 | `not_queued`        | 要撤回的 prompt 不在队列里(已发出或已退回)                        |
 
 ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集中定义,升级 ACP 时对照检查。
 
@@ -329,7 +379,7 @@ ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集
 
 `kind` 取值:
 
-- `update`:agent 发来的 `session/update` 内容(daemon 合成的用户消息也是这一类)。
+- `update`:agent 发来的 `session/update` 内容(daemon 合成的用户消息和 daemon 自己产生的 `_cycle/queue_update` 也是这一类)。
 - `request`:agent 发来的需要回答的请求,`data` 含 `requestId`、`method`、`params`。
 - `response`:对某个 `request` 的回答,`data` 含 `requestId` 和结果,以及回答来自哪个客户端。
 - `aborted`:某个 `request` 被中止。
@@ -360,6 +410,8 @@ session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session
 
 ## 13. 待定
 
+- 排队退回时,多个客户端附着:现在是**每个**附着的客户端都把 `returned` 放进自己那个 session 的输入框(桌面端是每个窗口的渲染进程各放一份;一个窗口里,重载页面不会再放第二次,按 `queueId` 去重)。两个窗口同时开着同一个 session 时,同一批消息会在两边都出现;要不要只让发出那条 prompt 的客户端接收,留到实际用起来再定。
+- 排队的上限(8)和"只有 `end_turn` 才自动发下一条"是否合适。
 - L3:Claude 适配需要产生哪些 `session/update` 变体,以及配置 schema 的具体字段。
 - 日志里敏感字段的过滤规则。
 - fork 时新 session 的 id 怎么分配(Claude SDK 允许 fork 时指定新 id,待验证)。

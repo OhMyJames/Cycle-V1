@@ -63,7 +63,9 @@ test.skipIf(!ready)(
       for (;;) {
         state = await evaluate(
           port,
-          "document.querySelector('[data-slot=\"host-state\"]')?.dataset.state ?? null",
+          // A host that is connected is not shown in the sidebar's list of hosts that are apart (only one that is not is),
+          // so the window says it by the button that starts a session being usable: it is while some host is connected.
+          "document.querySelector('button[title^=\"New session\"]')?.disabled === false ? 'connected' : null",
         ).catch(() => undefined);
         if (state === "connected") break;
         if (Date.now() - started > 45_000) {

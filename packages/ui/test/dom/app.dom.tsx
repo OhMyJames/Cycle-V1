@@ -8,8 +8,13 @@ import { applyUpdate, emptyConversation } from "../../src/model/index.ts";
 import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
 import { fakeBridge, idle, summary, text } from "../fake-bridge.ts";
+import { boxText, press, ready, write } from "./box.ts";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // Drafts are kept in the page's storage; each test starts with none.
+  localStorage.clear();
+});
 
 const u = (update: object) => update as SessionUpdate;
 
@@ -17,11 +22,13 @@ const mount = async (
   options: {
     snapshot?: () => SessionSnapshot;
     configure?: (script: ReturnType<typeof fakeBridge>) => void;
+    capabilities?: { queue: boolean; files: boolean };
   } = {},
 ) => {
   const script = fakeBridge({
     connected: true,
     ...(options.snapshot ? { snapshot: options.snapshot } : {}),
+    ...(options.capabilities ? { capabilities: options.capabilities } : {}),
   });
   options.configure?.(script);
   const store = new AppStore(script.bridge);
@@ -70,19 +77,23 @@ test("lists the host's sessions, and shows the conversation of the one chosen", 
 test("Enter sends what was typed, Shift+Enter makes a new line, and the box empties", async () => {
   const { user, named } = await mount();
   await openFirstSession(user);
-  const box = (await screen.findByRole("textbox", { name: "Message" })) as HTMLTextAreaElement;
-  await waitFor(() => expect(box.disabled).toBe(false));
-  await user.type(box, "first line{Shift>}{Enter}{/Shift}second line");
-  expect(box.value).toBe("first line\nsecond line");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "first line");
+  await press(box, "Enter", { shiftKey: true });
+  await write(box, "second line");
+  expect(boxText(box)).toBe("first line\nsecond line");
   expect(named("prompt")).toHaveLength(0);
-  await user.keyboard("{Enter}");
+  await press(box, "Enter");
   await waitFor(() =>
-    expect(named("prompt")).toEqual([["prompt", "local", "s1", "first line\nsecond line"]]),
+    expect(named("prompt")).toEqual([
+      ["prompt", "local", "s1", [{ type: "text", text: "first line\nsecond line" }]],
+    ]),
   );
-  expect(box.value).toBe("");
+  expect(boxText(box)).toBe("");
 });
 
-test("while the agent works the button stops it, and the box does not send", async () => {
+test("while the agent works there is Stop, and a message typed is queued, not refused", async () => {
   const { user, emit, named } = await mount();
   await openFirstSession(user);
   await screen.findByRole("textbox", { name: "Message" });
@@ -94,9 +105,16 @@ test("while the agent works the button stops it, and the box does not send", asy
     version: 1,
   });
   const stop = await screen.findByRole("button", { name: "Stop" });
+  expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+  const queue = screen.getByRole("button", { name: "Queue" }) as HTMLButtonElement;
+  expect(queue.disabled).toBe(true);
+  await write(screen.getByRole("textbox", { name: "Message" }), "next");
+  await user.click(queue);
+  await waitFor(() =>
+    expect(named("prompt")).toEqual([["prompt", "local", "s1", [{ type: "text", text: "next" }]]]),
+  );
   await user.click(stop);
   expect(named("cancel")).toHaveLength(1);
-  expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
   emit({
     type: "update",
     hostId: "local",
@@ -180,8 +198,9 @@ test("shows what went wrong, and lets it be dismissed", async () => {
   });
   await openFirstSession(user);
   const box = await screen.findByRole("textbox", { name: "Message" });
-  await waitFor(() => expect((box as HTMLTextAreaElement).disabled).toBe(false));
-  await user.type(box, "hi{Enter}");
+  await ready(box);
+  await write(box, "hi");
+  await press(box, "Enter");
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("The session is working");
   await user.click(within(alert).getByRole("button", { name: "Dismiss" }));
@@ -325,8 +344,9 @@ test("images can be attached when the agent takes them, and go with the message 
   });
   await user.upload(picker, png);
   expect(await screen.findByRole("button", { name: "Remove shot.png" })).toBeTruthy();
-  await user.type(await screen.findByRole("textbox", { name: "Message" }), "what is this");
-  await user.keyboard("{Enter}");
+  const message = await screen.findByRole("textbox", { name: "Message" });
+  await write(message, "what is this");
+  await press(message, "Enter");
   await waitFor(() => expect(named("prompt")).toHaveLength(1));
   expect(named("prompt")[0]).toEqual([
     "prompt",
@@ -495,4 +515,351 @@ test("a development run says updates are for the installed app and offers no che
   });
   expect(screen.getByText("Updates are for the installed app.")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull();
+});
+
+const queueUpdate = (version: number, entries: object[], extra: object = {}) => ({
+  type: "update" as const,
+  hostId: "local",
+  sessionId: "s1",
+  update: u({ sessionUpdate: "_cycle/queue_update", entries, ...extra }),
+  version,
+});
+const waiting = (id: string, words: string) => ({
+  queueId: id,
+  prompt: [{ type: "text", text: words }],
+});
+
+test("what is queued is listed, and Edit takes it back into the box", async () => {
+  const { user, emit, bridge } = await mount();
+  const taken: string[] = [];
+  bridge.dequeue = async (_host, _session, queueId) => {
+    taken.push(queueId);
+    return [{ type: "text", text: "the second one" }];
+  };
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  emit(queueUpdate(1, [waiting("q1", "the second one")]));
+  const list = await screen.findByRole("list", { name: "Queued messages" });
+  expect(list.textContent).toContain("the second one");
+  await user.click(
+    within(list).getByRole("button", { name: /Edit queued message: the second one/ }),
+  );
+  await waitFor(() => expect(boxText(box)).toBe("the second one"));
+  emit(queueUpdate(2, []));
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
+  expect(taken).toEqual(["q1"]);
+  expect(document.activeElement).toBe(box);
+});
+
+test("what the daemon hands back after a stop is in the box, with no error", async () => {
+  const { user, emit, store } = await mount();
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "and this");
+  emit(
+    queueUpdate(1, [], {
+      returned: [waiting("q1", "one"), waiting("q2", "two")],
+      reason: "cancelled",
+    }),
+  );
+  await waitFor(() => expect(boxText(box)).toBe("one\n\ntwo\n\nand this"));
+  expect(store.getState().error).toBeUndefined();
+});
+
+test("each session has its own box, and a draft survives going to another session and back", async () => {
+  const { user, store } = await mount();
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "unfinished");
+  await act(() => store.selectSession("local", "s2"));
+  await waitFor(() => expect(boxText(screen.getByRole("textbox", { name: "Message" }))).toBe(""));
+  await act(() => store.selectSession("local", "s1"));
+  await waitFor(() =>
+    expect(boxText(screen.getByRole("textbox", { name: "Message" }))).toBe("unfinished"),
+  );
+});
+
+test("Up in an empty box recalls what was sent, Down goes back, and typing is not interfered with", async () => {
+  const { user } = await mount({
+    snapshot: () =>
+      history(
+        u({
+          sessionUpdate: "user_message",
+          messageId: "u1",
+          content: [{ type: "text", text: "first" }],
+        }),
+        text("ok", "a1"),
+        u({
+          sessionUpdate: "user_message",
+          messageId: "u2",
+          content: [{ type: "text", text: "second" }],
+        }),
+        idle({ stopReason: "end_turn" }),
+      ),
+  });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await press(box, "ArrowUp");
+  expect(boxText(box)).toBe("second");
+  await press(box, "ArrowUp");
+  expect(boxText(box)).toBe("first");
+  await press(box, "ArrowDown");
+  expect(boxText(box)).toBe("second");
+  await press(box, "ArrowDown");
+  expect(boxText(box)).toBe("");
+  await write(box, "typing");
+  await press(box, "ArrowUp");
+  expect(boxText(box)).toBe("typing");
+});
+
+test("a message that could not be sent is back in the box", async () => {
+  const { user, bridge } = await mount();
+  bridge.prompt = async () => {
+    throw new Error("The agent is not available");
+  };
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "do it");
+  await press(box, "Enter");
+  await screen.findByRole("alert");
+  await waitFor(() => expect(boxText(box)).toBe("do it"));
+});
+
+const withCommands = (...names: string[]) =>
+  history(
+    u({
+      sessionUpdate: "available_commands_update",
+      availableCommands: names.map((name) => ({
+        type: "command",
+        name,
+        description: `Does ${name}`,
+        ...(name === "review" ? { input: { type: "text", hint: "PR number" } } : {}),
+      })),
+    }),
+  );
+
+test("a slash at the start lists the commands that fit; the arrows choose, Enter takes it and does not send", async () => {
+  const { user, named } = await mount({
+    snapshot: () => withCommands("init", "review", "compact"),
+  });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "/");
+  const menu = await screen.findByRole("listbox", { name: "Commands" });
+  expect(
+    within(menu)
+      .getAllByRole("option")
+      .map((o) => o.textContent),
+  ).toEqual(["/initDoes init", "/reviewPR numberDoes review", "/compactDoes compact"]);
+  expect(box.getAttribute("aria-expanded")).toBe("true");
+  await write(box, "r");
+  await waitFor(() => expect(within(menu).getAllByRole("option")).toHaveLength(1));
+  await press(box, "ArrowDown");
+  await press(box, "Enter");
+  await waitFor(() => expect(boxText(box)).toBe("/review "));
+  expect(named("prompt")).toHaveLength(0);
+  await waitFor(() => expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull());
+  // The menu is gone, so Enter sends.
+  await write(box, "12");
+  await press(box, "Enter");
+  await waitFor(() =>
+    expect(named("prompt")).toEqual([
+      ["prompt", "local", "s1", [{ type: "text", text: "/review 12" }]],
+    ]),
+  );
+});
+
+test("a command typed in full is sent by Enter, not rewritten", async () => {
+  const { user, named } = await mount({ snapshot: () => withCommands("init", "compact") });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "/compact");
+  await screen.findByRole("listbox", { name: "Commands" });
+  await press(box, "Enter");
+  await waitFor(() =>
+    expect(named("prompt")).toEqual([
+      ["prompt", "local", "s1", [{ type: "text", text: "/compact" }]],
+    ]),
+  );
+});
+
+test("a slash that is not at the start of the message, or has a space after it, opens nothing", async () => {
+  const { user } = await mount({ snapshot: () => withCommands("init") });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "see /in");
+  await act(async () => {});
+  expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull();
+});
+
+test("Escape closes the menu and Enter then sends what was typed", async () => {
+  const { user, named } = await mount({ snapshot: () => withCommands("init") });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "/zzz");
+  expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull();
+  await write(box, "\b");
+  await press(box, "Enter");
+  await waitFor(() => expect(named("prompt")).toHaveLength(1));
+});
+
+test("a click on a command takes it, and the input keeps the focus", async () => {
+  const { user } = await mount({ snapshot: () => withCommands("init", "compact") });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "/co");
+  await user.click(await screen.findByRole("option", { name: /compact/ }));
+  await waitFor(() => expect(boxText(box)).toBe("/compact "));
+});
+
+const files = (entries: { path: string; kind: "file" | "folder" }[]) => async () => ({
+  root: "/work",
+  entries,
+  truncated: false,
+});
+
+test("an @ lists the files that fit; Enter takes one, the text says where, and the agent is sent a link too", async () => {
+  const { user, named, bridge } = await mount();
+  const asked: string[] = [];
+  bridge.searchFiles = async (_host, _session, query) => {
+    asked.push(query);
+    return query === "ma"
+      ? {
+          root: "/work",
+          entries: [
+            { path: "src/main.ts", kind: "file" },
+            { path: "docs/manual", kind: "folder" },
+          ],
+          truncated: false,
+        }
+      : { root: "/work", entries: [], truncated: false };
+  };
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "look at @ma");
+  const menu = await screen.findByRole("listbox", { name: "Files and folders" });
+  expect(
+    within(menu)
+      .getAllByRole("option")
+      .map((o) => o.textContent),
+  ).toEqual(["main.tssrc", "manual/docs"]);
+  expect(asked.at(-1)).toBe("ma");
+  await press(box, "Enter");
+  await waitFor(() => expect(boxText(box)).toBe("look at @src/main.ts "));
+  expect(named("prompt")).toHaveLength(0);
+  await write(box, "please");
+  await press(box, "Enter");
+  await waitFor(() => expect(named("prompt")).toHaveLength(1));
+  expect(named("prompt")[0]).toEqual([
+    "prompt",
+    "local",
+    "s1",
+    [
+      { type: "text", text: "look at @src/main.ts please" },
+      {
+        type: "resource_link",
+        name: "main.ts",
+        uri: "file:///work/src/main.ts",
+        _meta: { "cycle/mention": "src/main.ts" },
+      },
+    ],
+  ]);
+});
+
+test("a name that fits nothing is said so, an @ in an address opens nothing, and a search that fails is quiet", async () => {
+  const { user, store, bridge } = await mount();
+  bridge.searchFiles = files([]);
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "write to me@example.com");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  expect(screen.queryByRole("listbox", { name: "Files and folders" })).toBeNull();
+  const empty = () => document.querySelector('[data-slot="picker"][role="status"]');
+  expect(empty()).toBeNull();
+  await write(box, " @zzz");
+  await waitFor(() => expect(empty()?.textContent).toBe("No file or folder matches that."));
+  // The box is not stopped by it: Enter sends what is there.
+  bridge.searchFiles = async () => {
+    throw new Error("The daemon is old");
+  };
+  await write(box, "q");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  expect(store.getState().error).toBeUndefined();
+});
+
+test("a mention taken back from the queue is a mention again", async () => {
+  const { user, bridge, emit, store } = await mount();
+  bridge.dequeue = async () => [
+    { type: "text", text: "see @a.ts" },
+    {
+      type: "resource_link",
+      name: "a.ts",
+      uri: "file:///work/a.ts",
+      _meta: { "cycle/mention": "a.ts" },
+    },
+  ];
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  emit(queueUpdate(1, [waiting("q1", "see @a.ts")]));
+  await user.click(await screen.findByRole("button", { name: /Edit queued message/ }));
+  await waitFor(() => expect(boxText(box)).toBe("see @a.ts"));
+  expect(store.drafts.get("local:s1").mentions.map((m) => m.uri)).toEqual(["file:///work/a.ts"]);
+});
+
+test("a daemon that does not queue is not sent a message while the agent works, and says why", async () => {
+  const { user, emit, named } = await mount({ capabilities: { queue: false, files: false } });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  emit({
+    type: "update",
+    hostId: "local",
+    sessionId: "s1",
+    update: u({ sessionUpdate: "state_update", state: "running" }),
+    version: 1,
+  });
+  await write(box, "next");
+  const send = (await screen.findByRole("button", { name: "Send" })) as HTMLButtonElement;
+  expect(send.disabled).toBe(true);
+  await press(box, "Enter");
+  expect(named("prompt")).toHaveLength(0);
+  expect(document.querySelector('[data-slot="composer-placeholder"]')).toBeNull();
+  expect(box.getAttribute("aria-placeholder")).toBe(
+    "The agent is working. Stop it to send a message now.",
+  );
+  // The text stays: it goes when the turn is over.
+  expect(boxText(box)).toBe("next");
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+});
+
+test("a daemon that does not find files is not asked for them", async () => {
+  const { user, bridge, named } = await mount({ capabilities: { queue: true, files: false } });
+  bridge.searchFiles = async () => {
+    throw new Error("must not be asked");
+  };
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "@ma");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  });
+  expect(screen.queryByRole("listbox", { name: "Files and folders" })).toBeNull();
+  expect(named("searchFiles")).toHaveLength(0);
 });

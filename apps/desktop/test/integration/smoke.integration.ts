@@ -87,6 +87,7 @@ test.skipIf(!ready)(
           "connect",
           "createSession",
           "deleteSession",
+          "dequeue",
           "disconnect",
           "hosts",
           "installUpdate",
@@ -96,6 +97,7 @@ test.skipIf(!ready)(
           "removeHost",
           "renameSession",
           "saveHost",
+          "searchFiles",
           "sessions",
           "setAgentDefaults",
           "setSessionConfig",
@@ -103,6 +105,10 @@ test.skipIf(!ready)(
         ].sort(),
       );
 
+      // The box showed Markdown as it was typed, with the characters of a file name left alone.
+      expect(String(step("markdown-typed")?.shown)).toBe("a bold word, my_file.py and code");
+      expect(step("markdown-typed")?.underscoreKept).toBe(true);
+      expect(String(step("pasted")?.shown)).toContain("pasted **x** my_file.py");
       expect(String(step("answer")?.text)).toContain("Hello from the mock");
       expect(String(step("permission")?.text)).toContain("touch made-by-the-agent.txt");
       expect(String(step("allowed")?.text)).toContain("All done");
@@ -112,7 +118,12 @@ test.skipIf(!ready)(
       expect(existsSync(join(home, "shot.png"))).toBe(true);
     } finally {
       const pid = Number((await readFile(join(data, "daemon.pid"), "utf8").catch(() => "")).trim());
-      if (pid > 0) process.kill(pid, "SIGTERM");
+      // It may be gone already, and a failure above must not be hidden behind this.
+      if (pid > 0) {
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch {}
+      }
       mock.stop();
     }
   },

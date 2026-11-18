@@ -22,5 +22,12 @@ export const logUnavailable = (sessionId: string, detail: string): RpcError =>
 export const sessionNotFound = (sessionId: string): RpcError =>
   new RpcError(RESOURCE_NOT_FOUND, "Session not found", { sessionId });
 
+/** Said when the queue has no room: the person is told why, and that it is not a session that is stuck. */
+export const queueFull = (sessionId: string, limit: number): RpcError =>
+  new RpcError(CycleErrorCode.SessionBusy, `${limit} messages are already waiting for the agent`, {
+    sessionId,
+    queued: limit,
+  });
+
 export const sessionBusy = (sessionId: string): RpcError =>
   new RpcError(CycleErrorCode.SessionBusy, "The session is working", { sessionId });

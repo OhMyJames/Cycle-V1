@@ -10,6 +10,7 @@ import {
   attentionOf,
   type Conversation,
   emptyConversation,
+  type FileSearch,
   type HostConfig,
   type HostStatus,
   type NewSession,
@@ -176,6 +177,18 @@ export class ConnectionManager
             state,
             ...(error !== undefined ? { error: messageOf(error) } : {}),
             ...(state === "connected" ? this.#daemonOf(host, connection.client) : {}),
+            // What the daemon can do is known from the connection it said it on: a drop that comes back to the same
+            // daemon does not take it away, or the box would stop queueing for as long as the line is down.
+            ...(state === "connected"
+              ? {
+                  capabilities: {
+                    queue: connection.client.capabilities.queue === true,
+                    files: connection.client.capabilities.files === true,
+                  },
+                }
+              : state === "reconnecting" && connection.status.capabilities !== undefined
+                ? { capabilities: connection.status.capabilities }
+                : {}),
           };
           this.#options.emit({ type: "host-status", ...connection.status });
           if (state === "connected" && was === "reconnecting") {
@@ -368,6 +381,14 @@ export class ConnectionManager
 
   async cancel(hostId: string, sessionId: string): Promise<void> {
     await this.#connection(hostId).client.cancel(sessionId);
+  }
+
+  async searchFiles(hostId: string, sessionId: string, query: string): Promise<FileSearch> {
+    return this.#connection(hostId).client.searchFiles(sessionId, query);
+  }
+
+  async dequeue(hostId: string, sessionId: string, queueId: string): Promise<PromptBlock[]> {
+    return (await this.#connection(hostId).client.dequeue(sessionId, queueId)) as PromptBlock[];
   }
 
   async setSessionConfig(hostId: string, sessionId: string, configId: string, value: string) {
