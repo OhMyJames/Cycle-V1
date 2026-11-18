@@ -808,6 +808,7 @@ export class Daemon {
         throw sessionBusy(session.id);
       // Marked at once: the agent's own "running" comes later, and a second prompt must not slip in.
       session.agentState = "running";
+      this.#changed();
       try {
         const link = await this.#ensureAgent(session);
         const answer = await link.agent.request(methods.agent.session.prompt, {
@@ -817,6 +818,7 @@ export class Daemon {
         return answer as never;
       } catch (error) {
         session.agentState = "idle";
+        this.#changed();
         throw error;
       }
     });
@@ -953,8 +955,12 @@ export class Daemon {
       if (params.seq <= before) return {};
       const unread = session.unread();
       // On disk first: if that fails, what the list says and what a restart reads stay the same.
-      await this.#index.update(session.id, { readSeq: params.seq });
-      session.entry = { ...session.entry, readSeq: params.seq };
+      // Decided in the index's queue, so a lower mark that arrives meanwhile cannot undo this one.
+      await this.#index.update(session.id, (entry) => ({
+        readSeq: Math.max(entry.readSeq ?? 0, params.seq),
+      }));
+      const readSeq = this.#index.get(session.id)?.readSeq ?? params.seq;
+      session.entry = { ...session.entry, readSeq };
       if (session.unread() !== unread) this.#changed();
       return {};
     });

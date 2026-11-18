@@ -481,6 +481,21 @@ test("a turn that ended is unread until a client says it has seen it, and that i
   expect((await rowOf(e, sessionId)).meta["cycle/unread"]).toBe(false);
 });
 
+test("two clients marking at once cannot move the mark back", async () => {
+  const { daemon } = await start();
+  const c = await connectClient(daemon);
+  const sessionId = await startedSession(c);
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
+  await until(() => c.ended() >= 1, "the turn to end");
+  const seen = await lastSeqOf(c, sessionId);
+  // The higher mark first, the lower one right behind it, neither waiting for the other.
+  await Promise.all([
+    c.agent.request("_cycle/session/mark_read", { sessionId, seq: seen }),
+    c.agent.request("_cycle/session/mark_read", { sessionId, seq: 1 }),
+  ]);
+  expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(false);
+});
+
 test("a session waiting on the owner is unread and announced even if the agent says nothing of it, and answering is announced", async () => {
   // As the Claude adapter does: it asks for permission and sends no state_update of its own.
   const { daemon } = await start(
