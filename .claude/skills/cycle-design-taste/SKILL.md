@@ -33,7 +33,7 @@ Cycle 是一个人每天开几个小时的工具:盯着 agent 干活、批准它
    不加新的强调色、不加渐变、毛玻璃、发光、阴影装饰。令牌用 `light-dark()`,跟随系统深浅色;每一处都得跟着换,深浅色都要看。
 2. **一个系统。** 根字号 14px(`app.css`),其余用 `em` 相对它(ui-sdk 的 `--ui-font-size` 是 13px,组件内部用它);一种字体栈(系统字体),等宽只用于代码、命令、路径、id;
    两种内容宽度(侧栏、主区),主区里的对话有最大行宽。不新增字号、不新增圆角值、不新增间距值。
-3. **样式写在 `app.css` 里,用 `data-slot`。** 我们自己的组件不用 Tailwind 工具类,不用行内样式。Tailwind 只服务 Streamdown。
+3. **样式写在 `app.css` 里,用 `data-slot`。** 我们自己的组件不用 Tailwind 工具类,不用行内样式。Tailwind 只服务 Streamdown。ui-sdk 的部件(Collapsible、Command 等)自己设 `data-slot`,会盖掉我们写的:给它们写样式用 `data-kind`(或 `data-palette`),先看渲染出来的 DOM。
 4. **状态要齐。** 每块界面都有:空、加载、出错、断线、内容很长、数量很多。出错时写**原因和下一步**,不写"出错了"。
    (`references/states.md` 有逐块的清单。)
 5. **文案平实。** 按钮是动词加对象("Allow once""Delete session");不用感叹号、表情、"powerful""seamless"之类的词;

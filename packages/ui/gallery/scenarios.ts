@@ -11,6 +11,7 @@ import type {
 } from "../src/api.ts";
 import { type CodeThemeId, codeTheme } from "../src/code-theme.ts";
 import { applyUpdate, emptyConversation } from "../src/model/index.ts";
+import { thinking } from "../src/thinking.ts";
 import { SAMPLE_PNG } from "./sample-image.ts";
 
 export type Scenario = {
@@ -194,6 +195,73 @@ export const scenarios: Record<string, Scenario> = {
     title: "A finished turn: thought, tools (done, failed, running), plan, markdown, usage",
     sessions: [session("s1", { title: "Fix the remote session" })],
     history: conversation,
+  },
+  turns: {
+    title:
+      "Three turns: a card of tool calls that went well; a turn that failed (the failure pulled out, how it ended); a turn that is going (the step)",
+    sessions: [session("s1", { title: "Ship the fix", state: "running" })],
+    history: [
+      you("u1", "Run the tests and fix what fails."),
+      ...tool("a1", "Read", "completed", { file_path: "packages/daemon/src/daemon.ts" }),
+      ...tool("a2", "Read", "completed", { file_path: "packages/daemon/test/daemon.test.ts" }),
+      ...tool("a3", "Edit", "completed", { file_path: "packages/daemon/src/daemon.ts" }),
+      ...tool("a4", "Bash", "completed", { command: "bun test packages/daemon" }),
+      say(
+        "m1",
+        "Two tests failed because the working directory was never checked. I fixed it and the suite passes.",
+      ),
+      idle({ stopReason: "end_turn" }),
+      you("u2", "Now deploy it."),
+      ...tool("b1", "Bash", "completed", { command: "bun run build" }),
+      ...tool("b2", "Bash", "completed", { command: "scp dist/cycle-daemon build-1:" }),
+      ...tool("b3", "Bash", "failed", { command: "ssh build-1 ./cycle-daemon --version" }),
+      idle({ stopReason: "error", error: { message: "The agent exited unexpectedly (code 1)" } }),
+      you("u3", "Try again, with the staging profile."),
+      running(),
+      ...tool("c1", "Read", "completed", { file_path: "deploy/staging.json" }),
+      ...tool("c2", "Bash", "in_progress", { command: "bun run deploy --profile staging" }),
+    ],
+  },
+  "turn-stopped": {
+    title: "A turn that was stopped, a turn that ran out of length, a turn the agent declined",
+    sessions: [session("s1", { title: "Stops" })],
+    history: [
+      you("u1", "Rewrite everything."),
+      ...tool("a1", "Bash", "in_progress", { command: "bun test" }),
+      idle({ stopReason: "cancelled" }),
+      you("u2", "Explain the whole codebase."),
+      say("m2", "The codebase has four layers. The first is"),
+      idle({ stopReason: "max_tokens" }),
+      you("u3", "Do the other thing."),
+      idle({ stopReason: "refusal" }),
+    ],
+  },
+  "thinking-shown": {
+    title:
+      "The same turn with thinking shown (it is hidden by default, and the step line says so while it is going)",
+    sessions: [session("s1", { title: "Think it through", state: "running" })],
+    history: [
+      you("u1", "Why is it slow?"),
+      u({
+        sessionUpdate: "agent_thought",
+        messageId: "t1",
+        content: [{ type: "text", text: "The log is read whole on every resume; that may be it." }],
+      }),
+      ...tool("a1", "Read", "completed", { file_path: "packages/daemon/src/log/jsonl.ts" }),
+      ...tool("a2", "Grep", "completed", { pattern: "readAll" }),
+      say("m1", "It reads the whole log on every resume."),
+      idle({ stopReason: "end_turn" }),
+      you("u2", "And now?"),
+      running(),
+      u({
+        sessionUpdate: "agent_thought",
+        messageId: "t2",
+        content: [{ type: "text", text: "Checking whether the index is used at all." }],
+      }),
+    ],
+    after: async () => {
+      thinking.set(true);
+    },
   },
   code: {
     title: "Code blocks in five languages (syntax colours, light and dark)",
