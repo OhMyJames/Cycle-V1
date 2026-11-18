@@ -25,9 +25,13 @@ const platformDir = dirname(
 const binary = (await readdir(platformDir)).find((f) => f === "claude" || f === "claude.exe");
 if (binary === undefined) throw new Error(`no Claude binary in ${platformDir}`);
 
+const version = String((await Bun.file(join(root, "../desktop/package.json")).json()).version);
+
 const result = await Bun.build({
   entrypoints: [join(root, "src/main.ts")],
   // The daemon runs from whatever directory it was started in; it must not read a .env or bunfig.toml there.
+  // The release version, which is the app's: one number for the whole release.
+  define: { "process.env.CYCLE_BUILD_VERSION": JSON.stringify(version) },
   compile: { outfile: join(out, "cycle"), autoloadDotenv: false, autoloadBunfig: false },
   minify: false,
 });

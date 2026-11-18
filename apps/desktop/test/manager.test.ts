@@ -30,8 +30,12 @@ const until = async (condition: () => boolean, what: string, ms = 3_000) => {
 };
 
 /** A daemon on a socket with a fake agent, and managers that reach it. */
-const setup = async (fake = fakeAgent()) => {
-  const daemon = await Daemon.start({ dataDir: join(dir, "daemon"), agents: [fake.definition] });
+const setup = async (fake = fakeAgent(), daemonVersion?: string) => {
+  const daemon = await Daemon.start({
+    dataDir: join(dir, "daemon"),
+    agents: [fake.definition],
+    ...(daemonVersion !== undefined ? { version: daemonVersion } : {}),
+  });
   const socket = join(dir, "d.sock");
   const server = await listenUnix({
     path: socket,
@@ -42,7 +46,7 @@ const setup = async (fake = fakeAgent()) => {
     await daemon.close();
   });
   const channels: Channel[] = [];
-  const manager = async (name = "app") => {
+  const manager = async (name = "app", appVersion?: string) => {
     const events: AppEvent[] = [];
     const m = new ConnectionManager({
       settings: fileSettings(join(dir, `settings-${name}.json`)),
@@ -53,6 +57,7 @@ const setup = async (fake = fakeAgent()) => {
       },
       emit: (event) => events.push(event),
       backoff: { first: 10, max: 50 },
+      ...(appVersion !== undefined ? { appVersion } : {}),
     });
     await m.init();
     cleanup.push(() => m.close());
@@ -278,4 +283,42 @@ test("a host that cannot be reached ends closed, with why", async () => {
     error: "Host key verification failed",
   });
   expect((await m.hosts()).status[0]?.state).toBe("closed");
+});
+
+const far: HostConfig = { id: "far", name: "Far", kind: "ssh", host: "example" };
+const connectedStatus = (events: AppEvent[], hostId: string) =>
+  events.findLast(
+    (e): e is Extract<AppEvent, { type: "host-status" }> =>
+      e.type === "host-status" && e.hostId === hostId && e.state === "connected",
+  );
+
+test("a remote host whose daemon is older than the app is told so, with what to run on it", async () => {
+  const { manager } = await setup(fakeAgent(), "0.1.0");
+  const { m, events } = await manager("app", "0.1.1");
+  await m.saveHost(far);
+  await m.connect("far");
+  const daemon = connectedStatus(events, "far")?.daemon;
+  expect(daemon?.version).toBe("0.1.0");
+  expect(daemon?.upgrade).toContain("releases/download/v0.1.1/cycle-linux-x64.tar.gz");
+  expect(daemon?.upgrade).toContain("sha256sum -c");
+  expect(daemon?.upgrade).toContain("install.sh");
+});
+
+test("a daemon that is the same, newer, or a development build is not nagged about", async () => {
+  for (const version of ["0.1.1", "0.2.0", undefined]) {
+    const { manager } = await setup(fakeAgent(), version);
+    const { m, events } = await manager("app", "0.1.1");
+    await m.saveHost(far);
+    await m.connect("far");
+    expect(connectedStatus(events, "far")?.daemon?.upgrade).toBeUndefined();
+    await m.close();
+    for (const clean of cleanup.splice(0).reverse()) await clean();
+  }
+});
+
+test("the local host is not compared: the app carries it", async () => {
+  const { manager } = await setup(fakeAgent(), "0.0.1");
+  const { m, events } = await manager("app", "0.1.1");
+  await m.connect("local");
+  expect(connectedStatus(events, "local")?.daemon).toBeUndefined();
 });

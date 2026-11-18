@@ -45,6 +45,8 @@ export type DaemonOptions = {
   agents: AgentDefinition[];
   /** For tests: replaces the JSONL store. */
   store?: LogStore;
+  /** What this build is, told to every client that connects. Default `dev`: not a release. */
+  version?: string;
 };
 
 const SESSION_UPDATE = methods.client.session.update;
@@ -66,6 +68,7 @@ const stringConfig = (value: unknown): Record<string, string> => {
  * replay and live updates are one path.
  */
 export class Daemon {
+  readonly #version: string;
   readonly #agents: Map<string, AgentDefinition>;
   readonly #store: LogStore;
   readonly #index: SessionIndex;
@@ -75,6 +78,7 @@ export class Daemon {
   #counter = 0;
 
   private constructor(options: DaemonOptions, index: SessionIndex, defaults: AgentDefaults) {
+    this.#version = options.version ?? "dev";
     this.#agents = new Map(options.agents.map((a) => [a.id, a]));
     this.#store = options.store ?? new JsonlLogStore({ dir: sessionsDir(options.dataDir) });
     this.#index = index;
@@ -401,7 +405,7 @@ export class Daemon {
       }
       return {
         protocolVersion: 2,
-        info: { name: "cycle", version: "0.0.0" },
+        info: { name: "cycle", version: this.#version },
         capabilities: { session: {} },
         _meta: {
           [META.protocolVersion]: CYCLE_PROTOCOL_VERSION,

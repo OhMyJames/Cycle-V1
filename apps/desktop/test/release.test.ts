@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { archiveName, isNewer, manifestFor, parseManifest } from "../src/shared/release.ts";
+import {
+  archiveName,
+  daemonUpgradeCommand,
+  isNewer,
+  manifestFor,
+  parseManifest,
+} from "../src/shared/release.ts";
 
 const hash = "a".repeat(64);
 
@@ -31,4 +37,16 @@ test("versions compare as numbers, and anything that is not major.minor.patch is
   expect(isNewer("0.10.0", "0.9.0")).toBe(true);
   expect(isNewer("0.1.0", "0.1.0")).toBe(false);
   expect(isNewer("1.0.0-beta", "0.1.0")).toBe(false);
+});
+
+test("the command for a remote machine downloads this release's daemon, checks it, installs it and stops the old one", () => {
+  const command = daemonUpgradeCommand("0.1.1");
+  const steps = command.split(" && ");
+  expect(steps[1]).toBe(
+    "curl -fsSLO https://github.com/OhMyJames/Cycle-V1/releases/download/v0.1.1/cycle-linux-x64.tar.gz",
+  );
+  expect(steps.indexOf("sha256sum -c cycle-linux-x64.tar.gz.sha256")).toBeLessThan(
+    steps.indexOf("sh cycle-linux-x64/install.sh"),
+  );
+  expect(steps.at(-1)).toBe('"$HOME/.local/bin/cycle" stop');
 });

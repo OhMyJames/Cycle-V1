@@ -63,6 +63,23 @@ export function UpdateBanner() {
   );
 }
 
+/** A host whose daemon is older than this app: what to run on that machine. */
+export function DaemonBanner({ hostId }: { hostId: string }) {
+  const daemon = useAppState((s) => s.status[hostId]?.daemon);
+  if (daemon?.upgrade === undefined) return null;
+  return (
+    <div data-slot="banner" data-severity="warning" role="status">
+      <div data-slot="stack">
+        <span>
+          Cycle on this host is {daemon.version}, older than this app. To update it, run this on
+          that machine (what its sessions are doing is interrupted when it restarts):
+        </span>
+        <code data-slot="command">{daemon.upgrade}</code>
+      </div>
+    </div>
+  );
+}
+
 /** In the sidebar: the running version, what the update is doing, and a way to ask now. */
 export function UpdateFooter() {
   const store = useAppStore();

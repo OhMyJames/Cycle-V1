@@ -271,6 +271,26 @@ test("an update that is found is offered, asks before it restarts, and the foote
   expect(named("checkForUpdate")).toHaveLength(1);
 });
 
+test("a remote host whose daemon is older shows what to run on it, and a current one shows nothing", async () => {
+  const { emit } = await mount();
+  expect(screen.queryByText(/older than this app/)).toBeNull();
+  await emit({
+    type: "host-status",
+    hostId: "local",
+    state: "connected",
+    daemon: { version: "0.1.0", upgrade: "curl -fsSLO https://example/x && sh install.sh" },
+  });
+  expect(screen.getByText(/Cycle on this host is 0.1.0, older than this app/)).toBeTruthy();
+  expect(screen.getByText("curl -fsSLO https://example/x && sh install.sh")).toBeTruthy();
+  await emit({
+    type: "host-status",
+    hostId: "local",
+    state: "connected",
+    daemon: { version: "0.1.1" },
+  });
+  expect(screen.queryByText(/older than this app/)).toBeNull();
+});
+
 test("a development run says updates are for the installed app and offers no check", async () => {
   const { emit } = await mount();
   await emit({

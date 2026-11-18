@@ -61,6 +61,7 @@ jobs:
           D=apps/daemon/dist/cycle-linux-x64
           ! env -i PATH=/usr/bin:/bin "$D/cycle" status --data-dir "$RUNNER_TEMP/d"
           env -i PATH=/usr/bin:/bin "$D/claude" --version
+          test "$(env -i PATH=/usr/bin:/bin "$D/cycle" version)" = "$(jq -r .version apps/desktop/package.json)"
       - name: Checksum
         working-directory: apps/daemon/dist
         run: sha256sum cycle-linux-x64.tar.gz > cycle-linux-x64.tar.gz.sha256
@@ -103,6 +104,7 @@ jobs:
           set +e
           "$BUNDLE/bin/cycle" status --data-dir "$RUNNER_TEMP/d1"; test $? -eq 1 || exit 1
           "$BUNDLE/bin/claude" --version || exit 1
+          test "$("$BUNDLE/bin/cycle" version)" = "$(jq -r .version apps/desktop/package.json)" || exit 1
           CYCLE_DAEMON_BIN="$PWD/$BUNDLE/bin/cycle" bun run --cwd apps/daemon test:integration
 
       - name: The app opens a window that connects to its own daemon
@@ -181,6 +183,7 @@ jobs:
           set +e
           "$BUNDLE/bin/cycle" status --data-dir "$RUNNER_TEMP/d2"; test $? -eq 1 || exit 1
           "$BUNDLE/bin/claude" --version || exit 1
+          test "$("$BUNDLE/bin/cycle" version)" = "$(jq -r .version apps/desktop/package.json)" || exit 1
           CYCLE_DAEMON_BIN="$PWD/$BUNDLE/bin/cycle" bun run --cwd apps/daemon test:integration
 
       - name: The signed app still opens and connects

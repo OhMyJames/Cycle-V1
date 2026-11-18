@@ -8,12 +8,14 @@ import { defaultDataDir, loadConfig, pathsFor } from "./config.ts";
 import { proxy } from "./proxy.ts";
 import { claudeExecutable } from "./self.ts";
 import { serve } from "./serve.ts";
+import { VERSION } from "./version.ts";
 
 const USAGE = `cycle <command> [options]
 
   serve   Run the daemon in the foreground.
   proxy   Join stdin and stdout to the daemon's socket, starting the daemon if needed.
           This is what a client runs over ssh.
+  version Print this build's version ("dev" when run from source).
   status  Say whether the daemon is running (exit 0) or not (exit 1).
   stop    Stop the daemon if it is running.
   login   Sign in to Claude for this daemon: "claude auth login" with the environment and
@@ -38,6 +40,10 @@ const { values, positionals } = parseArgs({
 const command = positionals[0];
 if (command === "adapter" && positionals[1] === "claude") {
   await runAdapter();
+  process.exit(0);
+}
+if (command === "version") {
+  console.log(VERSION);
   process.exit(0);
 }
 const commands = ["serve", "proxy", "status", "stop", "login", "claude"];

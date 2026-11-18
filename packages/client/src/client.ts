@@ -63,6 +63,7 @@ export class CycleClient {
   #state: ConnectionState = "closed";
   #reconnecting: Promise<void> | undefined;
   #capabilities: Record<string, unknown> = {};
+  #serverVersion: string | undefined;
 
   constructor(options: ClientOptions) {
     this.#options = options;
@@ -74,6 +75,11 @@ export class CycleClient {
   }
 
   /** What the daemon said it can do, from `initialize`. */
+  /** What the daemon says it is (its release, or `dev`), as of the last connection. */
+  get serverVersion(): string | undefined {
+    return this.#serverVersion;
+  }
+
   get capabilities(): Record<string, unknown> {
     return this.#capabilities;
   }
@@ -263,6 +269,8 @@ export class CycleClient {
         capabilities: {},
         _meta: { [META.protocolVersion]: CYCLE_PROTOCOL_VERSION },
       } as never);
+      const info = (answer as { info?: { version?: unknown } }).info;
+      this.#serverVersion = typeof info?.version === "string" ? info.version : undefined;
       this.#capabilities =
         ((answer as { _meta?: Record<string, unknown> })._meta?.[META.capabilities] as Record<
           string,

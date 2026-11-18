@@ -4,6 +4,7 @@ import { Daemon } from "@cycle/daemon";
 import { listenUnix } from "@cycle/transport/server";
 import { agentsFor } from "./agents.ts";
 import { loadConfig, type Paths } from "./config.ts";
+import { VERSION } from "./version.ts";
 
 /** Runs the daemon until `close` is called. */
 export const serve = async (paths: Paths, log: (line: string) => void = () => {}) => {
@@ -11,6 +12,7 @@ export const serve = async (paths: Paths, log: (line: string) => void = () => {}
   const daemon = await Daemon.start({
     dataDir: paths.dataDir,
     agents: agentsFor(config, paths.dataDir),
+    version: VERSION,
   });
   let clients = 0;
   const server = await listenUnix({

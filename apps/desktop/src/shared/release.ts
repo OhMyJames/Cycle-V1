@@ -47,6 +47,26 @@ export const isNewer = (candidate: string, current: string): boolean => {
   return false;
 };
 
+/** The Linux daemon's archive in a release: one platform, and its name does not carry the version. */
+export const DAEMON_ARCHIVE = "cycle-linux-x64.tar.gz";
+
+/**
+ * What to run on a remote machine to put the daemon of `version` there: download, check, unpack,
+ * install, and stop the one that is running (the next connection starts the new one).
+ */
+export const daemonUpgradeCommand = (version: string): string => {
+  const url = `https://github.com/${RELEASE_REPO}/releases/download/${tagOf(version)}/${DAEMON_ARCHIVE}`;
+  return [
+    'cd "$(mktemp -d)"',
+    `curl -fsSLO ${url}`,
+    `curl -fsSLO ${url}.sha256`,
+    `sha256sum -c ${DAEMON_ARCHIVE}.sha256`,
+    `tar xzf ${DAEMON_ARCHIVE}`,
+    "sh cycle-linux-x64/install.sh",
+    '"$HOME/.local/bin/cycle" stop',
+  ].join(" && ");
+};
+
 export const manifestFor = (
   build: { version: string; platform: string; arch: string },
   archive: { sha256: string; size: number },

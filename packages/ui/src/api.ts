@@ -20,7 +20,17 @@ export type HostConfig =
 
 export type ConnectionState = "connecting" | "connected" | "reconnecting" | "closed";
 
-export type HostStatus = { hostId: string; state: ConnectionState; error?: string };
+export type HostStatus = {
+  hostId: string;
+  state: ConnectionState;
+  error?: string;
+  /** What the daemon on the host says it is. Not for the local one, which the app carries. */
+  daemon?: {
+    version: string;
+    /** Set when it is older than this app: what to run on that machine to update it. */
+    upgrade?: string;
+  };
+};
 
 export type SessionSummary = {
   hostId: string;

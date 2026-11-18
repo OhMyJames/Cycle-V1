@@ -15,6 +15,7 @@ import {
   type SessionSnapshot,
   type SessionSummary,
 } from "@cycle/ui";
+import { daemonUpgradeCommand, isNewer } from "../shared/release.ts";
 import { LOCAL_HOST, type Settings } from "./settings.ts";
 
 export type ManagerOptions = {
@@ -24,6 +25,8 @@ export type ManagerOptions = {
   emit: (event: AppEvent) => void;
   chooseDirectory?: () => Promise<string | undefined>;
   backoff?: { first: number; max: number };
+  /** The version of this app, to tell a host whose daemon is older. Without it, nothing is said. */
+  appVersion?: string;
 };
 
 type Pending = { request: PermissionRequest; answer: (answer: PermissionAnswer) => void };
@@ -133,6 +136,7 @@ export class ConnectionManager
             hostId,
             state,
             ...(error !== undefined ? { error: messageOf(error) } : {}),
+            ...(state === "connected" ? this.#daemonOf(host, connection.client) : {}),
           };
           this.#options.emit({ type: "host-status", ...connection.status });
           if (state === "connected" && was === "reconnecting") {
@@ -151,6 +155,17 @@ export class ConnectionManager
       throw error;
     }
     await this.#refreshSessions(hostId, connection);
+  }
+
+  /** What a connected remote host's daemon is, and whether it is behind this app. */
+  #daemonOf(host: HostConfig, client: CycleClient): Pick<HostStatus, "daemon"> {
+    const version = client.serverVersion;
+    if (host.kind === "local" || version === undefined) return {};
+    const { appVersion } = this.#options;
+    const behind = appVersion !== undefined && isNewer(appVersion, version);
+    return {
+      daemon: { version, ...(behind ? { upgrade: daemonUpgradeCommand(appVersion) } : {}) },
+    };
   }
 
   async disconnect(hostId: string): Promise<void> {

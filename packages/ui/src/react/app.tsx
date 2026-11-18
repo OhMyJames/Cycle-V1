@@ -23,7 +23,7 @@ import {
 import { PermissionCard } from "./permission.tsx";
 import { Sidebar, sessionTitle } from "./sidebar.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
-import { UpdateBanner, UpdateFooter } from "./update.tsx";
+import { DaemonBanner, UpdateBanner, UpdateFooter } from "./update.tsx";
 
 type Panel = "none" | "new-session" | "add-host" | "defaults" | "rename" | "delete" | "settings";
 
@@ -115,6 +115,7 @@ export function App() {
       </Sidebar>
       <main data-slot="main">
         <UpdateBanner />
+        {selectedHost !== undefined ? <DaemonBanner hostId={selectedHost} /> : null}
         {error !== undefined ? (
           <div data-slot="banner" data-severity="error" role="alert">
             <span>{error}</span>

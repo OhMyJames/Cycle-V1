@@ -52,6 +52,7 @@ export const startApp = async (options: AppOptions) => {
       window.webContents.send(EVENT_CHANNEL, event);
   };
   const manager = new ConnectionManager({
+    ...(options.update !== undefined ? { appVersion: options.update.current.version } : {}),
     settings: fileSettings(join(app.getPath("userData"), "settings.json")),
     channelFor: channelFor(options),
     emit,
