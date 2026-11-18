@@ -61,7 +61,7 @@ type Environment = {
 
 ### 现状(哪些已经做了)
 
-名字还是 host,没有改成 environment(改名是单独的一步,在侧栏这一步之后做;设置文件的格式也在那时一起迁移)。已经做的:
+代码里的名字是 environment(`EnvironmentConfig`、`environmentId`、桥上的 `environments()` 等);界面文案里仍写 "host"(Add host 等),文案是另一个决定:只有一个环境时界面里不该出现"环境"这个词。
 
 - 主进程在启动时连接所有 host,各自独立,连不上的不拖累别的;原因记在它的状态里,侧栏的 host 状态行里显示。
 - 会话是所有 host 的一个汇总,身份是 `(hostId, sessionId)`,按 `updatedAt` 排序;旧 daemon 的会话(没有 `updatedAt`)排在有的之后,彼此按 `lastSeq`,不同 daemon 的不混排。
@@ -72,7 +72,9 @@ type Environment = {
 - 断线的 host:会话灰显、tooltip 说明原因,不算在标记里,侧栏里有它的状态、原因和"Retry"。
 - 新建 session:默认在当前 workspace 的 host 和目录;可以选 host(只列已连接的);"Browse…"只对本机有。Agent defaults 按 host 分别设置。
 
-还没做:environment 的命名和设置格式、远程 workspace 的"New workspace…"选文件夹(daemon 还没有对应的方法)、搜索按 workspace 分组。
+设置文件 `settings.json` 是 `{ "environments": [{ id, name, kind: "local" | "remote", transport?: { type: "ssh", host, command? } }] }`。旧格式 `{ "hosts": [{ id, name, kind: "ssh", host, command? }] }` 读作 remote 加 ssh transport,id 不变(会话和草稿都按 id 认);只有保存时才写新格式;这个版本读不懂的条目(更新的版本写的)不显示,但保存时原样写回。
+
+还没做:远程 workspace 的"New workspace…"选文件夹(daemon 还没有对应的方法)、搜索按 workspace 分组。
 
 ### workspace
 

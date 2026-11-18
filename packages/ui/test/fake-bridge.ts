@@ -3,16 +3,16 @@ import type {
   AppEvent,
   ConnectionState,
   CycleBridge,
-  HostConfig,
+  EnvironmentConfig,
   SessionSnapshot,
   SessionSummary,
   UpdateState,
 } from "../src/api.ts";
 import { emptyConversation } from "../src/model/index.ts";
 
-export const LOCAL: HostConfig = { id: "local", name: "This computer", kind: "local" };
-export const summary = (sessionId: string, hostId = "local"): SessionSummary => ({
-  hostId,
+export const LOCAL: EnvironmentConfig = { id: "local", name: "This computer", kind: "local" };
+export const summary = (sessionId: string, environmentId = "local"): SessionSummary => ({
+  environmentId,
   sessionId,
   cwd: "/work",
   archived: false,
@@ -20,7 +20,7 @@ export const summary = (sessionId: string, hostId = "local"): SessionSummary => 
   state: "idle",
   lastSeq: 0,
   // This computer's is the newer, so that it is the workspace shown unless a test says otherwise.
-  updatedAt: hostId === "local" ? "2020-01-02T00:00:00.000Z" : "2020-01-01T00:00:00.000Z",
+  updatedAt: environmentId === "local" ? "2020-01-02T00:00:00.000Z" : "2020-01-01T00:00:00.000Z",
 });
 export const text = (t: string, id = "a") =>
   ({
@@ -39,8 +39,8 @@ export const fakeBridge = (
     update?: UpdateState;
     /** What the daemon says it can do. Default: all of it. */
     capabilities?: { queue: boolean; files: boolean };
-    /** More hosts than the local one, and how each stands (by id; the local one's is `connected`). */
-    hosts?: HostConfig[];
+    /** More environments than the local one, and how each stands (by id; the local one's is `connected`). */
+    environments?: EnvironmentConfig[];
     states?: Record<string, ConnectionState>;
   } = {},
 ) => {
@@ -59,32 +59,34 @@ export const fakeBridge = (
         listener = undefined;
       };
     },
-    hosts: record("hosts", async () => {
-      const hosts = [LOCAL, ...(options.hosts ?? [])];
+    environments: record("environments", async () => {
+      const environments = [LOCAL, ...(options.environments ?? [])];
       return {
-        hosts,
-        status: hosts.map((h) => {
+        environments,
+        status: environments.map((h) => {
           const state =
             options.states?.[h.id] ?? (options.connected === false ? "closed" : "connected");
           return {
-            hostId: h.id,
+            environmentId: h.id,
             state,
             ...(state === "connected"
               ? { capabilities: options.capabilities ?? { queue: true, files: true } }
               : {}),
           };
         }),
-        // What main has read of each host, through the same call a test may replace to say what a list holds.
+        // What main has read of each environment, through the same call a test may replace to say what a list holds.
         sessions: Object.fromEntries(
-          await Promise.all(hosts.map(async (h) => [h.id, await bridge.sessions(h.id)] as const)),
+          await Promise.all(
+            environments.map(async (h) => [h.id, await bridge.sessions(h.id)] as const),
+          ),
         ),
       };
     }),
-    saveHost: record("saveHost", async () => {}),
-    removeHost: record("removeHost", async () => {}),
+    saveEnvironment: record("saveEnvironment", async () => {}),
+    removeEnvironment: record("removeEnvironment", async () => {}),
     connect: record("connect", async () => {}),
     disconnect: record("disconnect", async () => {}),
-    sessions: record("sessions", async (hostId: string) => [summary("s1", hostId)]),
+    sessions: record("sessions", async (environmentId: string) => [summary("s1", environmentId)]),
     createSession: record("createSession", async () => "s2"),
     openSession: record(
       "openSession",

@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@ui-sdk/react/select";
 import { useEffect, useRef, useState } from "react";
-import type { AgentInfo, HostConfig } from "../api.ts";
+import type { AgentInfo, EnvironmentConfig } from "../api.ts";
 import { ConfigForm } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
 
@@ -64,18 +64,21 @@ export function ConfirmDialog({
 }
 
 export type NewSessionProps = OpenProps & {
-  /** The hosts a session can be started on: those that are connected. */
-  hosts: HostConfig[];
-  /** Where it starts unless the person says: the host of the session that is open, else the first. */
-  defaultHost: string | undefined;
+  /** The environments a session can be started on: those that are connected. */
+  environments: EnvironmentConfig[];
+  /** Where it starts unless the person says: the environment of the session that is open, else the first. */
+  defaultEnvironment: string | undefined;
   /** The folder it starts in unless the person says: the workspace that is shown. */
   defaultCwd?: string | undefined;
   agents: Record<string, AgentInfo[]>;
-  readDefaults: (hostId: string, agent: string) => Promise<Record<string, string> | undefined>;
+  readDefaults: (
+    environmentId: string,
+    agent: string,
+  ) => Promise<Record<string, string> | undefined>;
   /** Opens this computer's folder chooser: only what is on this computer can be chosen with it. */
   chooseDirectory: () => Promise<string | undefined>;
   onCreate: (
-    hostId: string,
+    environmentId: string,
     params: {
       cwd: string;
       agent: string;
@@ -87,8 +90,8 @@ export type NewSessionProps = OpenProps & {
 export function NewSessionDialog({
   open,
   onOpenChange,
-  hosts,
-  defaultHost,
+  environments,
+  defaultEnvironment,
   defaultCwd,
   agents,
   readDefaults,
@@ -96,47 +99,52 @@ export function NewSessionDialog({
   onCreate,
 }: NewSessionProps) {
   const { t } = useI18n();
-  const [chosenHost, setChosenHost] = useState<string | null>(null);
-  const host =
-    hosts.find((h) => h.id === chosenHost) ?? hosts.find((h) => h.id === defaultHost) ?? hosts[0];
-  const hostId = host?.id;
-  const available = (hostId !== undefined ? (agents[hostId] ?? []) : []).filter((a) => a.available);
+  const [chosenEnvironment, setChosenEnvironment] = useState<string | null>(null);
+  const environment =
+    environments.find((h) => h.id === chosenEnvironment) ??
+    environments.find((h) => h.id === defaultEnvironment) ??
+    environments[0];
+  const environmentId = environment?.id;
+  const available = (environmentId !== undefined ? (agents[environmentId] ?? []) : []).filter(
+    (a) => a.available,
+  );
   const [cwd, setCwd] = useState("");
-  // The agent that was picked, and for which host: another host has other agents, so the pick does not carry over.
-  const [picked, setPicked] = useState<{ hostId: string; agentId: string } | null>(null);
+  // The agent that was picked, and for which environment: another environment has other agents, so the pick does not carry over.
+  const [picked, setPicked] = useState<{ environmentId: string; agentId: string } | null>(null);
   const [config, setConfig] = useState<Record<string, string>>({});
   const agent =
-    available.find((a) => picked !== null && picked.hostId === hostId && a.id === picked.agentId) ??
-    available[0];
+    available.find(
+      (a) => picked !== null && picked.environmentId === environmentId && a.id === picked.agentId,
+    ) ?? available[0];
 
-  // Each time it opens it starts again from where the person is; and another host has other agents.
+  // Each time it opens it starts again from where the person is; and another environment has other agents.
   // The folder it starts in is read as it opens: a workspace that changes under an open dialog does not rewrite what is typed.
   const startCwd = useRef(defaultCwd);
   startCwd.current = defaultCwd;
-  const startHost = useRef(defaultHost);
-  startHost.current = defaultHost;
+  const startEnvironment = useRef(defaultEnvironment);
+  startEnvironment.current = defaultEnvironment;
   useEffect(() => {
     if (!open) return;
-    setChosenHost(startHost.current ?? null);
+    setChosenEnvironment(startEnvironment.current ?? null);
     setCwd(startCwd.current ?? "");
   }, [open]);
 
-  // Start each session from what the user set as the agent's defaults, on that host.
+  // Start each session from what the user set as the agent's defaults, on that environment.
   const agentKey = agent?.id;
   useEffect(() => {
-    if (!open || hostId === undefined || agentKey === undefined) return;
+    if (!open || environmentId === undefined || agentKey === undefined) return;
     let current = true;
-    void readDefaults(hostId, agentKey).then((defaults) => {
+    void readDefaults(environmentId, agentKey).then((defaults) => {
       if (current) setConfig(defaults ?? {});
     });
     return () => {
       current = false;
     };
-  }, [open, hostId, agentKey, readDefaults]);
+  }, [open, environmentId, agentKey, readDefaults]);
 
   const create = async () => {
-    if (hostId === undefined || agent === undefined || cwd.trim() === "") return;
-    await onCreate(hostId, { cwd: cwd.trim(), agent: agent.id, config });
+    if (environmentId === undefined || agent === undefined || cwd.trim() === "") return;
+    await onCreate(environmentId, { cwd: cwd.trim(), agent: agent.id, config });
     onOpenChange(false);
   };
 
@@ -146,20 +154,20 @@ export function NewSessionDialog({
       <DialogContent>
         <DialogTitle>New session</DialogTitle>
         <DialogDescription>
-          {host !== undefined && hosts.length > 1
-            ? t("newSession.onHost", { host: host.name })
+          {environment !== undefined && environments.length > 1
+            ? t("newSession.onHost", { host: environment.name })
             : "The agent works in this directory, on the host you are connected to."}
         </DialogDescription>
         <div data-slot="stack">
-          {hosts.length > 1 ? (
+          {environments.length > 1 ? (
             <Field name="host">
               <FieldLabel>{t("newSession.host")}</FieldLabel>
               <Select
-                items={hosts.map((h) => ({ value: h.id, label: h.name }))}
-                value={hostId ?? null}
+                items={environments.map((h) => ({ value: h.id, label: h.name }))}
+                value={environmentId ?? null}
                 onValueChange={(next) => {
-                  // A folder and settings of one host mean nothing on another.
-                  setChosenHost(next as string | null);
+                  // A folder and settings of one environment mean nothing on another.
+                  setChosenEnvironment(next as string | null);
                   setCwd("");
                   setConfig({});
                 }}
@@ -168,7 +176,7 @@ export function NewSessionDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {hosts.map((h) => (
+                  {environments.map((h) => (
                     <SelectItem key={h.id} value={h.id}>
                       {h.name}
                     </SelectItem>
@@ -185,7 +193,7 @@ export function NewSessionDialog({
                 placeholder="/path/to/project"
                 onChange={(e) => setCwd(e.currentTarget.value)}
               />
-              {host?.kind === "local" ? (
+              {environment?.kind === "local" ? (
                 <Button
                   data-variant="outline"
                   onClick={async () => {
@@ -205,8 +213,8 @@ export function NewSessionDialog({
                 items={available.map((a) => ({ value: a.id, label: a.name }))}
                 value={agent?.id ?? null}
                 onValueChange={(next) => {
-                  if (hostId !== undefined && typeof next === "string")
-                    setPicked({ hostId, agentId: next });
+                  if (environmentId !== undefined && typeof next === "string")
+                    setPicked({ environmentId, agentId: next });
                 }}
               >
                 <SelectTrigger>
@@ -242,10 +250,12 @@ export function NewSessionDialog({
   );
 }
 
-export type HostDialogProps = OpenProps & { onSave: (host: HostConfig) => void | Promise<void> };
+export type EnvironmentDialogProps = OpenProps & {
+  onSave: (environment: EnvironmentConfig) => void | Promise<void>;
+};
 
-/** A daemon on another machine, reached over ssh with the keys and config the user already has. */
-export function HostDialog({ open, onOpenChange, onSave }: HostDialogProps) {
+/** A remote environment: a daemon on another machine, reached over ssh with the keys and config the user already has. */
+export function EnvironmentDialog({ open, onOpenChange, onSave }: EnvironmentDialogProps) {
   const [name, setName] = useState("");
   const [host, setHost] = useState("");
   const [command, setCommand] = useState("cycle proxy");
@@ -255,9 +265,12 @@ export function HostDialog({ open, onOpenChange, onSave }: HostDialogProps) {
     await onSave({
       id,
       name: name.trim() || host.trim(),
-      kind: "ssh",
-      host: host.trim(),
-      command: command.trim().split(/\s+/).filter(Boolean),
+      kind: "remote",
+      transport: {
+        type: "ssh",
+        host: host.trim(),
+        command: command.trim().split(/\s+/).filter(Boolean),
+      },
     });
     onOpenChange(false);
   };

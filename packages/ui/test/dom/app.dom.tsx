@@ -99,7 +99,7 @@ test("while the agent works there is Stop, and a message typed is queued, not re
   await screen.findByRole("textbox", { name: "Message" });
   emit({
     type: "update",
-    hostId: "local",
+    environmentId: "local",
     sessionId: "s1",
     update: u({ sessionUpdate: "state_update", state: "running" }),
     version: 1,
@@ -117,7 +117,7 @@ test("while the agent works there is Stop, and a message typed is queued, not re
   expect(named("cancel")).toHaveLength(1);
   emit({
     type: "update",
-    hostId: "local",
+    environmentId: "local",
     sessionId: "s1",
     update: idle({ stopReason: "cancelled" }),
     version: 2,
@@ -129,8 +129,20 @@ test("streams: what arrives is added to the message on screen", async () => {
   const { user, emit } = await mount({ snapshot: () => history() });
   await openFirstSession(user);
   const log = await screen.findByRole("log", { name: "Conversation" });
-  emit({ type: "update", hostId: "local", sessionId: "s1", update: text("Hel", "a1"), version: 1 });
-  emit({ type: "update", hostId: "local", sessionId: "s1", update: text("lo!", "a1"), version: 2 });
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    update: text("Hel", "a1"),
+    version: 1,
+  });
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    update: text("lo!", "a1"),
+    version: 2,
+  });
   await waitFor(() => expect(log.textContent).toContain("Hello!"));
 });
 
@@ -160,7 +172,7 @@ test("a permission request is shown with its options, and the click answers it",
   await screen.findByRole("textbox", { name: "Message" });
   const request: PermissionRequest = {
     key: "local:s1:p1",
-    hostId: "local",
+    environmentId: "local",
     sessionId: "s1",
     title: "Allow Bash?",
     subject: {
@@ -180,7 +192,7 @@ test("a permission request is shown with its options, and the click answers it",
   expect(named("answerPermission")).toEqual([["answerPermission", "local:s1:p1", "deny"]]);
   emit({
     type: "permission-closed",
-    hostId: "local",
+    environmentId: "local",
     sessionId: "s1",
     key: request.key,
     version: 2,
@@ -209,7 +221,7 @@ test("shows what went wrong, and lets it be dismissed", async () => {
 
 test("says so when the connection is lost", async () => {
   const { emit } = await mount();
-  emit({ type: "host-status", hostId: "local", state: "reconnecting" });
+  emit({ type: "environment-status", environmentId: "local", state: "reconnecting" });
   const note = await screen.findByText(/Connection lost/);
   expect(note.getAttribute("role") ?? note.parentElement?.getAttribute("role")).toBe("status");
 });
@@ -268,7 +280,7 @@ test("Ctrl or Cmd+Enter allows a pending request, but not while typing in the me
     version: 1,
     request: {
       key: "local:s1:p1",
-      hostId: "local",
+      environmentId: "local",
       sessionId: "s1",
       title: "Allow Bash?",
       subject: {
@@ -483,16 +495,16 @@ test("a remote host whose daemon is older shows what to run on it, and a current
   const { emit } = await mount();
   expect(screen.queryByText(/older than this app/)).toBeNull();
   await emit({
-    type: "host-status",
-    hostId: "local",
+    type: "environment-status",
+    environmentId: "local",
     state: "connected",
     daemon: { version: "0.1.0", upgrade: "curl -fsSLO https://example/x && sh install.sh" },
   });
   expect(screen.getByText(/Cycle on this host is 0.1.0, older than this app/)).toBeTruthy();
   expect(screen.getByText("curl -fsSLO https://example/x && sh install.sh")).toBeTruthy();
   await emit({
-    type: "host-status",
-    hostId: "local",
+    type: "environment-status",
+    environmentId: "local",
     state: "connected",
     daemon: { version: "0.1.1" },
   });
@@ -502,8 +514,8 @@ test("a remote host whose daemon is older shows what to run on it, and a current
 test("a host that cannot be reached says why, not only that it is not connected", async () => {
   const { emit } = await mount();
   await emit({
-    type: "host-status",
-    hostId: "local",
+    type: "environment-status",
+    environmentId: "local",
     state: "closed",
     error: "bash: /home/james/.local/bin/cycle-daemon: No such file or directory",
   });
@@ -523,7 +535,7 @@ test("a development run says updates are for the installed app and offers no che
 
 const queueUpdate = (version: number, entries: object[], extra: object = {}) => ({
   type: "update" as const,
-  hostId: "local",
+  environmentId: "local",
   sessionId: "s1",
   update: u({ sessionUpdate: "_cycle/queue_update", entries, ...extra }),
   version,
@@ -833,7 +845,7 @@ test("a daemon that does not queue is not sent a message while the agent works, 
   await ready(box);
   emit({
     type: "update",
-    hostId: "local",
+    environmentId: "local",
     sessionId: "s1",
     update: u({ sessionUpdate: "state_update", state: "running" }),
     version: 1,

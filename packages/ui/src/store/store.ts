@@ -4,9 +4,9 @@ import type {
   AgentInfo,
   AppEvent,
   CycleBridge,
+  EnvironmentConfig,
+  EnvironmentStatus,
   FileSearch,
-  HostConfig,
-  HostStatus,
   NewSession,
   PermissionRequest,
   PromptBlock,
@@ -17,10 +17,11 @@ import type {
 import { DraftStore, promptBlocks, returnedId } from "../draft.ts";
 import { applyUpdate, type Conversation, emptyConversation } from "../model/index.ts";
 
-export const viewKey = (hostId: string, sessionId: string): string => `${hostId}:${sessionId}`;
+export const viewKey = (environmentId: string, sessionId: string): string =>
+  `${environmentId}:${sessionId}`;
 
 export type SessionView = {
-  hostId: string;
+  environmentId: string;
   sessionId: string;
   conversation: Conversation;
   permissions: PermissionRequest[];
@@ -31,13 +32,13 @@ export type SessionView = {
 
 export type AppState = {
   ready: boolean;
-  hosts: HostConfig[];
-  status: Record<string, HostStatus>;
+  environments: EnvironmentConfig[];
+  status: Record<string, EnvironmentStatus>;
   sessions: Record<string, SessionSummary[]>;
   agents: Record<string, AgentInfo[]>;
   /** Counts changes to an agent's defaults, so a form that shows them knows to read them again. */
   defaultsRevision: Record<string, number>;
-  selectedHost: string | undefined;
+  selectedEnvironment: string | undefined;
   selectedSession: string | undefined;
   views: Record<string, SessionView>;
   /** The last thing that went wrong, for the user to read and dismiss. */
@@ -48,12 +49,12 @@ export type AppState = {
 
 const initial = (): AppState => ({
   ready: false,
-  hosts: [],
+  environments: [],
   status: {},
   sessions: {},
   agents: {},
   defaultsRevision: {},
-  selectedHost: undefined,
+  selectedEnvironment: undefined,
   selectedSession: undefined,
   views: {},
   error: undefined,
@@ -115,18 +116,18 @@ export class AppStore {
       this.#set((s) => (s.update === undefined ? { update } : {}));
     });
     await this.#attempt(async () => {
-      const { hosts, status, sessions } = await this.#bridge.hosts();
+      const { environments, status, sessions } = await this.#bridge.environments();
       this.#set({
         ready: true,
-        hosts,
-        status: Object.fromEntries(status.map((s) => [s.hostId, s])),
-        // What main has read so far, also from a host that has since gone away.
+        environments,
+        status: Object.fromEntries(status.map((s) => [s.environmentId, s])),
+        // What main has read so far, also from an environment that has since gone away.
         sessions,
-        selectedHost: hosts[0]?.id,
+        selectedEnvironment: environments[0]?.id,
       });
-      // Main connects every host: the agents of those that already are, now; of the others, when each connects.
+      // Main connects every environment: the agents of those that already are, now; of the others, when each connects.
       await Promise.all(
-        status.filter((s) => s.state === "connected").map((s) => this.#loadAgents(s.hostId)),
+        status.filter((s) => s.state === "connected").map((s) => this.#loadAgents(s.environmentId)),
       );
     });
     this.#set({ ready: true });
@@ -140,23 +141,24 @@ export class AppStore {
 
   #onEvent(event: AppEvent): void {
     switch (event.type) {
-      case "hosts":
-        this.#set({ hosts: event.hosts });
+      case "environments":
+        this.#set({ environments: event.environments });
         return;
-      case "host-status": {
-        const was = this.#state.status[event.hostId]?.state;
-        this.#set((s) => ({ status: { ...s.status, [event.hostId]: toStatus(event) } }));
-        if (event.state === "connected" && was !== "connected") void this.#loadAgents(event.hostId);
+      case "environment-status": {
+        const was = this.#state.status[event.environmentId]?.state;
+        this.#set((s) => ({ status: { ...s.status, [event.environmentId]: toStatus(event) } }));
+        if (event.state === "connected" && was !== "connected")
+          void this.#loadAgents(event.environmentId);
         return;
       }
       case "sessions":
-        this.#set((s) => ({ sessions: { ...s.sessions, [event.hostId]: event.sessions } }));
+        this.#set((s) => ({ sessions: { ...s.sessions, [event.environmentId]: event.sessions } }));
         return;
       case "agent-defaults":
         this.#set((s) => ({
           defaultsRevision: {
             ...s.defaultsRevision,
-            [event.hostId]: (s.defaultsRevision[event.hostId] ?? 0) + 1,
+            [event.environmentId]: (s.defaultsRevision[event.environmentId] ?? 0) + 1,
           },
         }));
         return;
@@ -164,19 +166,19 @@ export class AppStore {
         this.#set({ update: event.state });
         return;
       case "focus-session":
-        void this.focusSession(event.hostId, event.sessionId);
+        void this.focusSession(event.environmentId, event.sessionId);
         return;
       case "session-gone":
-        this.#forgetSession(event.hostId, event.sessionId);
+        this.#forgetSession(event.environmentId, event.sessionId);
         return;
       case "update":
-        this.#onSessionEvent(viewKey(event.hostId, event.sessionId), event);
+        this.#onSessionEvent(viewKey(event.environmentId, event.sessionId), event);
         return;
       case "permission":
-        this.#onSessionEvent(viewKey(event.request.hostId, event.request.sessionId), event);
+        this.#onSessionEvent(viewKey(event.request.environmentId, event.request.sessionId), event);
         return;
       case "permission-closed":
-        this.#onSessionEvent(viewKey(event.hostId, event.sessionId), event);
+        this.#onSessionEvent(viewKey(event.environmentId, event.sessionId), event);
         return;
     }
   }
@@ -191,7 +193,7 @@ export class AppStore {
     if (event.version <= view.version) return;
     if (event.version > view.version + 1) {
       // One was missed. Ask main for the session again rather than show something wrong.
-      void this.#reopen(view.hostId, view.sessionId);
+      void this.#reopen(view.environmentId, view.sessionId);
       return;
     }
     this.#setView(key, applyToView(view, event));
@@ -218,17 +220,17 @@ export class AppStore {
     );
   }
 
-  async #reopen(hostId: string, sessionId: string): Promise<void> {
-    await this.#attempt(() => this.#load(hostId, sessionId));
+  async #reopen(environmentId: string, sessionId: string): Promise<void> {
+    await this.#attempt(() => this.#load(environmentId, sessionId));
   }
 
   /** Reads a session from main whole, then applies the events that came while it was being read. */
-  async #load(hostId: string, sessionId: string): Promise<void> {
-    const key = viewKey(hostId, sessionId);
+  async #load(environmentId: string, sessionId: string): Promise<void> {
+    const key = viewKey(environmentId, sessionId);
     const existing = this.#state.views[key];
     this.#held.set(key, []);
     this.#setView(key, {
-      hostId,
+      environmentId,
       sessionId,
       conversation: existing?.conversation ?? emptyConversation(),
       permissions: existing?.permissions ?? [],
@@ -237,7 +239,7 @@ export class AppStore {
     });
     let snapshot: SessionSnapshot;
     try {
-      snapshot = await this.#bridge.openSession(hostId, sessionId);
+      snapshot = await this.#bridge.openSession(environmentId, sessionId);
     } catch (error) {
       this.#held.delete(key);
       this.#set((s) => {
@@ -247,7 +249,7 @@ export class AppStore {
       throw error;
     }
     let view: SessionView = {
-      hostId,
+      environmentId,
       sessionId,
       conversation: snapshot.conversation,
       permissions: snapshot.permissions,
@@ -265,46 +267,50 @@ export class AppStore {
 
   // ---- what the user does ----
 
-  /** Asks main to connect to a host again. Why it cannot is in the host's status, not in an error to dismiss. */
-  connectHost = async (hostId: string): Promise<void> => {
+  /** Asks main to connect to an environment again. Why it cannot is in the environment's status, not in an error to dismiss. */
+  connectEnvironment = async (environmentId: string): Promise<void> => {
     try {
-      await this.#bridge.connect(hostId);
+      await this.#bridge.connect(environmentId);
     } catch {
       // The status says why.
     }
   };
 
-  async #loadAgents(hostId: string): Promise<void> {
+  async #loadAgents(environmentId: string): Promise<void> {
     await this.#attempt(async () => {
-      const agents = await this.#bridge.agents(hostId);
-      this.#set((s) => ({ agents: { ...s.agents, [hostId]: agents } }));
+      const agents = await this.#bridge.agents(environmentId);
+      this.#set((s) => ({ agents: { ...s.agents, [environmentId]: agents } }));
     });
   }
 
-  /** Shows a session of any host: a notification about it was pressed. */
-  focusSession = async (hostId: string, sessionId: string): Promise<void> => {
-    if (!this.#state.sessions[hostId]?.some((s) => s.sessionId === sessionId)) return;
-    await this.selectSession(hostId, sessionId);
+  /** Shows a session of any environment: a notification about it was pressed. */
+  focusSession = async (environmentId: string, sessionId: string): Promise<void> => {
+    if (!this.#state.sessions[environmentId]?.some((s) => s.sessionId === sessionId)) return;
+    await this.selectSession(environmentId, sessionId);
   };
 
   /**
-   * Opens a session, on the host it is on. A host that is away still lists its sessions, as they were: one that was
+   * Opens a session, on the environment it is on. An environment that is away still lists its sessions, as they were: one that was
    * open before can be read again, as it was; one that was not has nothing to show, and the person is told why.
    */
-  selectSession = async (hostId: string, sessionId: string): Promise<void> => {
-    const state = this.#state.status[hostId]?.state;
-    if (state !== "connected" && this.#state.views[viewKey(hostId, sessionId)] === undefined) {
-      const name = this.#state.hosts.find((h) => h.id === hostId)?.name ?? hostId;
+  selectSession = async (environmentId: string, sessionId: string): Promise<void> => {
+    const state = this.#state.status[environmentId]?.state;
+    if (
+      state !== "connected" &&
+      this.#state.views[viewKey(environmentId, sessionId)] === undefined
+    ) {
+      const name =
+        this.#state.environments.find((h) => h.id === environmentId)?.name ?? environmentId;
       this.#set({ error: `${name} is not connected, so this session cannot be opened.` });
       return;
     }
-    this.#set({ selectedHost: hostId, selectedSession: sessionId });
-    if (state === "connected") await this.#attempt(() => this.#load(hostId, sessionId));
+    this.#set({ selectedEnvironment: environmentId, selectedSession: sessionId });
+    if (state === "connected") await this.#attempt(() => this.#load(environmentId, sessionId));
   };
 
-  createSession = async (hostId: string, params: NewSession): Promise<void> => {
-    const sessionId = await this.#attempt(() => this.#bridge.createSession(hostId, params));
-    if (sessionId !== undefined) await this.selectSession(hostId, sessionId);
+  createSession = async (environmentId: string, params: NewSession): Promise<void> => {
+    const sessionId = await this.#attempt(() => this.#bridge.createSession(environmentId, params));
+    if (sessionId !== undefined) await this.selectSession(environmentId, sessionId);
   };
 
   /**
@@ -312,14 +318,14 @@ export class AppStore {
    * moment it goes; if it cannot go, what was in it comes back, in front of anything written since.
    */
   send = async (): Promise<void> => {
-    const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
-    if (hostId === undefined || sessionId === undefined) return;
-    const key = viewKey(hostId, sessionId);
+    const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
+    if (environmentId === undefined || sessionId === undefined) return;
+    const key = viewKey(environmentId, sessionId);
     const content: PromptBlock[] | undefined = promptBlocks(this.drafts.get(key));
     if (content === undefined) return;
     this.drafts.clear(key);
     const sent = await this.#attempt(async () => {
-      await this.#bridge.prompt(hostId, sessionId, content);
+      await this.#bridge.prompt(environmentId, sessionId, content);
       return true;
     });
     if (sent !== true) this.drafts.restore(key, [content]);
@@ -327,10 +333,10 @@ export class AppStore {
 
   /** What fits an @ in the selected session's box. Quiet when it cannot say: a menu that is not there is enough. */
   searchFiles = async (query: string): Promise<FileSearch | undefined> => {
-    const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
-    if (hostId === undefined || sessionId === undefined) return undefined;
+    const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
+    if (environmentId === undefined || sessionId === undefined) return undefined;
     try {
-      return await this.#bridge.searchFiles(hostId, sessionId, query);
+      return await this.#bridge.searchFiles(environmentId, sessionId, query);
     } catch {
       return undefined;
     }
@@ -338,61 +344,65 @@ export class AppStore {
 
   /** Takes a queued prompt back to edit it. Undefined if it had gone to the agent, or came back, meanwhile. */
   dequeue = async (queueId: string): Promise<PromptBlock[] | undefined> => {
-    const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
-    if (hostId === undefined || sessionId === undefined) return undefined;
-    const blocks = await this.#attempt(() => this.#bridge.dequeue(hostId, sessionId, queueId));
-    if (blocks !== undefined) this.drafts.restore(viewKey(hostId, sessionId), [blocks]);
+    const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
+    if (environmentId === undefined || sessionId === undefined) return undefined;
+    const blocks = await this.#attempt(() =>
+      this.#bridge.dequeue(environmentId, sessionId, queueId),
+    );
+    if (blocks !== undefined) this.drafts.restore(viewKey(environmentId, sessionId), [blocks]);
     return blocks;
   };
 
   cancel = async (): Promise<void> => {
-    const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
-    if (hostId === undefined || sessionId === undefined) return;
-    await this.#attempt(() => this.#bridge.cancel(hostId, sessionId));
+    const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
+    if (environmentId === undefined || sessionId === undefined) return;
+    await this.#attempt(() => this.#bridge.cancel(environmentId, sessionId));
   };
 
   setSessionConfig = async (configId: string, value: string): Promise<void> => {
-    const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
-    if (hostId === undefined || sessionId === undefined) return;
-    await this.#attempt(() => this.#bridge.setSessionConfig(hostId, sessionId, configId, value));
+    const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
+    if (environmentId === undefined || sessionId === undefined) return;
+    await this.#attempt(() =>
+      this.#bridge.setSessionConfig(environmentId, sessionId, configId, value),
+    );
   };
 
   renameSession = async (sessionId: string, title: string): Promise<void> => {
-    const hostId = this.#state.selectedHost;
-    if (hostId === undefined) return;
-    await this.#attempt(() => this.#bridge.renameSession(hostId, sessionId, title));
+    const environmentId = this.#state.selectedEnvironment;
+    if (environmentId === undefined) return;
+    await this.#attempt(() => this.#bridge.renameSession(environmentId, sessionId, title));
   };
 
   archiveSession = async (sessionId: string, archived: boolean): Promise<void> => {
-    const hostId = this.#state.selectedHost;
-    if (hostId === undefined) return;
-    await this.#attempt(() => this.#bridge.archiveSession(hostId, sessionId, archived));
+    const environmentId = this.#state.selectedEnvironment;
+    if (environmentId === undefined) return;
+    await this.#attempt(() => this.#bridge.archiveSession(environmentId, sessionId, archived));
   };
 
   /**
    * The person is looking at the session: tell the daemon it has been seen. Nothing to show if it cannot be told (the
    * mark stays, and is tried again with the next list): a mark is not worth an error banner.
    */
-  markRead = async (hostId: string, sessionId: string): Promise<void> => {
+  markRead = async (environmentId: string, sessionId: string): Promise<void> => {
     try {
-      await this.#bridge.markRead(hostId, sessionId);
+      await this.#bridge.markRead(environmentId, sessionId);
     } catch {
       // Not worth a banner.
     }
   };
 
   deleteSession = async (sessionId: string): Promise<void> => {
-    const hostId = this.#state.selectedHost;
-    if (hostId === undefined) return;
+    const environmentId = this.#state.selectedEnvironment;
+    if (environmentId === undefined) return;
     await this.#attempt(async () => {
-      await this.#bridge.deleteSession(hostId, sessionId);
-      this.#forgetSession(hostId, sessionId);
+      await this.#bridge.deleteSession(environmentId, sessionId);
+      this.#forgetSession(environmentId, sessionId);
     });
   };
 
   /** A session that no longer exists: its view, its draft and its place as the selected one go. */
-  #forgetSession(hostId: string, sessionId: string): void {
-    const key = viewKey(hostId, sessionId);
+  #forgetSession(environmentId: string, sessionId: string): void {
+    const key = viewKey(environmentId, sessionId);
     this.drafts.forget(key);
     this.#held.delete(key);
     this.#set((s) => {
@@ -400,7 +410,7 @@ export class AppStore {
       return {
         views,
         selectedSession:
-          s.selectedHost === hostId && s.selectedSession === sessionId
+          s.selectedEnvironment === environmentId && s.selectedSession === sessionId
             ? undefined
             : s.selectedSession,
       };
@@ -411,34 +421,37 @@ export class AppStore {
     await this.#attempt(() => this.#bridge.answerPermission(key, optionId));
   };
 
-  saveHost = async (host: HostConfig): Promise<void> => {
+  saveEnvironment = async (environment: EnvironmentConfig): Promise<void> => {
     const saved = await this.#attempt(async () => {
-      await this.#bridge.saveHost(host);
+      await this.#bridge.saveEnvironment(environment);
       return true;
     });
-    // A host that is added is connected at once, as every host is when the app starts.
-    if (saved === true) await this.connectHost(host.id);
+    // An environment that is added is connected at once, as every environment is when the app starts.
+    if (saved === true) await this.connectEnvironment(environment.id);
   };
 
-  removeHost = async (hostId: string): Promise<void> => {
+  removeEnvironment = async (environmentId: string): Promise<void> => {
     await this.#attempt(async () => {
-      await this.#bridge.removeHost(hostId);
-      this.drafts.forgetHost(hostId);
+      await this.#bridge.removeEnvironment(environmentId);
+      this.drafts.forgetEnvironment(environmentId);
       this.#set((s) => {
-        const { [hostId]: _sessions, ...sessions } = s.sessions;
-        const { [hostId]: _agents, ...agents } = s.agents;
-        const { [hostId]: _status, ...status } = s.status;
+        const { [environmentId]: _sessions, ...sessions } = s.sessions;
+        const { [environmentId]: _agents, ...agents } = s.agents;
+        const { [environmentId]: _status, ...status } = s.status;
         const views = Object.fromEntries(
-          Object.entries(s.views).filter(([, view]) => view.hostId !== hostId),
+          Object.entries(s.views).filter(([, view]) => view.environmentId !== environmentId),
         );
-        const open = s.selectedHost === hostId;
+        const open = s.selectedEnvironment === environmentId;
         return {
           sessions,
           agents,
           status,
           views,
           ...(open
-            ? { selectedHost: s.hosts.find((h) => h.id !== hostId)?.id, selectedSession: undefined }
+            ? {
+                selectedEnvironment: s.environments.find((h) => h.id !== environmentId)?.id,
+                selectedSession: undefined,
+              }
             : {}),
         };
       });
@@ -446,13 +459,17 @@ export class AppStore {
   };
 
   readAgentDefaults = (
-    hostId: string,
+    environmentId: string,
     agent: string,
   ): Promise<Record<string, string> | undefined> =>
-    this.#attempt(() => this.#bridge.agentDefaults(hostId, agent));
+    this.#attempt(() => this.#bridge.agentDefaults(environmentId, agent));
 
-  setAgentDefaults = async (hostId: string, agent: string, config: Record<string, string>) => {
-    await this.#attempt(() => this.#bridge.setAgentDefaults(hostId, agent, config));
+  setAgentDefaults = async (
+    environmentId: string,
+    agent: string,
+    config: Record<string, string>,
+  ) => {
+    await this.#attempt(() => this.#bridge.setAgentDefaults(environmentId, agent, config));
   };
 
   chooseDirectory = (): Promise<string | undefined> => this.#bridge.chooseDirectory();
@@ -467,8 +484,8 @@ export class AppStore {
   };
 }
 
-const toStatus = (event: AppEvent & { type: "host-status" }): HostStatus => ({
-  hostId: event.hostId,
+const toStatus = (event: AppEvent & { type: "environment-status" }): EnvironmentStatus => ({
+  environmentId: event.environmentId,
   state: event.state,
   ...(event.error !== undefined ? { error: event.error } : {}),
   ...(event.daemon !== undefined ? { daemon: event.daemon } : {}),

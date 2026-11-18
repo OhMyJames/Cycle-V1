@@ -47,7 +47,7 @@ const open = async (...updates: SessionUpdate[]) => {
   const emit = (update: SessionUpdate) => {
     version += 1;
     return act(() =>
-      script.emit({ type: "update", hostId: "local", sessionId: "s1", update, version }),
+      script.emit({ type: "update", environmentId: "local", sessionId: "s1", update, version }),
     );
   };
   return { user, log, emit };

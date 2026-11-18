@@ -15,7 +15,7 @@ export const enUS = {
   "search.archived": "archived",
   "search.open": "Search sessions",
 
-  // Hosts that are away, and starting a session on one of several
+  // Environments that are away, and starting a session on one of several
   "session.away": "{host} · {state}",
   "session.awayBanner": "{host} is not connected. This is what the session had when it went away.",
   "newSession.host": "Host",
@@ -127,7 +127,7 @@ export const enUS = {
   "mark.background": "Background work is running",
   "mark.unread": "Unread",
 
-  // The workspace switcher: a workspace is a folder on one host
+  // The workspace switcher: a workspace is a folder on one environment
   "workspace.label": "Workspace",
   "workspace.switch": "Switch workspace",
   "workspace.none": "No workspace yet",

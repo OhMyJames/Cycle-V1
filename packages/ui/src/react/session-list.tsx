@@ -12,21 +12,21 @@ export const sessionTitle = (session: SessionSummary): string => {
   return place(session.cwd);
 };
 
-/** A host that is not connected, as a row of its sessions says it: who, and in what words. */
+/** An environment that is not connected, as a row of its sessions says it: who, and in what words. */
 export type Away = { name: string; word: string };
 
 function Row({ session, away }: { session: SessionSummary; away: Away | undefined }) {
   const { t } = useI18n();
   const tip =
     away !== undefined ? t("session.away", { host: away.name, state: away.word }) : undefined;
-  // One thing a row says. A session of a host that is away is the last list read: it says nothing.
+  // One thing a row says. A session of an environment that is away is the last list read: it says nothing.
   const mark = away !== undefined ? undefined : markOf(session);
   const style = mark !== undefined ? MARK_STYLE[mark] : undefined;
   return (
     <ListboxItem
       value={sessionKey(session)}
       data-session={session.sessionId}
-      data-host={session.hostId}
+      data-environment={session.environmentId}
       data-archived={session.archived || undefined}
       data-mark={mark}
       data-away={away !== undefined || undefined}
@@ -68,7 +68,7 @@ export function SessionListView({
   list: SessionList;
   /** The open session, by its `sessionKey`. */
   selected: string | undefined;
-  /** The hosts that are not connected, by id. */
+  /** The environments that are not connected, by id. */
   away: ReadonlyMap<string, Away>;
   onSelect: (session: SessionSummary) => void;
   onShowAll: () => void;
@@ -90,7 +90,11 @@ export function SessionListView({
               <Heading group={group} />
             </ListboxGroupLabel>
             {group.sessions.map((session) => (
-              <Row key={sessionKey(session)} session={session} away={away.get(session.hostId)} />
+              <Row
+                key={sessionKey(session)}
+                session={session}
+                away={away.get(session.environmentId)}
+              />
             ))}
           </ListboxGroup>
         ))}

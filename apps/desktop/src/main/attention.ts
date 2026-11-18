@@ -59,7 +59,7 @@ export const notifyAttention = (deps: AttentionDeps) => (notice: AttentionNotice
   const notification = deps.create({
     title: titleOf(notice),
     // Which machine, when it is not this one: the same title may be on two.
-    ...(notice.hostId === "local" ? {} : { subtitle: notice.hostName }),
+    ...(notice.environmentId === "local" ? {} : { subtitle: notice.environmentName }),
     body: deps.translator.t(`attention.${notice.kind}`),
   });
   shown.add(notification);
@@ -76,7 +76,7 @@ export const notifyAttention = (deps: AttentionDeps) => (notice: AttentionNotice
     deps.activate();
     deps.emit({
       type: "focus-session",
-      hostId: notice.hostId,
+      environmentId: notice.environmentId,
       sessionId: notice.session.sessionId,
     });
   });
