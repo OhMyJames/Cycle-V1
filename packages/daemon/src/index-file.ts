@@ -10,6 +10,8 @@ export const SessionEntrySchema = z.object({
   cwd: z.string(),
   title: z.string().optional(),
   archived: z.boolean().optional(),
+  /** What was asked of the agent with `session/set_config_option`, applied again when it is restarted. */
+  config: z.record(z.string(), z.string()).optional(),
   createdAt: z.string(),
 });
 export type SessionEntry = z.infer<typeof SessionEntrySchema>;

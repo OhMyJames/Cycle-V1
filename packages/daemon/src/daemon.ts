@@ -1,0 +1,633 @@
+import { randomUUID } from "node:crypto";
+import {
+  type AgentContext,
+  agent as acpAgent,
+  type ClientApp,
+  methods,
+  type SessionUpdate,
+  type Stream,
+} from "@cycle/acp";
+import {
+  agentDefaultsRead,
+  agentDefaultsSet,
+  agentsList,
+  CYCLE_PROTOCOL_VERSION,
+  CycleErrorCode,
+  META,
+  NOTIFICATIONS,
+  ReplayFromSeqSchema,
+  sessionArchive,
+  sessionSetTitle,
+  sessionUnarchive,
+} from "@cycle/protocol";
+import type { z } from "zod";
+import { AgentLink } from "./agent-link.ts";
+import type { AgentDefinition } from "./agents.ts";
+import { indexPath, sessionsDir } from "./data-dir.ts";
+import {
+  INVALID_PARAMS,
+  RpcError,
+  sessionBusy,
+  sessionNotFound,
+  UNSUPPORTED_VERSION,
+} from "./errors.ts";
+import { type SessionEntry, SessionIndex } from "./index-file.ts";
+import { JsonlLogStore } from "./log/jsonl.ts";
+import { attach } from "./log/replay.ts";
+import type { LogRecord, LogStore } from "./log/types.ts";
+import { type Attachment, type ClientConn, type Pending, Session } from "./session.ts";
+
+export type DaemonOptions = {
+  /** Where the daemon keeps its data. Always given: nothing here guesses a home. */
+  dataDir: string;
+  agents: AgentDefinition[];
+  /** For tests: replaces the JSONL store. */
+  store?: LogStore;
+};
+
+const SESSION_UPDATE = methods.client.session.update;
+const REQUEST_PERMISSION = methods.client.session.requestPermission;
+
+const stringConfig = (value: unknown): Record<string, string> => {
+  const config: Record<string, string> = {};
+  if (typeof value === "object" && value !== null) {
+    for (const [key, item] of Object.entries(value)) {
+      if (typeof item === "string") config[key] = item;
+    }
+  }
+  return config;
+};
+
+/**
+ * The daemon: Cycle's side of docs/protocol.md. It owns the sessions and their history, runs the
+ * agents, and serves any number of clients. A client sees a session through the session's log, so
+ * replay and live updates are one path.
+ */
+export class Daemon {
+  readonly #agents: Map<string, AgentDefinition>;
+  readonly #store: LogStore;
+  readonly #index: SessionIndex;
+  readonly #sessions = new Map<string, Session>();
+  readonly #conns = new Set<ClientConn>();
+  #counter = 0;
+
+  private constructor(options: DaemonOptions, index: SessionIndex) {
+    this.#agents = new Map(options.agents.map((a) => [a.id, a]));
+    this.#store = options.store ?? new JsonlLogStore({ dir: sessionsDir(options.dataDir) });
+    this.#index = index;
+  }
+
+  /** Reads the index, and refuses to start if it is there and cannot be read. */
+  static async start(options: DaemonOptions): Promise<Daemon> {
+    return new Daemon(options, await SessionIndex.load(indexPath(options.dataDir)));
+  }
+
+  /** Serves one client on a stream. */
+  accept(stream: Stream): { closed: Promise<void>; close: () => void } {
+    const holder: { value?: ClientConn } = {};
+    return this.#register(holder, this.#facing(holder).connect(stream));
+  }
+
+  /** Serves a client app in this process, with no transport. For tests. */
+  acceptApp(clientApp: ClientApp): { closed: Promise<void>; close: () => void } {
+    const holder: { value?: ClientConn } = {};
+    return this.#register(holder, this.#facing(holder).connect(clientApp));
+  }
+
+  #register(
+    holder: { value?: ClientConn },
+    connection: { client: AgentContext; closed: Promise<void>; close: () => void },
+  ): { closed: Promise<void>; close: () => void } {
+    const client = connection.client;
+    const conn: ClientConn = {
+      id: `c${++this.#counter}`,
+      notify: (method, params) => client.notify(method as never, params as never),
+      request: (method, params) => client.request(method as never, params as never),
+    };
+    holder.value = conn;
+    this.#conns.add(conn);
+    void connection.closed.then(() => this.#dropped(conn));
+    return { closed: connection.closed, close: () => connection.close() };
+  }
+
+  async close(): Promise<void> {
+    for (const session of this.#sessions.values()) {
+      session.link?.kill();
+      for (const attachment of session.attachments) attachment.detach();
+      await session.log.close();
+    }
+    this.#sessions.clear();
+  }
+
+  #dropped(conn: ClientConn): void {
+    this.#conns.delete(conn);
+    for (const session of this.#sessions.values()) {
+      for (const attachment of [...session.attachments]) {
+        if (attachment.conn === conn) {
+          attachment.detach();
+          session.attachments.delete(attachment);
+        }
+      }
+    }
+  }
+
+  #changed(): void {
+    for (const conn of this.#conns)
+      void conn.notify(NOTIFICATIONS.sessionListChanged, {}).catch(() => {});
+  }
+
+  #definition(id: string): AgentDefinition {
+    const definition = this.#agents.get(id);
+    if (definition === undefined) {
+      throw new RpcError(CycleErrorCode.AgentUnavailable, "No such agent", { agent: id });
+    }
+    return definition;
+  }
+
+  /** A loaded session, loading it from the index and its log if it is not yet. */
+  async #session(sessionId: string): Promise<Session> {
+    const loaded = this.#sessions.get(sessionId);
+    if (loaded !== undefined) return loaded;
+    const entry = this.#index.get(sessionId);
+    if (entry === undefined) throw sessionNotFound(sessionId);
+    const log = await this.#store.open(sessionId);
+    const session = new Session(sessionId, entry, log);
+    this.#sessions.set(sessionId, session);
+    return session;
+  }
+
+  // ---- agents ----
+
+  /** Starts the agent for a session and has it create or resume it. */
+  async #startAgent(session: Session, mode: "new" | "resume", create?: Record<string, unknown>) {
+    const definition = this.#definition(session.entry.agent);
+    const link = await AgentLink.connect(definition, {
+      update: (update) => this.#onUpdate(session, update),
+      permission: (params) => this.#onPermission(session, params),
+      closed: () => this.#onAgentClosed(session, link),
+    });
+    session.link = link;
+    try {
+      if (mode === "new") {
+        const created = await link.agent.request(methods.agent.session.new, {
+          ...(create as object),
+          _meta: { ...((create as { _meta?: object })?._meta ?? {}), [META.sessionId]: session.id },
+        } as never);
+        return { link, created };
+      }
+      try {
+        await link.agent.request(methods.agent.session.resume, {
+          sessionId: session.entry.agentSessionId,
+          cwd: session.entry.cwd,
+        } as never);
+      } catch (error) {
+        throw new RpcError(CycleErrorCode.ResumeFailed, "The agent could not resume the session", {
+          sessionId: session.id,
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+      for (const [configId, value] of Object.entries(session.entry.config ?? {})) {
+        await link.agent
+          .request(methods.agent.session.setConfigOption, {
+            sessionId: session.entry.agentSessionId,
+            configId,
+            type: "id",
+            value,
+          } as never)
+          .catch(() => undefined);
+      }
+      return { link, created: undefined };
+    } catch (error) {
+      session.link = undefined;
+      link.kill();
+      throw error;
+    }
+  }
+
+  /** The agent for a session, started if it is not running. */
+  async #ensureAgent(session: Session): Promise<AgentLink> {
+    if (session.link !== undefined) return session.link;
+    session.starting ??= this.#startAgent(session, "resume")
+      .then(({ link }) => link)
+      .finally(() => {
+        session.starting = undefined;
+      });
+    return session.starting;
+  }
+
+  #onUpdate(session: Session, update: SessionUpdate): void {
+    const state = update as { sessionUpdate: string; state?: string };
+    if (state.sessionUpdate === "state_update" && typeof state.state === "string") {
+      if (
+        state.state === "running" ||
+        state.state === "idle" ||
+        state.state === "requires_action"
+      ) {
+        session.agentState = state.state;
+      }
+    }
+    // Called in the order the updates arrive, so seq follows the agent's order.
+    void session.log.append({ kind: "update", data: update }).then(
+      () => this.#changed(),
+      () => undefined,
+    );
+  }
+
+  async #onPermission(session: Session, params: Record<string, unknown>): Promise<unknown> {
+    const requestId = session.nextRequestId();
+    const clientParams = { ...params, sessionId: session.id };
+    let resolve: (outcome: unknown) => void = () => {};
+    const outcome = new Promise<unknown>((r) => {
+      resolve = r;
+    });
+    const pending: Pending = {
+      requestId,
+      params: clientParams,
+      settled: false,
+      asked: new Set(),
+      resolve,
+    };
+    session.pending.set(requestId, pending);
+    // Delivery is by the log: attached clients get it as the record is written.
+    await session.log.append({
+      kind: "request",
+      data: { requestId, method: REQUEST_PERMISSION, params: clientParams },
+    });
+    // A request written while nobody is attached waits here until a client attaches.
+    return { outcome: await outcome };
+  }
+
+  /** Asks one client, once. The first answer from any client settles it. */
+  #offer(session: Session, pending: Pending, attachment: Attachment): void {
+    if (pending.settled || pending.asked.has(attachment)) return;
+    pending.asked.add(attachment);
+    attachment.conn
+      .request(REQUEST_PERMISSION, pending.params)
+      .then((answer) =>
+        this.#settle(session, pending, (answer as { outcome: unknown }).outcome, attachment),
+      )
+      .catch(() => pending.asked.delete(attachment));
+  }
+
+  #settle(session: Session, pending: Pending, outcome: unknown, by?: Attachment): void {
+    if (pending.settled) return;
+    pending.settled = true;
+    session.pending.delete(pending.requestId);
+    void session.log.append({
+      kind: "response",
+      data: { requestId: pending.requestId, outcome, by: by?.conn.id ?? "daemon" },
+    });
+    pending.resolve(outcome);
+    for (const other of pending.asked) {
+      if (other === by) continue;
+      void other.conn
+        .notify(NOTIFICATIONS.requestResolved, {
+          sessionId: session.id,
+          requestId: pending.requestId,
+          outcome,
+        })
+        .catch(() => {});
+    }
+  }
+
+  #onAgentClosed(session: Session, link: AgentLink | undefined): void {
+    if (session.link !== link && link !== undefined) return;
+    const wasWorking = session.agentState !== "idle";
+    session.link = undefined;
+    for (const pending of [...session.pending.values()]) {
+      pending.settled = true;
+      session.pending.delete(pending.requestId);
+      void session.log.append({ kind: "aborted", data: { requestId: pending.requestId } });
+      pending.resolve({ outcome: "cancelled" });
+      for (const attachment of pending.asked) {
+        void attachment.conn
+          .notify(NOTIFICATIONS.requestResolved, {
+            sessionId: session.id,
+            requestId: pending.requestId,
+            outcome: { outcome: "cancelled" },
+          })
+          .catch(() => {});
+      }
+    }
+    void session.log.append({ kind: "meta", data: { event: "agent_exited" } });
+    if (wasWorking) {
+      // Whoever is watching is told the turn is over, rather than left waiting for an idle.
+      session.agentState = "idle";
+      void session.log.append({
+        kind: "update",
+        data: {
+          sessionUpdate: "state_update",
+          state: "idle",
+          stopReason: "error",
+          error: { code: CycleErrorCode.AgentExited, message: "The agent exited" },
+        },
+      });
+    }
+    this.#changed();
+  }
+
+  // ---- what a client sees ----
+
+  #deliver(session: Session, attachment: Attachment) {
+    return async (record: LogRecord) => {
+      if (record.kind === "update") {
+        await attachment.conn.notify(SESSION_UPDATE, {
+          sessionId: session.id,
+          update: record.data,
+          _meta: { [META.seq]: record.seq },
+        });
+      } else if (record.kind === "request") {
+        const id = (record.data as { requestId: string }).requestId;
+        const pending = session.pending.get(id);
+        if (pending !== undefined) this.#offer(session, pending, attachment);
+      }
+    };
+  }
+
+  async #row(sessionId: string, entry: SessionEntry) {
+    const session = await this.#session(sessionId);
+    return {
+      sessionId,
+      cwd: entry.cwd,
+      _meta: {
+        [META.archived]: entry.archived === true,
+        [META.agent]: entry.agent,
+        [META.state]: session.status(),
+        [META.lastSeq]: session.log.lastSeq(),
+        ...(entry.title !== undefined ? { title: entry.title } : {}),
+      },
+    };
+  }
+
+  /** The app a client talks to: this connection's view of the daemon. */
+  #facing(holder: { value?: ClientConn }) {
+    const me = (): ClientConn => {
+      if (holder.value === undefined) throw new Error("connection not ready");
+      return holder.value;
+    };
+    const app = acpAgent({ name: "cycle-daemon" });
+
+    app.onRequest(methods.agent.initialize, async ({ params }) => {
+      const requested = (params._meta as Record<string, unknown> | null | undefined)?.[
+        META.protocolVersion
+      ];
+      if (
+        typeof requested === "string" &&
+        requested.split(".")[0] !== CYCLE_PROTOCOL_VERSION.split(".")[0]
+      ) {
+        throw new RpcError(UNSUPPORTED_VERSION, "Unsupported Cycle protocol version", {
+          supported: [CYCLE_PROTOCOL_VERSION],
+          requested,
+        });
+      }
+      return {
+        protocolVersion: 2,
+        info: { name: "cycle-daemon", version: "0.0.0" },
+        capabilities: { session: {} },
+        _meta: {
+          [META.protocolVersion]: CYCLE_PROTOCOL_VERSION,
+          [META.capabilities]: {
+            replay: ["start", "_cycle.seq"],
+            agents: [...this.#agents.keys()],
+            sessionOps: ["archive", "rename", "delete"],
+          },
+        },
+      } as never;
+    });
+
+    app.onRequest(methods.agent.session.new, async ({ params }) => {
+      const meta = (params._meta ?? {}) as Record<string, unknown>;
+      const agentId =
+        typeof meta[META.agent] === "string"
+          ? (meta[META.agent] as string)
+          : [...this.#agents.keys()][0];
+      if (agentId === undefined)
+        throw new RpcError(CycleErrorCode.AgentUnavailable, "No agent is configured");
+      this.#definition(agentId);
+      const id = randomUUID();
+      const entry: SessionEntry = {
+        agent: agentId,
+        agentSessionId: id,
+        cwd: params.cwd,
+        createdAt: new Date().toISOString(),
+      };
+      const log = await this.#store.open(id);
+      const session = new Session(id, entry, log);
+      try {
+        await log.append({
+          kind: "meta",
+          data: { event: "created", agent: agentId, cwd: params.cwd },
+        });
+        const { created } = await this.#startAgent(session, "new", {
+          cwd: params.cwd,
+          mcpServers: params.mcpServers,
+          systemPrompt: params.systemPrompt,
+        });
+        const answer = created as { sessionId: string; configOptions?: unknown[] };
+        session.entry = { ...entry, agentSessionId: answer.sessionId };
+        // The agent may have taken our id or kept its own; either way the pair is on record.
+        await this.#index.put(id, session.entry);
+        this.#sessions.set(id, session);
+        const config = stringConfig(meta[META.config]);
+        for (const [configId, value] of Object.entries(config)) {
+          try {
+            await session.link?.agent.request(methods.agent.session.setConfigOption, {
+              sessionId: session.entry.agentSessionId,
+              configId,
+              type: "id",
+              value,
+            } as never);
+          } catch (error) {
+            throw new RpcError(
+              CycleErrorCode.InvalidConfig,
+              "The agent refused the configuration",
+              {
+                configId,
+                detail: error instanceof Error ? error.message : String(error),
+              },
+            );
+          }
+        }
+        if (Object.keys(config).length > 0) {
+          session.entry = { ...session.entry, config };
+          await this.#index.update(id, { config });
+        }
+        this.#changed();
+        return { sessionId: id, configOptions: answer.configOptions ?? [] } as never;
+      } catch (error) {
+        session.link?.kill();
+        this.#sessions.delete(id);
+        await log.close();
+        await this.#index.delete(id).catch(() => undefined);
+        await this.#store.remove(id).catch(() => undefined);
+        throw error;
+      }
+    });
+
+    app.onRequest(methods.agent.session.list, async () => {
+      const rows = [];
+      for (const [sessionId, entry] of this.#index.list())
+        rows.push(await this.#row(sessionId, entry));
+      return { sessions: rows } as never;
+    });
+
+    app.onRequest(methods.agent.session.resume, async ({ params }) => {
+      const session = await this.#session(params.sessionId);
+      const raw = params.replayFrom as { type?: string } | null | undefined;
+      let after = session.log.lastSeq();
+      let replaying = false;
+      if (raw !== undefined && raw !== null) {
+        replaying = true;
+        if (raw.type === "start") after = 0;
+        else if (raw.type === "_cycle.seq") {
+          const parsed = ReplayFromSeqSchema.safeParse(raw);
+          if (!parsed.success)
+            throw new RpcError(INVALID_PARAMS, "Bad replayFrom", { replayFrom: raw });
+          after = parsed.data.after;
+        } else throw new RpcError(INVALID_PARAMS, "Unknown replayFrom", { replayFrom: raw });
+      }
+      const conn = me();
+      for (const old of session.attachments) {
+        if (old.conn === conn) {
+          old.detach();
+          session.attachments.delete(old);
+        }
+      }
+      const attachment: Attachment = { conn, detach: () => {} };
+      session.attachments.add(attachment);
+      const deliver = this.#deliver(session, attachment);
+      try {
+        const { detach } = await attach(session.log, after, deliver, async (replayedTo) => {
+          // ACP v2: the replay is ended by one replay_complete, then the current state.
+          if (replaying) {
+            await conn.notify(SESSION_UPDATE, {
+              sessionId: session.id,
+              update: { sessionUpdate: "replay_complete" },
+              _meta: { [META.seq]: replayedTo },
+            });
+          }
+          await conn.notify(SESSION_UPDATE, { sessionId: session.id, update: session.snapshot() });
+        });
+        attachment.detach = detach;
+      } catch (error) {
+        session.attachments.delete(attachment);
+        throw error;
+      }
+      // Requests still waiting from before are asked of this client too.
+      for (const pending of session.pending.values()) this.#offer(session, pending, attachment);
+      return { configOptions: [] } as never;
+    });
+
+    app.onRequest(methods.agent.session.prompt, async ({ params }) => {
+      const session = await this.#session(params.sessionId);
+      if (session.status() !== "idle" && session.status() !== "stopped")
+        throw sessionBusy(session.id);
+      // Marked at once: the agent's own "running" comes later, and a second prompt must not slip in.
+      session.agentState = "running";
+      try {
+        const link = await this.#ensureAgent(session);
+        const answer = await link.agent.request(methods.agent.session.prompt, {
+          sessionId: session.entry.agentSessionId,
+          prompt: params.prompt,
+        } as never);
+        return answer as never;
+      } catch (error) {
+        session.agentState = "idle";
+        throw error;
+      }
+    });
+
+    app.onNotification(methods.agent.session.cancel, async ({ params }) => {
+      const session = this.#sessions.get(params.sessionId);
+      if (session === undefined) return;
+      // ACP: every pending permission request is answered "cancelled" when a turn is cancelled.
+      for (const pending of [...session.pending.values()])
+        this.#settle(session, pending, { outcome: "cancelled" });
+      await session.link?.agent
+        .notify(methods.agent.session.cancel, { sessionId: session.entry.agentSessionId } as never)
+        .catch(() => undefined);
+    });
+
+    app.onRequest(methods.agent.session.setConfigOption, async ({ params }) => {
+      const session = await this.#session(params.sessionId);
+      const link = await this.#ensureAgent(session);
+      const answer = await link.agent.request(methods.agent.session.setConfigOption, {
+        ...params,
+        sessionId: session.entry.agentSessionId,
+      } as never);
+      const value = "value" in params ? params.value : undefined;
+      if (typeof value === "string") {
+        const config = { ...(session.entry.config ?? {}), [params.configId]: value };
+        session.entry = { ...session.entry, config };
+        await this.#index.update(session.id, { config });
+      }
+      return answer as never;
+    });
+
+    app.onRequest(methods.agent.session.close, async ({ params }) => {
+      const session = this.#sessions.get(params.sessionId);
+      session?.link?.kill();
+      return {} as never;
+    });
+
+    app.onRequest(methods.agent.session.delete, async ({ params }) => {
+      const session = await this.#session(params.sessionId);
+      if (session.status() === "running" || session.status() === "requires_action")
+        throw sessionBusy(session.id);
+      session.link?.kill();
+      for (const attachment of session.attachments) attachment.detach();
+      await session.log.close();
+      this.#sessions.delete(session.id);
+      await this.#store.remove(session.id);
+      await this.#index.delete(session.id);
+      this.#changed();
+      return {} as never;
+    });
+
+    const cycle = <P extends z.ZodType, R extends z.ZodType>(
+      method: { name: `_cycle/${string}`; params: P },
+      handler: (params: z.output<P>) => Promise<z.input<R>> | z.input<R>,
+    ) => {
+      app.onRequest(
+        method.name as `_${string}`,
+        method.params,
+        async ({ params }) => (await handler(params as z.output<P>)) as never,
+      );
+    };
+
+    cycle(agentsList, async () => ({
+      agents: await Promise.all(
+        [...this.#agents.values()].map(async (a) => ({
+          id: a.id,
+          name: a.name,
+          available: (await a.available?.()) ?? true,
+          configSchema: a.configSchema,
+        })),
+      ),
+    }));
+    cycle(agentDefaultsRead, () => ({ config: {} }));
+    cycle(agentDefaultsSet, () => ({}));
+
+    const change =
+      (apply: (session: Session) => Promise<Partial<SessionEntry>>) =>
+      async (params: { sessionId: string }) => {
+        const session = await this.#session(params.sessionId);
+        const patch = await apply(session);
+        session.entry = { ...session.entry, ...patch };
+        await this.#index.update(session.id, patch);
+        this.#changed();
+        return {};
+      };
+    cycle(sessionArchive, (params) =>
+      change(async (session) => {
+        if (session.status() === "running" || session.status() === "requires_action")
+          throw sessionBusy(session.id);
+        return { archived: true };
+      })(params),
+    );
+    cycle(sessionUnarchive, (params) => change(async () => ({ archived: false }))(params));
+    cycle(sessionSetTitle, (params) => change(async () => ({ title: params.title }))(params));
+
+    return app;
+  }
+}

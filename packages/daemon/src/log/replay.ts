@@ -15,6 +15,11 @@ export const attach = async (
   log: SessionLog,
   after: number,
   send: (record: LogRecord) => void | Promise<void>,
+  /**
+   * Runs once the history has been sent and before the client is live, with the last seq sent.
+   * What it sends comes after the replay and before any live record.
+   */
+  beforeLive?: (replayedTo: number) => void | Promise<void>,
 ): Promise<{ replayedTo: number; detach: () => void }> => {
   if (!Number.isInteger(after) || after < 0 || after > log.lastSeq()) {
     throw new RpcError(INVALID_PARAMS, "Nothing at that point in the session's history", {
@@ -42,14 +47,21 @@ export const attach = async (
       await send(record);
       sent = record.seq;
     }
-    // Drain without yielding between the last check and going live, so nothing slips between.
-    while (held.length > 0) {
-      const record = held.shift() as LogRecord;
-      if (record.seq > sent) {
-        await send(record);
-        sent = record.seq;
+    const drain = async () => {
+      while (held.length > 0) {
+        const record = held.shift() as LogRecord;
+        if (record.seq > sent) {
+          await send(record);
+          sent = record.seq;
+        }
       }
+    };
+    await drain();
+    if (beforeLive) {
+      await beforeLive(sent);
+      await drain();
     }
+    // Nothing is awaited between the last drain and going live, so nothing slips between.
     live = true;
   } catch (error) {
     unsubscribe();
