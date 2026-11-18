@@ -77,7 +77,7 @@ export function DaemonBanner({ environmentId }: { environmentId: string }) {
       <div data-slot="stack">
         <span>
           Cycle on this environment is {daemon.version}, older than this app. To update it, run this
-          on that machine (what its sessions are doing is interrupted when it restarts):
+          on the machine it runs on (what its sessions are doing is interrupted when it restarts):
         </span>
         <code data-slot="command">{daemon.upgrade}</code>
       </div>
