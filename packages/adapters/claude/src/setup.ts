@@ -28,6 +28,8 @@ export const mcpServersOf = (servers: readonly McpServer[] | null | undefined) =
     if (typeof s.name !== "string" || s.name === "") invalid("An MCP server needs a name", {});
     if (s.name in out) invalid("Two MCP servers have the same name", { name: s.name });
     if (s.type === "http") {
+      if (typeof s.url !== "string" || s.url === "")
+        invalid("An MCP server needs a url", { name: s.name });
       const headers = (s.headers as { name: string; value: string }[] | undefined) ?? [];
       out[s.name] = {
         type: "http",
@@ -37,6 +39,9 @@ export const mcpServersOf = (servers: readonly McpServer[] | null | undefined) =
           : {}),
       };
     } else if (s.type === "stdio" || s.type === undefined) {
+      if (typeof s.command !== "string" || s.command === "") {
+        invalid("An MCP server needs a command", { name: s.name });
+      }
       const env = (s.env as { name: string; value: string }[] | undefined) ?? [];
       out[s.name] = {
         type: "stdio",

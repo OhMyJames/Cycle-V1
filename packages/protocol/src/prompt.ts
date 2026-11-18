@@ -23,6 +23,7 @@ export type PromptProblemReason =
   | "empty"
   | "too_many_blocks"
   | "unsupported_block"
+  | "malformed_block"
   | "unsupported_media_type"
   | "block_too_large"
   | "prompt_too_large"
@@ -57,9 +58,13 @@ export const checkPrompt = (
     const block = (typeof raw === "object" && raw !== null ? raw : {}) as Block;
     let bytes = 0;
     if (block.type === "text") {
+      if (typeof block.text !== "string") return { reason: "malformed_block", index };
       // Text counts too: a pasted file of text is as large on the wire as an image of the same size.
-      bytes = typeof block.text === "string" ? new TextEncoder().encode(block.text).length : 0;
+      bytes = new TextEncoder().encode(block.text).length;
     } else if (block.type === "resource_link") {
+      if (typeof block.name !== "string" || typeof block.uri !== "string") {
+        return { reason: "malformed_block", index };
+      }
       bytes = 0;
     } else if (block.type === "image") {
       if (capabilities?.image == null) return { reason: "unsupported_block", index };
@@ -67,11 +72,13 @@ export const checkPrompt = (
         return { reason: "unsupported_media_type", index };
       }
       const decoded = typeof block.data === "string" ? base64Bytes(block.data) : undefined;
-      if (decoded === undefined) return { reason: "invalid_base64", index };
+      // An image of no bytes is not an image.
+      if (decoded === undefined || decoded === 0) return { reason: "invalid_base64", index };
       bytes = decoded;
     } else if (block.type === "resource") {
       if (capabilities?.embeddedContext == null) return { reason: "unsupported_block", index };
       const resource = (block.resource ?? {}) as Record<string, unknown>;
+      if (typeof resource.uri !== "string") return { reason: "malformed_block", index };
       if (typeof resource.text === "string") {
         bytes = new TextEncoder().encode(resource.text).length;
       } else if (typeof resource.blob === "string") {
@@ -79,7 +86,7 @@ export const checkPrompt = (
           return { reason: "unsupported_media_type", index };
         }
         const decoded = base64Bytes(resource.blob);
-        if (decoded === undefined) return { reason: "invalid_base64", index };
+        if (decoded === undefined || decoded === 0) return { reason: "invalid_base64", index };
         bytes = decoded;
       } else {
         return { reason: "unsupported_block", index };

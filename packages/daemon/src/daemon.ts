@@ -143,6 +143,21 @@ export class Daemon {
           session.attachments.delete(attachment);
         }
       }
+      this.#abandonForms(session);
+    }
+  }
+
+  /**
+   * A form is asked only while some attached client can answer it. When the last one goes the
+   * agent is told so, as it is when none is attached to begin with, instead of waiting for a client
+   * that may never come back (decision 0011).
+   */
+  #abandonForms(session: Session): void {
+    if ([...session.attachments].some((attachment) => attachment.conn.elicitation)) return;
+    for (const pending of [...session.pending.values()]) {
+      if (pending.method === ELICITATION) {
+        this.#settle(session, pending, { action: "cancel", _meta: { [META.noClient]: true } });
+      }
     }
   }
 
@@ -251,7 +266,7 @@ export class Daemon {
         session.agentState = state.state;
       }
     }
-    this.#learn(session, update);
+    if (!this.#learn(session, update)) return;
     // Called in the order the updates arrive, so seq follows the agent's order.
     void session.log.append({ kind: "update", data: update }).then(
       () => this.#changed(),
@@ -260,7 +275,8 @@ export class Daemon {
   }
 
   /** What an update tells the daemon about the session, beyond what it tells the client. */
-  #learn(session: Session, update: SessionUpdate): void {
+  /** Returns false for an update that must not reach the log: an agent title the user has overruled. */
+  #learn(session: Session, update: SessionUpdate): boolean {
     const u = update as {
       sessionUpdate: string;
       title?: string | null;
@@ -285,12 +301,18 @@ export class Daemon {
         (title === undefined || titleFromAgent === true)
       ) {
         this.#remember(session, { title: u.title, titleFromAgent: true });
+      } else if (typeof u.title === "string") {
+        // The user named it: clients are not told a different name, here or in a replay.
+        return false;
       }
     }
+    return true;
   }
 
   #remember(session: Session, patch: Partial<SessionEntry>): void {
     session.entry = { ...session.entry, ...patch };
+    // A session that is still being made is not in the index yet; it is put there with this entry.
+    if (this.#index.get(session.id) === undefined) return;
     void this.#index.update(session.id, patch).then(
       () => this.#changed(),
       () => undefined,
@@ -517,21 +539,9 @@ export class Daemon {
         )
           throw new RpcError(
             INVALID_PARAMS,
-            `The directory ${directory} does not exist on the machine the daemon runs on`,
+            `The ${directory === params.cwd ? "working directory" : "directory"} ${directory} does not exist on the machine the daemon runs on`,
           );
       }
-      // The directory is a path on THIS machine (the daemon's), not the client's. Say so up front: otherwise
-      // the agent fails to start with an error that blames the binary.
-      if (
-        !(await stat(params.cwd).then(
-          (s) => s.isDirectory(),
-          () => false,
-        ))
-      )
-        throw new RpcError(
-          INVALID_PARAMS,
-          `The working directory ${params.cwd} does not exist on the machine the daemon runs on`,
-        );
       const id = randomUUID();
       const entry: SessionEntry = {
         agent: agentId,
@@ -559,7 +569,7 @@ export class Daemon {
           systemPrompt: params.systemPrompt,
         });
         const answer = created as { sessionId: string; configOptions?: unknown[] };
-        session.entry = { ...entry, agentSessionId: answer.sessionId };
+        session.entry = { ...session.entry, agentSessionId: answer.sessionId };
         // The agent may have taken our id or kept its own; either way the pair is on record.
         await this.#index.put(id, session.entry);
         this.#sessions.set(id, session);

@@ -50,6 +50,8 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
     /** What `supportedCommands()` answers. */
     commands: [] as { name: string; description: string; argumentHint: string }[],
     interrupts: 0,
+    /** How long `setPermissionMode` takes, as a process that is busy takes. */
+    setterDelayMs: 0,
     permissionModes: [] as string[],
     models: [] as (string | undefined)[],
     /** Make `setPermissionMode` and `setModel` throw, as they do on a process that is gone. */
@@ -127,6 +129,7 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
         if (!state.ignoreInterrupt) interrupt();
       },
       setPermissionMode: async (mode: string) => {
+        if (state.setterDelayMs > 0) await new Promise((r) => setTimeout(r, state.setterDelayMs));
         if (state.failSetters) throw new Error("the process is gone");
         state.permissionModes.push(mode);
       },

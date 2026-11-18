@@ -191,7 +191,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 - 允许的类型:`text`、`resource_link`(每个 agent 都接受),以及该 agent 的 `promptCapabilities` 允许的:`image`(PNG、JPEG、GIF、WebP)、`resource`(`embeddedContext`:文本,或 `application/pdf` 的二进制)。`audio` 一律不收。
 - 上限:每块解码后 5 MiB,整个 prompt 12 MiB,最多 32 块;文本块按 UTF-8 字节数算。常量在 `@cycle/protocol`(`PROMPT_LIMITS`),客户端可以用同一个函数 `checkPrompt` 提前检查。
-- `reason`:(空数组在 ACP 的 schema 那一层就被拒绝,没有 `reason`;下面这些是 daemon 自己给的。)`too_many_blocks`、`unsupported_block`、`unsupported_media_type`、`block_too_large`、`prompt_too_large`、`invalid_base64`。
+- `reason`:(空数组在 ACP 的 schema 那一层就被拒绝,没有 `reason`;下面这些是 daemon 自己给的。)`too_many_blocks`、`unsupported_block`、`malformed_block`(缺必需字段,或图片没有内容)、`unsupported_media_type`、`block_too_large`、`prompt_too_large`、`invalid_base64`。
 
 附件和图片进入日志的 `user_message`,历史补发时和文字一起到达。
 
@@ -217,7 +217,7 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 
 - 只有在 `initialize` 里声明了 `elicitation.form` 的、已附着的客户端才会被问。请求的 `_meta["cycle/requestId"]` 和权限请求一样。
 - 回答是 ACP 的 `{action: "accept" | "decline" | "cancel", content?}`;日志的 `response` 记录整个回答。
-- **没有这样的客户端附着时立即回答** `{action: "cancel", _meta: {"cycle/noClient": true}}`,不挂起。agent 据此回退:MCP 的 elicitation 当作拒绝,`AskUserQuestion` 走权限请求。
+- **没有这样的客户端附着时立即回答**(最后一个有能力的客户端断开时,正在等的表单同样如此回答) `{action: "cancel", _meta: {"cycle/noClient": true}}`,不挂起。agent 据此回退:MCP 的 elicitation 当作拒绝,`AskUserQuestion` 走权限请求。
 - `session/cancel`、agent 退出:未解决的 elicitation 以 `{action: "cancel"}` 结束,并发 `_cycle/request_resolved`。
 - URL 模式 v1 不支持,daemon 不声明。
 

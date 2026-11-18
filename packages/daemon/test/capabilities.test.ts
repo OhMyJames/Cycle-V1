@@ -293,6 +293,20 @@ test("the agent's title names a session until the user does", async () => {
   await c.agent.request("_cycle/session/set_title", { sessionId, title: "My name for it" });
   await turn("two");
   expect((await sessionRow(c)).title).toBe("My name for it");
+  // Clients are not shown the agent's second title either, here or when they come back for the history.
+  const told = (client: typeof c) =>
+    client.seen
+      .filter((s) => s.update.sessionUpdate === "session_info_update")
+      .map((s) => (s.update as unknown as { title: string }).title);
+  expect(told(c)).toEqual(["Fixing the login bug"]);
+  const later = await connectClient(daemon);
+  await later.agent.request(methods.agent.session.resume, {
+    sessionId,
+    cwd: "/tmp",
+    replayFrom: { type: "start" },
+  });
+  await until(() => later.kinds().includes("replay_complete"), "the history");
+  expect(told(later)).toEqual(["Fixing the login bug"]);
 });
 
 // ---- elicitation ----
@@ -406,7 +420,7 @@ test("a form that waits when the agent exits is ended, not left behind", async (
   expect((await sessionRow(c))["cycle/state"]).toBe("stopped");
 });
 
-test("a client that can answer forms and arrives later is asked the form that is waiting", async () => {
+test("when the last client that can answer a form goes, the agent is told, not kept waiting", async () => {
   const answers: unknown[] = [];
   const { daemon } = await start(
     fakeAgent({
@@ -416,17 +430,16 @@ test("a client that can answer forms and arrives later is asked the form that is
     }),
   );
   const first = await connectClient(daemon, { onElicitation: () => "never" });
+  const other = await connectClient(daemon); // cannot answer forms, and stays
   const { sessionId } = await first.agent.request(methods.agent.session.new, { cwd: "/tmp" });
   await first.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await other.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
   await first.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("ask") });
   await until(() => first.elicitations.length === 1, "the form to arrive");
   first.close();
-  const second = await connectClient(daemon, {
-    onElicitation: () => ({ action: "decline" }),
-  });
-  await second.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
   await until(() => answers.length === 1, "the agent to be answered");
-  expect(answers[0]).toEqual({ action: "decline" });
+  expect(answers[0]).toEqual({ action: "cancel", _meta: { "cycle/noClient": true } });
+  await until(() => other.ended() >= 1, "the turn to end");
 });
 
 test("a name the user gave before agents named sessions is not replaced by the agent's", async () => {

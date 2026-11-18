@@ -297,6 +297,8 @@ test("what cannot be honoured is refused when the session is made, not ignored",
       ],
     });
     await refused({ additionalDirectories: ["relative/dir"] });
+    await refused({ mcpServers: [{ name: "a", type: "stdio" }] }); // no command
+    await refused({ mcpServers: [{ name: "a", type: "http" }] }); // no url
   });
 });
 
@@ -674,3 +676,68 @@ for (const [name, answers] of [
     expect(mcp.seen.result).toEqual({ action: "decline" });
   });
 }
+
+test("a compaction cut short by the process going is ended, and the next one is announced", async () => {
+  const status = (s: string | null) =>
+    ({ type: "system", subtype: "status", status: s }) as unknown as SDKMessage;
+  const fake = fakeQuery((call) =>
+    call.prompt === "one"
+      ? [status("compacting"), ...textTurn(ID, "m", "ok")]
+      : [status("compacting"), status(null), ...textTurn(ID, "m", "ok")],
+  );
+  await connect(
+    fake.run,
+    async ({ agent, idle, updates }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "one" }]);
+      await new Promise((resolve) => setTimeout(resolve, 80)); // the process is let go: idleMs is 20
+      await prompt(agent, idle, [{ type: "text", text: "two" }]);
+      const statuses = updates
+        .filter((u) => u.sessionUpdate === "compaction_update")
+        .map((u) => (u as unknown as { status: string }).status);
+      expect(statuses).toEqual(["in_progress", "cancelled", "in_progress", "completed"]);
+    },
+    {},
+    { idleMs: 20 },
+  );
+});
+
+test("a dismissed form ends the turn, as a dismissed permission card does", async () => {
+  const { fake, seen } = asking("AskUserQuestion", input);
+  await connect(
+    fake.run,
+    async ({ agent, idle }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "go" }]);
+    },
+    { elicitation: () => ({ action: "cancel" }) },
+  );
+  expect(seen.result).toEqual({ behavior: "deny", message: "Cancelled", interrupt: true });
+});
+
+test("a mode the process reports while the user's own is on its way does not undo it", async () => {
+  const fake = fakeQuery((call) =>
+    call.prompt === "one"
+      ? textTurn(ID, "m", "ok")
+      : ([
+          { type: "system", subtype: "status", status: null, permissionMode: "default" },
+          ...textTurn(ID, "m", "ok"),
+        ] as unknown as SDKMessage[]),
+  );
+  fake.state.setterDelayMs = 60;
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "one" }]);
+    await agent.request(methods.agent.session.setConfigOption, {
+      sessionId: ID,
+      configId: "mode",
+      type: "id",
+      value: "acceptEdits",
+    } as never);
+    // The process's old news arrives while the change is still on its way.
+    await prompt(agent, idle, [{ type: "text", text: "two" }]);
+    expect(kinds(updates)).not.toContain("config_option_update");
+    await new Promise((resolve) => setTimeout(resolve, 100)); // the change lands
+    expect(fake.state.permissionModes).toEqual(["acceptEdits"]);
+  });
+});

@@ -117,3 +117,22 @@ test("text counts against the limits too, in bytes and not in characters", () =>
   const many = [text(5 * 1024 * 1024), text(5 * 1024 * 1024), text(3 * 1024 * 1024)];
   expect(checkPrompt(many, undefined)).toEqual({ reason: "prompt_too_large", index: 2 });
 });
+
+test("a block missing what it must have is malformed, not a block of no bytes", () => {
+  expect(checkPrompt([{ type: "text" }], undefined)).toEqual({
+    reason: "malformed_block",
+    index: 0,
+  });
+  expect(checkPrompt([{ type: "resource_link", name: "a" }], undefined)).toEqual({
+    reason: "malformed_block",
+    index: 0,
+  });
+  expect(checkPrompt([{ type: "resource", resource: { text: "x" } }], both)).toEqual({
+    reason: "malformed_block",
+    index: 0,
+  });
+  expect(checkPrompt([{ type: "image", mimeType: "image/png", data: "" }], both)).toEqual({
+    reason: "invalid_base64",
+    index: 0,
+  });
+});

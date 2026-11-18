@@ -121,6 +121,10 @@ type SessionState = {
   title: string | undefined;
   /** The id of the compaction that is running, if one is. */
   compaction: string | undefined;
+  /** Who to tell when something ends outside a turn (a compaction cut short). */
+  client: AgentContext | undefined;
+  /** True while a mode the user chose is on its way to the process: what it says meanwhile is stale. */
+  modeChanging: boolean;
 };
 
 const modelOptions = (session: SessionState) =>
@@ -177,10 +181,24 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     return session;
   };
 
+  /** A compaction that did not finish because its process went: it is over, and says so. */
+  const endCompaction = (session: SessionState) => {
+    const compactionId = session.compaction;
+    if (compactionId === undefined) return;
+    session.compaction = undefined;
+    if (session.client === undefined) return;
+    void notify(session.client, session.id, {
+      sessionUpdate: "compaction_update",
+      compactionId,
+      status: "cancelled",
+    } as SessionUpdate).catch(() => undefined);
+  };
+
   /** Lets the session's process go: gracefully, or at once. The next prompt starts another. */
   const release = (session: SessionState, hard: boolean) => {
     const live = session.live;
     if (live === undefined) return;
+    endCompaction(session);
     session.live = undefined;
     clearTimeout(live.idle);
     live.end();
@@ -235,7 +253,12 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       await notify(client, session.id, commandsUpdate(m.commands as SlashCommand[]));
     } else if (m.subtype === "status") {
       const mode = m.permissionMode as PermissionMode | undefined;
-      if (mode !== undefined && PERMISSION_MODES.includes(mode) && mode !== session.mode) {
+      if (
+        mode !== undefined &&
+        PERMISSION_MODES.includes(mode) &&
+        mode !== session.mode &&
+        !session.modeChanging
+      ) {
         session.mode = mode;
         await notify(client, session.id, {
           sessionUpdate: "config_option_update",
@@ -375,6 +398,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     const answer = await askForm(client, session, formOf(questions), context.signal);
     if (answer === "aborted") return { behavior: "deny", message: "Cancelled", interrupt: true };
     if (answer === "unavailable") return undefined;
+    // A dismissed form is a cancel, as a dismissed permission card is: it ends the turn. The daemon
+    // answers a cancelled turn's forms this way before the cancel itself arrives.
+    if (answer.action === "cancel")
+      return { behavior: "deny", message: "Cancelled", interrupt: true };
     if (answer.action !== "accept") {
       return { behavior: "deny", message: "The user declined to answer" };
     }
@@ -386,6 +413,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
 
   /** Starts a process for the session. Its messages go to whatever turn is running. */
   const start = (client: AgentContext, session: SessionState): Live => {
+    session.client = client;
     const queue: SDKUserMessage[] = [];
     let wake: (() => void) | undefined;
     let closed = false;
@@ -533,7 +561,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         failure = error;
       }
       // The process is gone, whatever the reason. A turn that was waiting on it ends here.
-      if (session.live === live) session.live = undefined;
+      if (session.live === live) {
+        session.live = undefined;
+        endCompaction(session);
+      }
       clearTimeout(live.idle);
       const turn = session.turn;
       if (turn !== undefined && !turn.done) {
@@ -583,8 +614,8 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
   /** Applies a change to a running process; if it cannot, lets the process go so the next one has it. */
   const apply = (session: SessionState, change: (query: Query) => Promise<unknown>) => {
     const live = session.live;
-    if (live === undefined) return;
-    change(live.query).catch(() => release(session, true));
+    if (live === undefined) return Promise.resolve();
+    return change(live.query).catch(() => release(session, true));
   };
 
   return acpAgent({ name: "cycle-claude-adapter" })
@@ -619,6 +650,8 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         setup: setupOf(params),
         title: undefined,
         compaction: undefined,
+        client: undefined,
+        modeChanging: false,
       };
       sessions.set(id, session);
       return { sessionId: id, configOptions: configOptions(session) };
@@ -645,6 +678,8 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           setup: NO_SETUP,
           title: undefined,
           compaction: undefined,
+          client: undefined,
+          modeChanging: false,
         } satisfies SessionState);
       // What the daemon sends again on a resume is what the next process is started with.
       session.setup = setupOf(params);
@@ -720,7 +755,11 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           throw new RequestError(-32602, "Unknown permission mode", { value });
         }
         session.mode = value as PermissionMode;
-        apply(session, (query) => query.setPermissionMode(session.mode));
+        // What the process says about its mode before it has this one is old news: not a change.
+        session.modeChanging = true;
+        apply(session, (query) => query.setPermissionMode(session.mode)).finally(() => {
+          session.modeChanging = false;
+        });
       } else if (params.configId === "model" && typeof value === "string") {
         // "default" is no choice: Claude Code picks.
         session.model = value === "default" ? undefined : value;
