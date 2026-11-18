@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CycleErrorCode } from "@cycle/protocol";
 import { JsonlLogStore } from "../src/index.ts";
@@ -123,4 +123,21 @@ test("updatedAt is the time of the last record that is not a meta one, and survi
   const again = await ticking().open("s1");
   expect(again.updatedAt()).toBe(update.ts);
   await again.close();
+});
+
+test("opened twice at once, one gets the log and the other is refused", async () => {
+  const s = store();
+  const results = await Promise.allSettled([s.open("s1"), s.open("s1")]);
+  expect(results.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+  const rejected = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+  expect(rejected.reason).toMatchObject({ code: CycleErrorCode.LogUnavailable });
+  for (const r of results) if (r.status === "fulfilled") await r.value.close();
+});
+
+test("a log that could not be opened is not left reserved", async () => {
+  const s = store();
+  await writeFile(join(dir, "s1.jsonl"), "{not json}\n");
+  await expect(s.open("s1")).rejects.toMatchObject({ code: CycleErrorCode.LogUnavailable });
+  await rm(join(dir, "s1.jsonl"));
+  await (await s.open("s1")).close();
 });

@@ -137,6 +137,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 - `cycle/state`:`"running"`、`"idle"`、`"requires_action"` 或 `"stopped"`(agent 进程不在)。
 - `cycle/lastSeq`:该 session 的最新序号。**只用于补发**(§7):它是每个 session 自己数的记录条数,不是时间,不能在 session 之间比较,客户端不得用它排序。
 - `cycle/unread`:布尔。有值得看的新记录晚于客户端上次标记已读的位置,见"已读"。
+- `cycle/historyFailed`:布尔,为 `true` 时这个 session 的历史写不进去了(§12“写入失败”)。没有时省略。
 - `cycle/background`:整数,仍在运行的后台子 agent 数(`subagent_update` 里 `_meta["cycle/subagent"].background` 为 true 且 `state` 还不是终态,见 §9)。为 0 时省略。它只记在内存里:daemon 重启后 agent 进程不在了,归 0,不写进索引。
 - `cycle/usage`:最近一次 `usage_update`,`{used, size, cost?: {amount, currency}}`:已用的上下文 token、窗口大小、累计费用。daemon 存在索引里,列表不用重放日志就能显示;还没有过 `usage_update` 的 session 没有这个字段。
 
@@ -349,15 +350,15 @@ daemon 启动 agent 时只传入显式白名单里的环境变量,不继承自�
 - 协议版本不兼容:用 ACP 的 `-32022`。
 - 其余是 Cycle 自己的,取 -32010 到 -32019,避开 ACP 已用的码:
 
-| 码     | 名称                | 含义                                                |
-| ------ | ------------------- | --------------------------------------------------- |
-| -32010 | `session_busy`      | session 正在工作,不接受该操作                       |
-| -32011 | `agent_unavailable` | agent 不可用(未安装、启动失败)                      |
-| -32012 | `agent_exited`      | agent 进程在操作中退出                              |
-| -32013 | `resume_failed`     | agent 无法恢复该 session。历史仍可读,但不能继续对话 |
-| -32014 | `invalid_config`    | 配置不符合 `configSchema`                           |
-| -32015 | `log_unavailable`   | 历史日志读写失败                                    |
-| -32016 | `not_queued`        | 要撤回的 prompt 不在队列里(已发出或已退回)          |
+| 码     | 名称                | 含义                                                              |
+| ------ | ------------------- | ----------------------------------------------------------------- |
+| -32010 | `session_busy`      | session 正在工作,不接受该操作                                     |
+| -32011 | `agent_unavailable` | agent 不可用(未安装、启动失败)                                    |
+| -32012 | `agent_exited`      | agent 进程在操作中退出                                            |
+| -32013 | `resume_failed`     | agent 无法恢复该 session。历史仍可读,但不能继续对话               |
+| -32014 | `invalid_config`    | 配置不符合 `configSchema`                                         |
+| -32015 | `log_unavailable`   | 历史日志读写失败。写入失败后,该 session 的 prompt 都以它拒绝(§12) |
+| -32016 | `not_queued`        | 要撤回的 prompt 不在队列里(已发出或已退回)                        |
 
 ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集中定义,升级 ACP 时对照检查。
 
@@ -394,6 +395,16 @@ ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集
 session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session id、`cwd`、归档标记、标题、创建时间,以及 `readSeq` 和 `attentionSeq`(§6"已读")。`lastSeq` 和 `updatedAt` 不存在索引里,以日志为准(`updatedAt` 取最后一条非 `meta` 记录的 `ts`),避免每条记录都改写索引。`attentionSeq` 在每条值得看的记录(通常每个 turn 一两条)后改写一次,`readSeq` 每次标记已读改写一次,都不是每条记录一次。daemon 打开 session 时,若 `readSeq` 或 `attentionSeq` 超过日志的 `lastSeq`(崩溃截掉了日志末尾的半行,之后的 seq 会重新分配),把它们压回 `lastSeq`。
 
 从没有这两个字段的旧索引升级时,两个都按 0 算,所以旧 session 不是未读(升级不会让所有旧 session 变成未读);之后第一个值得看的记录才会让它变成未读。索引整体写入:先写临时文件再改名,崩溃后留下的是旧索引或新索引,不会是半个。索引存在但无法读取时 daemon 拒绝启动,不覆盖它(决策 0002)。
+
+**写入失败。** 日志有一条写不进去(磁盘满、权限、存储故障)时,daemon 不当作没事:
+
+- 这个 session 标记为历史不可写,到 daemon 重启为止(写了一半的行可能留在文件末尾,在同一进程里继续写会把新记录接在它后面;重启时打开日志会把它截掉)。
+- 正在跑的 turn 被停止:daemon 向 agent 发 `session/cancel`,等着回答的权限请求和表单按取消回给 agent。
+- 已附着的每个客户端收到一条不进日志、不带 `seq` 的 `state_update`:`state: "idle"`、`stopReason: "error"`、`error.code` 为 `-32015`。它走的不是日志(日志正是坏的),所以重放里没有它;之后才附着的客户端,打开时收到的 `state_update` 的 `_meta["cycle/historyFailed"]` 为 `true`,列表行里也有同一个字段。
+- 之后的 `session/prompt` 以 `-32015` 拒绝,不启动 agent,不写任何东西。读取已有历史仍可用。
+- 权限答复和表单答复在 `response` 记录写成功之后才交给 agent;写不成,agent 得到的是取消,不是客户端的答案。`request` 记录写不成时,请求没有给任何客户端看过,agent 同样得到取消。
+
+同一个 session 同时被几个请求打开(比如两个客户端同时 `session/resume`)时,daemon 只加载一次,日志只有一个写入者;打开日志本身也是先占位再读文件,同一个 session 的第二次打开会被拒绝,打开失败会释放占位。
 
 日志的写入细节:打开时先把崩溃留下的末尾半行截掉,再追加,否则新记录会接在半行后面,损坏落在文件中间。写入按调用顺序逐条进行,保证序号和文件一致。
 

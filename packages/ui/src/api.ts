@@ -46,6 +46,11 @@ export type SessionSummary = {
   agent: string;
   state: "running" | "idle" | "requires_action" | "stopped";
   lastSeq: number;
+  /**
+   * When something last happened in the session (ISO 8601). Absent from a daemon older than protocol 0.2:
+   * then the sessions of that daemon are ordered by `lastSeq`, which only compares within one daemon.
+   */
+  updatedAt?: string;
   /** What the session was set to, by name (the agent's settings). */
   config?: Record<string, string>;
 };
@@ -133,7 +138,16 @@ export type NewSession = { cwd: string; agent?: string; config?: Record<string, 
 
 /** What the renderer asks of main. Every method can fail; the renderer shows the message. */
 export type AppApi = {
-  hosts(): Promise<{ hosts: HostConfig[]; status: HostStatus[] }>;
+  /**
+   * Every host, how its connection stands, and the last list of sessions main read from each: a host that is
+   * away still has its last list, which is shown greyed. Only for as long as the app runs: one that could not be
+   * reached since it started has none.
+   */
+  hosts(): Promise<{
+    hosts: HostConfig[];
+    status: HostStatus[];
+    sessions: Record<string, SessionSummary[]>;
+  }>;
   saveHost(host: HostConfig): Promise<void>;
   removeHost(hostId: string): Promise<void>;
   connect(hostId: string): Promise<void>;

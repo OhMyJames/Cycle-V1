@@ -27,6 +27,7 @@ import {
 import { useEffect, useState } from "react";
 import type { AgentInfo, HostConfig } from "../api.ts";
 import { ConfigForm } from "./config-form.tsx";
+import { useI18n } from "./i18n.tsx";
 
 type OpenProps = { open: boolean; onOpenChange: (open: boolean) => void };
 
@@ -63,46 +64,69 @@ export function ConfirmDialog({
 }
 
 export type NewSessionProps = OpenProps & {
-  agents: AgentInfo[];
-  readDefaults: (agent: string) => Promise<Record<string, string> | undefined>;
+  /** The hosts a session can be started on: those that are connected. */
+  hosts: HostConfig[];
+  /** Where it starts unless the person says: the host of the session that is open, else the first. */
+  defaultHost: string | undefined;
+  agents: Record<string, AgentInfo[]>;
+  readDefaults: (hostId: string, agent: string) => Promise<Record<string, string> | undefined>;
+  /** Opens this computer's folder chooser: only what is on this computer can be chosen with it. */
   chooseDirectory: () => Promise<string | undefined>;
-  onCreate: (params: {
-    cwd: string;
-    agent: string;
-    config: Record<string, string>;
-  }) => void | Promise<void>;
+  onCreate: (
+    hostId: string,
+    params: {
+      cwd: string;
+      agent: string;
+      config: Record<string, string>;
+    },
+  ) => void | Promise<void>;
 };
 
 export function NewSessionDialog({
   open,
   onOpenChange,
+  hosts,
+  defaultHost,
   agents,
   readDefaults,
   chooseDirectory,
   onCreate,
 }: NewSessionProps) {
-  const available = agents.filter((a) => a.available);
+  const { t } = useI18n();
+  const [chosenHost, setChosenHost] = useState<string | null>(null);
+  const host =
+    hosts.find((h) => h.id === chosenHost) ?? hosts.find((h) => h.id === defaultHost) ?? hosts[0];
+  const hostId = host?.id;
+  const available = (hostId !== undefined ? (agents[hostId] ?? []) : []).filter((a) => a.available);
   const [cwd, setCwd] = useState("");
-  const [agentId, setAgentId] = useState<string | null>(null);
+  // The agent that was picked, and for which host: another host has other agents, so the pick does not carry over.
+  const [picked, setPicked] = useState<{ hostId: string; agentId: string } | null>(null);
   const [config, setConfig] = useState<Record<string, string>>({});
-  const agent = available.find((a) => a.id === agentId) ?? available[0];
+  const agent =
+    available.find((a) => picked !== null && picked.hostId === hostId && a.id === picked.agentId) ??
+    available[0];
 
-  // Start each session from what the user set as the agent's defaults.
+  // Each time it opens it starts again from where the person is; and another host has other agents.
+  useEffect(() => {
+    if (open) setChosenHost(null);
+  }, [open]);
+
+  // Start each session from what the user set as the agent's defaults, on that host.
   const agentKey = agent?.id;
   useEffect(() => {
-    if (!open || agentKey === undefined) return;
+    if (!open || hostId === undefined || agentKey === undefined) return;
     let current = true;
-    void readDefaults(agentKey).then((defaults) => {
+    void readDefaults(hostId, agentKey).then((defaults) => {
       if (current) setConfig(defaults ?? {});
     });
     return () => {
       current = false;
     };
-  }, [open, agentKey, readDefaults]);
+  }, [open, hostId, agentKey, readDefaults]);
 
   const create = async () => {
-    if (agent === undefined || cwd.trim() === "") return;
-    await onCreate({ cwd: cwd.trim(), agent: agent.id, config });
+    if (hostId === undefined || agent === undefined || cwd.trim() === "") return;
+    await onCreate(hostId, { cwd: cwd.trim(), agent: agent.id, config });
     onOpenChange(false);
   };
 
@@ -112,9 +136,37 @@ export function NewSessionDialog({
       <DialogContent>
         <DialogTitle>New session</DialogTitle>
         <DialogDescription>
-          The agent works in this directory, on the host you are connected to.
+          {host !== undefined && hosts.length > 1
+            ? t("newSession.onHost", { host: host.name })
+            : "The agent works in this directory, on the host you are connected to."}
         </DialogDescription>
         <div data-slot="stack">
+          {hosts.length > 1 ? (
+            <Field name="host">
+              <FieldLabel>{t("newSession.host")}</FieldLabel>
+              <Select
+                items={hosts.map((h) => ({ value: h.id, label: h.name }))}
+                value={hostId ?? null}
+                onValueChange={(next) => {
+                  // A folder and settings of one host mean nothing on another.
+                  setChosenHost(next as string | null);
+                  setCwd("");
+                  setConfig({});
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {hosts.map((h) => (
+                    <SelectItem key={h.id} value={h.id}>
+                      {h.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          ) : null}
           <Field name="cwd">
             <FieldLabel>Directory</FieldLabel>
             <div data-slot="row">
@@ -123,15 +175,17 @@ export function NewSessionDialog({
                 placeholder="/path/to/project"
                 onChange={(e) => setCwd(e.currentTarget.value)}
               />
-              <Button
-                data-variant="outline"
-                onClick={async () => {
-                  const chosen = await chooseDirectory();
-                  if (chosen !== undefined) setCwd(chosen);
-                }}
-              >
-                Browse…
-              </Button>
+              {host?.kind === "local" ? (
+                <Button
+                  data-variant="outline"
+                  onClick={async () => {
+                    const chosen = await chooseDirectory();
+                    if (chosen !== undefined) setCwd(chosen);
+                  }}
+                >
+                  Browse…
+                </Button>
+              ) : null}
             </div>
           </Field>
           {available.length > 1 ? (
@@ -140,7 +194,10 @@ export function NewSessionDialog({
               <Select
                 items={available.map((a) => ({ value: a.id, label: a.name }))}
                 value={agent?.id ?? null}
-                onValueChange={(next) => setAgentId(next as string | null)}
+                onValueChange={(next) => {
+                  if (hostId !== undefined && typeof next === "string")
+                    setPicked({ hostId, agentId: next });
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />

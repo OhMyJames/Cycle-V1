@@ -154,15 +154,24 @@ export class JsonlLogStore implements LogStore {
   async open(sessionId: string): Promise<SessionLog> {
     const path = this.#path(sessionId);
     if (this.#open.has(sessionId)) throw logUnavailable(sessionId, "the log is already open");
-    await mkdir(this.#dir, { recursive: true });
-    // Make sure the file exists, then read what is there.
-    await (await open(path, "a")).close();
-    const text = await Bun.file(path).text();
-    const { records, validBytes } = parseLog(sessionId, text);
-    // A crash can leave half a line. It is cut off now, before anything is appended: otherwise the
-    // next record would be glued to it, and the damage would be in the middle of the file.
-    if (validBytes < Buffer.byteLength(text)) await truncate(path, validBytes);
+    // Taken before anything is awaited: two opens at once cannot both get the file.
     this.#open.add(sessionId);
+    let text: string;
+    let records: LogRecord[];
+    try {
+      await mkdir(this.#dir, { recursive: true });
+      // Make sure the file exists, then read what is there.
+      await (await open(path, "a")).close();
+      text = await Bun.file(path).text();
+      const parsed = parseLog(sessionId, text);
+      records = parsed.records;
+      // A crash can leave half a line. It is cut off now, before anything is appended: otherwise
+      // the next record would be glued to it, and the damage would be in the middle of the file.
+      if (parsed.validBytes < Buffer.byteLength(text)) await truncate(path, parsed.validBytes);
+    } catch (error) {
+      this.#open.delete(sessionId);
+      throw error;
+    }
     const updated = records.findLast((record) => record.kind !== "meta")?.ts;
     const log = new JsonlSessionLog(sessionId, path, records.length, updated, this.#now);
     const close = log.close.bind(log);

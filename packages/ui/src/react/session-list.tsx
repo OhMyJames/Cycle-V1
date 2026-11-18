@@ -1,6 +1,6 @@
 import { Listbox, ListboxGroup, ListboxGroupLabel, ListboxItem } from "@ui-sdk/react/listbox";
 import type { SessionSummary } from "../api.ts";
-import { projectOf, type SessionGroup, type SessionList } from "../sessions.ts";
+import { projectKey, type SessionGroup, type SessionList, sessionKey } from "../sessions.ts";
 import { useI18n } from "./i18n.tsx";
 import { SESSION_STATE, StatusDot } from "./status.tsx";
 
@@ -12,23 +12,35 @@ export const sessionTitle = (session: SessionSummary): string => {
   return place(session.cwd);
 };
 
+/** A host that is not connected, as a row of its sessions says it: who, and in what words. */
+export type Away = { name: string; word: string };
+
 function Row({
   session,
   place: where,
+  away,
 }: {
   session: SessionSummary;
+  /** Set when the session's host is not connected: the row is the last one read, and is shown greyed. */
+  away: Away | undefined;
   /** Where the session works, said under its title in the groups that are not a project; absent in a project. */
   place: string | undefined;
 }) {
+  const { t } = useI18n();
+  const tip =
+    away !== undefined ? t("session.away", { host: away.name, state: away.word }) : undefined;
   // The state is told by the dot's colour and shape, and in words by the heading of the group the row is in. An archived
   // session is put away, whatever its state says.
-  const doing = session.archived ? undefined : SESSION_STATE[session.state];
+  const doing = session.archived || away !== undefined ? undefined : SESSION_STATE[session.state];
   return (
     <ListboxItem
-      value={session.sessionId}
+      value={sessionKey(session)}
       data-session={session.sessionId}
+      data-host={session.hostId}
       data-archived={session.archived || undefined}
-      data-needs-you={session.state === "requires_action" || undefined}
+      data-needs-you={(away === undefined && session.state === "requires_action") || undefined}
+      data-away={away !== undefined || undefined}
+      title={tip}
     >
       <span data-slot="session-dot">
         {doing !== undefined ? <StatusDot tone={doing.tone} shape={doing.shape} /> : null}
@@ -58,12 +70,16 @@ function Heading({ group }: { group: SessionGroup }) {
 export function SessionListView({
   list,
   selected,
+  away,
   onSelect,
   onShowAll,
 }: {
   list: SessionList;
+  /** The open session, by its `sessionKey`. */
   selected: string | undefined;
-  onSelect: (sessionId: string) => void;
+  /** The hosts that are not connected, by id. */
+  away: ReadonlyMap<string, Away>;
+  onSelect: (session: SessionSummary) => void;
   onShowAll: () => void;
 }) {
   const { t } = useI18n();
@@ -73,7 +89,8 @@ export function SessionListView({
         aria-label={t("sessions.listLabel")}
         value={selected ?? null}
         onValueChange={(next) => {
-          if (typeof next === "string") onSelect(next);
+          const chosen = list.order.find((s) => sessionKey(s) === next);
+          if (chosen !== undefined) onSelect(chosen);
         }}
       >
         {list.groups.map((group) => (
@@ -83,9 +100,10 @@ export function SessionListView({
             </ListboxGroupLabel>
             {group.sessions.map((session) => (
               <Row
-                key={session.sessionId}
+                key={sessionKey(session)}
                 session={session}
-                place={group.kind === "project" ? undefined : list.names.get(projectOf(session))}
+                away={away.get(session.hostId)}
+                place={group.kind === "project" ? undefined : list.names.get(projectKey(session))}
               />
             ))}
           </ListboxGroup>

@@ -573,9 +573,9 @@ test("each session has its own box, and a draft survives going to another sessio
   const box = await screen.findByRole("textbox", { name: "Message" });
   await ready(box);
   await write(box, "unfinished");
-  await act(() => store.selectSession("s2"));
+  await act(() => store.selectSession("local", "s2"));
   await waitFor(() => expect(boxText(screen.getByRole("textbox", { name: "Message" }))).toBe(""));
-  await act(() => store.selectSession("s1"));
+  await act(() => store.selectSession("local", "s1"));
   await waitFor(() =>
     expect(boxText(screen.getByRole("textbox", { name: "Message" }))).toBe("unfinished"),
   );

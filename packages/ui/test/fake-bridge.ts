@@ -1,6 +1,7 @@
 import type { SessionUpdate } from "@cycle/acp";
 import type {
   AppEvent,
+  ConnectionState,
   CycleBridge,
   HostConfig,
   SessionSnapshot,
@@ -10,8 +11,8 @@ import type {
 import { emptyConversation } from "../src/model/index.ts";
 
 export const LOCAL: HostConfig = { id: "local", name: "This computer", kind: "local" };
-export const summary = (sessionId: string): SessionSummary => ({
-  hostId: "local",
+export const summary = (sessionId: string, hostId = "local"): SessionSummary => ({
+  hostId,
   sessionId,
   cwd: "/work",
   archived: false,
@@ -36,6 +37,9 @@ export const fakeBridge = (
     update?: UpdateState;
     /** What the daemon says it can do. Default: all of it. */
     capabilities?: { queue: boolean; files: boolean };
+    /** More hosts than the local one, and how each stands (by id; the local one's is `connected`). */
+    hosts?: HostConfig[];
+    states?: Record<string, ConnectionState>;
   } = {},
 ) => {
   const calls: [string, ...unknown[]][] = [];
@@ -53,23 +57,32 @@ export const fakeBridge = (
         listener = undefined;
       };
     },
-    hosts: record("hosts", async () => ({
-      hosts: [LOCAL],
-      status: [
-        {
-          hostId: "local",
-          state: options.connected ? ("connected" as const) : ("closed" as const),
-          ...(options.connected
-            ? { capabilities: options.capabilities ?? { queue: true, files: true } }
-            : {}),
-        },
-      ],
-    })),
+    hosts: record("hosts", async () => {
+      const hosts = [LOCAL, ...(options.hosts ?? [])];
+      return {
+        hosts,
+        status: hosts.map((h) => {
+          const state =
+            options.states?.[h.id] ?? (options.connected === false ? "closed" : "connected");
+          return {
+            hostId: h.id,
+            state,
+            ...(state === "connected"
+              ? { capabilities: options.capabilities ?? { queue: true, files: true } }
+              : {}),
+          };
+        }),
+        // What main has read of each host, through the same call a test may replace to say what a list holds.
+        sessions: Object.fromEntries(
+          await Promise.all(hosts.map(async (h) => [h.id, await bridge.sessions(h.id)] as const)),
+        ),
+      };
+    }),
     saveHost: record("saveHost", async () => {}),
     removeHost: record("removeHost", async () => {}),
     connect: record("connect", async () => {}),
     disconnect: record("disconnect", async () => {}),
-    sessions: record("sessions", async () => [summary("s1")]),
+    sessions: record("sessions", async (hostId: string) => [summary("s1", hostId)]),
     createSession: record("createSession", async () => "s2"),
     openSession: record(
       "openSession",

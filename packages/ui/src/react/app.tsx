@@ -23,7 +23,7 @@ import {
 } from "@ui-sdk/react/resizable";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { usageLabel } from "../model/index.ts";
-import { sessionList } from "../sessions.ts";
+import { sessionKey, sessionList } from "../sessions.ts";
 import { viewKey } from "../store/index.ts";
 import { thinking } from "../thinking.ts";
 import { CodeThemePicker } from "./code-theme-picker.tsx";
@@ -41,7 +41,9 @@ import { useI18n } from "./i18n.tsx";
 import { ErrorCircleIcon, MoreIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
 import { PermissionCard } from "./permission.tsx";
 import { SearchDialog } from "./search.tsx";
+import type { Away } from "./session-list.tsx";
 import { MOD, Sidebar, sessionTitle } from "./sidebar.tsx";
+import { HOST_STATE } from "./status.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 import { DaemonBanner, UpdateBanner, UpdateFooter } from "./update.tsx";
 
@@ -107,9 +109,26 @@ export function App() {
   const [sent, setSent] = useState(0);
   const [showAll, setShowAll] = useState(false);
 
-  const sessions = selectedHost !== undefined ? (sessionsByHost[selectedHost] ?? []) : [];
+  // The sessions of every host, in one list; what is open is on the host `selectedHost` names.
+  const sessions = useMemo(
+    () => hosts.flatMap((h) => sessionsByHost[h.id] ?? []),
+    [hosts, sessionsByHost],
+  );
   const agents = selectedHost !== undefined ? (agentsByHost[selectedHost] ?? []) : [];
-  const session = sessions.find((s) => s.sessionId === selectedSession);
+  const session = sessions.find(
+    (s) => s.hostId === selectedHost && s.sessionId === selectedSession,
+  );
+  const [defaultsHost, setDefaultsHost] = useState<string | undefined>(undefined);
+  const connectedHosts = hosts.filter((h) => status[h.id]?.state === "connected");
+  // A host that is not connected: its sessions are the last it gave, and are shown greyed.
+  const away = useMemo(() => {
+    const map = new Map<string, Away>();
+    for (const h of hosts) {
+      const state = status[h.id]?.state ?? "closed";
+      if (state !== "connected") map.set(h.id, { name: h.name, word: HOST_STATE[state].word });
+    }
+    return map;
+  }, [hosts, status]);
   const view =
     selectedHost !== undefined && selectedSession !== undefined
       ? views[viewKey(selectedHost, selectedSession)]
@@ -117,31 +136,26 @@ export function App() {
   const hostState = selectedHost !== undefined ? status[selectedHost]?.state : undefined;
   const hostError = selectedHost !== undefined ? status[selectedHost]?.error : undefined;
   const readDefaults = useCallback(
-    (agent: string) =>
-      selectedHost !== undefined
-        ? store.readAgentDefaults(selectedHost, agent)
-        : Promise.resolve(undefined),
-    [store, selectedHost],
+    (hostId: string, agent: string) => store.readAgentDefaults(hostId, agent),
+    [store],
   );
   const close = () => setPanel("none");
   const [layout] = useState(createResizableController);
   // The list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
   const list = useMemo(
-    () => sessionList(sessions, { showArchived, showAll, selected: selectedSession }),
-    [sessions, showArchived, showAll, selectedSession],
+    () =>
+      sessionList(sessions, {
+        showArchived,
+        showAll,
+        selected: session !== undefined ? sessionKey(session) : undefined,
+        hosts: hosts.map((h) => ({ id: h.id, name: h.name, local: h.kind === "local" })),
+        away: new Set(away.keys()),
+      }),
+    [sessions, showArchived, showAll, session, hosts, away],
   );
-  // The limit that was lifted was one host's.
-  useEffect(() => {
-    if (selectedHost !== undefined) setShowAll(false);
-  }, [selectedHost]);
 
   const working = view !== undefined && view.conversation.status !== "idle";
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
-
-  // A search spans the hosts: read the ones that have not been read.
-  useEffect(() => {
-    if (panel === "search") void store.loadAllSessions();
-  }, [panel, store]);
 
   // Keyboard (DESIGN.md section 10). One handler, so every shortcut is in one place.
   useEffect(() => {
@@ -160,7 +174,7 @@ export function App() {
         action();
       };
       if (key === "k") run(() => setPanel("search"));
-      else if (key === "n" && hostState === "connected") run(() => setPanel("new-session"));
+      else if (key === "n" && connectedHosts.length > 0) run(() => setPanel("new-session"));
       else if (key === "b")
         run(() =>
           layout.isCollapsed("sidebar") ? layout.expand("sidebar") : layout.collapse("sidebar"),
@@ -171,19 +185,24 @@ export function App() {
             .querySelector<HTMLElement>('[data-slot="composer"] [data-slot="composer-input"]')
             ?.focus(),
         );
-      else if (key === "." && working) run(() => void store.cancel());
+      else if (key === "." && working && hostState === "connected") run(() => void store.cancel());
       else if (
         key === "Enter" &&
         typing === null &&
+        hostState === "connected" &&
         firstAllow !== undefined &&
         view?.permissions[0] !== undefined
       ) {
         const request = view.permissions[0];
         run(() => void store.answerPermission(request.key, firstAllow.optionId));
       } else if (key === "[" || key === "]") {
-        const at = list.order.findIndex((s) => s.sessionId === selectedSession);
-        const next = list.order[at + (key === "]" ? 1 : -1)];
-        if (next !== undefined) run(() => void store.selectSession(next.sessionId));
+        const at = session === undefined ? -1 : list.order.indexOf(session);
+        // A row on a host that is away and was never opened cannot be opened: the walk goes past it.
+        const step = key === "]" ? 1 : -1;
+        let to = at + step;
+        while (list.order[to] !== undefined && away.has(list.order[to]?.hostId ?? "")) to += step;
+        const next = list.order[to];
+        if (next !== undefined) run(() => void store.selectSession(next.hostId, next.sessionId));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -206,19 +225,22 @@ export function App() {
           <Sidebar
             hosts={hosts}
             status={status}
-            selectedHost={selectedHost}
             list={list}
-            selectedSession={selectedSession}
+            selected={session !== undefined ? sessionKey(session) : undefined}
+            away={away}
             showArchived={showArchived}
-            onSelectHost={(id) => void store.selectHost(id)}
-            onSelectSession={(id) => void store.selectSession(id)}
+            onSelectSession={(chosen) => void store.selectSession(chosen.hostId, chosen.sessionId)}
             onNewSession={() => setPanel("new-session")}
             onSearch={() => setPanel("search")}
             onAddHost={() => setPanel("add-host")}
             onRemoveHost={(id) => void store.removeHost(id)}
+            onConnectHost={(id) => void store.connectHost(id)}
             onToggleArchived={() => setShowArchived((v) => !v)}
             onShowAll={() => setShowAll(true)}
-            onAgentDefaults={() => setPanel("defaults")}
+            onAgentDefaults={(id) => {
+              setDefaultsHost(id);
+              setPanel("defaults");
+            }}
           >
             <CodeThemePicker />
             <UpdateFooter />
@@ -242,6 +264,17 @@ export function App() {
               <div data-slot="banner" data-severity="warning" role="status">
                 <WarningIcon />
                 Connection lost. Reconnecting… what you miss will be shown when it is back.
+              </div>
+            ) : null}
+            {view !== undefined &&
+            hostState !== undefined &&
+            hostState !== "connected" &&
+            hostState !== "reconnecting" ? (
+              <div data-slot="banner" data-severity="warning" role="status">
+                <WarningIcon />
+                {t("session.awayBanner", {
+                  host: hosts.find((h) => h.id === selectedHost)?.name ?? selectedHost ?? "",
+                })}
               </div>
             ) : null}
             {session !== undefined ? (
@@ -316,7 +349,7 @@ export function App() {
                     {selectedHost !== undefined ? (
                       <Button
                         data-variant="outline"
-                        onClick={() => void store.selectHost(selectedHost)}
+                        onClick={() => void store.connectHost(selectedHost)}
                       >
                         Retry
                       </Button>
@@ -342,7 +375,7 @@ export function App() {
                 canAttach={
                   agents.find((a) => a.id === session?.agent)?.promptCapabilities?.image != null
                 }
-                enabled={!view.loading}
+                enabled={!view.loading && hostState === "connected"}
                 onSent={() => setSent((n) => n + 1)}
               />
             ) : null}
@@ -360,15 +393,16 @@ export function App() {
           // An archived session is not in the list unless archived ones are shown: show them, or the pick would select a hidden row.
           if (sessionsByHost[hostId]?.find((s) => s.sessionId === sessionId)?.archived)
             setShowArchived(true);
-          if (hostId !== selectedHost) await store.selectHost(hostId);
-          await store.selectSession(sessionId);
+          await store.selectSession(hostId, sessionId);
         }}
         onNewSession={() => setPanel("new-session")}
       />
       <NewSessionDialog
         open={panel === "new-session"}
         onOpenChange={(open) => !open && close()}
-        agents={agents}
+        hosts={connectedHosts}
+        defaultHost={selectedHost}
+        agents={agentsByHost}
         readDefaults={readDefaults}
         chooseDirectory={store.chooseDirectory}
         onCreate={store.createSession}
@@ -378,12 +412,12 @@ export function App() {
         onOpenChange={(open) => !open && close()}
         onSave={store.saveHost}
       />
-      {selectedHost !== undefined ? (
+      {defaultsHost !== undefined ? (
         <DefaultsPanel
           open={panel === "defaults"}
           onOpenChange={(open) => !open && close()}
-          hostId={selectedHost}
-          agents={agents}
+          hostId={defaultsHost}
+          agents={agentsByHost[defaultsHost] ?? []}
         />
       ) : null}
       {session !== undefined ? (
