@@ -13,7 +13,7 @@ bun run build                          # 根目录:先构建 daemon 的可执行
 bun run start                          # 启动桌面端
 ```
 
-- 本地 host 通过 `cycle proxy` 连接(没有 daemon 在运行就先启动)。用哪个 daemon,取第一个存在的:`CYCLE_DAEMON_BIN`;`apps/daemon/dist` 里构建出的可执行文件;源码(`bun apps/daemon/src/main.ts`,开发时,可用 `CYCLE_BUN`、`CYCLE_DAEMON_MAIN` 覆盖)。数据目录用 `CYCLE_HOME`。
+- 本地 host 通过 `cycle proxy` 连接(没有 daemon 在运行就先启动)。用哪个 daemon,取第一个存在的:`CYCLE_DAEMON_BIN`;`apps/daemon/dist` 里构建出的可执行文件;源码(`bun apps/daemon/src/main.ts`,开发时,可用 `CYCLE_BUN`、`CYCLE_DAEMON_MAIN` 覆盖)。数据目录:`CYCLE_HOME` 设了就用它;没设时,安装的应用用 daemon 的默认(`~/.cycle`),从源码运行(`bun run start`)用 `~/.cycle-dev`,所以开发时的 daemon、socket 和会话不会碰到安装版正在跑的那个。开发版因此没有稳定版的凭证配置(`config.json` 在数据目录里):要么在 `~/.cycle-dev` 里另写一份,要么显式设 `CYCLE_HOME` 指向要用的目录。
 - 在 xvfb 下用构建出的 daemon 启动过:Electron 起来,`proxy` 起 `serve`,数据目录里有 socket 和 pid。
 - 远程 host 用系统的 `ssh`(`BatchMode=yes`,没有密码提示),在远端运行 `cycle proxy`;命令可在"Add host"里改。
 - 设置(host 列表)在 Electron 的 `userData/settings.json`。

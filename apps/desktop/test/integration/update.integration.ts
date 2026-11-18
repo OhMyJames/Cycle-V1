@@ -4,7 +4,8 @@
 //
 // Nothing here touches this Mac's own data: the app's data directory is a temporary one, set for the
 // relaunched app too through launchd (an app opened by `open` does not inherit this process's
-// environment), and removed afterwards.
+// environment) for as long as the test runs, and removed afterwards. launchd's environment is the whole login
+// session's, so what was set there before is put back, not removed (test/launchd-env.ts).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -13,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanBundle } from "../../src/main/delta.ts";
 import { archiveName, manifestFor, manifestName, RELEASE_REPO } from "../../src/shared/release.ts";
+import { setLaunchdEnv } from "../launchd-env.ts";
 import { evaluate } from "./cdp.ts";
 
 const given = process.env.CYCLE_PACKAGED_APP;
@@ -129,10 +131,10 @@ test.skipIf(!ready)(
     const environment = { CYCLE_HOME: data, CYCLE_UPDATE_URL: url };
     const exe = join(installed, "Contents/MacOS/Electron");
     let old: ReturnType<typeof Bun.spawn> | undefined;
+    let putBack: (() => void) | undefined;
     try {
       // What `open` starts does not get this process's environment; launchd's is where it can be set.
-      for (const [key, value] of Object.entries(environment))
-        run(["/bin/launchctl", "setenv", key, value]);
+      putBack = setLaunchdEnv((args) => run(["/bin/launchctl", ...args]), environment);
       old = Bun.spawn(
         [
           exe,
@@ -184,8 +186,7 @@ test.skipIf(!ready)(
       expect(await readdir(join(root, "apps"))).toEqual(["Cycle.app"]);
       expect(existsSync(join(root, "apps", ".Cycle-old"))).toBe(false);
     } finally {
-      for (const key of Object.keys(environment))
-        Bun.spawnSync(["/bin/launchctl", "unsetenv", key]);
+      putBack?.();
       server.stop(true);
       old?.kill();
       // Whatever of the app, new or old, runs from the test's own folder, and the daemon it started.
