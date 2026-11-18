@@ -2,6 +2,7 @@
 // Boundaries first (cheap), then types, lint and tests. Stops at the first failure.
 
 import { Glob } from "bun";
+import { violations } from "./boundaries.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 
@@ -45,6 +46,7 @@ for await (const file of sources.scan({ cwd: root })) {
       failures.push(`${file}: ${rule.name} (${rule.why})`);
     }
   }
+  failures.push(...violations(file, text));
 }
 // DESIGN.md and the stylesheet agree on the --cycle-* tokens: one that is written and not defined is a promise
 // nothing keeps, and one that is defined and not written is a decision nobody can see.
