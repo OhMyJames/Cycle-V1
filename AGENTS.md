@@ -4,7 +4,9 @@
 
 ## 项目
 
-cycle-v1 是 ADE(agentic development environment),是 cycle 的重写。这是全新的代码库,不要参考旧的 cycle。
+cycle-v1 是 ADE(agentic development environment),是 cycle 的重写。这是全新的代码库:不拷贝旧 cycle 的代码。
+可以读旧 cycle 里**已经写下的经验**,取"为什么"和踩过的坑,不取实现:old-cycle(`OhMyJames/old-cycle`,Cycle 2.0,同样是 ACP v2 加 Claude)的决定笔记 `.agents/notes/`、设计文档 `.agents/designs/`,以及它那些写了规则的纯函数(如 `acp/blocks.ts` 的排版规则)。
+用到时,把结论写进我们自己的 `docs/decisions/` 或文档,注明出处;我们的前提和它不同(daemon 自己存 JSONL,L1 事件由 L2 映射而来),不要照搬它为透明代理做的补丁。
 目标和范围见 [README.md](README.md)。
 
 ## 当前阶段
@@ -50,6 +52,6 @@ Bun、TypeScript、Electron,均使用最新版本。包管理和脚本都用 Bun
 ## 约定
 
 - 文档用中文,代码标识符、协议字段和提交信息的类型前缀用英文。
-- 设计上的取舍记录在 `docs/decisions/`,一条决策一个文件,编号递增。
+- 设计上的取舍记录成决定笔记,按 `agent-notes` 技能写(`.agents/skills/agent-notes`,`.claude/skills` 里有链接):什么情况才写、格式、怎么取代旧的。新笔记放 `.agents/notes/`,格式见它的 README。`docs/decisions/` 里已有的 0001–0014 是历史,保留原样、不改编号,新笔记不再往里加。
 - 协议变更先改 `docs/protocol.md`,再改实现。
 - 提交信息简短,说明做了什么和为什么。
