@@ -168,6 +168,7 @@ export class Daemon {
 
   async close(): Promise<void> {
     for (const session of this.#sessions.values()) {
+      session.closed = true;
       session.link?.kill();
       for (const attachment of session.attachments) attachment.detach();
       await session.log.close();
@@ -316,7 +317,7 @@ export class Daemon {
   }
 
   #onUpdate(session: Session, update: SessionUpdate): void {
-    if (session.resuming) return;
+    if (session.resuming || session.historyError !== undefined) return;
     const state = update as { sessionUpdate: string; state?: string };
     if (state.sessionUpdate === "state_update" && typeof state.state === "string") {
       if (
@@ -332,7 +333,6 @@ export class Daemon {
     // The list shows what a session is doing, not what it said: only a change of state is announced
     // (docs/protocol.md §6). Anything else that changes the list says so where it changes it.
     const announce = state.sessionUpdate === "state_update";
-    if (session.historyError !== undefined) return;
     void this.#write(session, { kind: "update", data: update }).then((written) => {
       if (written && announce) this.#changed();
     });
@@ -343,11 +343,14 @@ export class Daemon {
    * clients are told by a path that does not go through the log, and false is returned.
    */
   async #write(session: Session, record: NewRecord): Promise<boolean> {
+    // Once it has failed nothing more is written: what comes after a gap would not be the history.
+    if (session.historyError !== undefined || session.closed) return false;
     try {
       await session.log.append(record);
       return true;
     } catch (error) {
-      this.#historyFailed(session, error);
+      // A log that was closed on purpose (the session is deleted, the daemon stops) is not a failure.
+      if (!session.closed) this.#historyFailed(session, error);
       return false;
     }
   }
@@ -374,7 +377,6 @@ export class Daemon {
           .catch(() => {});
       }
     }
-    const wasWorking = session.agentState !== "idle";
     session.agentState = "idle";
     void session.link?.agent
       .notify(methods.agent.session.cancel, { sessionId: session.entry.agentSessionId } as never)
@@ -391,7 +393,7 @@ export class Daemon {
         .notify(SESSION_UPDATE, { sessionId: session.id, update })
         .catch(() => {});
     }
-    if (wasWorking || session.attachments.size > 0) this.#changed();
+    this.#changed();
   }
 
   /**
@@ -815,6 +817,7 @@ export class Daemon {
         this.#changed();
         return { sessionId: id, configOptions: answer.configOptions ?? [] } as never;
       } catch (error) {
+        session.closed = true;
         session.link?.kill();
         this.#sessions.delete(id);
         await log.close();
@@ -950,6 +953,7 @@ export class Daemon {
       const session = await this.#session(params.sessionId);
       if (session.status() === "running" || session.status() === "requires_action")
         throw sessionBusy(session.id);
+      session.closed = true;
       session.link?.kill();
       for (const attachment of session.attachments) attachment.detach();
       await session.log.close();

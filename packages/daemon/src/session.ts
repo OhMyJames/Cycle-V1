@@ -66,6 +66,8 @@ export class Session {
    * cannot be saved is not run on: the session refuses new ones, and its agent is cancelled.
    */
   historyError: string | undefined;
+  /** Set when the daemon lets the session go (deleted, or the daemon stops): a log closed then is not a failed one. */
+  closed = false;
   /** Set while an agent process is being started, so two prompts do not start two. */
   starting: Promise<AgentLink> | undefined;
 

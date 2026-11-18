@@ -837,3 +837,69 @@ test("an agent that asks for permission after the history failed is not left wai
   expect(outcomes[0]).toMatchObject({ outcome: { outcome: "cancelled" } });
   expect(c.permissions).toHaveLength(0);
 });
+
+test("once the history has failed nothing more is written, even if the disk comes back", async () => {
+  const outcomes: unknown[] = [];
+  let release: () => void = () => {};
+  const later = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { c, state, sessionId } = await afterWriteFails({
+    onPrompt: async ({ ask }) => {
+      await later;
+      outcomes.push(await ask());
+    },
+  });
+  state.failing.add("*");
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("ask") });
+  await until(() => c.ended() >= 1, "the failure to be told");
+  // The disk is fine again, and the agent (which has not stopped yet) asks.
+  state.failing.clear();
+  release();
+  await until(() => outcomes.length === 1, "the agent to be answered");
+  expect(outcomes[0]).toMatchObject({ outcome: { outcome: "cancelled" } });
+  expect(c.permissions).toHaveLength(0);
+});
+
+test("deleting a session whose agent is running does not tell the others that its history failed", async () => {
+  const { daemon } = await start();
+  const a = await connectClient(daemon);
+  const b = await connectClient(daemon);
+  const { sessionId } = await a.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  for (const c of [a, b])
+    await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await a.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
+  await until(() => a.ended() >= 1 && b.ended() >= 1, "the turn to end");
+  await a.agent.request(methods.agent.session.delete, { sessionId });
+  await Bun.sleep(150);
+  const errors = b.seen.filter((s) => (s.update as { error?: unknown }).error !== undefined);
+  expect(errors).toHaveLength(0);
+  expect(b.ended()).toBe(1);
+});
+
+test("the list is announced as changed when a session's history fails, even with no one attached to it", async () => {
+  let release: () => void = () => {};
+  const later = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { c, daemon, state, sessionId } = await afterWriteFails({
+    onPrompt: async ({ say }) => {
+      await later;
+      await say({
+        sessionUpdate: "agent_message_chunk",
+        messageId: "a1",
+        content: { type: "text", text: "x" },
+      });
+    },
+  });
+  const watcher = await connectClient(daemon);
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("go") });
+  await c.close();
+  await Bun.sleep(100);
+  const before = watcher.listChanged();
+  state.failing.add("*");
+  release();
+  await until(() => watcher.listChanged() > before, "the list to be announced as changed");
+  const row = (await watcher.agent.request(methods.agent.session.list, {})).sessions[0];
+  expect(((row?._meta ?? {}) as Record<string, unknown>)["cycle/historyFailed"]).toBe(true);
+});
