@@ -79,6 +79,17 @@ export const enUS = {
   "step.other": "Using {name}",
   "thinking.show": "Show thinking",
 
+  // The session list
+  "sessions.label": "Sessions",
+  "sessions.listLabel": "Session list",
+  "sessions.noFolder": "No folder",
+  "sessions.group.needsYou": "Needs you",
+  "sessions.group.working": "Working",
+  "sessions.showAll": {
+    one: "Show {count} more session",
+    other: "Show {count} more sessions",
+  },
+
   // The code colours choice
   "codeTheme.label": "Code colours",
 } as const satisfies Messages;

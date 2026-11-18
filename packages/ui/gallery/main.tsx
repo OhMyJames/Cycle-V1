@@ -43,7 +43,7 @@ const bridgeFor = (scenario: Scenario) => {
       },
     },
   ];
-  return script.bridge;
+  return script;
 };
 
 const list = () => {
@@ -70,7 +70,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const scenario = async (key: string) => {
   const s = scenarios[key];
   if (s === undefined) return list();
-  const store = new AppStore(bridgeFor(s));
+  const script = bridgeFor(s);
+  const store = new AppStore(script.bridge);
   createRoot(root).render(
     <StoreProvider store={store}>
       <App />
@@ -83,7 +84,7 @@ const scenario = async (key: string) => {
     (root.querySelector('[role="option"]') as HTMLElement | null)?.click();
   }
   await sleep(300);
-  await s.after?.(root);
+  await s.after?.(root, script.emit);
   await sleep(400);
   document.title = "ready";
 };
