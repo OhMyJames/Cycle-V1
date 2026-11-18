@@ -11,7 +11,7 @@
 - 决策 [0006](decisions/0006-own-sessions.md):只管理 Cycle 自己的 session。
 - 决策 [0004](decisions/0004-auth.md):v1 不在协议里做鉴权。
 
-ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 JSON schema 核对。凡标注"待验证"的地方,还没有在真实 agent 上跑过。
+ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 JSON schema 核对。凡标注"待验证"的地方,还没有在真实 agent 上跑过。已验证的项标注日期和版本,验证只用了本地模拟的 Anthropic API,没有用真实模型。
 
 ## 1. 原则
 
@@ -162,7 +162,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 附着只读取历史,不启动 agent。当客户端对一个 `stopped` 的 session 发 `session/prompt` 时,daemon 才启动 agent 进程,并用 session 日志里保存的 `cwd`、`mcpServers`、配置去恢复它(调用 agent 的 `session/resume`,**不带 `replayFrom`**,避免 agent 重复产生历史,否则日志里会出现重复记录)。恢复失败的处理见 §11。
 
-待验证:Claude 适配在不带 `replayFrom` 恢复时,能否恢复出完整的对话上下文。
+已验证(2026-11-18,Claude Agent SDK 0.3.327,本地模拟 API):新进程、同一个 `CLAUDE_CONFIG_DIR`,不带 `replayFrom` 恢复后,模型收到的请求里包含之前的用户消息,上下文完整。恢复依赖 Claude 的 transcript 还在配置目录里,而 transcript 按 `cwd` 存放,所以恢复时必须用创建时的 `cwd`。细节见 [docs/adapters/claude.md](adapters/claude.md)。
 
 ## 8. 提交 prompt 与 turn 状态
 
@@ -170,7 +170,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 - `session/prompt` 立即返回 `messageId`,不代表 turn 结束。
 - turn 的状态由 `state_update` 表达:`running`、`requires_action`、`idle`。`idle` 带 `stopReason`(`end_turn`、`max_tokens`、`max_turn_requests`、`refusal`、`cancelled`、`error`),它标志 turn 结束。
-- 用户消息通过 `user_message` 更新进入日志。agent 没有发出时,daemon 用 `session/prompt` 的内容合成一条,保证历史里一定有用户消息。待验证。
+- 用户消息通过 `user_message` 更新进入日志。agent 没有发出时,daemon 用 `session/prompt` 的内容合成一条,保证历史里一定有用户消息。Claude 适配自己会发这一条(用 `session/prompt` 返回的 `messageId`),所以对 Claude 不会触发合成;合成只是对其他 agent 的兜底。daemon 通过 `messageId` 去重。
 
 多个客户端同时附着的规则:
 
