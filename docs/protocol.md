@@ -101,7 +101,17 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 - `cycle/agent`:agent 的 id,必须在 daemon 声明的 `agents` 里。缺省时使用 daemon 的默认 agent。
 - `cycle/config`:创建时的初始配置,键由该 agent 的配置 schema 决定(见 §10)。daemon 校验后翻译成 agent 能理解的形式。
-- 响应是 ACP 的 `NewSessionResponse`,`sessionId` 由 daemon 分配。**sessionId 是 daemon 的,不是 agent 的**:daemon 内部维护它与 agent 侧 session id 的对应关系,客户端不得依赖两者相等。
+- 响应是 ACP 的 `NewSessionResponse`。`sessionId` 由 daemon 分配,格式是 UUID。
+
+**sessionId 与 agent 侧 id:能复用就复用,不能就关联。**
+
+1. daemon 生成 `sessionId`,创建 agent 侧 session 时把它作为建议传给 agent:`session/new` 的 `_meta["cycle/sessionId"]`。
+2. 如果 agent 支持采用这个 id(Claude Agent SDK 支持:`query` 的 `sessionId` 选项,要求是合法 UUID,已在 0.3.327 的类型定义里确认),它在 `NewSessionResponse` 里返回同一个 id。两者相等,daemon 不需要额外的对应关系。
+3. 如果 agent 不支持,它返回自己的 id。daemon 在索引里记录 `sessionId` 到 `agentSessionId` 的对应,对客户端仍只暴露 `sessionId`。
+4. 判断方式只看响应:返回的 id 等于建议的 id 就是复用,否则是关联。daemon 不需要事先知道 agent 属于哪一种。
+5. 索引里始终保存 `agentSessionId`,复用时它等于 `sessionId`。daemon 对 agent 说话时一律用 `agentSessionId`。客户端不得假设两者相等。
+
+采用 id 的好处:agent 自己的 transcript 和 Cycle 的历史用同一个 id,排查问题和以后导入导出都更直接。注意 Claude SDK 的限制:`sessionId` 不能和 `resume` 或 `continue` 同时使用,除非同时 fork。所以只在新建时传,恢复时用 `agentSessionId` 走 resume。
 
 ### 列表
 
@@ -258,6 +268,7 @@ session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session
 
 - L3:Claude 适配需要产生哪些 `session/update` 变体,以及配置 schema 的具体字段。
 - 日志里敏感字段的过滤规则。
+- fork 时新 session 的 id 怎么分配(Claude SDK 允许 fork 时指定新 id,待验证)。
 - 日志的压缩和滚动(上云时再定)。
 - 云端 sandbox 下 daemon 与适配进程的连接方向(见决策 0001)。
 - ACP v2 稳定后,`session/set_title`、`session/archive` 等 unstable 方法是否替换我们的 `_cycle/session/*`。
