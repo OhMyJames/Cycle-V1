@@ -31,7 +31,9 @@ const refuse = (what: string, data: Record<string, unknown>): never => {
  * checked the sizes; this only knows what it can hand to Claude.
  *
  * A `resource_link` is a mention, not content: the agent may read what it names if the path is on
- * its machine. A text resource is put in as a tagged block that names its uri.
+ * its machine. It is written as a tag with the name and the address in attributes, which a model tells apart from the
+ * words around it (.agents/notes/2026-11-18-mentions-are-resource-links.md). A text resource is put in as a tagged block
+ * that names its uri.
  */
 export const toSdkContent = (blocks: readonly ContentBlock[]): string | SdkContent[] => {
   const parts: SdkContent[] = [];
@@ -41,7 +43,10 @@ export const toSdkContent = (blocks: readonly ContentBlock[]): string | SdkConte
     if (b.type === "text") {
       parts.push({ type: "text", text: String(b.text) });
     } else if (b.type === "resource_link") {
-      parts.push({ type: "text", text: `[${String(b.name)}](${String(b.uri)})` });
+      parts.push({
+        type: "text",
+        text: `<mention name="${attribute(String(b.name))}" uri="${attribute(String(b.uri))}"/>`,
+      });
     } else if (b.type === "image") {
       plain = false;
       parts.push({

@@ -142,7 +142,7 @@ test("images, PDFs, text files and links reach Claude as content, not as nothing
       source: { type: "base64", media_type: "application/pdf", data: png },
       title: "file:///a.pdf",
     },
-    { type: "text", text: "[log](file:///var/log/x)" },
+    { type: "text", text: '<mention name="log" uri="file:///var/log/x"/>' },
   ]);
 });
 
@@ -155,7 +155,7 @@ test("text and links alone stay a string, as before", async () => {
       { type: "resource_link", name: "a", uri: "file:///a" },
     ]);
   });
-  expect(fake.contents[0]).toBe("see\n\n[a](file:///a)");
+  expect(fake.contents[0]).toBe('see\n\n<mention name="a" uri="file:///a"/>');
 });
 
 test("a block it cannot carry refuses the prompt, and the session takes the next one", async () => {
@@ -1096,4 +1096,18 @@ test("a mode the process reports while the user's own is on its way does not und
     await new Promise((resolve) => setTimeout(resolve, 100)); // the change lands
     expect(fake.state.permissionModes).toEqual(["acceptEdits"]);
   });
+});
+
+test("a mention's name and address cannot end the tag they are in", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  await connect(fake.run, async ({ agent, idle }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [
+      { type: "text", text: "see" },
+      { type: "resource_link", name: 'a"/><x y="', uri: "file:///a&b<c>" },
+    ]);
+  });
+  expect(fake.contents[0]).toBe(
+    'see\n\n<mention name="a&quot;/&gt;&lt;x y=&quot;" uri="file:///a&amp;b&lt;c&gt;"/>',
+  );
 });
