@@ -617,8 +617,6 @@ html[data-platform="darwin"]
 
 /* Conversation */
 [data-slot="conversation"] {
-  /* Earlier blocks are added above the reader and the view is moved by hand (conversation.tsx), so the browser must not. */
-  overflow-anchor: none;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -805,6 +803,13 @@ html[data-platform="darwin"]
   white-space: nowrap;
   font-family: var(--ui-font-mono);
   font-size: var(--cycle-text-meta);
+}
+
+/* Earlier blocks are added above the reader and the view is moved by hand (conversation.tsx): for that frame only, the
+   browser's own scroll anchoring must not move it too. At other times it keeps what is read in place as images and code
+   above it finish loading. */
+[data-slot="conversation"][data-prepending] {
+  overflow-anchor: none;
 }
 
 [data-slot="earlier"] {

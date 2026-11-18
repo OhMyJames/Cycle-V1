@@ -103,6 +103,7 @@ export function App() {
   const error = useAppState((s) => s.error);
   const [panel, setPanel] = useState<Panel>("none");
   const [showArchived, setShowArchived] = useState(false);
+  const [sent, setSent] = useState(0);
 
   const sessions = selectedHost !== undefined ? (sessionsByHost[selectedHost] ?? []) : [];
   const agents = selectedHost !== undefined ? (agentsByHost[selectedHost] ?? []) : [];
@@ -283,6 +284,7 @@ export function App() {
               <ConversationView
                 key={viewKey(view.hostId, view.sessionId)}
                 sessionKey={viewKey(view.hostId, view.sessionId)}
+                follow={sent}
                 conversation={view.conversation}
                 loading={view.loading}
               />
@@ -325,7 +327,10 @@ export function App() {
                 }
                 enabled={!view.loading}
                 working={view.conversation.status !== "idle"}
-                onSend={store.send}
+                onSend={(text, attachments) => {
+                  setSent((n) => n + 1);
+                  return store.send(text, attachments);
+                }}
                 onStop={store.cancel}
               />
             ) : null}

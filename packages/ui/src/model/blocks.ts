@@ -256,9 +256,13 @@ export const windowStart = (
   return Math.max(0, blocks.length - page);
 };
 
-/** The key to anchor on once `page` more blocks are shown above `start`. */
+/**
+ * The key to anchor on once `page` more blocks are shown above `start`. A thought is not chosen (it is gone when thinking
+ * is hidden, and the anchor with it): the next block that is not one.
+ */
 export const earlierAnchor = (
   blocks: readonly LaidBlock[],
   start: number,
   page = PAGE,
-): string | undefined => blocks[Math.max(0, start - page)]?.key;
+): string | undefined =>
+  blocks.slice(Math.max(0, start - page)).find((block) => block.kind !== "thought")?.key;

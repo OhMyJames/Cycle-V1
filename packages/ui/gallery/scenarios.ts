@@ -32,6 +32,24 @@ export type Scenario = {
 };
 
 const u = (update: object) => update as SessionUpdate;
+
+// For the scenarios that act on the page after it has drawn: wait for a condition, and fail loudly if it never comes.
+const until = async (condition: () => boolean, what: string, ms = 4000) => {
+  for (let waited = 0; waited < ms; waited += 25) {
+    if (condition()) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error(`gallery: timed out waiting for ${what}`);
+};
+const frames = async (n: number) => {
+  for (let i = 0; i < n; i++) await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+};
+const conversationOf = (root: HTMLElement): HTMLElement => {
+  const el = root.querySelector<HTMLElement>('[data-slot="conversation"]');
+  if (el === null) throw new Error("gallery: no conversation on the page");
+  return el;
+};
+const drawnIn = (el: HTMLElement): number => el.querySelectorAll('[data-slot="block"]').length;
 const LOCAL: HostConfig = { id: "local", name: "This computer", kind: "local" };
 const BUILD: HostConfig = { id: "build", name: "build-1", kind: "ssh", host: "build-1" };
 const UP = (hostId: string): HostStatus => ({ hostId, state: "connected" });
@@ -240,29 +258,35 @@ export const scenarios: Record<string, Scenario> = {
     sessions: [session("s1", { title: "A very long session" })],
     history: LONG,
     after: async (root) => {
-      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-      const el = root.querySelector<HTMLElement>('[data-slot="conversation"]');
-      if (el === null) throw new Error("no conversation");
-      const blocks = () => el.querySelectorAll('[data-slot="block"]').length;
-      const first = blocks();
+      const el = conversationOf(root);
+      // Chromium keeps the reader in place by itself (scroll anchoring); WebKit does not. Turn it off, so that this checks
+      // the view's own correction, which is what a browser without anchoring would need.
+      el.style.overflowAnchor = "none";
+      await until(
+        () => el.scrollHeight > el.clientHeight + 2200,
+        "the conversation to have content to scroll",
+      );
+      const first = drawnIn(el);
       // 240 turns have about 1200 blocks; only the last page is drawn.
       if (first > 80) console.error(`long: ${first} blocks drawn, expected about 60`);
-      // Scroll to the top: earlier blocks are added, and the block that was being read stays where it was.
-      const reading = el.querySelectorAll('[data-slot="block"]')[3] as HTMLElement;
+      el.scrollTop = 1800;
+      await until(() => Math.abs(el.scrollTop - 1800) < 2, "the scroll to 1800");
+      // A block in view stays where it is, whatever is added above it.
+      const reading = Array.from(el.querySelectorAll<HTMLElement>('[data-slot="block"]')).find(
+        (b) => b.getBoundingClientRect().top > el.getBoundingClientRect().top + 20,
+      );
+      if (reading === undefined) throw new Error("long: no block in view to read");
       const offset = () => reading.getBoundingClientRect().top - el.getBoundingClientRect().top;
-      el.scrollTop = 2000;
-      await wait(250);
-      const was = el.scrollTop;
       const before = offset();
+      const was = el.scrollTop;
       el.scrollTop = 100;
-      await wait(500);
-      const grown = blocks();
-      if (grown <= first) console.error(`long: scrolling up added nothing (${first} -> ${grown})`);
-      // The reading block moved only by what the scroll itself moved, not by the blocks added above it.
+      await until(() => drawnIn(el) > first, "earlier blocks to be drawn");
+      await frames(3);
+      // It moved only by what the scroll itself moved, not by the blocks added above it.
       const moved = Math.abs(offset() - (before - (100 - was)));
       if (moved > 4) console.error(`long: the block being read jumped by ${moved}px`);
       el.scrollTop = el.scrollHeight;
-      await wait(250);
+      await frames(3);
     },
   },
   "long-back": {
@@ -274,27 +298,42 @@ export const scenarios: Record<string, Scenario> = {
     ],
     history: LONG,
     after: async (root) => {
-      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-      const log = () => root.querySelector<HTMLElement>('[data-slot="conversation"]');
-      const el = log();
-      if (el === null) throw new Error("no conversation");
-      el.scrollTop = 2000;
-      await wait(300);
+      const el = conversationOf(root);
+      await until(
+        () => el.scrollHeight > el.clientHeight + 2200,
+        "the conversation to have content to scroll",
+      );
+      // Up near the top, so that a second page is drawn, and a place that is neither the top nor the end.
+      el.scrollTop = 100;
+      await until(() => drawnIn(el) > 80, "earlier blocks to be drawn");
+      await frames(3);
+      el.scrollTop = 1500;
+      await until(() => Math.abs(el.scrollTop - 1500) < 2, "the scroll to 1500");
+      await frames(3);
       const where = el.scrollTop;
-      const drawn = el.querySelectorAll('[data-slot="block"]').length;
-      const options = Array.from(root.querySelectorAll<HTMLElement>('[role="option"]'));
-      if (options.length < 2) console.error(`long-back: ${options.length} sessions in the list`);
-      options.find((o) => o.textContent?.includes("Another one"))?.click();
-      await wait(400);
-      options.find((o) => o.textContent?.includes("A very long session"))?.click();
-      await wait(500);
-      const back = log();
-      if (back === null) throw new Error("no conversation after going back");
-      const now = back.scrollTop;
-      const redrawn = back.querySelectorAll('[data-slot="block"]').length;
-      if (Math.abs(now - where) > 4)
-        console.error(`long-back: was at ${where}, came back to ${now}`);
-      if (redrawn < drawn) console.error(`long-back: ${drawn} blocks were drawn, ${redrawn} after`);
+      const drawn = drawnIn(el);
+      const title = () => root.querySelector('[data-slot="session-header"] h1')?.textContent;
+      const open = (text: string) =>
+        Array.from(root.querySelectorAll<HTMLElement>('[role="option"]'))
+          .find((o) => o.textContent?.includes(text))
+          ?.click();
+      open("Another one");
+      await until(
+        () => title() === "Another one" && conversationOf(root) !== el,
+        "the other session to open",
+      );
+      open("A very long session");
+      await until(() => title() === "A very long session", "the long session to open again");
+      const back = conversationOf(root);
+      await until(
+        () => back.getAttribute("aria-busy") === "false" && back !== el,
+        "it to be loaded",
+      );
+      await frames(3);
+      if (Math.abs(back.scrollTop - where) > 4)
+        console.error(`long-back: was at ${where}, came back to ${back.scrollTop}`);
+      if (drawnIn(back) !== drawn)
+        console.error(`long-back: ${drawn} blocks were drawn, ${drawnIn(back)} after`);
     },
   },
   "turn-stopped": {

@@ -141,9 +141,20 @@ const BlockView = memo(function BlockView({
   }
 });
 
-/** The reading position of each session this page has shown, so going back finds the reader where they were. */
+/**
+ * Where the reader is in each session this page has shown, so going back finds them where they were: the first block that
+ * was drawn (when they were not at the end) and the scroll offset, or "bottom". Kept in the page's memory, newest last,
+ * and only the most recent few are kept.
+ */
 type Reading = { anchor: string | undefined; top: number | "bottom" };
 const readings = new Map<string, Reading>();
+const MAX_READINGS = 50;
+const remember = (key: string, reading: Reading) => {
+  readings.delete(key);
+  readings.set(key, reading);
+  const oldest = readings.keys().next();
+  if (readings.size > MAX_READINGS && oldest.done !== true) readings.delete(oldest.value);
+};
 
 /** How near the top (in pixels) the first block shown may be before earlier ones are added. */
 const LEAD_PX = 800;
@@ -154,11 +165,14 @@ export function ConversationView({
   conversation,
   loading,
   sessionKey,
+  follow,
 }: {
   conversation: Conversation;
   loading: boolean;
   /** Names the session, to remember where it was being read. */
   sessionKey: string;
+  /** Changes each time the person sends a message: it is shown, wherever they were reading. */
+  follow: number;
 }) {
   const { t } = useI18n();
   const showThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
@@ -169,54 +183,74 @@ export function ConversationView({
     [conversation, showThinking],
   );
 
-  // A long conversation shows its end, and earlier blocks as the reader nears the top.
+  // A long conversation shows its end. While the reader is at the end the window is the last page, and slides as blocks
+  // arrive; once they leave the end it is pinned to its first block (the anchor), so what arrives does not move the top.
   const saved = useRef(readings.get(sessionKey)).current;
   const ref = useRef<HTMLDivElement>(null);
   const anchor = useRef<string | undefined>(saved?.anchor);
   const [, redraw] = useReducer((n: number) => n + 1, 0);
-  if (anchor.current === undefined && blocks.length > 0) {
-    anchor.current = blocks[Math.max(0, blocks.length - PAGE)]?.key;
-  }
   const start = windowStart(blocks, anchor.current);
+  // An anchor whose block is gone (thinking was hidden, a turn was laid again): back to the last page.
+  if (anchor.current !== undefined && blocks[start]?.key !== anchor.current)
+    anchor.current = undefined;
   const stuck = useRef(saved === undefined || saved.top === "bottom");
   const restored = useRef(false);
-  const heightBefore = useRef<number | null>(null);
-  const lastKey = useRef<string | undefined>(undefined);
+  const prepending = useRef<{ node: Element; top: number } | null>(null);
+  const refocus = useRef(false);
+  const seenFollow = useRef(follow);
 
   const showEarlier = () => {
-    heightBefore.current = ref.current?.scrollHeight ?? null;
+    const el = ref.current;
+    const node = el?.querySelector('[data-slot="block"]') ?? null;
+    prepending.current =
+      el !== null && node !== null ? { node, top: node.getBoundingClientRect().top } : null;
+    // For the frame that adds blocks above the reader: the browser's own anchoring must not move the view as well, and a
+    // screen reader must not be told of the whole page that was added.
+    el?.setAttribute("data-prepending", "");
+    el?.setAttribute("aria-live", "off");
+    refocus.current = document.activeElement?.getAttribute("data-slot") === "earlier";
     anchor.current = earlierAnchor(blocks, start);
     redraw();
   };
 
-  // Blocks added above the reader would push what they are reading down: the view is moved by what was added.
+  // Blocks added above the reader would push what they are reading down: the view is moved by how far that block moved.
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el !== null && heightBefore.current !== null) {
-      el.scrollTop += el.scrollHeight - heightBefore.current;
-      heightBefore.current = null;
+    const before = prepending.current;
+    if (el !== null && before !== null) {
+      prepending.current = null;
+      if (before.node.isConnected)
+        el.scrollTop += before.node.getBoundingClientRect().top - before.top;
+      requestAnimationFrame(() => {
+        el.removeAttribute("data-prepending");
+        el.removeAttribute("aria-live");
+      });
+    }
+    // The button that was pressed is gone, there being nothing earlier: focus goes to the conversation, not to the page.
+    if (el !== null && refocus.current) {
+      refocus.current = false;
+      if (el.querySelector('[data-slot="earlier"]') === null) el.focus();
     }
   });
 
-  // Where the reader was comes back with the session, once there is something to scroll.
+  // Where the reader was comes back with the session, once it is loaded.
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el === null || restored.current || blocks.length === 0) return;
+    if (el === null || loading || restored.current) return;
     restored.current = true;
     if (saved !== undefined && saved.top !== "bottom") {
       stuck.current = false;
       el.scrollTop = saved.top;
     }
-  }, [blocks.length, saved]);
+  }, [loading, saved]);
 
   // What the person has just sent is shown, wherever they were reading.
-  const last = blocks.at(-1);
   useEffect(() => {
-    if (lastKey.current !== undefined && last?.key !== lastKey.current && last?.kind === "user") {
-      stuck.current = true;
-    }
-    lastKey.current = last?.key;
-  }, [last?.key, last?.kind]);
+    if (follow === seenFollow.current) return;
+    seenFollow.current = follow;
+    stuck.current = true;
+    anchor.current = undefined;
+  }, [follow]);
 
   // After every render: the content may have grown.
   useEffect(() => {
@@ -228,10 +262,9 @@ export function ConversationView({
     const el = ref.current;
     if (el === null) return;
     stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END_PX;
-    readings.set(sessionKey, {
-      anchor: anchor.current,
-      top: stuck.current ? "bottom" : el.scrollTop,
-    });
+    if (stuck.current) anchor.current = undefined;
+    else if (anchor.current === undefined) anchor.current = blocks[start]?.key;
+    remember(sessionKey, { anchor: anchor.current, top: stuck.current ? "bottom" : el.scrollTop });
     if (el.scrollTop < LEAD_PX && start > 0) showEarlier();
   };
 
@@ -243,6 +276,7 @@ export function ConversationView({
       ref={ref}
       onScroll={onScroll}
       role="log"
+      tabIndex={-1}
       aria-label={t("conversation.label")}
       aria-busy={loading}
     >
