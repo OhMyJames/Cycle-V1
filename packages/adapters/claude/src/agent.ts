@@ -48,6 +48,10 @@ export type AdapterConfig = {
    * (about 230 MB) for each new session until it is let go after `idleMs`. Default off.
    */
   warmStart?: boolean;
+  /** How many processes started ahead of a first prompt may be held at once; the oldest is let go. Default 3. */
+  maxWarm?: number;
+  /** Ask the SDK for model-written progress lines for sub-agents (a model call each). Default off. */
+  progressSummaries?: boolean;
   /**
    * What Claude has recorded about a session, to learn the title it gave it. The SDK's own
    * `getSessionInfo` in the real process; absent means titles are not looked for.
@@ -176,6 +180,8 @@ const configOptions = (session: SessionState): SessionConfigOption[] =>
  */
 export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
   const sessions = new Map<string, SessionState>();
+  /** Sessions whose process was started ahead of a prompt and has had none yet, oldest first. */
+  const warm = new Set<SessionState>();
   /** Whether the client said, in `initialize`, that it can answer a form. One client per adapter. */
   let clientCanElicit = false;
   const idleMs = config.idleMs ?? 300_000;
@@ -219,6 +225,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     if (live === undefined) return;
     endCompaction(session);
     endSubagents(session);
+    warm.delete(session);
     session.live = undefined;
     clearTimeout(live.idle);
     live.end();
@@ -255,8 +262,9 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     const update = commandsUpdate(commands);
     const key = JSON.stringify((update as { availableCommands: unknown }).availableCommands);
     if (key === session.commandsKey) return;
-    session.commandsKey = key;
     await notify(client, session.id, update);
+    // Only once it was sent: a list that did not get there is said again.
+    session.commandsKey = key;
   };
 
   const commandsUpdate = (commands: readonly SlashCommand[]): SessionUpdate => {
@@ -487,8 +495,9 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       onElicitation: (request, { signal }) => elicit(client, session, request, signal),
       abortController: abort,
       includePartialMessages: true,
-      // So that a sub-agent's row can say what it is doing, not only that it is busy.
-      agentProgressSummaries: true,
+      // A sub-agent's row can say what it is doing, not only that it is busy. The SDK makes a
+      // model call for each summary, so it is asked for only when the configuration says to.
+      ...(config.progressSummaries === true ? { agentProgressSummaries: true } : {}),
       permissionMode: session.mode,
       ...(session.model !== undefined ? { model: session.model } : {}),
       ...(config.claudeExecutable !== undefined
@@ -586,6 +595,13 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       try {
         for await (const message of query as AsyncIterable<SDKMessage>) {
           if (session.live !== live) continue; // let go: nothing it says matters now
+          // A turn that went through means the session is on disk, whenever the process said hello.
+          if (
+            message.type === "result" &&
+            (message as { subtype?: string }).subtype === "success"
+          ) {
+            session.started = true;
+          }
           // Only once there is a prompt: a process started ahead of one has made no session on disk to resume.
           if (
             message.type === "system" &&
@@ -653,6 +669,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     // A cancel can arrive before there is a process: then there is nothing to interrupt.
     if (turn.cancelled) return finish(client, session, turn, { stopReason: "cancelled" });
     try {
+      warm.delete(session); // it has its prompt
       const live = session.live ?? start(client, session);
       session.live = live;
       clearTimeout(live.idle);
@@ -714,6 +731,12 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         try {
           const live = start(client, session);
           session.live = live;
+          // Not without end: a client that makes many sessions does not get that many processes.
+          warm.add(session);
+          for (const old of warm) {
+            if (warm.size <= (config.maxWarm ?? 3)) break;
+            release(old, false);
+          }
           // Not used soon: let it go, as any idle process is.
           live.idle = setTimeout(() => release(session, false), idleMs);
           live.idle.unref?.();

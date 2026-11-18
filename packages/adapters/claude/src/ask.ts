@@ -86,7 +86,7 @@ export const answersOf = (
   for (const [index, q] of questions.entries()) {
     const value = content?.[keyOf(index)];
     const written = content?.[otherKeyOf(index)];
-    const other = typeof written === "string" ? written.trim() : "";
+    const other = typeof written === "string" ? written.trim().slice(0, OTHER_MAX) : "";
     if (Array.isArray(value)) {
       const labels = [...value.map(String), ...(other === "" ? [] : [other])];
       if (labels.length > 0) answers[q.question] = labels.join(", ");

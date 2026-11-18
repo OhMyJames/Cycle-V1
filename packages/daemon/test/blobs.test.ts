@@ -130,3 +130,19 @@ test("removing a session removes its blobs and only its own", async () => {
   expect(await readdir(join(dir, "blobs", "s2"))).toHaveLength(1);
   expect(await store.exists("s1")).toBe(false);
 });
+
+test("the same big image twice in one record is stored once, and both come back", async () => {
+  const log = await stores().open("s1");
+  const data = big("QUJD");
+  const twice = {
+    sessionUpdate: "user_message",
+    content: [
+      { type: "image", mimeType: "image/png", data },
+      { type: "image", mimeType: "image/png", data },
+    ],
+  };
+  await log.append({ kind: "update", data: twice });
+  expect((await log.read())[0]?.data).toEqual(twice);
+  expect(await readdir(join(dir, "blobs", "s1"))).toHaveLength(1);
+  await log.close();
+});

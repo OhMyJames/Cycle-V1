@@ -603,10 +603,46 @@ test("a sub-agent is announced, reports progress, and ends", async () => {
     });
     expect(subs(updates)).toHaveLength(3);
   });
-  // The option that makes the summaries is asked for.
+  // Summaries cost a model call each: not asked for unless the configuration says so.
+  expect(
+    ((fake.calls[0]?.options ?? {}) as { agentProgressSummaries?: boolean }).agentProgressSummaries,
+  ).toBeUndefined();
+});
+
+test("progress summaries are asked of the SDK when the configuration says to", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  await connect(
+    fake.run,
+    async ({ agent, idle }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "go" }]);
+    },
+    {},
+    { progressSummaries: true },
+  );
   expect(
     ((fake.calls[0]?.options ?? {}) as { agentProgressSummaries?: boolean }).agentProgressSummaries,
   ).toBe(true);
+});
+
+test("sessions made ahead of a prompt do not each keep a process: the oldest is let go past the limit", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  await connect(
+    fake.run,
+    async ({ agent }) => {
+      for (const n of [1, 2, 3]) {
+        await agent.request(methods.agent.session.new, {
+          cwd: "/work",
+          _meta: { "cycle/sessionId": `aaaaaaa${n}-aaaa-4bbb-8ccc-dddddddddddd` },
+        });
+      }
+      await Bun.sleep(50);
+      // Three were started; the first was let go when the third came (its input closed).
+      expect(fake.state.inputClosed).toBe(true);
+    },
+    {},
+    { warmStart: true, maxWarm: 2 },
+  );
 });
 
 test("a failed or stopped sub-agent says how it ended", async () => {

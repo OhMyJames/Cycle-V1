@@ -332,13 +332,17 @@ export class Daemon {
       this.#remember(session, { config });
     } else if (u.sessionUpdate === "usage_update") {
       const usage = SessionUsageSchema.safeParse(update);
-      if (usage.success) this.#remember(session, { usage: usage.data });
+      if (usage.success) {
+        const { cost, ...rest } = usage.data;
+        this.#remember(session, { usage: { ...rest, ...(cost ? { cost } : {}) } });
+      }
     } else if (u.sessionUpdate === "session_info_update") {
       // The user's own name for a session wins over the agent's: a title that is not marked as the
       // agent's is the user's, which includes every title written before agents named sessions.
       const { title, titleFromAgent } = session.entry;
-      // An agent that starts again says its title again: once is enough.
-      if (u.title === title && titleFromAgent === true) return false;
+      // An agent that starts again says its title again: once is enough (if that is all it says).
+      const said = Object.keys(update).filter((key) => key !== "sessionUpdate" && key !== "title");
+      if (u.title === title && titleFromAgent === true && said.length === 0) return false;
       if (
         typeof u.title === "string" &&
         u.title !== "" &&
@@ -584,11 +588,12 @@ export class Daemon {
         throw new RpcError(CycleErrorCode.AgentUnavailable, "No agent is configured");
       this.#definition(agentId);
       // The directories are paths on THIS machine (the daemon's), not the client's. Say so up front.
-      for (const directory of [params.cwd, ...(params.additionalDirectories ?? [])]) {
+      const directories = [params.cwd, ...(params.additionalDirectories ?? [])];
+      for (const [index, directory] of directories.entries()) {
         if (!isAbsolute(directory)) {
           throw new RpcError(
             INVALID_PARAMS,
-            `The ${directory === params.cwd ? "working directory" : "directory"} ${directory} is not an absolute path`,
+            `The ${index === 0 ? "working directory" : "directory"} ${directory} is not an absolute path`,
           );
         }
         if (
@@ -599,7 +604,7 @@ export class Daemon {
         )
           throw new RpcError(
             INVALID_PARAMS,
-            `The ${directory === params.cwd ? "working directory" : "directory"} ${directory} does not exist on the machine the daemon runs on`,
+            `The ${index === 0 ? "working directory" : "directory"} ${directory} does not exist on the machine the daemon runs on`,
           );
       }
       const id = randomUUID();

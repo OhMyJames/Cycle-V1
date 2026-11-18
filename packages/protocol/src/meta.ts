@@ -59,7 +59,7 @@ export type SessionState = z.infer<typeof SessionStateSchema>;
 export const SessionUsageSchema = z.object({
   used: z.number().nonnegative(),
   size: z.number().positive(),
-  cost: z.object({ amount: z.number().nonnegative(), currency: z.string() }).optional(),
+  cost: z.object({ amount: z.number().nonnegative(), currency: z.string() }).nullish(),
 });
 export type SessionUsage = z.infer<typeof SessionUsageSchema>;
 

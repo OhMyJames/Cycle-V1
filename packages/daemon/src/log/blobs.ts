@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { LogRecord, LogStore, NewRecord, ReadRange, SessionLog } from "./types.ts";
 
@@ -57,6 +57,14 @@ const rewrite = async (
   return result;
 };
 
+/** Whether `test` holds for some object inside `value`: a look, with nothing awaited and nothing copied. */
+const any = (value: unknown, test: (object: Json) => boolean, depth = 0): boolean => {
+  if (depth > MAX_DEPTH) return false;
+  if (Array.isArray(value)) return value.some((item) => any(item, test, depth + 1));
+  if (!isObject(value)) return false;
+  return test(value) || Object.values(value).some((child) => any(child, test, depth + 1));
+};
+
 class BlobSessionLog implements SessionLog {
   readonly sessionId: string;
   readonly #inner: SessionLog;
@@ -92,9 +100,18 @@ class BlobSessionLog implements SessionLog {
     const sha256 = createHash("sha256").update(text).digest("hex");
     await mkdir(this.#dir, { recursive: true, mode: 0o700 });
     const path = join(this.#dir, sha256);
-    const temporary = `${path}.${process.pid}.tmp`;
-    await writeFile(temporary, text, { mode: 0o600 });
-    await rename(temporary, path);
+    // The same bytes again (one picture attached twice) are already there.
+    if (
+      !(await stat(path).then(
+        () => true,
+        () => false,
+      ))
+    ) {
+      // A name of its own: two of the same bytes at once must not share a temporary file.
+      const temporary = `${path}.${randomUUID()}.tmp`;
+      await writeFile(temporary, text, { mode: 0o600 });
+      await rename(temporary, path);
+    }
     this.#remember(sha256, text);
     return sha256;
   }
@@ -108,6 +125,15 @@ class BlobSessionLog implements SessionLog {
   }
 
   async #append(record: NewRecord): Promise<LogRecord> {
+    // Most records (a streamed word) have nothing in them to move: no walk, no awaits.
+    if (
+      !any(record.data, (object) => {
+        const field = fieldOf(object);
+        return field !== undefined && (object[field] as string).length >= BLOB_MIN_CHARS;
+      })
+    ) {
+      return this.#inner.append(record);
+    }
     // Written before the line that points to it.
     const data = await rewrite(record.data, async (object) => {
       const field = fieldOf(object);
@@ -133,6 +159,9 @@ class BlobSessionLog implements SessionLog {
 
   /** The record with each reference replaced by its bytes. A record with no reference is returned as it is. */
   async #restore(record: LogRecord): Promise<LogRecord> {
+    if (!any(record.data, (object) => isObject(object._meta) && BLOB_META in object._meta)) {
+      return record;
+    }
     const data = await rewrite(record.data, async (object) => {
       const meta = object._meta;
       const ref = isObject(meta) ? (meta[BLOB_META] as Partial<Ref> | undefined) : undefined;

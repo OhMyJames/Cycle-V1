@@ -416,6 +416,38 @@ test("the index's directory is private, as the file is", async () => {
   expect((await stat(join(nested, "index.json"))).mode & 0o777).toBe(0o600);
 });
 
+test("a usage update whose cost is null still gives the list its context", async () => {
+  const fake = fakeAgent({
+    onPrompt: async ({ say }) => {
+      await say({ sessionUpdate: "usage_update", used: 10, size: 1000, cost: null });
+    },
+  });
+  const { daemon } = await start(fake);
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("go") });
+  await until(() => c.ended() >= 1, "the turn to end");
+  await Bun.sleep(30);
+  expect((await sessionRow(c))["cycle/usage"]).toEqual({ used: 10, size: 1000 });
+});
+
+test("the title said again with something else in the same update is not dropped", async () => {
+  const fake = fakeAgent({
+    onPrompt: async ({ say }) => {
+      await say({ sessionUpdate: "session_info_update", title: "Same title" });
+      await say({ sessionUpdate: "session_info_update", title: "Same title", _meta: { more: 1 } });
+    },
+  });
+  const { daemon } = await start(fake);
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("go") });
+  await until(() => c.ended() >= 1, "the turn to end");
+  expect(c.kinds().filter((k) => k === "session_info_update")).toHaveLength(2);
+});
+
 // ---- usage ----
 
 test("the latest usage is in the session list, and survives a restart", async () => {
