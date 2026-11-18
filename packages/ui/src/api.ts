@@ -60,7 +60,12 @@ export type PromptBlock =
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string }
   /** A reference to a file or folder on the daemon's machine: `uri` is `file://`, a folder's ending in `/`. */
-  | { type: "resource_link"; name: string; uri: string };
+  | { type: "resource_link"; name: string; uri: string; _meta?: Record<string, unknown> };
+
+export type FileHit = { path: string; kind: "file" | "folder" };
+
+/** `root` is the session's folder as the daemon knows it; `path` is relative to it. */
+export type FileSearch = { root: string; entries: FileHit[]; truncated: boolean };
 
 export type PermissionOption = { optionId: string; name: string; kind: string };
 
@@ -134,6 +139,8 @@ export type AppApi = {
   /** A text, or blocks: text and images. */
   prompt(hostId: string, sessionId: string, content: string | PromptBlock[]): Promise<void>;
   cancel(hostId: string, sessionId: string): Promise<void>;
+  /** Files and folders of the session's folder, on the machine of the daemon, that fit what was typed after an @. */
+  searchFiles(hostId: string, sessionId: string, query: string): Promise<FileSearch>;
   /** Takes a prompt back out of the queue, to be edited. Answers with its blocks; fails if it has gone. */
   dequeue(hostId: string, sessionId: string, queueId: string): Promise<PromptBlock[]>;
   setSessionConfig(
@@ -179,6 +186,7 @@ export const API_METHODS = [
   "prompt",
   "cancel",
   "dequeue",
+  "searchFiles",
   "setSessionConfig",
   "renameSession",
   "archiveSession",

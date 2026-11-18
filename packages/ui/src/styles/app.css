@@ -1066,8 +1066,8 @@ html[data-platform="darwin"]
   white-space: pre;
 }
 
-/* The commands that fit: above the input, which keeps the focus. */
-[data-slot="command-menu"] {
+/* What fits what is typed after a slash or an @: above the input, which keeps the focus. */
+[data-slot="picker"] {
   position: absolute;
   right: 0;
   bottom: calc(100% + 0.25rem);
@@ -1083,7 +1083,7 @@ html[data-platform="darwin"]
   list-style: none;
 }
 
-[data-slot="command-menu"] > [role="option"] {
+[data-slot="picker"] > [role="option"] {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
@@ -1093,22 +1093,28 @@ html[data-platform="darwin"]
   font-size: var(--cycle-text-ui);
 }
 
-[data-slot="command-menu"] > [role="option"][data-active] {
+[data-slot="picker"][role="status"] {
+  padding: 0.5rem 0.75rem;
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-ui);
+}
+
+[data-slot="picker"] > [role="option"][data-active] {
   background: var(--ui-muted);
 }
 
-[data-slot="command-name"] {
+[data-slot="picker-name"] {
   flex: none;
   font-family: var(--ui-font-mono, ui-monospace, monospace);
 }
 
-[data-slot="command-hint"] {
+[data-slot="picker-hint"] {
   flex: none;
   color: var(--ui-muted-foreground);
   font-size: var(--cycle-text-meta);
 }
 
-[data-slot="command-description"] {
+[data-slot="picker-description"] {
   min-width: 0;
   overflow: hidden;
   color: var(--ui-muted-foreground);

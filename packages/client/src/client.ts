@@ -197,6 +197,27 @@ export class CycleClient {
     return answer.prompt;
   }
 
+  /** Finds files and folders in the session's folder on the daemon's machine (docs/protocol.md §8). */
+  async searchFiles(
+    sessionId: string,
+    query: string,
+    limit?: number,
+  ): Promise<{
+    root: string;
+    entries: { path: string; kind: "file" | "folder" }[];
+    truncated: boolean;
+  }> {
+    return (await this.#request("_cycle/files/search", {
+      sessionId,
+      query,
+      ...(limit !== undefined ? { limit } : {}),
+    })) as {
+      root: string;
+      entries: { path: string; kind: "file" | "folder" }[];
+      truncated: boolean;
+    };
+  }
+
   async cancel(sessionId: string): Promise<void> {
     await this.#api().notify(methods.agent.session.cancel, { sessionId } as never);
   }

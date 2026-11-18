@@ -743,3 +743,104 @@ test("a click on a command takes it, and the input keeps the focus", async () =>
   await user.click(await screen.findByRole("option", { name: /compact/ }));
   await waitFor(() => expect(boxText(box)).toBe("/compact "));
 });
+
+const files = (entries: { path: string; kind: "file" | "folder" }[]) => async () => ({
+  root: "/work",
+  entries,
+  truncated: false,
+});
+
+test("an @ lists the files that fit; Enter takes one, the text says where, and the agent is sent a link too", async () => {
+  const { user, named, bridge } = await mount();
+  const asked: string[] = [];
+  bridge.searchFiles = async (_host, _session, query) => {
+    asked.push(query);
+    return query === "ma"
+      ? {
+          root: "/work",
+          entries: [
+            { path: "src/main.ts", kind: "file" },
+            { path: "docs/manual", kind: "folder" },
+          ],
+          truncated: false,
+        }
+      : { root: "/work", entries: [], truncated: false };
+  };
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "look at @ma");
+  const menu = await screen.findByRole("listbox", { name: "Files and folders" });
+  expect(
+    within(menu)
+      .getAllByRole("option")
+      .map((o) => o.textContent),
+  ).toEqual(["main.tssrc", "manual/docs"]);
+  expect(asked.at(-1)).toBe("ma");
+  await press(box, "Enter");
+  await waitFor(() => expect(boxText(box)).toBe("look at @src/main.ts "));
+  expect(named("prompt")).toHaveLength(0);
+  await write(box, "please");
+  await press(box, "Enter");
+  await waitFor(() => expect(named("prompt")).toHaveLength(1));
+  expect(named("prompt")[0]).toEqual([
+    "prompt",
+    "local",
+    "s1",
+    [
+      { type: "text", text: "look at @src/main.ts please" },
+      {
+        type: "resource_link",
+        name: "main.ts",
+        uri: "file:///work/src/main.ts",
+        _meta: { "cycle/mention": "src/main.ts" },
+      },
+    ],
+  ]);
+});
+
+test("a name that fits nothing is said so, an @ in an address opens nothing, and a search that fails is quiet", async () => {
+  const { user, store, bridge } = await mount();
+  bridge.searchFiles = files([]);
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "write to me@example.com");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  expect(screen.queryByRole("listbox", { name: "Files and folders" })).toBeNull();
+  const empty = () => document.querySelector('[data-slot="picker"][role="status"]');
+  expect(empty()).toBeNull();
+  await write(box, " @zzz");
+  await waitFor(() => expect(empty()?.textContent).toBe("No file or folder matches that."));
+  // The box is not stopped by it: Enter sends what is there.
+  bridge.searchFiles = async () => {
+    throw new Error("The daemon is old");
+  };
+  await write(box, "q");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  expect(store.getState().error).toBeUndefined();
+});
+
+test("a mention taken back from the queue is a mention again", async () => {
+  const { user, bridge, emit, store } = await mount();
+  bridge.dequeue = async () => [
+    { type: "text", text: "see @a.ts" },
+    {
+      type: "resource_link",
+      name: "a.ts",
+      uri: "file:///work/a.ts",
+      _meta: { "cycle/mention": "a.ts" },
+    },
+  ];
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  emit(queueUpdate(1, [waiting("q1", "see @a.ts")]));
+  await user.click(await screen.findByRole("button", { name: /Edit queued message/ }));
+  await waitFor(() => expect(boxText(box)).toBe("see @a.ts"));
+  expect(store.drafts.get("local:s1").mentions.map((m) => m.uri)).toEqual(["file:///work/a.ts"]);
+});

@@ -393,5 +393,11 @@ test("a message sent while the agent works waits in the conversation, and can be
   await until(() => fake.log.prompts.length === 2, "the third to be sent");
   expect(fake.log.prompts).toEqual(["first", "third"]);
   expect(third?.queueId).toBeString();
-  expect((await waiting()).length).toBe(0);
+  // The snapshots that say so come after the agent got it.
+  queue = await waiting();
+  for (let tries = 0; queue.length > 0 && tries < 400; tries++) {
+    await Bun.sleep(5);
+    queue = await waiting();
+  }
+  expect(queue).toEqual([]);
 });

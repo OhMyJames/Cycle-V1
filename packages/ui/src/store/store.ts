@@ -4,6 +4,7 @@ import type {
   AgentInfo,
   AppEvent,
   CycleBridge,
+  FileSearch,
   HostConfig,
   HostStatus,
   NewSession,
@@ -314,6 +315,17 @@ export class AppStore {
       return true;
     });
     if (sent !== true) this.drafts.restore(key, [content]);
+  };
+
+  /** What fits an @ in the selected session's box. Quiet when it cannot say: a menu that is not there is enough. */
+  searchFiles = async (query: string): Promise<FileSearch | undefined> => {
+    const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
+    if (hostId === undefined || sessionId === undefined) return undefined;
+    try {
+      return await this.#bridge.searchFiles(hostId, sessionId, query);
+    } catch {
+      return undefined;
+    }
   };
 
   /** Takes a queued prompt back to edit it. Undefined if it had gone to the agent, or came back, meanwhile. */

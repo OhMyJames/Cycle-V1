@@ -42,6 +42,8 @@ export const CapabilitiesSchema = z.object({
   sessionOps: z.array(z.string()),
   /** Prompts sent while the agent works are queued by the daemon (docs/protocol.md §8). */
   queue: z.boolean().optional(),
+  /** `_cycle/files/search` is there (docs/protocol.md §8). */
+  files: z.boolean().optional(),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 

@@ -3,6 +3,9 @@ import {
   type Draft,
   DraftStore,
   draftOf,
+  fileUri,
+  type Mention,
+  mentionText,
   NOT_RECALLING,
   promptBlocks,
   recall,
@@ -47,7 +50,11 @@ test("the text outlasts a restart, and the images do not", () => {
   first.setText("local:s1", "half a thought");
   first.setAttachments("local:s1", [image]);
   const second = new DraftStore(storage);
-  expect(second.get("local:s1")).toEqual({ text: "half a thought", attachments: [] });
+  expect(second.get("local:s1")).toEqual({
+    text: "half a thought",
+    attachments: [],
+    mentions: [],
+  });
   // No base64 went into the storage.
   expect([...storage.items.values()].join("")).not.toContain("AAAA");
 });
@@ -119,8 +126,10 @@ test("a prompt's blocks become a draft, and a draft becomes blocks, text first",
     { type: "text", text: "look" },
     { type: "image", data: "AAAA", mimeType: "image/gif" },
   ]);
-  expect(promptBlocks({ text: "  \n", attachments: [] } satisfies Draft)).toBeUndefined();
-  expect(promptBlocks({ text: " ", attachments: [image] })).toEqual([
+  expect(
+    promptBlocks({ text: "  \n", attachments: [], mentions: [] } satisfies Draft),
+  ).toBeUndefined();
+  expect(promptBlocks({ text: " ", attachments: [image], mentions: [] })).toEqual([
     { type: "image", data: "AAAA", mimeType: "image/png" },
   ]);
 });
@@ -171,4 +180,80 @@ test("what was sent is read from the conversation: the person's messages with wo
       { kind: "user", blocks: [{ type: "text", text: "b" }] },
     ]),
   ).toEqual(["a", "b"]);
+});
+
+const file = (path: string, root = "/work"): Mention => ({
+  path,
+  kind: "file",
+  uri: fileUri(root, path, "file"),
+  name: path.slice(path.lastIndexOf("/") + 1),
+});
+const folder = (path: string, root = "/work"): Mention => ({
+  path,
+  kind: "folder",
+  uri: fileUri(root, path, "folder"),
+  name: path.slice(path.lastIndexOf("/") + 1),
+});
+
+test("a mention is the readable @path in the text, and a link beside it for the agent", () => {
+  const draft: Draft = {
+    text: "look at @src/main.ts and @docs/ please",
+    attachments: [],
+    mentions: [file("src/main.ts"), folder("docs")],
+  };
+  expect(promptBlocks(draft)).toEqual([
+    { type: "text", text: "look at @src/main.ts and @docs/ please" },
+    {
+      type: "resource_link",
+      name: "main.ts",
+      uri: "file:///work/src/main.ts",
+      _meta: { "cycle/mention": "src/main.ts" },
+    },
+    {
+      type: "resource_link",
+      name: "docs",
+      uri: "file:///work/docs/",
+      _meta: { "cycle/mention": "docs" },
+    },
+  ]);
+});
+
+test("a mention the words no longer say is not sent, and one picked twice is sent once", () => {
+  const draft: Draft = {
+    text: "only @a.ts remains",
+    attachments: [],
+    mentions: [file("a.ts"), file("b.ts"), file("a.ts")],
+  };
+  const links = (promptBlocks(draft) ?? []).filter((b) => b.type === "resource_link");
+  expect(links.map((b) => (b as { name: string }).name)).toEqual(["a.ts"]);
+  const store = new DraftStore(undefined);
+  store.addMention("k", file("a.ts"));
+  store.addMention("k", file("a.ts"));
+  expect(store.get("k").mentions).toHaveLength(1);
+});
+
+test("links share the block limit with the images: the words say it all when there is no room", () => {
+  const mentions = Array.from({ length: 40 }, (_, i) => file(`f${i}.ts`));
+  const text = mentions.map(mentionText).join(" ");
+  const blocks = promptBlocks({ text, attachments: [image], mentions }) ?? [];
+  expect(blocks).toHaveLength(32);
+  expect(blocks[0]).toEqual({ type: "text", text });
+});
+
+test("an address is made of the root and the path, each part kept apart from the others' characters", () => {
+  expect(fileUri("/work", "src/a b.ts", "file")).toBe("file:///work/src/a%20b.ts");
+  expect(fileUri("/work/", "dir (1)/x#1?.ts", "file")).toBe("file:///work/dir%20(1)/x%231%3F.ts");
+  expect(fileUri("/home/u", "lib", "folder")).toBe("file:///home/u/lib/");
+});
+
+test("a link that comes back is a mention again, and links that were not mentions are left out", () => {
+  const sent = promptBlocks({
+    text: "see @src/main.ts",
+    attachments: [],
+    mentions: [file("src/main.ts")],
+  });
+  const back = draftOf(sent ?? []);
+  expect(back.text).toBe("see @src/main.ts");
+  expect(back.mentions).toEqual([file("src/main.ts")]);
+  expect(draftOf([{ type: "resource_link", name: "x", uri: "file:///x" }]).mentions).toEqual([]);
 });

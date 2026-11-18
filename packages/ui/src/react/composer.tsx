@@ -1,5 +1,6 @@
 import { Button } from "@ui-sdk/react/button";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import type { FileSearch } from "../api.ts";
 import {
   ATTACHMENT_LIMITS,
   type AttachmentProblem,
@@ -8,13 +9,22 @@ import {
   IMAGE_TYPES,
   isImageType,
 } from "../attachments.ts";
-import { NOT_RECALLING, type Recall, recall, sentTexts } from "../draft.ts";
-import { type Command, type QueuedPrompt, textOf } from "../model/index.ts";
+import {
+  fileUri,
+  type Mention,
+  mentionText,
+  NOT_RECALLING,
+  type Recall,
+  recall,
+  sentTexts,
+} from "../draft.ts";
+import { mentionQuery, mentionRow } from "../mention.ts";
+import { type QueuedPrompt, textOf } from "../model/index.ts";
 import { commandText, filterCommands, slashQuery } from "../slash.ts";
-import { CommandMenu, optionId } from "./command-menu.tsx";
 import { useI18n } from "./i18n.tsx";
 import { AttachIcon, CloseIcon } from "./icons.tsx";
 import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
+import { optionId, PickerMenu, type PickerRow } from "./picker-menu.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 
 export type ComposerProps = {
@@ -25,6 +35,9 @@ export type ComposerProps = {
   /** The agent takes images in a prompt: the person may attach them. Without it the controls are not there. */
   canAttach?: boolean;
 };
+
+/** How long after the last key the files are asked for. */
+const MENTION_DELAY = 120;
 
 /** A file as ACP carries an image: base64. Read in pieces, so that a large one does not overflow the call. */
 const toBase64 = async (file: File): Promise<string> => {
@@ -60,30 +73,105 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
   const picker = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<InputHandle | null>(null);
-  // The command being typed, and which of the matches is under the arrows. Escape closes the menu until the query changes.
+  // What is being named after a slash or an @, and which of the matches is under the arrows. Escape closes the menu until
+  // what was typed changes.
   const menuId = useId();
-  const [slash, setSlash] = useState<string | undefined>();
+  const [typed, setTyped] = useState<{ slash?: string | undefined; mention?: string | undefined }>(
+    {},
+  );
   const [dismissed, setDismissed] = useState<string | undefined>();
-  const [pointed, setPointed] = useState<{ slash: string | undefined; index: number }>({
-    slash: undefined,
+  const [pointed, setPointed] = useState<{ query: string | undefined; index: number }>({
+    query: undefined,
     index: 0,
   });
-  // A new query starts at the first match.
-  const chosen = pointed.slash === slash ? pointed.index : 0;
-  const setChosen = (index: number) => setPointed({ slash, index });
-  const matches: Command[] =
-    slash === undefined || slash === dismissed
+  const [found, setFound] = useState<{ query: string; result: FileSearch } | undefined>();
+  // Files are asked for a moment after the last key, and only what answers the query as it stands now is shown.
+  useEffect(() => {
+    const query = typed.mention;
+    if (query === undefined) {
+      setFound(undefined);
+      return;
+    }
+    let current = true;
+    const timer = setTimeout(() => {
+      void store.searchFiles(query).then((result) => {
+        if (current && result !== undefined) setFound({ query, result });
+      });
+    }, MENTION_DELAY);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [typed.mention, store]);
+  const commandRows: PickerRow[] =
+    typed.slash === undefined
       ? []
-      : filterCommands(conversation?.commands ?? [], slash);
-  const menuOpen = matches.length > 0;
-  const active = Math.min(chosen, Math.max(matches.length - 1, 0));
+      : filterCommands(conversation?.commands ?? [], typed.slash).map((command) => ({
+          key: command.name,
+          name: `/${command.name}`,
+          ...(command.hint !== undefined ? { hint: command.hint } : {}),
+          description: command.description,
+        }));
+  const hits =
+    typed.mention !== undefined && found?.query === typed.mention ? found.result.entries : [];
+  const mentionRows: PickerRow[] = hits.map((hit) => {
+    const row = mentionRow(hit.path, hit.kind);
+    return { key: hit.path, name: row.name, description: row.folder };
+  });
+  const commandQuery = typed.slash === undefined ? undefined : `/${typed.slash}`;
+  const mentionQueryText = typed.mention === undefined ? undefined : `@${typed.mention}`;
+  const kind: "command" | "mention" | undefined =
+    commandRows.length > 0 && commandQuery !== dismissed
+      ? "command"
+      : mentionRows.length > 0 && mentionQueryText !== dismissed
+        ? "mention"
+        : undefined;
+  const rows = kind === "command" ? commandRows : kind === "mention" ? mentionRows : [];
+  const query = kind === "command" ? commandQuery : mentionQueryText;
+  const menuOpen = kind !== undefined;
+  // A new query starts at the first match.
+  const chosen = pointed.query === query ? pointed.index : 0;
+  const active = Math.min(chosen, Math.max(rows.length - 1, 0));
+  // Something was named that is not there: it is said, once, instead of showing nothing.
+  const nothingFound =
+    kind === undefined &&
+    typed.mention !== undefined &&
+    typed.mention !== "" &&
+    found?.query === typed.mention &&
+    hits.length === 0 &&
+    mentionQueryText !== dismissed;
   const lookAtCaret = () => {
     const caret = input.current?.caret();
-    setSlash(caret === undefined ? undefined : slashQuery(caret.before, caret.first));
+    setTyped({
+      slash: caret === undefined ? undefined : slashQuery(caret.before, caret.first),
+      mention: caret === undefined ? undefined : mentionQuery(caret.before),
+    });
   };
-  const pick = (command: Command) => {
-    // What was typed of it, the slash and the query, is replaced by the whole name and a space.
-    input.current?.replaceBeforeCaret((slash?.length ?? 0) + 1, commandText(command));
+  const pick = (index: number) => {
+    if (kind === "command") {
+      const command = (conversation?.commands ?? []).find(
+        (c) => c.name === commandRows[index]?.key,
+      );
+      if (command === undefined) return;
+      // What was typed of it, the slash and the query, is replaced by the whole name and a space.
+      input.current?.replaceBeforeCaret((typed.slash?.length ?? 0) + 1, commandText(command));
+    } else if (kind === "mention") {
+      const hit = hits[index];
+      const root = found?.result.root;
+      if (hit === undefined || root === undefined) return;
+      const mention: Mention = {
+        path: hit.path,
+        kind: hit.kind,
+        uri: fileUri(root, hit.path, hit.kind),
+        name: mentionRow(hit.path, hit.kind).name.replace(/\/$/, ""),
+      };
+      // The @ and what was typed after it become the path and a space; the link for the agent is kept beside the text.
+      input.current?.replaceBeforeCaret(
+        (typed.mention?.length ?? 0) + 1,
+        `${mentionText(mention)} `,
+      );
+      store.drafts.addMention(sessionKey, mention);
+    }
     input.current?.focus();
   };
   // While the agent works, a message is queued: it goes when the turn ends well (docs/protocol.md §8).
@@ -166,16 +254,15 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
     // An open menu has the keys first: the arrows choose, Enter and Tab take, Escape closes.
     if (menuOpen) {
       if (key === "up" || key === "down") {
-        setChosen((active + (key === "up" ? matches.length - 1 : 1)) % matches.length);
+        setPointed({ query, index: (active + (key === "up" ? rows.length - 1 : 1)) % rows.length });
         return true;
       }
       if (key === "enter" || key === "tab") {
-        const command = matches[active];
-        if (command !== undefined) pick(command);
+        pick(active);
         return true;
       }
       if (key === "escape") {
-        setDismissed(slash);
+        setDismissed(query);
         return true;
       }
     }
@@ -308,13 +395,20 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
         ) : null}
         <div data-slot="composer-field">
           {menuOpen ? (
-            <CommandMenu
+            <PickerMenu
               id={menuId}
-              commands={matches}
+              label={
+                kind === "command" ? t("composer.commands.label") : t("composer.mentions.label")
+              }
+              rows={rows}
               active={active}
               onPick={pick}
-              onHover={setChosen}
+              onHover={(index) => setPointed({ query, index })}
             />
+          ) : nothingFound ? (
+            <div data-slot="picker" role="status">
+              {t("composer.mentions.empty")}
+            </div>
           ) : null}
           <MarkdownInput
             value={text}

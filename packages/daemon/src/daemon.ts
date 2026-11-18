@@ -16,6 +16,7 @@ import {
   CYCLE_PROTOCOL_VERSION,
   CycleErrorCode,
   checkPrompt,
+  filesSearch,
   META,
   NOTIFICATIONS,
   promptDequeue,
@@ -42,6 +43,7 @@ import {
   sessionNotFound,
   UNSUPPORTED_VERSION,
 } from "./errors.ts";
+import { searchFiles } from "./files.ts";
 import { type SessionEntry, SessionIndex } from "./index-file.ts";
 import { BlobLogStore } from "./log/blobs.ts";
 import { JsonlLogStore } from "./log/jsonl.ts";
@@ -681,6 +683,7 @@ export class Daemon {
             agents: [...this.#agents.keys()],
             sessionOps: ["archive", "rename", "delete"],
             queue: true,
+            files: true,
           },
         },
       } as never;
@@ -996,6 +999,11 @@ export class Daemon {
       }
       this.#publishQueue(session);
       return { prompt: entry.prompt };
+    });
+    cycle(filesSearch, async (params) => {
+      const session = await this.#session(params.sessionId);
+      const found = await searchFiles(session.entry.cwd, params.query, params.limit);
+      return { root: session.entry.cwd, ...found };
     });
     cycle(sessionArchive, (params) =>
       change(async (session) => {

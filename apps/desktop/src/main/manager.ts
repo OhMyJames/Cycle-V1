@@ -8,6 +8,7 @@ import {
   applyUpdate,
   type Conversation,
   emptyConversation,
+  type FileSearch,
   type HostConfig,
   type HostStatus,
   type NewSession,
@@ -279,6 +280,10 @@ export class ConnectionManager
 
   async cancel(hostId: string, sessionId: string): Promise<void> {
     await this.#connection(hostId).client.cancel(sessionId);
+  }
+
+  async searchFiles(hostId: string, sessionId: string, query: string): Promise<FileSearch> {
+    return this.#connection(hostId).client.searchFiles(sessionId, query);
   }
 
   async dequeue(hostId: string, sessionId: string, queueId: string): Promise<PromptBlock[]> {

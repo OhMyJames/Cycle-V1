@@ -78,6 +78,11 @@ export const fakeBridge = (
     prompt: record("prompt", async () => {}),
     cancel: record("cancel", async () => {}),
     dequeue: record("dequeue", async () => []),
+    searchFiles: record("searchFiles", async () => ({
+      root: "/work",
+      entries: [],
+      truncated: false,
+    })),
     setSessionConfig: record("setSessionConfig", async () => {}),
     renameSession: record("renameSession", async () => {}),
     archiveSession: record("archiveSession", async () => {}),

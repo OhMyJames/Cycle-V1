@@ -49,6 +49,10 @@ export const enUS = {
   // The commands that fit what is typed after a slash
   "composer.commands.label": "Commands",
 
+  // The files and folders that fit what is typed after an @
+  "composer.mentions.label": "Files and folders",
+  "composer.mentions.empty": "No file or folder matches that.",
+
   // Messages sent while the agent works, waiting their turn
   "composer.queued.label": "Queued messages",
   "composer.queued.tag": "Queued",

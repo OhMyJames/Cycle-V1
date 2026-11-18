@@ -2,13 +2,42 @@
 // DOM, so that the rules can be tested. The text is kept in the renderer's localStorage by host and session, so a
 // restart finds it again. The images are not: base64 of a picture would fill the little room localStorage has.
 import type { PromptBlock } from "./api.ts";
-import { type Attachment, base64Bytes, isImageType } from "./attachments.ts";
+import { ATTACHMENT_LIMITS, type Attachment, base64Bytes, isImageType } from "./attachments.ts";
 import type { Block, QueuedPrompt } from "./model/index.ts";
 import { textOf } from "./model/index.ts";
 
-export type Draft = { readonly text: string; readonly attachments: readonly Attachment[] };
+/**
+ * A file or folder picked after an @. The message holds `@path` as text, which is what a person reads; this is what
+ * goes with it for the agent (docs/protocol.md §8). Kept with the draft in memory only: text that comes back from
+ * storage is just text.
+ */
+export type Mention = {
+  /** Relative to the session's folder, as in the text after the @. */
+  readonly path: string;
+  readonly kind: "file" | "folder";
+  /** `file://` and the absolute path, a folder's ending in `/`. */
+  readonly uri: string;
+  readonly name: string;
+};
 
-const EMPTY: Draft = { text: "", attachments: [] };
+export type Draft = {
+  readonly text: string;
+  readonly attachments: readonly Attachment[];
+  readonly mentions: readonly Mention[];
+};
+
+const EMPTY: Draft = { text: "", attachments: [], mentions: [] };
+
+/** What the text says of a mention: the @ and the path, and a slash after a folder's. */
+export const mentionText = (mention: Pick<Mention, "path" | "kind">): string =>
+  `@${mention.path}${mention.kind === "folder" ? "/" : ""}`;
+
+/** The `file://` address of a path under a root, as the agent reads it. */
+export const fileUri = (root: string, path: string, kind: "file" | "folder"): string =>
+  `file://${`${root.replace(/\/$/, "")}/${path}`.split("/").map(encodeURIComponent).join("/")}${kind === "folder" ? "/" : ""}`;
+
+/** The key of a mention in a link's `_meta`: the path as the text says it, so that a link that comes back is a mention again. */
+export const MENTION_META = "cycle/mention";
 
 /** The part of `Storage` a draft needs. */
 export type DraftStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -29,17 +58,45 @@ type Saved = { text?: string; handled?: string };
 /** What a message is sent as: its text, then its images. Undefined when there is nothing to send. */
 export const promptBlocks = (draft: Draft): PromptBlock[] | undefined => {
   if (draft.text.trim() === "" && draft.attachments.length === 0) return undefined;
-  return [
-    ...(draft.text.trim() === "" ? [] : [{ type: "text" as const, text: draft.text }]),
-    ...draft.attachments.map((a) => ({ type: "image" as const, data: a.data, mimeType: a.type })),
-  ];
+  const text = draft.text.trim() === "" ? [] : [{ type: "text" as const, text: draft.text }];
+  const images = draft.attachments.map((a) => ({
+    type: "image" as const,
+    data: a.data,
+    mimeType: a.type,
+  }));
+  // Only what the text still says: a mention whose @path was deleted is not sent. Once for each address. Blocks are
+  // few (the same limit images are held to), and the words say it all when a link has no room.
+  const seen = new Set<string>();
+  const links = draft.mentions
+    .filter((m) => draft.text.includes(mentionText(m)) && !seen.has(m.uri) && seen.add(m.uri))
+    .map((m) => ({
+      type: "resource_link" as const,
+      name: m.name,
+      uri: m.uri,
+      _meta: { [MENTION_META]: m.path },
+    }))
+    .slice(0, Math.max(0, ATTACHMENT_LIMITS.blocks - text.length - images.length));
+  return [...text, ...images, ...links];
 };
 
 /** A prompt's blocks as a draft: its texts, and its images as attachments. Other blocks are left out. */
 export const draftOf = (blocks: readonly Block[]): Draft => {
   const texts: string[] = [];
   const attachments: Attachment[] = [];
+  const mentions: Mention[] = [];
   for (const block of blocks) {
+    if (block.type === "resource_link") {
+      const path = (block._meta as Record<string, unknown> | undefined)?.[MENTION_META];
+      if (typeof block.uri === "string" && typeof path === "string") {
+        mentions.push({
+          path,
+          kind: block.uri.endsWith("/") ? "folder" : "file",
+          uri: block.uri,
+          name: typeof block.name === "string" ? block.name : path,
+        });
+      }
+      continue;
+    }
     if (block.type === "text" && typeof block.text === "string") texts.push(block.text);
     else if (
       block.type === "image" &&
@@ -55,7 +112,7 @@ export const draftOf = (blocks: readonly Block[]): Draft => {
       });
     }
   }
-  return { text: texts.join(""), attachments };
+  return { text: texts.join(""), attachments, mentions };
 };
 
 /** What identifies a hand-back, so one that was put in the box is not put there twice. */
@@ -86,7 +143,7 @@ export class DraftStore {
       if (raw === null || raw === undefined) return;
       const saved = JSON.parse(raw) as Saved;
       if (typeof saved.text === "string" && saved.text !== "") {
-        this.#drafts.set(key, { text: saved.text, attachments: [] });
+        this.#drafts.set(key, { text: saved.text, attachments: [], mentions: [] });
       }
       if (typeof saved.handled === "string") this.#handled.set(key, saved.handled);
     } catch {
@@ -117,7 +174,8 @@ export class DraftStore {
 
   #put(key: string, draft: Draft): void {
     this.#load(key);
-    if (draft.text === "" && draft.attachments.length === 0) this.#drafts.delete(key);
+    if (draft.text === "" && draft.attachments.length === 0 && draft.mentions.length === 0)
+      this.#drafts.delete(key);
     else this.#drafts.set(key, draft);
     this.#save(key);
     this.#changed();
@@ -126,12 +184,18 @@ export class DraftStore {
   setText(key: string, text: string): void {
     const old = this.get(key);
     if (old.text === text) return;
-    this.#put(key, { text, attachments: old.attachments });
+    this.#put(key, { ...old, text });
   }
 
   setAttachments(key: string, attachments: readonly Attachment[]): void {
+    this.#put(key, { ...this.get(key), attachments });
+  }
+
+  /** A file or folder picked after an @. Picking it again changes nothing. */
+  addMention(key: string, mention: Mention): void {
     const old = this.get(key);
-    this.#put(key, { text: old.text, attachments });
+    if (old.mentions.some((m) => m.uri === mention.uri)) return;
+    this.#put(key, { ...old, mentions: [...old.mentions, mention] });
   }
 
   /** The draft is gone: it was sent, or the session was deleted. */
@@ -159,6 +223,7 @@ export class DraftStore {
     this.#put(key, {
       text,
       attachments: [...back.flatMap((d) => d.attachments), ...old.attachments],
+      mentions: [...back.flatMap((d) => d.mentions), ...old.mentions],
     });
   }
 
