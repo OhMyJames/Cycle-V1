@@ -593,3 +593,156 @@ test.skipIf(!enabled)(
   },
   180_000,
 );
+
+// ---- sub-agents, a warm start, what a person wrote, cost across processes (2026-11-18, second batch) ----
+
+test.skipIf(!enabled)(
+  "a real sub-agent is announced, makes progress, and ends",
+  async () => {
+    await withModel({}, async ({ agent, updates, idle }) => {
+      await agent.request(methods.agent.session.new, {
+        cwd,
+        _meta: { "cycle/sessionId": NEWID(6) },
+      });
+      await setModel(agent, NEWID(6));
+      const done = idle();
+      await agent.request(methods.agent.session.prompt, {
+        sessionId: NEWID(6),
+        prompt: say(
+          "Use the Agent tool (subagent_type Explore, in the foreground, not in the background) to read notes.txt in the current directory and report the secret word. Then tell me the word.",
+        ),
+      });
+      await done;
+      // A sub-agent can outlive the turn (it may run in the background): wait for its end.
+      const ended = () =>
+        updates.some(
+          (u) =>
+            u.sessionUpdate === "subagent_update" &&
+            (u as unknown as { state?: { state: string } }).state?.state === "idle",
+        );
+      for (let waited = 0; waited < 60_000 && !ended(); waited += 500) await Bun.sleep(500);
+      const subs = updates.filter((u) => u.sessionUpdate === "subagent_update");
+      console.log("subagent: updates", JSON.stringify(subs).slice(0, 1500));
+      console.log("subagent: said", agentText(updates).slice(0, 160));
+      expect(subs.length).toBeGreaterThanOrEqual(2);
+      const states = subs.map((u) => (u as unknown as { state?: { state: string } }).state?.state);
+      expect(states[0]).toBe("running");
+      expect(states.at(-1)).toBe("idle");
+      const meta = (subs[0] as unknown as { _meta: Record<string, { toolCallId?: string }> })._meta;
+      expect(meta["cycle/subagent"]?.toolCallId).toBeDefined();
+      expect(agentText(updates).toUpperCase()).toContain("MARMALADE");
+    });
+  },
+  240_000,
+);
+
+test.skipIf(!enabled)(
+  "with warmStart a real new session has its commands before the first prompt",
+  async () => {
+    await withModel({ adapter: { warmStart: true } }, async ({ agent, updates, idle }) => {
+      await agent.request(methods.agent.session.new, {
+        cwd,
+        _meta: { "cycle/sessionId": NEWID(7) },
+      });
+      const started = Date.now();
+      while (
+        !updates.some((u) => u.sessionUpdate === "available_commands_update") &&
+        Date.now() - started < 30_000
+      ) {
+        await Bun.sleep(100);
+      }
+      console.log("warm: commands after", Date.now() - started, "ms, no prompt sent");
+      expect(updates.some((u) => u.sessionUpdate === "available_commands_update")).toBe(true);
+      await setModel(agent, NEWID(7));
+      const done = idle();
+      const t = Date.now();
+      await agent.request(methods.agent.session.prompt, {
+        sessionId: NEWID(7),
+        prompt: say("Reply with exactly the single word PINEAPPLE and nothing else."),
+      });
+      await done;
+      console.log("warm: first prompt took", Date.now() - t, "ms");
+      expect(last(updates)?.stopReason).toBe("end_turn");
+      expect(agentText(updates).toUpperCase()).toContain("PINEAPPLE");
+    });
+  },
+  120_000,
+);
+
+test.skipIf(!enabled)(
+  "a real model is given what a person wrote in the form as the answer",
+  async () => {
+    await withModel(
+      {
+        onElicitation: () => ({ action: "accept", content: { q0_other: "green" } }),
+      },
+      async ({ agent, updates, idle, elicitations }) => {
+        await agent.request(methods.agent.session.new, {
+          cwd,
+          _meta: { "cycle/sessionId": NEWID(8) },
+        });
+        await setModel(agent, NEWID(8));
+        const done = idle();
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: NEWID(8),
+          prompt: say(
+            "Use the AskUserQuestion tool to ask me which colour I prefer, with exactly two options: red and blue. Then tell me which colour I chose, in one sentence.",
+          ),
+        });
+        await done;
+        console.log("other: forms", elicitations.length, "said:", agentText(updates).slice(0, 200));
+        expect(elicitations.length).toBeGreaterThan(0);
+        expect(agentText(updates).toLowerCase()).toContain("green");
+      },
+    );
+  },
+  120_000,
+);
+
+test.skipIf(!enabled)(
+  "the session's cost keeps adding up across a process that was let go and a new one",
+  async () => {
+    const config = await tempConfigDir();
+    const costs: number[] = [];
+    const costOf = (updates: SessionUpdate[]) =>
+      (
+        updates.filter((u) => u.sessionUpdate === "usage_update").at(-1) as
+          | { cost?: { amount: number } }
+          | undefined
+      )?.cost?.amount;
+    try {
+      for (const resume of [false, true]) {
+        await withAdapter(
+          { configDir: config.dir, env: claudeEnv(config.dir) },
+          async ({ agent, updates, idle }) => {
+            if (resume) {
+              await agent.request(methods.agent.session.resume, { sessionId: NEWID(9), cwd });
+            } else {
+              await agent.request(methods.agent.session.new, {
+                cwd,
+                _meta: { "cycle/sessionId": NEWID(9) },
+              });
+            }
+            await setModel(agent, NEWID(9));
+            const done = idle();
+            await agent.request(methods.agent.session.prompt, {
+              sessionId: NEWID(9),
+              prompt: say("Reply with exactly the single word PINEAPPLE and nothing else."),
+            });
+            await done;
+            const usage = updates.filter((u) => u.sessionUpdate === "usage_update");
+            console.log(resume ? "cost: resumed" : "cost: first", JSON.stringify(usage.at(-1)));
+            costs.push(costOf(updates) ?? Number.NaN);
+          },
+        );
+      }
+    } finally {
+      await config.dispose();
+    }
+    console.log("cost: per process", JSON.stringify(costs));
+    expect(costs[0]).toBeGreaterThan(0);
+    // A new process continues from what the session cost before, as the SDK says it does.
+    expect(costs[1]).toBeGreaterThan(costs[0] as number);
+  },
+  180_000,
+);

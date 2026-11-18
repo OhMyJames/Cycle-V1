@@ -404,6 +404,201 @@ test("the commands Claude has are announced, and replaced when they change", asy
   });
 });
 
+test("with warmStart, the commands are known before the first prompt, and a prompt then uses that process", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  fake.state.commands = [{ name: "review", description: "Review the diff", argumentHint: "" }];
+  const commandsIn = (updates: SessionUpdate[]) =>
+    updates.filter((u) => u.sessionUpdate === "available_commands_update");
+  await connect(
+    fake.run,
+    async ({ agent, idle, updates }) => {
+      await newSession(agent);
+      const deadline = Date.now() + 2000;
+      while (commandsIn(updates).length === 0 && Date.now() < deadline) await Bun.sleep(10);
+      expect(commandsIn(updates)).toHaveLength(1);
+      await prompt(agent, idle, [{ type: "text", text: "one" }]);
+      // The same process took the prompt: its commands were not announced a second time.
+      expect(commandsIn(updates)).toHaveLength(1);
+    },
+    {},
+    { warmStart: true },
+  );
+});
+
+test("without warmStart nothing is started until the first prompt", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  fake.state.commands = [{ name: "review", description: "x", argumentHint: "" }];
+  await connect(fake.run, async ({ agent, updates }) => {
+    await newSession(agent);
+    await Bun.sleep(50);
+    expect(updates.filter((u) => u.sessionUpdate === "available_commands_update")).toHaveLength(0);
+  });
+});
+
+test("a process started ahead of the first prompt is let go if none comes", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  await connect(
+    fake.run,
+    async ({ agent }) => {
+      await newSession(agent);
+      await Bun.sleep(150);
+      expect(fake.state.inputClosed).toBe(true);
+    },
+    {},
+    { warmStart: true, idleMs: 30 },
+  );
+});
+
+// ---- sub-agents ----
+
+const task = (subtype: string, fields: Record<string, unknown>) =>
+  ({ type: "system", subtype, uuid: "u", session_id: ID, ...fields }) as unknown as SDKMessage;
+
+type Sub = {
+  sessionUpdate: string;
+  sessionId: string;
+  title?: string;
+  description?: string;
+  state?: Record<string, unknown>;
+  _meta?: Record<string, Record<string, unknown>>;
+};
+const subs = (updates: SessionUpdate[]) =>
+  updates.filter((u) => u.sessionUpdate === "subagent_update") as unknown as Sub[];
+
+test("a sub-agent is announced, reports progress, and ends", async () => {
+  const fake = fakeQuery(() => [
+    task("task_started", {
+      task_id: "t1",
+      tool_use_id: "tool_9",
+      description: "Find the callers",
+      subagent_type: "Explore",
+      is_backgrounded: false,
+    }),
+    task("task_progress", {
+      task_id: "t1",
+      tool_use_id: "tool_9",
+      description: "Find the callers",
+      last_tool_name: "Grep",
+      summary: "Looking in src",
+      usage: { total_tokens: 900, tool_uses: 3, duration_ms: 4000 },
+    }),
+    task("task_notification", {
+      task_id: "t1",
+      status: "completed",
+      summary: "Found 4",
+      output_file: "x",
+      usage: { total_tokens: 1500, tool_uses: 5, duration_ms: 9000 },
+    }),
+    ...textTurn(ID, "m", "ok"),
+  ]);
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "go" }]);
+    const [started, progress, ended] = subs(updates);
+    expect(started).toMatchObject({
+      sessionId: "t1",
+      title: "Find the callers",
+      description: "Explore",
+      state: { state: "running" },
+    });
+    expect(started?._meta?.["cycle/subagent"]).toEqual({ toolCallId: "tool_9", background: false });
+    expect(progress?._meta?.["cycle/subagent"]).toEqual({
+      toolCallId: "tool_9",
+      summary: "Looking in src",
+      lastTool: "Grep",
+      usage: { tokens: 900, toolUses: 3, durationMs: 4000 },
+    });
+    expect(ended?.state).toEqual({ state: "idle", stopReason: "end_turn" });
+    // The end did not say which call it came from; the start had.
+    expect(ended?._meta?.["cycle/subagent"]?.toolCallId).toBe("tool_9");
+    expect(ended?._meta?.["cycle/subagent"]?.usage).toEqual({
+      tokens: 1500,
+      toolUses: 5,
+      durationMs: 9000,
+    });
+    expect(subs(updates)).toHaveLength(3);
+  });
+  // The option that makes the summaries is asked for.
+  expect(
+    ((fake.calls[0]?.options ?? {}) as { agentProgressSummaries?: boolean }).agentProgressSummaries,
+  ).toBe(true);
+});
+
+test("a failed or stopped sub-agent says how it ended", async () => {
+  const fake = fakeQuery(() => [
+    task("task_started", { task_id: "a", description: "A" }),
+    task("task_started", { task_id: "b", description: "B" }),
+    task("task_notification", {
+      task_id: "a",
+      status: "failed",
+      summary: "It broke",
+      output_file: "x",
+    }),
+    task("task_notification", { task_id: "b", status: "stopped", summary: "", output_file: "x" }),
+    ...textTurn(ID, "m", "ok"),
+  ]);
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "go" }]);
+    const ends = subs(updates).filter((u) => u.state?.state === "idle");
+    expect(ends.map((u) => u.state)).toEqual([
+      { state: "idle", stopReason: "error", error: { code: -32603, message: "It broke" } },
+      { state: "idle", stopReason: "cancelled" },
+    ]);
+  });
+});
+
+test("tasks that are not sub-agents, and progress for ones nobody was told of, are left out", async () => {
+  const fake = fakeQuery(() => [
+    task("task_started", { task_id: "sh", task_type: "local_bash", description: "npm test" }),
+    task("task_progress", {
+      task_id: "sh",
+      description: "npm test",
+      usage: { total_tokens: 0, tool_uses: 0, duration_ms: 1 },
+    }),
+    task("task_started", { task_id: "w", description: "watch", ambient: true }),
+    task("task_progress", {
+      task_id: "never",
+      description: "?",
+      usage: { total_tokens: 0, tool_uses: 0, duration_ms: 1 },
+    }),
+    task("task_notification", {
+      task_id: "sh",
+      status: "completed",
+      summary: "",
+      output_file: "x",
+    }),
+    ...textTurn(ID, "m", "ok"),
+  ]);
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "go" }]);
+    expect(subs(updates)).toEqual([]);
+  });
+});
+
+test("a sub-agent still running when its process is let go is told as cancelled", async () => {
+  const fake = fakeQuery(() => [
+    task("task_started", { task_id: "t1", description: "Long job" }),
+    ...textTurn(ID, "m", "ok"),
+  ]);
+  await connect(
+    fake.run,
+    async ({ agent, idle, updates }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "go" }]);
+      const deadline = Date.now() + 2000;
+      while (subs(updates).length < 2 && Date.now() < deadline) await Bun.sleep(10);
+      expect(subs(updates).map((u) => u.state)).toEqual([
+        { state: "running" },
+        { state: "idle", stopReason: "cancelled" },
+      ]);
+    },
+    {},
+    { idleMs: 30 },
+  );
+});
+
 test("a compaction is announced as it starts and as it ends, or fails", async () => {
   const status = (s: string | null, extra: object = {}) =>
     ({ type: "system", subtype: "status", status: s, ...extra }) as unknown as SDKMessage;
@@ -524,11 +719,14 @@ test("AskUserQuestion is a form when a client can answer one, and the answers go
         message: string;
         requestedSchema: {
           properties: Record<string, { type: string; oneOf?: unknown[]; items?: unknown }>;
-          required: string[];
+          required?: string[];
         };
       };
       expect(form.mode).toBe("form");
-      expect(form.requestedSchema.required).toEqual(["q0", "q1"]);
+      // Nothing is required: each question also has a field of free text, so no one field is.
+      expect(form.requestedSchema.required).toBeUndefined();
+      expect(form.requestedSchema.properties.q0_other?.type).toBe("string");
+      expect(form.requestedSchema.properties.q1_other?.type).toBe("string");
       expect(form.requestedSchema.properties.q0?.type).toBe("string");
       expect(form.requestedSchema.properties.q0?.oneOf).toEqual([
         { const: "date-fns", title: "date-fns", description: "small" },
@@ -545,6 +743,43 @@ test("AskUserQuestion is a form when a client can answer one, and the answers go
       answers: { "Which library?": "luxon", "Which features?": "tz, i18n" },
     },
   });
+});
+
+test("a written answer replaces a single choice and is one more label of a multiple choice", async () => {
+  const { fake, seen } = asking("AskUserQuestion", input);
+  await connect(
+    fake.run,
+    async ({ agent, idle }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "go" }]);
+    },
+    {
+      elicitation: () => ({
+        action: "accept",
+        content: { q0: "luxon", q0_other: "  Temporal  ", q1: ["tz"], q1_other: "calendars" },
+      }),
+    },
+  );
+  expect(seen.result).toEqual({
+    behavior: "allow",
+    updatedInput: {
+      ...input,
+      answers: { "Which library?": "Temporal", "Which features?": "tz, calendars" },
+    },
+  });
+});
+
+test("a form that comes back with nothing in it is not an answer", async () => {
+  const { fake, seen } = asking("AskUserQuestion", input);
+  await connect(
+    fake.run,
+    async ({ agent, idle }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "go" }]);
+    },
+    { elicitation: () => ({ action: "accept", content: { q0_other: "   ", q1: [] } }) },
+  );
+  expect(seen.result).toEqual({ behavior: "deny", message: "The user did not answer" });
 });
 
 test("declining the questions denies the tool, with a reason Claude can read", async () => {

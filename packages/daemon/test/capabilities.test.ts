@@ -48,6 +48,47 @@ test("an agent's prompt capabilities are in the agent list", async () => {
   expect(listed.agents[0]?.promptCapabilities).toEqual(both);
 });
 
+test("a big image is kept beside the log, comes back whole for the next client and after a restart, and goes with the session", async () => {
+  const big = { ...image, data: Buffer.alloc(300_000, 7).toString("base64") };
+  const { daemon, fake } = await start(fakeAgent({}, { promptCapabilities: both }));
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.prompt, {
+    sessionId,
+    prompt: [{ type: "text", text: "look" }, big],
+  });
+  await until(() => c.idle() >= 2, "the turn to end");
+  // The agent got the bytes, and so did the client that was watching.
+  expect(fake.log.blocks[0]).toEqual([{ type: "text", text: "look" }, big]);
+  const live = c.seen.find((s) => s.update.sessionUpdate === "user_message")?.update as unknown as {
+    content: unknown[];
+  };
+  expect(live.content).toEqual([{ type: "text", text: "look" }, big]);
+  // On disk: a small log and one blob file.
+  const logFile = join(sessionsDir(dir), `${sessionId}.jsonl`);
+  expect((await stat(logFile)).size).toBeLessThan(20_000);
+  expect(await readdir(join(dir, "blobs", sessionId))).toHaveLength(1);
+
+  await daemon.close();
+  open = [];
+  const again = await start();
+  const later = await connectClient(again.daemon);
+  await later.agent.request(methods.agent.session.resume, {
+    sessionId,
+    cwd: "/tmp",
+    replayFrom: { type: "start" },
+  });
+  await until(() => later.kinds().includes("replay_complete"), "the history");
+  const replayed = later.seen.find((s) => s.update.sessionUpdate === "user_message")
+    ?.update as unknown as { content: unknown[] };
+  expect(replayed.content).toEqual([{ type: "text", text: "look" }, big]);
+
+  await later.agent.request(methods.agent.session.delete, { sessionId });
+  await expect(readdir(join(dir, "blobs", sessionId))).rejects.toThrow();
+  await expect(stat(logFile)).rejects.toThrow();
+});
+
 test("an image reaches an agent that takes images, and is in the history for the next client", async () => {
   const { daemon, fake } = await start(fakeAgent({}, { promptCapabilities: both }));
   const c = await connectClient(daemon);
@@ -307,6 +348,42 @@ test("the agent's title names a session until the user does", async () => {
   });
   await until(() => later.kinds().includes("replay_complete"), "the history");
   expect(told(later)).toEqual(["Fixing the login bug"]);
+});
+
+// ---- usage ----
+
+test("the latest usage is in the session list, and survives a restart", async () => {
+  const fake = fakeAgent({
+    onPrompt: async ({ say }) => {
+      await say({
+        sessionUpdate: "usage_update",
+        used: 1200,
+        size: 200000,
+        cost: { amount: 0.03, currency: "USD" },
+      });
+      await say({
+        sessionUpdate: "usage_update",
+        used: 5000,
+        size: 200000,
+        cost: { amount: 0.08, currency: "USD" },
+      });
+    },
+  });
+  const { daemon } = await start(fake);
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  expect((await sessionRow(c))["cycle/usage"]).toBeUndefined();
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("go") });
+  await until(() => c.ended() >= 1, "the turn to end");
+  await Bun.sleep(30);
+  const expected = { used: 5000, size: 200000, cost: { amount: 0.08, currency: "USD" } };
+  expect((await sessionRow(c))["cycle/usage"]).toEqual(expected);
+  await daemon.close();
+  open = [];
+  const again = await start();
+  const d = await connectClient(again.daemon);
+  expect((await sessionRow(d))["cycle/usage"]).toEqual(expected);
 });
 
 // ---- elicitation ----

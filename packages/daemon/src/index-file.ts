@@ -1,5 +1,6 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { SessionUsageSchema } from "@cycle/protocol";
 import { z } from "zod";
 
 /** One session as the daemon records it. The history itself is in the session's log. */
@@ -21,6 +22,8 @@ export const SessionEntrySchema = z.object({
   additionalDirectories: z.array(z.string()).optional(),
   mcpServers: z.array(z.unknown()).optional(),
   systemPrompt: z.unknown().optional(),
+  /** The agent's latest `usage_update`: shown in the session list. */
+  usage: SessionUsageSchema.optional(),
   archived: z.boolean().optional(),
   /** What was asked of the agent with `session/set_config_option`, applied again when it is restarted. */
   config: z.record(z.string(), z.string()).optional(),

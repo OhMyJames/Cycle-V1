@@ -18,6 +18,7 @@ import {
   META,
   NOTIFICATIONS,
   ReplayFromSeqSchema,
+  SessionUsageSchema,
   sessionArchive,
   sessionSetTitle,
   sessionUnarchive,
@@ -297,6 +298,9 @@ export class Daemon {
         }
       }
       this.#remember(session, { config });
+    } else if (u.sessionUpdate === "usage_update") {
+      const usage = SessionUsageSchema.safeParse(update);
+      if (usage.success) this.#remember(session, { usage: usage.data });
     } else if (u.sessionUpdate === "session_info_update") {
       // The user's own name for a session wins over the agent's: a title that is not marked as the
       // agent's is the user's, which includes every title written before agents named sessions.
@@ -483,6 +487,7 @@ export class Daemon {
         [META.state]: session.status(),
         [META.lastSeq]: session.log.lastSeq(),
         ...(entry.config !== undefined ? { [META.config]: entry.config } : {}),
+        ...(entry.usage !== undefined ? { [META.usage]: entry.usage } : {}),
         ...(entry.title !== undefined ? { title: entry.title } : {}),
       },
     };

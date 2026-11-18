@@ -18,6 +18,8 @@ export const META = {
   archived: "cycle/archived",
   state: "cycle/state",
   lastSeq: "cycle/lastSeq",
+  /** In a `session/list` row: the context the session uses and what it has cost (`SessionUsageSchema`). */
+  usage: "cycle/usage",
   /** On a permission request sent to a client: the daemon's id for it, as `_cycle/request_resolved` names it. */
   requestId: "cycle/requestId",
   /** On the answer to an `elicitation/create` nobody could be asked: no attached client has the capability. */
@@ -49,6 +51,17 @@ export type ReplayFromSeq = z.infer<typeof ReplayFromSeqSchema>;
 /** What a session is doing, as the session list shows it. `stopped`: no agent process. */
 export const SessionStateSchema = z.enum(["running", "idle", "requires_action", "stopped"]);
 export type SessionState = z.infer<typeof SessionStateSchema>;
+
+/**
+ * What the latest `usage_update` said: tokens in context, the window they are in, and the cost so
+ * far. The daemon keeps it in the index, so a list shows it without replaying a log.
+ */
+export const SessionUsageSchema = z.object({
+  used: z.number().nonnegative(),
+  size: z.number().positive(),
+  cost: z.object({ amount: z.number().nonnegative(), currency: z.string() }).optional(),
+});
+export type SessionUsage = z.infer<typeof SessionUsageSchema>;
 
 /** The sequence number on an update's `_meta`, or undefined if it carries none. */
 export const seqOf = (meta: unknown): number | undefined => {

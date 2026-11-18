@@ -19,6 +19,8 @@ export type Options = {
   /** The Claude process's whole environment, instead of the mock's. For a real model: explicit, never inherited. */
   env?: Record<string, string>;
   configDir: string;
+  /** More of the adapter's own configuration (`warmStart`, `idleMs`), beside the Claude process's environment. */
+  adapter?: Record<string, unknown>;
   /** How to answer a permission request. */
   onPermission?: (request: unknown) => "allow" | "deny" | "cancel";
   /** Says this client can answer forms, and how it does. Without it the daemon-side rule applies: none can. */
@@ -34,6 +36,7 @@ export const withAdapter = async <T>(
   body: (run: Run) => Promise<T>,
 ): Promise<T> => {
   const config = {
+    ...options.adapter,
     env: options.env ?? {
       PATH: process.env.PATH ?? "",
       HOME: options.configDir,
