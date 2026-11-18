@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { usageLabel } from "../model/index.ts";
 import { viewKey } from "../store/index.ts";
+import { CodeThemePicker } from "./code-theme-picker.tsx";
 import { Composer } from "./composer.tsx";
 import { ConfigForm } from "./config-form.tsx";
 import { ConversationView } from "./conversation.tsx";
@@ -177,6 +178,7 @@ export function App() {
             onToggleArchived={() => setShowArchived((v) => !v)}
             onAgentDefaults={() => setPanel("defaults")}
           >
+            <CodeThemePicker />
             <UpdateFooter />
           </Sidebar>
         </ResizablePanel>

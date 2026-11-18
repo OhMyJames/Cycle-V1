@@ -11,7 +11,9 @@ const result = await Bun.build({
   outdir: dist,
   target: "browser",
   format: "esm",
-  naming: "gallery.js",
+  // Split, so the highlighter's languages and themes load when a block needs them, not all at start.
+  splitting: true,
+  naming: { entry: "gallery.js", chunk: "chunks/[name]-[hash].js", asset: "[name]-[hash].[ext]" },
   define: { "process.env.NODE_ENV": JSON.stringify("production") },
 });
 if (!result.success) {

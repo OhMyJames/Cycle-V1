@@ -9,6 +9,7 @@ import type {
   SessionSummary,
   UpdateState,
 } from "../src/api.ts";
+import { type CodeThemeId, codeTheme } from "../src/code-theme.ts";
 import { applyUpdate, emptyConversation } from "../src/model/index.ts";
 
 export type Scenario = {
@@ -71,6 +72,37 @@ const MARKDOWN = [
 ].join("\n");
 
 const LONG_PATH = `/home/dev/${"very-long-directory-name-".repeat(12)}file.ts`;
+
+const CODE = [
+  "Here is the same change in four languages.",
+  "",
+  "```ts",
+  "export const toolSummary = (tool: ToolItem): string => {",
+  "  // A line saying what a tool is doing.",
+  "  const input = (tool.rawInput ?? {}) as Record<string, unknown>;",
+  '  return typeof input.command === "string" ? input.command : "";',
+  "};",
+  "```",
+  "",
+  "```bash",
+  'bun run check && git commit -m "ui: search" # the gate runs first',
+  'for f in *.ts; do echo "$f"; done',
+  "```",
+  "",
+  "```json",
+  '{ "name": "cycle", "version": "0.1.1", "private": true, "scripts": { "check": "bun scripts/check.ts" } }',
+  "```",
+  "",
+  "```diff",
+  "- const radius = 0;",
+  "+ const radius = 8;",
+  "```",
+  "",
+  "```python",
+  "def total(items: list[int]) -> int:",
+  "    return sum(x for x in items if x > 0)",
+  "```",
+].join("\n");
 
 export const conversation: SessionUpdate[] = [
   you("u1", "Why does the remote session fail, and fix it."),
@@ -146,6 +178,29 @@ export const scenarios: Record<string, Scenario> = {
     sessions: [session("s1", { title: "Fix the remote session" })],
     history: conversation,
   },
+  code: {
+    title: "Code blocks in five languages (syntax colours, light and dark)",
+    sessions: [session("s1", { title: "Colour the code" })],
+    history: [you("u1", "Show it."), say("a1", CODE), idle({ stopReason: "end_turn" })],
+  },
+  // The same code in each of the five colour choices.
+  ...Object.fromEntries(
+    (["github", "github-high-contrast", "vscode", "one", "catppuccin"] as CodeThemeId[]).map(
+      (id) => [
+        `code-${id}`,
+        {
+          title: `Code colours: ${id}`,
+          sessions: [session("s1", { title: "Colour the code" })],
+          history: [you("u1", "Show it."), say("a1", CODE), idle({ stopReason: "end_turn" })],
+          after: async () => {
+            codeTheme.set(id);
+            // The highlighter loads a language when a block first needs it.
+            await new Promise((r) => setTimeout(r, 2500));
+          },
+        } satisfies Scenario,
+      ],
+    ),
+  ),
   "empty-conversation": {
     title: "A session with nothing said yet",
     sessions: [session("s1")],

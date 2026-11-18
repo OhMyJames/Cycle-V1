@@ -445,6 +445,18 @@ html[data-platform="darwin"]
   user-select: all;
 }
 
+[data-slot="code-theme"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: auto;
+}
+
+/* The picker is the first of the footer pair; the update footer follows it without its own push. */
+[data-slot="code-theme"] + [data-slot="update-footer"] {
+  margin-top: 0;
+}
+
 [data-slot="update-footer"] {
   display: flex;
   flex-direction: column;

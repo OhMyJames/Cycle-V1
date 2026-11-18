@@ -1,4 +1,5 @@
 export * from "./app.tsx";
+export * from "./code-theme-picker.tsx";
 export * from "./composer.tsx";
 export * from "./config-form.tsx";
 export * from "./conversation.tsx";

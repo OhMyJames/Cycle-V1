@@ -37,7 +37,9 @@ await bundle({
   outdir: join(dist, "renderer"),
   target: "browser",
   format: "esm",
-  naming: "renderer.js",
+  // Split: the highlighter's languages and themes load when a code block needs them (about 12 MB in all, 0.9 MB at start).
+  splitting: true,
+  naming: { entry: "renderer.js", chunk: "chunks/[name]-[hash].js", asset: "[name]-[hash].[ext]" },
   define: { "process.env.NODE_ENV": JSON.stringify("production") },
 });
 await cp(join(root, "src/renderer/index.html"), join(dist, "renderer/index.html"));

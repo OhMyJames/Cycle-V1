@@ -3,6 +3,7 @@ import type { SessionUpdate } from "@cycle/acp";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PermissionRequest, SessionSnapshot } from "../../src/api.ts";
+import { codeTheme } from "../../src/code-theme.ts";
 import { applyUpdate, emptyConversation } from "../../src/model/index.ts";
 import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
@@ -269,6 +270,16 @@ test("Ctrl or Cmd+Enter allows a pending request, but not while typing in the me
   await waitFor(() =>
     expect(named("answerPermission")).toEqual([["answerPermission", "local:s1:p1", "allow"]]),
   );
+});
+
+test("the colours of code can be chosen, and the choice is kept", async () => {
+  const { user } = await mount();
+  expect(codeTheme.get()).toBe("github");
+  await user.click(await screen.findByRole("combobox", { name: "Code colours" }));
+  await user.click(await screen.findByRole("option", { name: "Catppuccin" }));
+  await waitFor(() => expect(codeTheme.get()).toBe("catppuccin"));
+  expect(localStorage.getItem("cycle-code-theme")).toBe("catppuccin");
+  codeTheme.set("github");
 });
 
 test("an update that is found is offered, asks before it restarts, and the footer can check on demand", async () => {

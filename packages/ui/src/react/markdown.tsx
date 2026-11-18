@@ -1,5 +1,8 @@
+import { createCodePlugin } from "@streamdown/code";
 import type { ComponentProps, ReactNode } from "react";
+import { useSyncExternalStore } from "react";
 import { Streamdown } from "streamdown";
+import { type CodeThemeId, codeTheme, themesOf } from "../code-theme.ts";
 
 /**
  * Markdown from an agent. It is untrusted: it can hold raw HTML, links and images the agent chose.
@@ -42,13 +45,31 @@ const components: ComponentProps<typeof Streamdown>["components"] = {
   img: BlockedImage as never,
 };
 
+/**
+ * Code is coloured by Shiki through Streamdown's code plugin (Streamdown has no highlighting of its own: without the
+ * plugin a code block is plain text). Which themes is the person's choice (`code-theme.ts`). The plugin uses Shiki's
+ * JavaScript regex engine, so it needs no WebAssembly and the page's CSP stays as it is.
+ */
+const plugins = new Map<CodeThemeId, ReturnType<typeof createCodePlugin>>();
+const pluginFor = (id: CodeThemeId) => {
+  let plugin = plugins.get(id);
+  if (plugin === undefined) {
+    plugin = createCodePlugin({ themes: [...themesOf(id)] as never });
+    plugins.set(id, plugin);
+  }
+  return plugin;
+};
+
 export function Markdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
+  const theme = useSyncExternalStore(codeTheme.subscribe, codeTheme.get, codeTheme.get);
   return (
     <Streamdown
       mode={streaming ? "streaming" : "static"}
       isAnimating={streaming}
       skipHtml
       components={components}
+      plugins={{ code: pluginFor(theme) }}
+      shikiTheme={[...themesOf(theme)] as never}
     >
       {text}
     </Streamdown>
