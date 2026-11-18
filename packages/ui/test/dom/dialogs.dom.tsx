@@ -75,7 +75,7 @@ test("agent defaults are saved only once they are the ones of the agent shown", 
   expect(saved).toEqual(["a"]);
 });
 
-test("agent defaults that cannot be read leave the form empty and can be saved", async () => {
+test("agent defaults that cannot be read are not replaced by an empty form: they cannot be saved over", async () => {
   render(
     <AgentDefaultsDialog
       open
@@ -85,9 +85,6 @@ test("agent defaults that cannot be read leave the form empty and can be saved",
       onSave={() => {}}
     />,
   );
-  const save = await screen.findByRole("button", { name: "Save" });
-  await act(async () => {
-    await Bun.sleep(5);
-  });
-  expect(save.hasAttribute("disabled")).toBe(false);
+  expect(await screen.findByText(/could not be read/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
 });

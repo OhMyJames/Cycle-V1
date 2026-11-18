@@ -173,6 +173,8 @@ test("a re-read that fails does not take the conversation away", async () => {
   expect(named("openSession")).toHaveLength(2);
   const view = store.getState().views[viewKey("local", "s1")];
   expect(view?.loading).toBe(false);
+  // The next event asks again, instead of being applied to a conversation that is behind.
+  expect(view?.version).toBe(-1);
   expect(view?.conversation.items.length).toBeGreaterThan(0);
 });
 

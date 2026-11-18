@@ -202,7 +202,6 @@ export function App() {
   // What is on screen has been seen: the daemon is told, so the mark goes and stays gone (also on another client).
   // Only while the app is in front, and only for a daemon that says there is news.
   const inFront = useInFront();
-  // Run again with each list that still says so: a mark that could not be told is tried again with the next list.
   // Once for what the list says (the session, how far it goes, and whether the app is in front): a daemon that refuses it
   // would otherwise be asked again for each new list, and each ask lists again.
   const told = useRef("");
