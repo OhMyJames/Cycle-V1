@@ -1,8 +1,10 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { commandChannel, sshChannel } from "@cycle/transport/client";
+import { createTranslator, enUS, SOURCE_LOCALE } from "@cycle/ui";
 import { API_METHODS, type AppEvent, channel, EVENT_CHANNEL, type HostConfig } from "@cycle/ui/api";
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from "electron";
+import { notifyAttention } from "./attention.ts";
 import { ConnectionManager } from "./manager.ts";
 import { fileSettings } from "./settings.ts";
 import { cleanStale, Updater, type UpdaterDeps } from "./updater.ts";
@@ -56,6 +58,14 @@ export const startApp = async (options: AppOptions) => {
     settings: fileSettings(join(app.getPath("userData"), "settings.json")),
     channelFor: channelFor(options),
     emit,
+    attention: notifyAttention({
+      window: () => window,
+      supported: () => Notification.isSupported(),
+      create: (notification) => new Notification(notification),
+      activate: () => app.focus({ steal: true }),
+      translator: createTranslator(SOURCE_LOCALE, enUS),
+      emit,
+    }),
     chooseDirectory: async () => {
       const result = await dialog.showOpenDialog({
         properties: ["openDirectory", "createDirectory"],

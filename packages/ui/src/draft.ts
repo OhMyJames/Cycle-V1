@@ -40,7 +40,7 @@ export const fileUri = (root: string, path: string, kind: "file" | "folder"): st
 export const MENTION_META = "cycle/mention";
 
 /** The part of `Storage` a draft needs. */
-export type DraftStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+export type DraftStorage = Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length">;
 
 const PREFIX = "cycle:draft:";
 
@@ -124,6 +124,9 @@ export class DraftStore {
   readonly #drafts = new Map<string, Draft>();
   readonly #handled = new Map<string, string>();
   readonly #loaded = new Set<string>();
+  readonly #generations = new Map<string, number>();
+  // Per host: a removed host tells every read in flight for any of its sessions, also those with no count of their own yet.
+  readonly #epochs = new Map<string, number>();
   readonly #listeners = new Set<() => void>();
 
   constructor(storage: DraftStorage | undefined = browserStorage()) {
@@ -200,15 +203,53 @@ export class DraftStore {
 
   /** The draft is gone: it was sent, or the session was deleted. */
   clear(key: string): void {
+    this.#generations.set(key, (this.#generations.get(key) ?? 0) + 1);
     this.#put(key, EMPTY);
+  }
+
+  /**
+   * Changes whenever the draft is sent or its session goes. A read that takes a while (an image) asks for it before and
+   * gives up if it has changed: what it read is for a message that is gone. The count only goes up, so a count that came
+   * back to what the read saw cannot let it write the draft again.
+   */
+  generation(key: string): number {
+    const host = key.slice(0, Math.max(0, key.indexOf(":")));
+    return (this.#generations.get(key) ?? 0) + (this.#epochs.get(host) ?? 0);
   }
 
   /** Forgets everything about a session, including which hand-backs were put in its box. */
   forget(key: string): void {
+    this.#generations.set(key, (this.#generations.get(key) ?? 0) + 1);
     this.#load(key);
     this.#drafts.delete(key);
     this.#handled.delete(key);
     this.#save(key);
+    this.#changed();
+  }
+
+  /**
+   * Every draft of a host, in memory and in storage. A session's key is its host's id, a colon and its id, and a host's id
+   * has no colon (`local`, or `ssh-` and letters, digits and hyphens), so the prefix names one host's sessions only.
+   */
+  forgetHost(hostId: string): void {
+    const prefix = `${hostId}:`;
+    this.#epochs.set(hostId, (this.#epochs.get(hostId) ?? 0) + 1);
+    const keys = new Set([...this.#drafts.keys(), ...this.#handled.keys()]);
+    try {
+      for (let i = 0; i < (this.#storage?.length ?? 0); i += 1) {
+        const name = this.#storage?.key(i);
+        if (name?.startsWith(PREFIX + prefix) === true) keys.add(name.slice(PREFIX.length));
+      }
+    } catch {
+      // Storage may not be read: what is in memory is still dropped.
+    }
+    for (const key of keys) {
+      if (!key.startsWith(prefix)) continue;
+      this.#loaded.add(key);
+      this.#drafts.delete(key);
+      this.#handled.delete(key);
+      this.#save(key);
+    }
     this.#changed();
   }
 

@@ -149,13 +149,13 @@ test("the turn has ended only when an idle says why", () => {
   c = applyUpdate(c, idle());
   expect(c.status).toBe("idle");
   expect(c.turns).toBe(0);
-  expect(c.lastStop).toBeUndefined();
+  expect(c.stops).toEqual([]);
   c = applyUpdate(
     applyUpdate(c, u({ sessionUpdate: "state_update", state: "running" })),
     idle({ stopReason: "end_turn" }),
   );
   expect(c.turns).toBe(1);
-  expect(c.lastStop).toEqual({ stopReason: "end_turn" });
+  expect(c.stops).toEqual([{ stopReason: "end_turn" }]);
   expect(canPrompt(c)).toBe(true);
 });
 
@@ -182,10 +182,38 @@ test("a turn that is cancelled or fails ends the tools that were still going", (
     start,
     idle({ stopReason: "error", error: { code: -32012, message: "The agent exited" } }),
   );
-  expect(failed.lastStop).toEqual({
-    stopReason: "error",
-    error: { code: -32012, message: "The agent exited" },
-  });
+  expect(failed.stops).toEqual([
+    { stopReason: "error", error: { code: -32012, message: "The agent exited" } },
+  ]);
+});
+
+test("an item belongs to the turn it began in, and keeps it when it is updated later", () => {
+  const c = reduce([
+    chunk("user_message_chunk", "u1", "first"),
+    u({ sessionUpdate: "tool_call_update", toolCallId: "a", name: "Bash", status: "in_progress" }),
+    idle({ stopReason: "end_turn" }),
+    chunk("user_message_chunk", "u2", "second"),
+    // The first turn's tool is patched in the second turn (a late result): it stays in the first.
+    u({ sessionUpdate: "tool_call_update", toolCallId: "a", status: "completed" }),
+    chunk("agent_message_chunk", "a2", "done"),
+    idle({ stopReason: "cancelled" }),
+  ]);
+  expect(c.items.map((i) => [i.id, i.turn])).toEqual([
+    ["u1", 0],
+    ["a", 0],
+    ["u2", 1],
+    ["a2", 1],
+  ]);
+  expect(c.stops.map((s) => s.stopReason)).toEqual(["end_turn", "cancelled"]);
+});
+
+test("a snapshot's idle, with no reason, does not start a new turn", () => {
+  const c = reduce([
+    chunk("user_message_chunk", "u1", "first"),
+    idle(),
+    chunk("agent_message_chunk", "a1", "still the first"),
+  ]);
+  expect(c.items.map((i) => i.turn)).toEqual([0, 0]);
 });
 
 test("a plan is replaced by its id", () => {

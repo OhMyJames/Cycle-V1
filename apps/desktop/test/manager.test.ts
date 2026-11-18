@@ -7,7 +7,7 @@ import { type Channel, connectUnix } from "@cycle/transport/client";
 import { listenUnix } from "@cycle/transport/server";
 import { type AppEvent, applyUpdate, emptyConversation, type HostConfig } from "@cycle/ui";
 import { fakeAgent } from "../../../packages/daemon/test/fake-agent.ts";
-import { ConnectionManager } from "../src/main/manager.ts";
+import { type AttentionNotice, ConnectionManager } from "../src/main/manager.ts";
 import { fileSettings, LOCAL_HOST } from "../src/main/settings.ts";
 
 let dir: string;
@@ -46,7 +46,11 @@ const setup = async (fake = fakeAgent(), daemonVersion?: string) => {
     await daemon.close();
   });
   const channels: Channel[] = [];
-  const manager = async (name = "app", appVersion?: string) => {
+  const manager = async (
+    name = "app",
+    appVersion?: string,
+    attention?: (notice: AttentionNotice) => void,
+  ) => {
     const events: AppEvent[] = [];
     const m = new ConnectionManager({
       settings: fileSettings(join(dir, `settings-${name}.json`)),
@@ -58,6 +62,7 @@ const setup = async (fake = fakeAgent(), daemonVersion?: string) => {
       emit: (event) => events.push(event),
       backoff: { first: 10, max: 50 },
       ...(appVersion !== undefined ? { appVersion } : {}),
+      ...(attention !== undefined ? { attention } : {}),
     });
     await m.init();
     cleanup.push(() => m.close());
@@ -402,4 +407,82 @@ test("a message sent while the agent works waits in the conversation, and can be
     queue = await waiting();
   }
   expect(queue).toEqual([]);
+});
+
+test("a session that asks and then finishes is reported to the main process, and the first list is not a change", async () => {
+  const { manager } = await setup(
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        await ask();
+      },
+    }),
+  );
+  const notices: AttentionNotice[] = [];
+  const { m, events } = await manager("app", undefined, (n) => notices.push(n));
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  // Reading the list for the first time, and creating a session, tell nothing.
+  expect(notices).toEqual([]);
+  await m.openSession("local", id);
+  await m.prompt("local", id, "ask");
+  await until(() => of(events, "permission").length === 1, "the request");
+  await until(() => notices.length === 1, "the session to be reported as asking");
+  expect(notices[0]).toMatchObject({
+    hostId: "local",
+    hostName: LOCAL_HOST.name,
+    kind: "needs-you",
+    session: { sessionId: id, state: "requires_action" },
+  });
+  await m.answerPermission(first(of(events, "permission")).request.key, "allow");
+  await until(() => notices.length === 2, "the session to be reported as done");
+  expect(notices[1]).toMatchObject({ kind: "finished", session: { sessionId: id, state: "idle" } });
+});
+
+test("the first list a manager reads is not a change, even when a session in it is asking", async () => {
+  const { manager } = await setup(
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        await ask();
+      },
+    }),
+  );
+  const first = await manager("first");
+  await first.m.connect("local");
+  const id = await first.m.createSession("local", { cwd: "/tmp" });
+  await first.m.openSession("local", id);
+  await first.m.prompt("local", id, "ask");
+  await until(() => of(first.events, "permission").length === 1, "the request");
+  // Another app starts while the session is asking: what it is told is the list, not a change in it.
+  const notices: AttentionNotice[] = [];
+  const second = await manager("second", undefined, (n) => notices.push(n));
+  await second.m.connect("local");
+  const listed = await second.m.sessions("local");
+  expect(listed.map((s) => s.state)).toEqual(["requires_action"]);
+  await Bun.sleep(50);
+  expect(notices).toEqual([]);
+});
+
+test("a hook that fails does not stop the list from being read, and a manager without one says nothing", async () => {
+  const { manager } = await setup(
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        await ask();
+      },
+    }),
+  );
+  const { m, events } = await manager("app", undefined, () => {
+    throw new Error("no notification today");
+  });
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  await m.openSession("local", id);
+  await m.prompt("local", id, "ask");
+  // The list still reaches the renderer, with the session asking.
+  await until(
+    () => of(events, "sessions").some((e) => e.sessions.some((s) => s.state === "requires_action")),
+    "the renderer to be told the session is asking",
+  );
+  const quiet = await manager("quiet");
+  await quiet.m.connect("local");
+  expect(quiet.events.length).toBeGreaterThan(0);
 });

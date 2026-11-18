@@ -27,6 +27,7 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 - v1 的实现:
   - 本地:unix socket。
   - 远程:SSH 通道(`ssh host cycle proxy`,把 stdio 桥接到远端 daemon 的 socket)。
+  - 以后可以换成别的远程传输(如 WebSocket):协议不依赖它,客户端用哪种传输连上 daemon,是客户端自己的配置(见 `docs/desktop.md` 的"环境")。daemon 不知道也不关心自己被当作本地还是远程。
 - 一个连接对应一个客户端。daemon 同时服务多个连接。
 - 连接断开不影响 session 的运行。
 
@@ -35,18 +36,20 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 连接建立后,客户端必须先发 `initialize`(ACP v2 的方法),在响应之前不得发其他请求。
 
 - `protocolVersion`:ACP 的协议版本,整数,仅在不兼容变更时递增。
-- Cycle 自己的版本放在 `_meta["cycle/protocolVersion"]`,格式 `"主.次"`,当前为 `"0.1"`。主版本不同则 daemon 以 `-32022`(ACP 的 Unsupported protocol version)拒绝,并在 `data` 里列出自己支持的版本。次版本差异通过能力协商处理。
+- Cycle 自己的版本放在 `_meta["cycle/protocolVersion"]`,格式 `"主.次"`,本文描述的是 `"0.2"`(`0.1` 到 `0.2` 只加了字段和 `markRead`,见 §6)。主版本不同则 daemon 以 `-32022`(ACP 的 Unsupported protocol version)拒绝,并在 `data` 里列出自己支持的版本。次版本差异通过能力协商处理。
 - daemon 在 `initialize` 响应的 `_meta["cycle/capabilities"]` 中声明能力:
 
 ```json
 {
   "replay": ["start", "seq"],
   "agents": ["claude"],
-  "sessionOps": ["archive", "rename", "delete"],
+  "sessionOps": ["archive", "rename", "delete", "markRead"],
   "queue": true,
   "files": true
 }
 ```
+
+- **旧 daemon 的降级**:远程 daemon 可能比客户端旧。`sessionOps` 里没有 `markRead` 的 daemon,客户端不发 `_cycle/session/mark_read`;它的列表里没有 `updatedAt`、`cycle/unread`、`cycle/background`,客户端按"缺失"处理,不得报错,也不得把缺失当成 `false` 或 0 以外的意思(规则见 §6)。
 
 - 客户端在 `initialize` 的 `capabilities.elicitation.form` 里声明自己能回答表单式的提问(见 §9)。不声明就不会收到 `elicitation/create`。
 - 每个 agent 能收什么样的 prompt 内容、能不能带 MCP 服务器等,不在这里:daemon 的 `initialize` 不依赖具体 agent,放在 `_cycle/agents/list`(§10)。
@@ -127,21 +130,40 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 ### 列表
 
-`session/list` 只返回 Cycle 自己创建的 session(决策 0006),带 ACP 的 `SessionInfo` 字段,并在 `_meta` 里加:
+`session/list` 只返回 Cycle 自己创建的 session(决策 0006),带 ACP 的 `SessionInfo` 字段,其中 `updatedAt`(ISO 8601)是 session 最后一条非 `meta` 记录的 `ts`;还没有这类记录时是创建时间。列表按它排序和按日分组。再在 `_meta` 里加:
 
 - `cycle/archived`:布尔。
 - `cycle/agent`:agent id。
 - `cycle/state`:`"running"`、`"idle"`、`"requires_action"` 或 `"stopped"`(agent 进程不在)。
-- `cycle/lastSeq`:该 session 的最新序号。
+- `cycle/lastSeq`:该 session 的最新序号。**只用于补发**(§7):它是每个 session 自己数的记录条数,不是时间,不能在 session 之间比较,客户端不得用它排序。
+- `cycle/unread`:布尔。有值得看的新记录晚于客户端上次标记已读的位置,见"已读"。
+- `cycle/background`:整数,仍在运行的后台子 agent 数(`subagent_update` 里 `_meta["cycle/subagent"].background` 为 true 且 `state` 还不是终态,见 §9)。为 0 时省略。它只记在内存里:daemon 重启后 agent 进程不在了,归 0,不写进索引。
 - `cycle/usage`:最近一次 `usage_update`,`{used, size, cost?: {amount, currency}}`:已用的上下文 token、窗口大小、累计费用。daemon 存在索引里,列表不用重放日志就能显示;还没有过 `usage_update` 的 session 没有这个字段。
 
-列表变化(新建、删除、归档、状态改变)通过通知 `_cycle/session_list_changed` 告诉所有客户端,通知里不带内容,客户端收到后重新拉列表。
+列表变化(新建、删除、归档、`cycle/state` 改变、`cycle/unread` 改变、`cycle/background` 的值改变)通过通知 `_cycle/session_list_changed` 告诉所有客户端,通知里不带内容,客户端收到后重新拉列表。
+
+一个等待中的请求被回答(session 不再是 `requires_action`)也发这个通知。
+
+**`updatedAt` 自己的变化不发通知**:session 在流式输出时每条记录都会改它,每次都通知会让所有客户端不停地重拉列表。客户端在看到一个 session 状态改变的通知后重拉,拿到的就是新值。
+
+**缺失字段的含义**(旧 daemon):没有 `updatedAt` 的 session,排在有 `updatedAt` 的之后,彼此之间按 `cycle/lastSeq` 降序(同一个 daemon 里它可比);没有 `cycle/unread` 就不显示未读;没有 `cycle/background` 且 daemon 声明了 `markRead`(即 0.2),是 0;旧 daemon 上则不显示后台状态。
 
 ### 删除、归档、改名
 
 - 删除:`session/delete`。session 正在工作时拒绝(错误码见 §11)。
 - 归档:`_cycle/session/archive` 和 `_cycle/session/unarchive`,只改 daemon 的索引,不动历史。工作中拒绝。
 - 改名:`_cycle/session/set_title`,参数 `{sessionId, title}`。daemon 自己保存标题。ACP v2 的 `session/set_title` 目前只在 unstable 里,稳定后改用它。
+
+### 已读
+
+未读由 daemon 记,不由客户端本地记:同一个 daemon 可以有几个客户端,换客户端、重装后也要一致(决定笔记 `2026-11-18-sidebar-workspace-environment`)。
+
+- daemon 在索引里为每个 session 记两个序号:`readSeq`(客户端标记过已读的位置)和 `attentionSeq`(最近一条"值得看"的记录的 seq)。"值得看"的记录是:daemon 写下的一条 `request` 记录(权限或表单:不管 agent 有没有另发 `requires_action`,Claude 适配就不发),`state_update` 变成 `requires_action`,以及 `state_update` 变成 `idle` 且带 `stopReason`(turn 结束,任何 `stopReason`,出错也算;agent 恢复时发的不带 `stopReason` 的 `idle` 只是状态快照,不算)。`meta` 记录、改标题、用量更新不算,否则它们会造成假的未读。
+- `cycle/unread` = `attentionSeq > readSeq`。规则在 daemon,客户端不重新实现。
+- `_cycle/session/mark_read`,参数 `{sessionId, seq}`,响应 `{}`。`readSeq` 取原值和 `seq` 中大的那个,不会倒退;`seq` 大于该 session 的 `lastSeq` 以 `-32602` 拒绝。session 在工作时也接受。
+- 什么时候发由客户端决定:打开 session 且窗口有焦点时,以及回合结束时仍在看它时,发当时收到的最大 `seq`;不是每条更新都发。
+- `cycle/unread` 变化时发 `_cycle/session_list_changed`。
+- 不提供"标为未读":v1 不做(要做时再加,不改 `readSeq` 不倒退的规则)。
 
 ## 7. 附着、历史补发与重连
 
@@ -369,7 +391,9 @@ ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集
 - `seq` 严格递增且连续。读取时发现不连续视为日志损坏,以 `-32015` 报告,不静默跳过。
 - 日志不包含任何凭证。写入前过滤已知的敏感字段。待定:过滤规则。
 
-session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session id、`cwd`、归档标记、标题和创建时间。`lastSeq` 不存在索引里,以日志为准,避免每条记录都改写索引。索引整体写入:先写临时文件再改名,崩溃后留下的是旧索引或新索引,不会是半个。索引存在但无法读取时 daemon 拒绝启动,不覆盖它(决策 0002)。
+session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session id、`cwd`、归档标记、标题、创建时间,以及 `readSeq` 和 `attentionSeq`(§6"已读")。`lastSeq` 和 `updatedAt` 不存在索引里,以日志为准(`updatedAt` 取最后一条非 `meta` 记录的 `ts`),避免每条记录都改写索引。`attentionSeq` 在每条值得看的记录(通常每个 turn 一两条)后改写一次,`readSeq` 每次标记已读改写一次,都不是每条记录一次。daemon 打开 session 时,若 `readSeq` 或 `attentionSeq` 超过日志的 `lastSeq`(崩溃截掉了日志末尾的半行,之后的 seq 会重新分配),把它们压回 `lastSeq`。
+
+从没有这两个字段的旧索引升级时,两个都按 0 算,所以旧 session 不是未读(升级不会让所有旧 session 变成未读);之后第一个值得看的记录才会让它变成未读。索引整体写入:先写临时文件再改名,崩溃后留下的是旧索引或新索引,不会是半个。索引存在但无法读取时 daemon 拒绝启动,不覆盖它(决策 0002)。
 
 日志的写入细节:打开时先把崩溃留下的末尾半行截掉,再追加,否则新记录会接在半行后面,损坏落在文件中间。写入按调用顺序逐条进行,保证序号和文件一致。
 
@@ -383,3 +407,6 @@ session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session
 - 日志的压缩和滚动(上云时再定)。
 - 云端 sandbox 下 daemon 与适配进程的连接方向(见决策 0001)。
 - ACP v2 稳定后,`session/set_title`、`session/archive` 等 unstable 方法是否替换我们的 `_cycle/session/*`。
+- `attentionSeq` 里"值得看"的记录是否还要包括用户取消的 turn(`stopReason: cancelled`)。现在按"都算",因为取消时用户通常在看,客户端会立刻标记已读。
+- `cycle/background` 要不要在 daemon 重启后重建:agent 进程已不在,v1 不重建。
+- 一个后台子 agent 一直不报 `idle`(agent 丢了终态通知)时,`cycle/background` 会一直不为 0,直到 agent 进程退出。v1 不另设超时:后台子 agent 本来就可以活过 turn,所以不能用 turn 结束去清。

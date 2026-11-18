@@ -18,10 +18,17 @@ export type ToolStatus =
   | "failed"
   | "cancelled";
 
-export type UserItem = { kind: "user"; id: string; blocks: Block[] };
-export type AgentItem = { kind: "agent"; id: string; blocks: Block[] };
-export type ThoughtItem = { kind: "thought"; id: string; blocks: Block[] };
-export type ToolItem = {
+/**
+ * Every item says which turn it began in: the number of turns that had ended before it. A turn is what ACP v2 leaves
+ * out (it has only `running` and `idle`), but the daemon's log keeps how each one ended, so it can be told from the
+ * data, in a live stream and in a replay alike, with nothing inferred from the text.
+ */
+type InTurn = { turn: number };
+
+export type UserItem = InTurn & { kind: "user"; id: string; blocks: Block[] };
+export type AgentItem = InTurn & { kind: "agent"; id: string; blocks: Block[] };
+export type ThoughtItem = InTurn & { kind: "thought"; id: string; blocks: Block[] };
+export type ToolItem = InTurn & {
   kind: "tool";
   id: string;
   name?: string;
@@ -49,8 +56,8 @@ export const usageLabel = (usage: Usage): string => {
   return parts.join(" · ");
 };
 
-export type PlanItem = { kind: "plan"; id: string; entries: PlanEntry[] };
-export type NoticeItem = { kind: "notice"; id: string; severity: string; title: string };
+export type PlanItem = InTurn & { kind: "plan"; id: string; entries: PlanEntry[] };
+export type NoticeItem = InTurn & { kind: "notice"; id: string; severity: string; title: string };
 
 export type Item = UserItem | AgentItem | ThoughtItem | ToolItem | PlanItem | NoticeItem;
 
@@ -75,7 +82,8 @@ export type Conversation = {
   status: Status;
   /** Turns that have ended: an idle that says why. A bare idle is a snapshot and is not one. */
   turns: number;
-  lastStop: StopReason | undefined;
+  /** How each ended turn ended: `stops[n]` is turn n's. The turn still going has none. */
+  stops: StopReason[];
   /** True from the start of a replay until `replay_complete`. */
   replaying: boolean;
   usage: Usage | undefined;
@@ -92,7 +100,7 @@ export const emptyConversation = (): Conversation => ({
   items: [],
   status: "idle",
   turns: 0,
-  lastStop: undefined,
+  stops: [],
   replaying: false,
   usage: undefined,
   queue: [],
@@ -192,7 +200,7 @@ const messageUpdate = (
   } else if (update.content !== undefined) {
     blocks = asBlocks(update.content);
   }
-  return { ...c, items: upsert(c.items, { kind, id, blocks }) };
+  return { ...c, items: upsert(c.items, { kind, id, blocks, turn: old?.turn ?? c.turns }) };
 };
 
 const toolUpdate = (c: Conversation, update: Fields): Conversation => {
@@ -201,6 +209,7 @@ const toolUpdate = (c: Conversation, update: Fields): Conversation => {
   const next: ToolItem = {
     kind: "tool",
     id,
+    turn: old?.turn ?? c.turns,
     content: old?.content ?? [],
   };
   const name = patch(old?.name, update.name);
@@ -240,7 +249,7 @@ const stateUpdate = (c: Conversation, update: Fields): Conversation => {
   }
   const stop: StopReason = { stopReason: reason };
   if (update.error !== undefined) stop.error = update.error as StopReason["error"];
-  return { ...c, items, status: "idle", turns: c.turns + 1, lastStop: stop };
+  return { ...c, items, status: "idle", turns: c.turns + 1, stops: [...c.stops, stop] };
 };
 
 /** Applies one `session/update`. Returns a new conversation; the old one is not changed. */
@@ -272,9 +281,15 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
       const plan = u.plan as { type?: string; planId?: string; entries?: PlanEntry[] } | undefined;
       if (plan?.type !== "items" || plan.planId === undefined)
         return { ...c, ignored: c.ignored + 1 };
+      const old = find(c.items, "plan", plan.planId);
       return {
         ...c,
-        items: upsert(c.items, { kind: "plan", id: plan.planId, entries: plan.entries ?? [] }),
+        items: upsert(c.items, {
+          kind: "plan",
+          id: plan.planId,
+          turn: old?.turn ?? c.turns,
+          entries: plan.entries ?? [],
+        }),
       };
     }
     case "notice": {
@@ -283,7 +298,13 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
         ...c,
         items: [
           ...c.items,
-          { kind: "notice", id, severity: String(u.severity), title: String(u.title) },
+          {
+            kind: "notice",
+            id,
+            turn: c.turns,
+            severity: String(u.severity),
+            title: String(u.title),
+          },
         ],
       };
     }

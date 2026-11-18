@@ -7,16 +7,25 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@ui-sdk/react/dialog";
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuContent,
+  MenuItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "@ui-sdk/react/menu";
 import {
   createResizableController,
   Resizable,
   ResizableHandle,
   ResizablePanel,
 } from "@ui-sdk/react/resizable";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { usageLabel } from "../model/index.ts";
+import { sessionList } from "../sessions.ts";
 import { viewKey } from "../store/index.ts";
+import { thinking } from "../thinking.ts";
 import { CodeThemePicker } from "./code-theme-picker.tsx";
 import { Composer } from "./composer.tsx";
 import { ConfigForm } from "./config-form.tsx";
@@ -28,6 +37,7 @@ import {
   NewSessionDialog,
   RenameDialog,
 } from "./dialogs.tsx";
+import { useI18n } from "./i18n.tsx";
 import { ErrorCircleIcon, MoreIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
 import { PermissionCard } from "./permission.tsx";
 import { SearchDialog } from "./search.tsx";
@@ -81,6 +91,8 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
 
 export function App() {
   const store = useAppStore();
+  const { t } = useI18n();
+  const showThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
   const ready = useAppState((s) => s.ready);
   const hosts = useAppState((s) => s.hosts);
   const status = useAppState((s) => s.status);
@@ -92,6 +104,8 @@ export function App() {
   const error = useAppState((s) => s.error);
   const [panel, setPanel] = useState<Panel>("none");
   const [showArchived, setShowArchived] = useState(false);
+  const [sent, setSent] = useState(0);
+  const [showAll, setShowAll] = useState(false);
 
   const sessions = selectedHost !== undefined ? (sessionsByHost[selectedHost] ?? []) : [];
   const agents = selectedHost !== undefined ? (agentsByHost[selectedHost] ?? []) : [];
@@ -111,9 +125,16 @@ export function App() {
   );
   const close = () => setPanel("none");
   const [layout] = useState(createResizableController);
-  const visible = sessions
-    .filter((s) => showArchived || !s.archived)
-    .sort((a, b) => b.lastSeq - a.lastSeq);
+  // The list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
+  const list = useMemo(
+    () => sessionList(sessions, { showArchived, showAll, selected: selectedSession }),
+    [sessions, showArchived, showAll, selectedSession],
+  );
+  // The limit that was lifted was one host's.
+  useEffect(() => {
+    if (selectedHost !== undefined) setShowAll(false);
+  }, [selectedHost]);
+
   const working = view !== undefined && view.conversation.status !== "idle";
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
 
@@ -160,8 +181,8 @@ export function App() {
         const request = view.permissions[0];
         run(() => void store.answerPermission(request.key, firstAllow.optionId));
       } else if (key === "[" || key === "]") {
-        const at = visible.findIndex((s) => s.sessionId === selectedSession);
-        const next = visible[at + (key === "]" ? 1 : -1)];
+        const at = list.order.findIndex((s) => s.sessionId === selectedSession);
+        const next = list.order[at + (key === "]" ? 1 : -1)];
         if (next !== undefined) run(() => void store.selectSession(next.sessionId));
       }
     };
@@ -186,7 +207,7 @@ export function App() {
             hosts={hosts}
             status={status}
             selectedHost={selectedHost}
-            sessions={sessions}
+            list={list}
             selectedSession={selectedSession}
             showArchived={showArchived}
             onSelectHost={(id) => void store.selectHost(id)}
@@ -196,6 +217,7 @@ export function App() {
             onAddHost={() => setPanel("add-host")}
             onRemoveHost={(id) => void store.removeHost(id)}
             onToggleArchived={() => setShowArchived((v) => !v)}
+            onShowAll={() => setShowAll(true)}
             onAgentDefaults={() => setPanel("defaults")}
           >
             <CodeThemePicker />
@@ -253,6 +275,13 @@ export function App() {
                     </MenuTrigger>
                     <MenuContent>
                       <MenuItem value="rename">Rename</MenuItem>
+                      <MenuCheckboxItem
+                        value="thinking"
+                        checked={showThinking}
+                        onCheckedChange={(checked) => thinking.set(checked)}
+                      >
+                        {t("thinking.show")}
+                      </MenuCheckboxItem>
                       <MenuItem value="archive">
                         {session.archived ? "Restore" : "Archive"}
                       </MenuItem>
@@ -266,7 +295,13 @@ export function App() {
               </header>
             ) : null}
             {view !== undefined ? (
-              <ConversationView conversation={view.conversation} loading={view.loading} />
+              <ConversationView
+                key={viewKey(view.hostId, view.sessionId)}
+                sessionKey={viewKey(view.hostId, view.sessionId)}
+                follow={sent}
+                conversation={view.conversation}
+                loading={view.loading}
+              />
             ) : (
               <div data-slot="empty">
                 {hostState === "connected" ? (
@@ -301,13 +336,14 @@ export function App() {
             </div>
             {view !== undefined ? (
               <Composer
-                key={viewKey(view.hostId, view.sessionId)}
+                key={`composer:${viewKey(view.hostId, view.sessionId)}`}
                 hostId={view.hostId}
                 sessionKey={viewKey(view.hostId, view.sessionId)}
                 canAttach={
                   agents.find((a) => a.id === session?.agent)?.promptCapabilities?.image != null
                 }
                 enabled={!view.loading}
+                onSent={() => setSent((n) => n + 1)}
               />
             ) : null}
           </main>

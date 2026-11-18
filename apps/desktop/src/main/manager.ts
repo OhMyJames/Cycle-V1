@@ -5,7 +5,9 @@ import {
   type AgentInfo,
   type AppApi,
   type AppEvent,
+  type Attention,
   applyUpdate,
+  attentionOf,
   type Conversation,
   emptyConversation,
   type FileSearch,
@@ -29,6 +31,16 @@ export type ManagerOptions = {
   backoff?: { first: number; max: number };
   /** The version of this app, to tell a host whose daemon is older. Without it, nothing is said. */
   appVersion?: string;
+  /** A session changed in a way worth telling (it asks, it is done, its agent is gone). Without it, nothing is said. */
+  attention?: (notice: AttentionNotice) => void;
+};
+
+/** What the main process is told when a session that was changing is in a state that wants the person. */
+export type AttentionNotice = {
+  hostId: string;
+  hostName: string;
+  session: SessionSummary;
+  kind: Attention;
 };
 
 type Pending = { request: PermissionRequest; answer: (answer: PermissionAnswer) => void };
@@ -47,6 +59,9 @@ type Connection = {
   sessions: SessionSummary[];
   watched: Map<string, Watched>;
   opening: Map<string, Promise<void>>;
+  /** Counts the rereads of the list, and the newest one applied: an older answer arriving late is not applied over it. */
+  asked: number;
+  applied: number;
 };
 
 const messageOf = (error: unknown): string =>
@@ -117,6 +132,8 @@ export class ConnectionManager
       sessions: [],
       watched: new Map(),
       opening: new Map(),
+      asked: 0,
+      applied: 0,
     };
     connection.client = new CycleClient({
       connect: this.#options.channelFor(host),
@@ -150,7 +167,7 @@ export class ConnectionManager
           };
           this.#options.emit({ type: "host-status", ...connection.status });
           if (state === "connected" && was === "reconnecting") {
-            void this.#refreshSessions(hostId, connection).catch(() => undefined);
+            void this.#refreshSessions(hostId, connection, true).catch(() => undefined);
           }
         },
       },
@@ -201,7 +218,17 @@ export class ConnectionManager
     return this.#refreshSessions(hostId, this.#connection(hostId));
   }
 
-  async #refreshSessions(hostId: string, connection: Connection): Promise<SessionSummary[]> {
+  /**
+   * Reads the session list and tells the renderer. `afterOutage`: the connection was away, so a session that went from
+   * working to stopped may only have been released while nobody watched, and what finished is old news: only a session
+   * that is asking (and is still asking) is told.
+   */
+  async #refreshSessions(
+    hostId: string,
+    connection: Connection,
+    afterOutage = false,
+  ): Promise<SessionSummary[]> {
+    const asked = ++connection.asked;
     const rows = await connection.client.listSessions();
     const sessions = rows.map((row): SessionSummary => {
       const meta = (row._meta ?? {}) as Record<string, unknown>;
@@ -219,9 +246,35 @@ export class ConnectionManager
           : {}),
       };
     });
+    // An answer to an older question, arriving after the answer to a newer one, would put the list back.
+    if (asked < connection.applied) return connection.sessions;
+    connection.applied = asked;
+    const before = new Map(connection.sessions.map((s) => [s.sessionId, s]));
     connection.sessions = sessions;
     this.#options.emit({ type: "sessions", hostId, sessions });
+    this.#tell(hostId, before, sessions, afterOutage);
     return sessions;
+  }
+
+  /** What changed since the list before is what the person may want to be told. A hook that fails must not break the list. */
+  #tell(
+    hostId: string,
+    before: ReadonlyMap<string, SessionSummary>,
+    sessions: readonly SessionSummary[],
+    afterOutage: boolean,
+  ): void {
+    const attention = this.#options.attention;
+    if (attention === undefined) return;
+    const hostName = this.#hosts.find((h) => h.id === hostId)?.name ?? hostId;
+    for (const session of sessions) {
+      const kind = attentionOf(before.get(session.sessionId), session);
+      if (kind === undefined || (afterOutage && kind !== "needs-you")) continue;
+      try {
+        attention({ hostId, hostName, session, kind });
+      } catch {
+        // A notification that cannot be shown is a notification missed, not a list that cannot be read.
+      }
+    }
   }
 
   async createSession(hostId: string, params: NewSession): Promise<string> {

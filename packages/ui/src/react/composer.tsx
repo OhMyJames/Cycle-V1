@@ -36,6 +36,8 @@ export type ComposerProps = {
   enabled: boolean;
   /** The agent takes images in a prompt: the person may attach them. Without it the controls are not there. */
   canAttach?: boolean;
+  /** A message was sent from the box (not yet known to have arrived): the conversation follows it. */
+  onSent?: () => void;
 };
 
 /** How long after the last key the files are asked for. */
@@ -59,7 +61,13 @@ const previewOf = (prompt: QueuedPrompt): { text: string; images: number } => ({
   images: prompt.prompt.filter((b) => b.type === "image").length,
 });
 
-export function Composer({ hostId, sessionKey, enabled, canAttach = false }: ComposerProps) {
+export function Composer({
+  hostId,
+  sessionKey,
+  enabled,
+  canAttach = false,
+  onSent,
+}: ComposerProps) {
   const { t, number } = useI18n();
   const store = useAppStore();
   const draft = useSyncExternalStore(store.drafts.subscribe, () => store.drafts.get(sessionKey));
@@ -71,8 +79,6 @@ export function Composer({ hostId, sessionKey, enabled, canAttach = false }: Com
   const capabilities = useAppState((s) => s.status[hostId]?.capabilities);
   const canQueue = capabilities?.queue === true;
   const canFind = capabilities?.files === true;
-  // Counts the sends: an image still being read when the message goes out belongs to that message, not to the next one.
-  const sent = useRef(0);
   const recalled = useRef<Recall>(NOT_RECALLING);
   const [problem, setProblem] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
@@ -207,7 +213,8 @@ export function Composer({ hostId, sessionKey, enabled, canAttach = false }: Com
   /** Adds what can be added, one by one, by the limits of a prompt; says why for the first that cannot. */
   const attach = async (files: File[]) => {
     if (!canAttach || files.length === 0) return;
-    const generation = sent.current;
+    // An image still being read when the message goes out, or the session goes, is not for what is written next.
+    const generation = store.drafts.generation(sessionKey);
     // The list as it is now, for the code that waits (reading a file) between looking and adding: two images pasted in
     // a row must both stay, and a list captured when the first began would lose the first.
     const now = () => store.drafts.get(sessionKey).attachments;
@@ -222,7 +229,7 @@ export function Composer({ hostId, sessionKey, enabled, canAttach = false }: Com
       try {
         const data = await toBase64(file);
         // The message was sent while this was being read: the image is no longer for a message that is still being written.
-        if (sent.current !== generation) return;
+        if (store.drafts.generation(sessionKey) !== generation) return;
         const bytes = base64Bytes(data) ?? file.size;
         if (!isImageType(file.type)) continue;
         // Another add may have finished while this one was reading: the limits are held to the list as it is now.
@@ -244,9 +251,9 @@ export function Composer({ hostId, sessionKey, enabled, canAttach = false }: Com
 
   const send = async () => {
     if (!canSend) return;
-    sent.current += 1;
     recalled.current = NOT_RECALLING;
     setProblem(undefined);
+    onSent?.();
     await store.send();
   };
 
