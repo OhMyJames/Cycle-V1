@@ -22,6 +22,8 @@ export const META = {
   unread: "cycle/unread",
   /** In a `session/list` row: how many background sub-agents are still running. Absent when none. */
   background: "cycle/background",
+  /** In a session/list row, and in the state_update a client opens a session with: true once the session's history could not be written (docs/protocol.md section 12). Absent otherwise. */
+  historyFailed: "cycle/historyFailed",
   /** In a `subagent_update`: what the adapter says of the task beyond ACP's fields (decision 0014). */
   subagent: "cycle/subagent",
   /** In a `session/list` row: the context the session uses and what it has cost (`SessionUsageSchema`). */

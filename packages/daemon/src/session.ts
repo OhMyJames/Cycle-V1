@@ -35,6 +35,9 @@ export type Pending = {
   resolve: (outcome: unknown) => void;
 };
 
+/** What a client is told when the history cannot be written: the detail stays in the daemon's own error. */
+export const HISTORY_NOT_SAVED = "The session's history cannot be saved, so the turn was stopped";
+
 export type SessionStatus = "running" | "idle" | "requires_action" | "stopped";
 
 /** What the daemon holds for a session while it is loaded. */
@@ -58,6 +61,13 @@ export class Session {
    * background. In memory only: when the agent process goes, so do they.
    */
   readonly #subagents = new Map<string, boolean>();
+  /**
+   * Why the session's history can no longer be written, once a write has failed. A turn that
+   * cannot be saved is not run on: the session refuses new ones, and its agent is cancelled.
+   */
+  historyError: string | undefined;
+  /** Set when the daemon lets the session go (deleted, or the daemon stops): a log closed then is not a failed one. */
+  closed = false;
   /** Set while an agent process is being started, so two prompts do not start two. */
   starting: Promise<AgentLink> | undefined;
 
@@ -129,6 +139,7 @@ export class Session {
     return {
       sessionUpdate: "state_update",
       state: status === "stopped" ? "idle" : status,
+      ...(this.historyError !== undefined ? { _meta: { [META.historyFailed]: true } } : {}),
     } as SessionUpdate;
   }
 }
