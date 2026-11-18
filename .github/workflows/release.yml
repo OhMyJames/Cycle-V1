@@ -125,6 +125,15 @@ jobs:
           security find-identity -v -p codesigning
           echo "CYCLE_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
 
+      - name: Where the keychain stands (diagnostic)
+        if: env.SIGN == 'true' && env.APPLE_NOTARY_PROFILE != ''
+        run: |
+          echo "user: $(id -un)  session: $(launchctl managername 2>&1)"
+          echo "search list:"; security list-keychains -d user
+          echo "default: $(security default-keychain -d user)"
+          security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" 2>&1 || true
+          security find-identity -v -p codesigning | sed -E 's/^( *[0-9]+\) )[0-9A-F]{40}/\1<hash>/'
+
       - name: Sign
         if: env.SIGN == 'true'
         env:
