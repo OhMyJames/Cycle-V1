@@ -1,10 +1,12 @@
 // The app's entry. Everything is in app.ts; this says where things are.
 import { execFile, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RELEASE_REPO } from "../shared/release.ts";
 import { startApp } from "./app.ts";
+import { localHome } from "./home.ts";
 import { BUILD_FILE, daemonCommand, loginShellPath } from "./layout.ts";
 import { SWAP_SCRIPT, verifySameTeam } from "./updater.ts";
 
@@ -40,12 +42,14 @@ const main = async () => {
     arch: process.arch,
     exists: existsSync,
   });
+  const dataHome = localHome({ packaged, env, home: homedir() });
   const localEnv = {
     PATH: path ?? env.PATH ?? "",
     ...(env.HOME !== undefined ? { HOME: env.HOME } : {}),
     ...(env.LANG !== undefined ? { LANG: env.LANG } : {}),
-    // Where the daemon keeps its data, if the user chose.
-    ...(env.CYCLE_HOME !== undefined ? { CYCLE_HOME: env.CYCLE_HOME } : {}),
+    // Where the daemon keeps its data: what the person chose, else (a run from source) a directory of its own,
+    // else the daemon's default, which is the installed app's.
+    ...(dataHome !== undefined ? { CYCLE_HOME: dataHome } : {}),
   };
   await startApp({
     rendererDir: join(here, "renderer"),

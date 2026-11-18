@@ -59,7 +59,7 @@ bun apps/daemon/src/main.ts serve  [--data-dir <dir>] [--socket <path>]   # 前�
 bun apps/daemon/src/main.ts proxy  [--data-dir <dir>] [--socket <path>]   # stdin/stdout 接到 socket;daemon 没在运行就先启动它
 ```
 
-- 数据目录默认 `$CYCLE_HOME` 或 `~/.cycle`;socket 默认 `<数据目录>/daemon.sock`。
+- 数据目录默认 `$CYCLE_HOME` 或 `~/.cycle`(桌面应用从源码运行时给它的是 `~/.cycle-dev`,见 [desktop.md](desktop.md));socket 默认 `<数据目录>/daemon.sock`。
 - `proxy` 启动的 daemon 是脱离的(`detached`),不随 ssh 连接结束,所以连接断了 session 照常运行。
 - 同一个 socket 上只能有一个 daemon(`serve` 发现已有进程在监听就以退出码 3 退出);进程异常退出留下的 socket 文件会被清掉。
 - daemon 在数据目录里写 `daemon.pid`。

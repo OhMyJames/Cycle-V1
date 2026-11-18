@@ -7,6 +7,10 @@
 //   bun run test:integration            all of them
 //   bun run test:integration smoke      only those whose name contains "smoke"
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 const root = new URL("..", import.meta.url).pathname;
 
 type Suite = { name: string; cwd: string; file: string; seconds: number; needs?: string };
@@ -59,8 +63,30 @@ if (chosen.length === 0) {
   process.exit(2);
 }
 
+// Every temporary directory a suite makes is under this run's own: a process that a killed suite leaves
+// behind has it in its command line, so it is found by that and by nothing else. Another checkout's run, or
+// the person's own app, is not matched by a pattern that happens to look like it.
+const scratch = mkdtempSync(join(tmpdir(), "cv1-run-"));
+const cleanUp = () => {
+  Bun.spawnSync(["pkill", "-9", "-f", scratch]);
+  rmSync(scratch, { recursive: true, force: true });
+};
+process.on("SIGINT", () => {
+  cleanUp();
+  process.exit(130);
+});
+process.on("SIGTERM", () => {
+  cleanUp();
+  process.exit(143);
+});
+
 const run = async (cmd: string[], cwd: string, seconds: number): Promise<number> => {
-  const proc = Bun.spawn(cmd, { cwd: `${root}${cwd}`, stdout: "inherit", stderr: "inherit" });
+  const proc = Bun.spawn(cmd, {
+    cwd: `${root}${cwd}`,
+    stdout: "inherit",
+    stderr: "inherit",
+    env: { ...process.env, TMPDIR: scratch },
+  });
   const timer = setTimeout(() => proc.kill(9), seconds * 1000);
   const code = await proc.exited;
   clearTimeout(timer);
@@ -81,8 +107,9 @@ for (const suite of chosen) {
   const took = ((Date.now() - started) / 1000).toFixed(1);
   results.push(`${code === 0 ? "ok  " : "FAIL"} ${suite.name.padEnd(8)} ${took}s`);
   if (code !== 0) failed = true;
-  // A suite that was killed can leave processes behind: its temporary directories say whose they are.
-  Bun.spawnSync(["pkill", "-9", "-f", "(cv1-(smoke|full|ssh|packaged)|cycle-v1-claude)"]);
+  // A suite that was killed can leave processes behind: this run's directory says whose they are.
+  Bun.spawnSync(["pkill", "-9", "-f", scratch]);
 }
+cleanUp();
 console.log(`\n${results.join("\n")}`);
 process.exit(failed ? 1 : 0);
