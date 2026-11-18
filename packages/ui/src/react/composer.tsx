@@ -40,6 +40,15 @@ export function Composer({ enabled, working, canAttach = false, onSend, onStop }
   const { t, number } = useI18n();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // The list as it is now, for the code that waits (reading a file) between looking and adding: two images pasted in a row
+  // must both stay, and a list captured when the first began would lose the first.
+  const current = useRef<Attachment[]>([]);
+  // Counts the sends: an image still being read when the message goes out belongs to that message, not to the next one.
+  const sent = useRef(0);
+  const commit = (next: Attachment[]) => {
+    current.current = next;
+    setAttachments(next);
+  };
   const [problem, setProblem] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
@@ -68,38 +77,46 @@ export function Composer({ enabled, working, canAttach = false, onSend, onStop }
   /** Adds what can be added, one by one, by the limits of a prompt; says why for the first that cannot. */
   const attach = async (files: File[]) => {
     if (!canAttach || files.length === 0) return;
-    let have = attachments;
+    const generation = sent.current;
     let first: string | undefined;
     for (const file of files) {
       const next = { name: file.name, type: file.type, bytes: file.size };
-      const refused = canAdd(have, next);
+      const refused = canAdd(current.current, next);
       if (refused !== undefined) {
         first ??= say(refused);
         continue;
       }
       try {
         const data = await toBase64(file);
+        // The message was sent while this was being read: the image is no longer for a message that is still being written.
+        if (sent.current !== generation) return;
         const bytes = base64Bytes(data) ?? file.size;
         if (!isImageType(file.type)) continue;
-        have = [
-          ...have,
+        // Another add may have finished while this one was reading: the limits are held to the list as it is now.
+        const refusedNow = canAdd(current.current, next);
+        if (refusedNow !== undefined) {
+          first ??= say(refusedNow);
+          continue;
+        }
+        commit([
+          ...current.current,
           { id: crypto.randomUUID(), name: file.name, type: file.type, data, bytes },
-        ];
+        ]);
       } catch {
         first ??= t("composer.problem.unreadable", { name: file.name });
       }
     }
-    setAttachments(have);
     setProblem(first);
   };
 
   const send = async () => {
     if (!canSend) return;
-    const sent = { text, attachments };
+    const message = { text, attachments: current.current };
+    sent.current += 1;
     setText("");
-    setAttachments([]);
+    commit([]);
     setProblem(undefined);
-    await onSend(sent.text, sent.attachments);
+    await onSend(message.text, message.attachments);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -161,7 +178,7 @@ export function Composer({ enabled, working, canAttach = false, onSend, onStop }
               <button
                 type="button"
                 aria-label={t("composer.remove", { name: a.name })}
-                onClick={() => setAttachments((all) => all.filter((x) => x.id !== a.id))}
+                onClick={() => commit(current.current.filter((x) => x.id !== a.id))}
               >
                 <CloseIcon size={12} />
               </button>

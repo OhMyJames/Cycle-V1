@@ -317,6 +317,9 @@ export function App() {
         status={status}
         sessions={sessionsByHost}
         onPick={async (hostId, sessionId) => {
+          // An archived session is not in the list unless archived ones are shown: show them, or the pick would select a hidden row.
+          if (sessionsByHost[hostId]?.find((s) => s.sessionId === sessionId)?.archived)
+            setShowArchived(true);
           if (hostId !== selectedHost) await store.selectHost(hostId);
           await store.selectSession(sessionId);
         }}

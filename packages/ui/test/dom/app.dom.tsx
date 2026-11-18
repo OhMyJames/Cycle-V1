@@ -7,7 +7,7 @@ import { codeTheme } from "../../src/code-theme.ts";
 import { applyUpdate, emptyConversation } from "../../src/model/index.ts";
 import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
-import { fakeBridge, idle, text } from "../fake-bridge.ts";
+import { fakeBridge, idle, summary, text } from "../fake-bridge.ts";
 
 afterEach(cleanup);
 
@@ -274,12 +274,16 @@ test("Ctrl or Cmd+Enter allows a pending request, but not while typing in the me
 
 test("the colours of code can be chosen, and the choice is kept", async () => {
   const { user } = await mount();
-  expect(codeTheme.get()).toBe("github");
-  await user.click(await screen.findByRole("combobox", { name: "Code colours" }));
-  await user.click(await screen.findByRole("option", { name: "Catppuccin" }));
-  await waitFor(() => expect(codeTheme.get()).toBe("catppuccin"));
-  expect(localStorage.getItem("cycle-code-theme")).toBe("catppuccin");
-  codeTheme.set("github");
+  try {
+    expect(codeTheme.get()).toBe("github");
+    await user.click(await screen.findByRole("combobox", { name: "Code colours" }));
+    await user.click(await screen.findByRole("option", { name: "Catppuccin" }));
+    await waitFor(() => expect(codeTheme.get()).toBe("catppuccin"));
+    expect(localStorage.getItem("cycle-code-theme")).toBe("catppuccin");
+  } finally {
+    // Global state of the page: whatever happens above, the next test starts from the default.
+    codeTheme.set("github");
+  }
 });
 
 test("Ctrl or Cmd+K searches the sessions by what each shows, and Enter opens the one found", async () => {
@@ -335,6 +339,47 @@ test("images can be attached when the agent takes them, and go with the message 
   ]);
   // The attachment is gone once sent.
   expect(screen.queryByRole("button", { name: "Remove shot.png" })).toBeNull();
+});
+
+test("two images added one right after the other both stay", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          configSchema: {},
+          promptCapabilities: { image: {} },
+        },
+      ];
+    },
+  });
+  await openFirstSession(user);
+  await screen.findByRole("button", { name: "Attach image" });
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+  if (picker === null) throw new Error("no file input");
+  const png = (name: string) =>
+    new File([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])], name, { type: "image/png" });
+  // Not awaited between: the second starts while the first is still being read.
+  await user.upload(picker, png("one.png"));
+  await user.upload(picker, png("two.png"));
+  expect(await screen.findByRole("button", { name: "Remove one.png" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Remove two.png" })).toBeTruthy();
+});
+
+test("a session found by the search that is archived is shown, not selected out of sight", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.sessions = async () => [{ ...summary("s1"), archived: true }];
+    },
+  });
+  const mod = /Mac/.test(navigator.userAgent) ? "Meta" : "Control";
+  await user.keyboard(`{${mod}>}k{/${mod}}`);
+  await user.type(await screen.findByRole("combobox", { name: "Search sessions" }), "work");
+  await user.keyboard("{Enter}");
+  // The list now includes the archived session, and it is the selected one.
+  expect(await screen.findByRole("option", { name: /work/ })).toBeTruthy();
 });
 
 test("a file that is not an image the agent takes is refused with the reason, and nothing is attached", async () => {
