@@ -1,6 +1,13 @@
 import { Button } from "@ui-sdk/react/button";
 import { Textarea } from "@ui-sdk/react/textarea";
-import { type ClipboardEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
+import {
+  type ClipboardEvent,
+  type KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   ATTACHMENT_LIMITS,
   type Attachment,
@@ -10,6 +17,7 @@ import {
   IMAGE_TYPES,
   isImageType,
 } from "../attachments.ts";
+import type { DraftStore } from "../drafts.ts";
 import { useI18n } from "./i18n.tsx";
 import { AttachIcon, CloseIcon } from "./icons.tsx";
 
@@ -20,7 +28,11 @@ export type ComposerProps = {
   working: boolean;
   /** The agent takes images in a prompt: the person may attach them. Without it the controls are not there. */
   canAttach?: boolean;
-  onSend: (text: string, attachments: Attachment[]) => void | Promise<void>;
+  /** What is written in the box, and the images attached, kept for each session (drafts.ts). */
+  drafts: DraftStore;
+  /** Names the session the box is for. The box is made again for another, so its own state does not carry over. */
+  draftKey: string;
+  onSend: (text: string, attachments: readonly Attachment[]) => void | Promise<void>;
   onStop: () => void | Promise<void>;
 };
 
@@ -36,19 +48,23 @@ const toBase64 = async (file: File): Promise<string> => {
 const imagesOf = (files: FileList | File[] | null | undefined): File[] =>
   Array.from(files ?? []).filter((f) => f.type.startsWith("image/"));
 
-export function Composer({ enabled, working, canAttach = false, onSend, onStop }: ComposerProps) {
+export function Composer({
+  enabled,
+  working,
+  canAttach = false,
+  drafts,
+  draftKey,
+  onSend,
+  onStop,
+}: ComposerProps) {
   const { t, number } = useI18n();
-  const [text, setText] = useState("");
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  // The list as it is now, for the code that waits (reading a file) between looking and adding: two images pasted in a row
-  // must both stay, and a list captured when the first began would lose the first.
-  const current = useRef<Attachment[]>([]);
-  // Counts the sends: an image still being read when the message goes out belongs to that message, not to the next one.
-  const sent = useRef(0);
-  const commit = (next: Attachment[]) => {
-    current.current = next;
-    setAttachments(next);
-  };
+  // The text and the images are the session's draft, kept outside the box: going to another session and back finds them.
+  const draft = useSyncExternalStore(
+    drafts.subscribe,
+    () => drafts.get(draftKey),
+    () => drafts.get(draftKey),
+  );
+  const { text, attachments } = draft;
   const [problem, setProblem] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
@@ -77,11 +93,12 @@ export function Composer({ enabled, working, canAttach = false, onSend, onStop }
   /** Adds what can be added, one by one, by the limits of a prompt; says why for the first that cannot. */
   const attach = async (files: File[]) => {
     if (!canAttach || files.length === 0) return;
-    const generation = sent.current;
+    // What the box is for when the reading starts: the draft of this session, not of whichever is open when it ends.
+    const generation = drafts.generation(draftKey);
     let first: string | undefined;
     for (const file of files) {
       const next = { name: file.name, type: file.type, bytes: file.size };
-      const refused = canAdd(current.current, next);
+      const refused = canAdd(drafts.get(draftKey).attachments, next);
       if (refused !== undefined) {
         first ??= say(refused);
         continue;
@@ -89,19 +106,17 @@ export function Composer({ enabled, working, canAttach = false, onSend, onStop }
       try {
         const data = await toBase64(file);
         // The message was sent while this was being read: the image is no longer for a message that is still being written.
-        if (sent.current !== generation) return;
+        if (drafts.generation(draftKey) !== generation) return;
         const bytes = base64Bytes(data) ?? file.size;
         if (!isImageType(file.type)) continue;
-        // Another add may have finished while this one was reading: the limits are held to the list as it is now.
-        const refusedNow = canAdd(current.current, next);
+        // Another add may have finished while this one was reading: the limits are held to the draft as it is now.
+        const refusedNow = canAdd(drafts.get(draftKey).attachments, next);
         if (refusedNow !== undefined) {
           first ??= say(refusedNow);
           continue;
         }
-        commit([
-          ...current.current,
-          { id: crypto.randomUUID(), name: file.name, type: file.type, data, bytes },
-        ]);
+        const added = { id: crypto.randomUUID(), name: file.name, type: file.type, data, bytes };
+        drafts.update(draftKey, (d) => ({ ...d, attachments: [...d.attachments, added] }));
       } catch {
         first ??= t("composer.problem.unreadable", { name: file.name });
       }
@@ -111,10 +126,8 @@ export function Composer({ enabled, working, canAttach = false, onSend, onStop }
 
   const send = async () => {
     if (!canSend) return;
-    const message = { text, attachments: current.current };
-    sent.current += 1;
-    setText("");
-    commit([]);
+    const message = drafts.get(draftKey);
+    drafts.sent(draftKey);
     setProblem(undefined);
     await onSend(message.text, message.attachments);
   };
@@ -178,7 +191,12 @@ export function Composer({ enabled, working, canAttach = false, onSend, onStop }
               <button
                 type="button"
                 aria-label={t("composer.remove", { name: a.name })}
-                onClick={() => commit(current.current.filter((x) => x.id !== a.id))}
+                onClick={() =>
+                  drafts.update(draftKey, (d) => ({
+                    ...d,
+                    attachments: d.attachments.filter((x) => x.id !== a.id),
+                  }))
+                }
               >
                 <CloseIcon size={12} />
               </button>
@@ -228,7 +246,10 @@ export function Composer({ enabled, working, canAttach = false, onSend, onStop }
           }
           disabled={!enabled}
           value={text}
-          onChange={(event) => setText(event.currentTarget.value)}
+          onChange={(event) => {
+            const value = event.currentTarget.value;
+            drafts.update(draftKey, (d) => ({ ...d, text: value }));
+          }}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
         />

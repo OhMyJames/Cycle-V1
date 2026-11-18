@@ -14,6 +14,7 @@ import type {
   UpdateState,
 } from "../api.ts";
 import type { Attachment } from "../attachments.ts";
+import { createDraftStore } from "../drafts.ts";
 import { applyUpdate, type Conversation, emptyConversation } from "../model/index.ts";
 
 export const viewKey = (hostId: string, sessionId: string): string => `${hostId}:${sessionId}`;
@@ -279,6 +280,9 @@ export class AppStore {
   };
 
   /** Sends a message: its text, and the images attached to it, if any. */
+  /** What is written for each session and not yet sent (drafts.ts). */
+  readonly drafts = createDraftStore();
+
   send = async (text: string, attachments: readonly Attachment[] = []): Promise<void> => {
     const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
     if (hostId === undefined || sessionId === undefined) return;
@@ -323,6 +327,7 @@ export class AppStore {
     if (hostId === undefined) return;
     await this.#attempt(async () => {
       await this.#bridge.deleteSession(hostId, sessionId);
+      this.drafts.forget(viewKey(hostId, sessionId));
       this.#set((s) => {
         const { [viewKey(hostId, sessionId)]: _gone, ...views } = s.views;
         return {
@@ -344,6 +349,7 @@ export class AppStore {
   removeHost = async (hostId: string): Promise<void> => {
     await this.#attempt(async () => {
       await this.#bridge.removeHost(hostId);
+      this.drafts.forgetHost(hostId);
       if (this.#state.selectedHost === hostId) {
         this.#set({ selectedHost: undefined, selectedSession: undefined });
         const next = this.#state.hosts[0];
