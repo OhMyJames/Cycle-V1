@@ -113,7 +113,9 @@ export type AppEvent =
   | { type: "permission"; request: PermissionRequest; version: number }
   | { type: "permission-closed"; hostId: string; sessionId: string; key: string; version: number }
   | { type: "agent-defaults"; hostId: string; agent: string }
-  | { type: "app-update"; state: UpdateState };
+  | { type: "app-update"; state: UpdateState }
+  /** A notification was pressed: show this session. */
+  | { type: "focus-session"; hostId: string; sessionId: string };
 
 export type NewSession = { cwd: string; agent?: string; config?: Record<string, string> };
 

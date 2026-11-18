@@ -152,6 +152,9 @@ export class AppStore {
       case "app-update":
         this.#set({ update: event.state });
         return;
+      case "focus-session":
+        void this.focusSession(event.hostId, event.sessionId);
+        return;
       case "update":
         this.#onSessionEvent(viewKey(event.hostId, event.sessionId), event);
         return;
@@ -263,6 +266,15 @@ export class AppStore {
         }),
       ),
     );
+  };
+
+  /** Shows a session of any host: a notification about it was pressed. */
+  focusSession = async (hostId: string, sessionId: string): Promise<void> => {
+    if (this.#state.selectedHost !== hostId) await this.selectHost(hostId);
+    // The host may have failed to open, or the person may have gone to another meanwhile; and the session may be gone.
+    if (this.#state.selectedHost !== hostId) return;
+    if (!this.#state.sessions[hostId]?.some((s) => s.sessionId === sessionId)) return;
+    await this.selectSession(sessionId);
   };
 
   selectSession = async (sessionId: string): Promise<void> => {
