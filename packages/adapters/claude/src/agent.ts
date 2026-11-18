@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Options, Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
   type AgentContext,
   agent as acpAgent,
@@ -11,7 +11,11 @@ import {
 } from "@cycle/acp";
 import { PlanState, type StopReason, stopReasonOf, TurnTranslator, toolKind } from "./translate.ts";
 
-export type QueryFn = (params: { prompt: string; options: Options }) => Query;
+/** The SDK's `query`, in streaming-input mode: the prompt is a stream, so one process serves many turns. */
+export type QueryFn = (params: {
+  prompt: string | AsyncIterable<SDKUserMessage>;
+  options: Options;
+}) => Query;
 
 export type AdapterConfig = {
   /**
@@ -21,6 +25,13 @@ export type AdapterConfig = {
   env: Record<string, string>;
   /** The SDK's own binary is used when this is absent. */
   claudeExecutable?: string;
+  /**
+   * How long a session's Claude process may sit idle before it is let go (ms). A process is about
+   * 230 MB, and there is one per open session; the next prompt resumes the session. Default 5 minutes.
+   */
+  idleMs?: number;
+  /** How long a cancelled turn may take to stop before its process is killed (ms). Default 3 seconds. */
+  cancelGraceMs?: number;
 };
 
 const PERMISSION_MODES = ["default", "acceptEdits", "plan"] as const;
@@ -32,19 +43,34 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PROPOSED_ID = "cycle/sessionId";
 
 type Turn = {
-  abort: AbortController;
-  query: Query | undefined;
+  translator: TurnTranslator;
+  /** Aborted on cancel: it ends a permission request that is still waiting for an answer. */
+  permissions: AbortController;
   cancelled: boolean;
+  done: boolean;
+  killTimer: ReturnType<typeof setTimeout> | undefined;
+};
+
+/** A Claude process, and the stream that feeds it. It lives for many turns. */
+type Live = {
+  query: Query;
+  abort: AbortController;
+  /** Hands the process a user message. */
+  push: (text: string) => void;
+  /** Ends the input: the process finishes what it is doing and exits. */
+  end: () => void;
+  idle: ReturnType<typeof setTimeout> | undefined;
 };
 
 type SessionState = {
   id: string;
   cwd: string;
-  /** False until the first turn has begun: then the id exists on disk and is resumed, not created. */
+  /** False until a process has started the session: then the id exists on disk and is resumed, not created. */
   started: boolean;
   mode: PermissionMode;
   model: string | undefined;
   turn: Turn | undefined;
+  live: Live | undefined;
   /** The task list, which outlives a turn. */
   plan: PlanState;
 };
@@ -71,12 +97,18 @@ const configOptions = (session: SessionState): SessionConfigOption[] =>
   ] as SessionConfigOption[];
 
 /**
- * An ACP v2 agent over the Claude Agent SDK. One Claude process lives for one turn: the first turn
- * creates the session under the id the daemon proposed, later ones resume it. That costs a start
- * per turn; a long-lived query fed by a stream is the next step, once the mapping is proven.
+ * An ACP v2 agent over the Claude Agent SDK. A session has one Claude process for as long as it is
+ * in use: prompts are pushed into its input stream, so a turn after the first does not pay for a
+ * start (the first costs about a second and a half; the next ones, nothing).
+ *
+ * That is memory held per open session (about 230 MB), so a process that has been idle for
+ * `idleMs` is let go, and the next prompt starts one again with `resume`. A process that dies
+ * does the same. Decision 0007.
  */
 export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
   const sessions = new Map<string, SessionState>();
+  const idleMs = config.idleMs ?? 300_000;
+  const cancelGraceMs = config.cancelGraceMs ?? 3_000;
 
   const notify = (client: AgentContext, sessionId: string, update: SessionUpdate) =>
     client.notify(methods.client.session.update, { sessionId, update });
@@ -89,30 +121,85 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     return session;
   };
 
-  const runTurn = async (
+  /** Lets the session's process go: gracefully, or at once. The next prompt starts another. */
+  const release = (session: SessionState, hard: boolean) => {
+    const live = session.live;
+    if (live === undefined) return;
+    session.live = undefined;
+    clearTimeout(live.idle);
+    live.end();
+    if (hard) live.abort.abort();
+    else setTimeout(() => live.abort.abort(), 2_000).unref?.();
+  };
+
+  /** Ends the turn that is running, once: the usage, then the idle state that tells clients it is over. */
+  const finish = async (
     client: AgentContext,
     session: SessionState,
     turn: Turn,
-    prompt: string,
+    stop: StopReason,
+    usage?: SessionUpdate,
   ) => {
-    const translator = new TurnTranslator(session.plan);
-    let stop: StopReason = { stopReason: "end_turn" };
+    if (turn.done) return;
+    turn.done = true;
+    clearTimeout(turn.killTimer);
+    if (session.turn === turn) session.turn = undefined;
+    if (session.live !== undefined) {
+      clearTimeout(session.live.idle);
+      session.live.idle = setTimeout(() => release(session, false), idleMs);
+      session.live.idle.unref?.();
+    }
     try {
-      // A cancel can arrive before the query starts: then there is nothing to interrupt.
-      if (turn.cancelled) throw new Error("cancelled before it started");
-      const options: Options = {
-        cwd: session.cwd,
-        env: config.env,
-        abortController: turn.abort,
-        includePartialMessages: true,
-        permissionMode: session.mode,
-        ...(session.model !== undefined ? { model: session.model } : {}),
-        ...(config.claudeExecutable !== undefined
-          ? { pathToClaudeCodeExecutable: config.claudeExecutable }
-          : {}),
-        ...(session.started ? { resume: session.id } : { sessionId: session.id }),
-        canUseTool: async (toolName, input, context) => {
-          const outcome = await client.request(
+      if (usage !== undefined && !turn.cancelled) await notify(client, session.id, usage);
+      await notify(client, session.id, {
+        sessionUpdate: "state_update",
+        state: "idle",
+        ...(turn.cancelled ? { stopReason: "cancelled" } : stop),
+      } as SessionUpdate);
+    } catch {
+      // The connection is gone: there is no one to tell.
+    }
+  };
+
+  /** Starts a process for the session. Its messages go to whatever turn is running. */
+  const start = (client: AgentContext, session: SessionState): Live => {
+    const queue: SDKUserMessage[] = [];
+    let wake: (() => void) | undefined;
+    let closed = false;
+    async function* input(): AsyncGenerator<SDKUserMessage> {
+      for (;;) {
+        while (queue.length > 0) yield queue.shift() as SDKUserMessage;
+        if (closed) return;
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+      }
+    }
+    const abort = new AbortController();
+    const options: Options = {
+      cwd: session.cwd,
+      env: config.env,
+      abortController: abort,
+      includePartialMessages: true,
+      permissionMode: session.mode,
+      ...(session.model !== undefined ? { model: session.model } : {}),
+      ...(config.claudeExecutable !== undefined
+        ? { pathToClaudeCodeExecutable: config.claudeExecutable }
+        : {}),
+      ...(session.started ? { resume: session.id } : { sessionId: session.id }),
+      canUseTool: async (toolName, toolInput, context) => {
+        // A cancel ends the question, whether or not the SDK also aborts the signal it gave us.
+        const signal = session.turn
+          ? AbortSignal.any([context.signal, session.turn.permissions.signal])
+          : context.signal;
+        const aborted = new Promise<never>((_, reject) => {
+          if (signal.aborted) reject(new Error("cancelled"));
+          signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+        });
+        aborted.catch(() => undefined);
+        // Raced with the signal: a client that never answers must not hold the turn.
+        const outcome = await Promise.race([
+          client.request(
             methods.client.session.requestPermission,
             {
               sessionId: session.id,
@@ -123,7 +210,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
                   toolCallId: context.toolUseID,
                   name: toolName,
                   kind: toolKind(toolName),
-                  rawInput: input,
+                  rawInput: toolInput,
                 },
               },
               options: [
@@ -131,49 +218,116 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
                 { optionId: "deny", name: "Deny", kind: "reject_once" },
               ],
             } as never,
-            { signal: context.signal } as never,
-          );
-          const decision = (outcome as { outcome: { outcome: string; optionId?: string } }).outcome;
-          if (decision.outcome === "selected" && decision.optionId === "allow") {
-            return { behavior: "allow", updatedInput: input };
-          }
-          return {
-            behavior: "deny",
-            message: decision.outcome === "cancelled" ? "Cancelled" : "The user denied it",
-            ...(decision.outcome === "cancelled" ? { interrupt: true } : {}),
-          };
-        },
-      };
-      const query = runQuery({ prompt, options });
-      turn.query = query;
-      for await (const message of query as AsyncIterable<SDKMessage>) {
-        if (message.type === "system" && message.subtype === "init") session.started = true;
-        for (const update of translator.feed(message)) await notify(client, session.id, update);
-        if (message.type === "result") {
-          const usage = translator.usageOf(message);
-          if (usage !== undefined) await notify(client, session.id, usage);
-          stop = stopReasonOf(message);
+            { signal } as never,
+          ),
+          aborted,
+        ]).catch((error) => {
+          if (signal.aborted) return { outcome: { outcome: "cancelled" } };
+          throw error;
+        });
+        const decision = (outcome as { outcome: { outcome: string; optionId?: string } }).outcome;
+        if (decision.outcome === "selected" && decision.optionId === "allow") {
+          return { behavior: "allow", updatedInput: toolInput };
         }
+        return {
+          behavior: "deny",
+          message: decision.outcome === "cancelled" ? "Cancelled" : "The user denied it",
+          ...(decision.outcome === "cancelled" ? { interrupt: true } : {}),
+        };
+      },
+    };
+    const query = runQuery({ prompt: input(), options });
+    const live: Live = {
+      query,
+      abort,
+      push: (text) => {
+        queue.push({
+          type: "user",
+          message: { role: "user", content: text },
+          parent_tool_use_id: null,
+        } as SDKUserMessage);
+        wake?.();
+      },
+      end: () => {
+        closed = true;
+        wake?.();
+      },
+      idle: undefined,
+    };
+
+    // One loop for the life of the process. Whatever turn is running owns what comes out.
+    void (async () => {
+      let failure: unknown;
+      try {
+        for await (const message of query as AsyncIterable<SDKMessage>) {
+          if (session.live !== live) continue; // let go: nothing it says matters now
+          if (message.type === "system" && message.subtype === "init") session.started = true;
+          const turn = session.turn;
+          if (turn === undefined || turn.done) continue;
+          for (const update of turn.translator.feed(message)) {
+            await notify(client, session.id, update);
+          }
+          if (message.type === "result") {
+            await finish(
+              client,
+              session,
+              turn,
+              stopReasonOf(message),
+              turn.translator.usageOf(message),
+            );
+          }
+        }
+      } catch (error) {
+        failure = error;
       }
+      // The process is gone, whatever the reason. A turn that was waiting on it ends here.
+      if (session.live === live) session.live = undefined;
+      clearTimeout(live.idle);
+      const turn = session.turn;
+      if (turn !== undefined && !turn.done) {
+        await finish(
+          client,
+          session,
+          turn,
+          turn.cancelled
+            ? { stopReason: "cancelled" }
+            : {
+                stopReason: "error",
+                error: {
+                  code: -32603,
+                  message:
+                    failure instanceof Error
+                      ? failure.message
+                      : "The Claude process ended before the turn did",
+                },
+              },
+        );
+      }
+    })();
+    return live;
+  };
+
+  const runTurn = async (client: AgentContext, session: SessionState, turn: Turn, text: string) => {
+    // A cancel can arrive before there is a process: then there is nothing to interrupt.
+    if (turn.cancelled) return finish(client, session, turn, { stopReason: "cancelled" });
+    try {
+      const live = session.live ?? start(client, session);
+      session.live = live;
+      clearTimeout(live.idle);
+      live.push(text);
     } catch (error) {
-      stop = turn.cancelled
-        ? { stopReason: "cancelled" }
-        : {
-            stopReason: "error",
-            error: {
-              code: -32603,
-              message: error instanceof Error ? error.message : String(error),
-            },
-          };
-    } finally {
-      session.turn = undefined;
+      await finish(client, session, turn, {
+        stopReason: "error",
+        error: { code: -32603, message: error instanceof Error ? error.message : String(error) },
+      });
     }
-    if (turn.cancelled) stop = { stopReason: "cancelled" };
-    await notify(client, session.id, {
-      sessionUpdate: "state_update",
-      state: "idle",
-      ...stop,
-    } as SessionUpdate);
+  };
+
+  /** Applies a change to a running process; if it cannot, lets the process go so the next one has it. */
+  const apply = (session: SessionState, change: (query: Query) => Promise<unknown>) => {
+    const live = session.live;
+    if (live === undefined) return;
+    change(live.query).catch(() => release(session, true));
   };
 
   return acpAgent({ name: "cycle-claude-adapter" })
@@ -193,6 +347,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         mode: "default",
         model: undefined,
         turn: undefined,
+        live: undefined,
         plan: new PlanState(),
       };
       sessions.set(id, session);
@@ -215,6 +370,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           mode: "default",
           model: undefined,
           turn: undefined,
+          live: undefined,
           plan: new PlanState(),
         } satisfies SessionState);
       sessions.set(session.id, session);
@@ -233,7 +389,13 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       const messageId = randomUUID();
       // The turn exists from here, before anything is awaited: a cancel or a second prompt that
       // arrives while the first notifications are going out must find it.
-      const turn: Turn = { abort: new AbortController(), query: undefined, cancelled: false };
+      const turn: Turn = {
+        translator: new TurnTranslator(session.plan),
+        permissions: new AbortController(),
+        cancelled: false,
+        done: false,
+        killTimer: undefined,
+      };
       session.turn = turn;
       // The turn goes on after this answers: ACP v2 ends a turn with an idle state_update.
       void (async () => {
@@ -250,19 +412,28 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           await runTurn(client, session, turn, textOf(params.prompt));
         } catch {
           // The connection is gone: there is no one to tell.
-        } finally {
-          if (session.turn === turn) session.turn = undefined;
         }
       })();
       return { messageId };
     })
-    .onNotification(methods.agent.session.cancel, async ({ params }) => {
+    .onNotification(methods.agent.session.cancel, async ({ params, client }) => {
       const session = sessions.get(params.sessionId);
       const turn = session?.turn;
-      if (turn === undefined) return;
+      if (session === undefined || turn === undefined || turn.done) return;
       turn.cancelled = true;
-      await turn.query?.interrupt().catch(() => undefined);
-      turn.abort.abort();
+      turn.permissions.abort();
+      const live = session.live;
+      if (live === undefined) return; // not started yet: runTurn sees the flag
+      // The process stays up: interrupt ends the turn with a result, and the session goes on. If it
+      // does not answer in time, it is killed and the next prompt starts another.
+      turn.killTimer = setTimeout(() => {
+        release(session, true);
+        void finish(client, session, turn, { stopReason: "cancelled" });
+      }, cancelGraceMs);
+      await live.query.interrupt().catch(() => {
+        release(session, true);
+        void finish(client, session, turn, { stopReason: "cancelled" });
+      });
     })
     .onRequest(methods.agent.session.setConfigOption, ({ params }) => {
       const session = require(params.sessionId);
@@ -272,8 +443,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           throw new RequestError(-32602, "Unknown permission mode", { value });
         }
         session.mode = value as PermissionMode;
+        apply(session, (query) => query.setPermissionMode(session.mode));
       } else if (params.configId === "model" && typeof value === "string") {
         session.model = value;
+        apply(session, (query) => query.setModel(value));
       } else {
         throw new RequestError(-32602, "Unknown configuration option", {
           configId: params.configId,
@@ -285,8 +458,9 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       const session = sessions.get(params.sessionId);
       if (session?.turn) {
         session.turn.cancelled = true;
-        session.turn.abort.abort();
+        session.turn.permissions.abort();
       }
+      if (session) release(session, true);
       sessions.delete(params.sessionId);
       return {};
     });

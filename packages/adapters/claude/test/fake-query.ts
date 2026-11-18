@@ -1,6 +1,6 @@
-import type { Options, Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
-/** What `fakeQuery` was called with, so a test can see the options the adapter chose. */
+/** What a turn is asked to do: the text of the user message that began it, and the options of its query. */
 export type Call = { prompt: string; options: Options };
 
 const delta = (index: number, text: string) =>
@@ -27,32 +27,109 @@ export const textTurn = (sessionId: string, messageId: string, text: string): SD
     { type: "result", subtype: "success", stop_reason: "end_turn", session_id: sessionId },
   ] as unknown as SDKMessage[];
 
-/** A stand-in for the SDK's `query` that plays back messages and records its calls. */
+const textOfInput = (message: SDKUserMessage): string => {
+  const content = (message.message as { content: unknown }).content;
+  if (typeof content === "string") return content;
+  return (content as { type: string; text?: string }[]).map((b) => b.text ?? "").join("");
+};
+
+/**
+ * A stand-in for the SDK's `query` in streaming-input mode, like the real one: the process lives as
+ * long as the input does, each pushed user message gets one scripted turn, `interrupt` ends the turn
+ * that is running with an error result and leaves the process up, and an abort or `kill` ends the
+ * stream with an error.
+ */
 export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessage[]>) => {
+  /** One entry per query started: the first prompt it was given, and its options. */
   const calls: Call[] = [];
-  const state = { interrupts: 0 };
-  const run = (call: Call): Query => {
-    calls.push(call);
-    let interrupted = false;
-    const signal = call.options.abortController?.signal;
-    const aborted = new Promise<never>((_, reject) => {
+  /** Every user message pushed, in order. */
+  const prompts: string[] = [];
+  const state = {
+    interrupts: 0,
+    permissionModes: [] as string[],
+    models: [] as (string | undefined)[],
+    /** Make `setPermissionMode` and `setModel` throw, as they do on a process that is gone. */
+    failSetters: false,
+    /** `interrupt` does nothing, as for a process that has hung. */
+    ignoreInterrupt: false,
+    /** Makes the newest query's stream end with an error, as if its process had died. */
+    kill: (_error?: Error): void => undefined,
+    /** True when the newest query's input was closed (the adapter let it go). */
+    inputClosed: false,
+  };
+  const run = (params: {
+    prompt: string | AsyncIterable<SDKUserMessage>;
+    options: Options;
+  }): Query => {
+    const { options } = params;
+    const input =
+      typeof params.prompt === "string"
+        ? (async function* () {
+            yield {
+              type: "user",
+              message: { role: "user", content: params.prompt },
+            } as SDKUserMessage;
+          })()
+        : params.prompt;
+    state.inputClosed = false;
+    // An interrupt that arrives before the process has picked the message up is not lost.
+    let interruptedEarly = false;
+    let interrupt: () => void = () => {
+      interruptedEarly = true;
+    };
+    const signal = options.abortController?.signal;
+    const ended = new Promise<never>((_, reject) => {
       signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      state.kill = (error) => reject(error ?? new Error("the Claude process died"));
     });
+    ended.catch(() => undefined);
+
     const iterator = (async function* () {
-      // Like the SDK: an abort while waiting ends the iteration with an error.
-      const messages = await Promise.race([Promise.resolve(turns(call)), aborted]);
-      for (const message of messages) {
-        if (interrupted) return;
-        yield message;
+      const next = input[Symbol.asyncIterator]();
+      for (;;) {
+        const pushed = await Promise.race([next.next(), ended]);
+        if (pushed.done) {
+          state.inputClosed = true;
+          return;
+        }
+        const text = textOfInput(pushed.value);
+        prompts.push(text);
+        if (calls.at(-1)?.options !== options) calls.push({ prompt: text, options });
+        const interrupted = new Promise<"interrupted">((resolve) => {
+          interrupt = () => resolve("interrupted");
+          if (interruptedEarly) resolve("interrupted");
+          interruptedEarly = false;
+        });
+        const messages = await Promise.race([
+          Promise.resolve().then(() => turns({ prompt: text, options })),
+          interrupted,
+          ended,
+        ]);
+        if (messages === "interrupted") {
+          yield {
+            type: "result",
+            subtype: "error_during_execution",
+            stop_reason: null,
+          } as unknown as SDKMessage;
+          continue;
+        }
+        for (const message of messages) yield message;
       }
     })();
     return Object.assign(iterator, {
       interrupt: async () => {
         state.interrupts++;
-        interrupted = true;
-        return undefined;
+        if (!state.ignoreInterrupt) interrupt();
+      },
+      setPermissionMode: async (mode: string) => {
+        if (state.failSetters) throw new Error("the process is gone");
+        state.permissionModes.push(mode);
+      },
+      setModel: async (model?: string) => {
+        if (state.failSetters) throw new Error("the process is gone");
+        state.models.push(model);
       },
     }) as unknown as Query;
   };
-  return { calls, run, state };
+  return { calls, prompts, run, state };
 };

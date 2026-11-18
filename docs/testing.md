@@ -61,4 +61,4 @@ CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd packages/daemon test:real    
 ## 还没做的
 
 - 门禁里的步骤是串行的;类型检查和 lint 可以并行,2 核上大约省 2 秒,不值得先做。
-- 适配器每个回合起一个 Claude 进程(约 2 秒),所以集成测试里最慢的是它。改成长驻 query 后,这部分会快很多(见 docs/adapters/claude.md)。
+- 集成测试里最慢的仍然是 Claude 的首次启动(每个 session 一次,约 1.5 秒);后续回合在同一个进程里(决策 0007)。

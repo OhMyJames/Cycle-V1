@@ -85,6 +85,19 @@ test.skipIf(!enabled)(
           console.log("REAL ended:", JSON.stringify(last(updates)));
           expect(last(updates)?.stopReason).toBe("end_turn");
           expect(agentText(updates).toUpperCase()).toContain("PINEAPPLE");
+
+          // The second turn goes to the same process: it should not pay for a start.
+          for (const n of [2, 3]) {
+            const again = idle();
+            const t = Date.now();
+            await agent.request(methods.agent.session.prompt, {
+              sessionId: ID(1),
+              prompt: say("Reply with exactly the single word PINEAPPLE and nothing else."),
+            });
+            await again;
+            console.log(`REAL turn ${n}: ${Date.now() - t} ms (same process)`);
+            expect(last(updates)?.stopReason).toBe("end_turn");
+          }
         },
       );
     } finally {

@@ -6,6 +6,10 @@
 
 验证所用版本:`@anthropic-ai/claude-agent-sdk` 0.3.327,`@agentclientprotocol/sdk` 2.7.0,Bun 1.4.4。验证先用本地模拟的 Anthropic API,之后又用真实模型验证过(见文末)。
 
+## 进程模型
+
+一个 session 一个 Claude 进程(流式输入),空闲 5 分钟释放,取消用 `interrupt`,详见 [决策 0007](../decisions/0007-resident-claude-process.md)。真实模型:首个回合 2.7 秒,同一进程里的后续回合 1.5 秒。一个空闲的进程约 230 MB。
+
 ## 启动与配置
 
 - 入口 `src/main.ts`。所有配置通过环境变量 `CYCLE_ADAPTER_CONFIG`(JSON)传入:`{ env, claudeExecutable? }`。
@@ -23,7 +27,7 @@
 | 流式消息与思考       | 做了 | `agent_message_chunk`、`agent_thought_chunk`                                                                                                                                     |
 | tool call            | 做了 | `tool_call_update`:pending、in_progress、completed 或 failed                                                                                                                     |
 | 权限审批             | 做了 | `canUseTool` 对应 `session/request_permission`,选项为允许一次和拒绝一次                                                                                                          |
-| `session/cancel`     | 做了 | 中断 SDK、取消待决的权限请求,以 `cancelled` 结束                                                                                                                                 |
+| `session/cancel`     | 做了 | `interrupt` 当前回合(进程保留)、取消待决的权限请求,以 `cancelled` 结束;3 秒内没停就杀进程                                                                                        |
 | `session/resume`     | 做了 | 不重放(daemon 管历史);响应前先发状态快照                                                                                                                                         |
 | 权限模式配置         | 做了 | `session/set_config_option` 的 `mode`:default、acceptEdits、plan                                                                                                                 |
 | 模型配置             | 部分 | 能通过 `set_config_option` 设 `model`,但没有可选模型列表                                                                                                                         |
@@ -33,7 +37,6 @@
 
 ## 未做(显式列出,不要悄悄补)
 
-- 长驻 query:现在每个 turn 起一个 Claude 进程,首个 turn 用 `sessionId` 创建,之后用 `resume`。每个 turn 多一次启动,约 1 到 2 秒。映射验证通过后改成流式输入的长驻 query。
 - `config_option_update` 通知:配置变更只在 `set_config_option` 的响应里返回,没有主动通知。
 - `session/list`、`session/delete`:daemon 管理 session 列表和历史。
 - 图片和资源类型的 prompt 内容:只取文本块。

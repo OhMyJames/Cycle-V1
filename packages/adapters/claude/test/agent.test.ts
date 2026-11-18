@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { client, methods, type SessionUpdate } from "@cycle/acp";
-import { createAgent } from "../src/index.ts";
+import { type AdapterConfig, createAgent } from "../src/index.ts";
 import { fakeQuery, textTurn } from "./fake-query.ts";
 
 const ID = "5b0c3a3e-8a52-4d3f-9a0e-1c2d3e4f5a6b";
@@ -13,7 +13,8 @@ const connect = async <T>(
     updates: SessionUpdate[];
     waitForIdle: () => Promise<SessionUpdate>;
   }) => Promise<T>,
-  onPermission?: () => "allow" | "deny" | "cancel",
+  onPermission?: () => "allow" | "deny" | "cancel" | Promise<never>,
+  config: Partial<AdapterConfig> = {},
 ): Promise<T> => {
   const updates: SessionUpdate[] = [];
   const waiting: ((u: SessionUpdate) => void)[] = [];
@@ -25,13 +26,13 @@ const connect = async <T>(
         for (const resolve of waiting.splice(0)) resolve(params.update);
       }
     })
-    .onRequest(methods.client.session.requestPermission, () => {
-      const answer = onPermission?.() ?? "allow";
+    .onRequest(methods.client.session.requestPermission, async () => {
+      const answer = (await onPermission?.()) ?? "allow";
       return answer === "cancel"
         ? { outcome: { outcome: "cancelled" } }
         : { outcome: { outcome: "selected", optionId: answer } };
     });
-  const adapter = createAgent({ env: {} }, runQuery);
+  const adapter = createAgent({ env: {}, ...config }, runQuery);
   return app.connectWith(adapter, async (agent) => {
     await agent.request(methods.agent.initialize, {
       protocolVersion: 2,
@@ -83,24 +84,124 @@ test("a prompt answers at once, then streams, and ends with an idle state_update
   expect(fake.calls[0]?.options.env).toEqual({});
 });
 
-test("the second turn resumes the session instead of creating it", async () => {
+const prompt = async (
+  agent: { request: (...args: never[]) => Promise<unknown> },
+  waitForIdle: () => Promise<SessionUpdate>,
+  text: string,
+) => {
+  const idle = waitForIdle();
+  await ask(agent, methods.agent.session.prompt, {
+    sessionId: ID,
+    prompt: [{ type: "text", text }],
+  });
+  return idle;
+};
+
+const ask = (agent: unknown, method: unknown, params: unknown) =>
+  (agent as { request: (m: unknown, p: unknown) => Promise<unknown> }).request(method, params);
+const tell = (agent: unknown, method: unknown, params: unknown) =>
+  (agent as { notify: (m: unknown, p: unknown) => Promise<void> }).notify(method, params);
+
+const open = (agent: unknown) =>
+  ask(agent, methods.agent.session.new, { cwd: "/work", _meta: { "cycle/sessionId": ID } });
+
+const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("later turns use the same process: one query, many prompts", async () => {
   const fake = fakeQuery(() => textTurn(ID, "msg_1", "Hi there"));
   await connect(fake.run, async ({ agent, waitForIdle }) => {
-    await agent.request(methods.agent.session.new, {
-      cwd: "/work",
-      _meta: { "cycle/sessionId": ID },
-    });
-    for (const text of ["one", "two"]) {
-      const idle = waitForIdle();
-      await agent.request(methods.agent.session.prompt, {
-        sessionId: ID,
-        prompt: [{ type: "text", text }],
-      });
-      await idle;
-    }
+    await open(agent);
+    await prompt(agent as never, waitForIdle, "one");
+    await prompt(agent as never, waitForIdle, "two");
   });
+  expect(fake.calls).toHaveLength(1);
+  expect(fake.prompts).toEqual(["one", "two"]);
+});
+
+test("when the process dies between turns, the next turn starts another and resumes the session", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "msg_1", "Hi there"));
+  await connect(fake.run, async ({ agent, waitForIdle }) => {
+    await open(agent);
+    await prompt(agent as never, waitForIdle, "one");
+    fake.state.kill();
+    await settle(20);
+    await prompt(agent as never, waitForIdle, "two");
+  });
+  expect(fake.calls).toHaveLength(2);
+  expect(fake.calls[0]?.options).toMatchObject({ sessionId: ID });
   expect(fake.calls[1]?.options).toMatchObject({ resume: ID });
   expect(fake.calls[1]?.options.sessionId).toBeUndefined();
+});
+
+test("when the process dies during a turn, that turn ends with an error, and the session goes on", async () => {
+  const fake = fakeQuery((call) =>
+    call.prompt === "one" ? new Promise(() => {}) : textTurn(ID, "m", "ok"),
+  );
+  await connect(fake.run, async ({ agent, waitForIdle }) => {
+    await open(agent);
+    const idle = waitForIdle();
+    await ask(agent, methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "one" }],
+    });
+    await settle(20);
+    fake.state.kill(new Error("the Claude process died"));
+    expect(await idle).toMatchObject({
+      stopReason: "error",
+      error: { message: "the Claude process died" },
+    });
+    expect(await prompt(agent as never, waitForIdle, "two")).toMatchObject({
+      stopReason: "end_turn",
+    });
+  });
+  expect(fake.calls).toHaveLength(2);
+});
+
+test("an idle process is let go, and the next prompt resumes the session", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  await connect(
+    fake.run,
+    async ({ agent, waitForIdle }) => {
+      await open(agent);
+      await prompt(agent as never, waitForIdle, "one");
+      expect(fake.state.inputClosed).toBe(false);
+      await settle(120);
+      expect(fake.state.inputClosed).toBe(true);
+      await prompt(agent as never, waitForIdle, "two");
+    },
+    undefined,
+    { idleMs: 40 },
+  );
+  expect(fake.calls).toHaveLength(2);
+  expect(fake.calls[1]?.options).toMatchObject({ resume: ID });
+});
+
+test("a process in the middle of a turn is not let go for being quiet", async () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fake = fakeQuery(async () => {
+    await gate;
+    return textTurn(ID, "m", "late");
+  });
+  await connect(
+    fake.run,
+    async ({ agent, waitForIdle }) => {
+      await open(agent);
+      const idle = waitForIdle();
+      await ask(agent, methods.agent.session.prompt, {
+        sessionId: ID,
+        prompt: [{ type: "text", text: "slow" }],
+      });
+      await settle(120);
+      expect(fake.state.inputClosed).toBe(false);
+      release();
+      expect(await idle).toMatchObject({ stopReason: "end_turn" });
+    },
+    undefined,
+    { idleMs: 40 },
+  );
 });
 
 test("makes its own id when the proposed one is not a UUID", async () => {
@@ -275,4 +376,130 @@ test("after a cancel the session can take another prompt", async () => {
     });
     expect(await idle).toMatchObject({ stopReason: "end_turn" });
   });
+});
+
+test("a mode or model set while the process runs is sent to it; one that cannot be sent lets the process go", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  await connect(fake.run, async ({ agent, waitForIdle }) => {
+    await open(agent);
+    await prompt(agent as never, waitForIdle, "one");
+    const request = (m: unknown, p: unknown) => ask(agent, m, p);
+    await request(methods.agent.session.setConfigOption, {
+      sessionId: ID,
+      configId: "mode",
+      type: "id",
+      value: "acceptEdits",
+    });
+    await request(methods.agent.session.setConfigOption, {
+      sessionId: ID,
+      configId: "model",
+      type: "id",
+      value: "haiku",
+    });
+    await settle(10);
+    expect(fake.state.permissionModes).toEqual(["acceptEdits"]);
+    expect(fake.state.models).toEqual(["haiku"]);
+    expect(fake.calls).toHaveLength(1);
+
+    fake.state.failSetters = true;
+    await request(methods.agent.session.setConfigOption, {
+      sessionId: ID,
+      configId: "mode",
+      type: "id",
+      value: "plan",
+    });
+    await settle(20);
+    await prompt(agent as never, waitForIdle, "two");
+  });
+  // The second process has the new mode and the model in its options.
+  expect(fake.calls).toHaveLength(2);
+  expect(fake.calls[1]?.options).toMatchObject({
+    permissionMode: "plan",
+    model: "haiku",
+    resume: ID,
+  });
+});
+
+test("a cancel keeps the process: the next prompt goes to the same one", async () => {
+  const fake = fakeQuery((call) =>
+    call.prompt === "first" ? new Promise(() => {}) : textTurn(ID, "m", "ok"),
+  );
+  await connect(fake.run, async ({ agent, waitForIdle }) => {
+    await open(agent);
+    const idle = waitForIdle();
+    const request = (m: unknown, p: unknown) => ask(agent, m, p);
+    await request(methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "first" }],
+    });
+    await settle(20);
+    await tell(agent, methods.agent.session.cancel, { sessionId: ID });
+    expect(await idle).toMatchObject({ stopReason: "cancelled" });
+    expect(await prompt(agent as never, waitForIdle, "second")).toMatchObject({
+      stopReason: "end_turn",
+    });
+  });
+  expect(fake.calls).toHaveLength(1);
+  expect(fake.state.interrupts).toBe(1);
+});
+
+test("a process that ignores the interrupt is killed after the grace period, and the next prompt starts another", async () => {
+  const fake = fakeQuery((call) =>
+    // It has started (init) and then says nothing: a hung process.
+    call.prompt === "first" ? textTurn(ID, "m", "x").slice(0, 1) : textTurn(ID, "m", "ok"),
+  );
+  fake.state.ignoreInterrupt = true;
+  await connect(
+    fake.run,
+    async ({ agent, waitForIdle }) => {
+      await open(agent);
+      const idle = waitForIdle();
+      const request = (m: unknown, p: unknown) => ask(agent, m, p);
+      await request(methods.agent.session.prompt, {
+        sessionId: ID,
+        prompt: [{ type: "text", text: "first" }],
+      });
+      await settle(20);
+      await tell(agent, methods.agent.session.cancel, { sessionId: ID });
+      expect(await idle).toMatchObject({ stopReason: "cancelled" });
+      fake.state.ignoreInterrupt = false;
+      expect(await prompt(agent as never, waitForIdle, "second")).toMatchObject({
+        stopReason: "end_turn",
+      });
+    },
+    undefined,
+    { cancelGraceMs: 50 },
+  );
+  expect(fake.calls).toHaveLength(2);
+  expect(fake.calls[1]?.options).toMatchObject({ resume: ID });
+});
+
+test("a cancel while a permission is waiting for an answer ends the question and the turn", async () => {
+  let asked: Promise<unknown> | undefined;
+  const fake = fakeQuery(async (call) => {
+    asked = call.options.canUseTool?.("Bash", { command: "touch x" }, {
+      signal: new AbortController().signal,
+      toolUseID: "tool_1",
+    } as never);
+    await asked;
+    return textTurn(ID, "m", "done");
+  });
+  await connect(
+    fake.run,
+    async ({ agent, waitForIdle }) => {
+      await open(agent);
+      const idle = waitForIdle();
+      const request = (m: unknown, p: unknown) => ask(agent, m, p);
+      await request(methods.agent.session.prompt, {
+        sessionId: ID,
+        prompt: [{ type: "text", text: "go" }],
+      });
+      await settle(30);
+      await tell(agent, methods.agent.session.cancel, { sessionId: ID });
+      expect(await idle).toMatchObject({ stopReason: "cancelled" });
+      // The question was answered as cancelled, not left hanging.
+      expect(await asked).toMatchObject({ behavior: "deny" });
+    },
+    () => new Promise<never>(() => {}),
+  );
 });
