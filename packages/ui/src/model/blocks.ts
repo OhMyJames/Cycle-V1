@@ -1,0 +1,237 @@
+// How a conversation is laid out: its items, cut into turns, as a column of blocks.
+//
+// A pure function of the conversation, so every rule here is tested without a page. The rules are taken from the earlier
+// Cycle (old-cycle's `acp/blocks.ts`), minus what it needed because that daemon kept no log: here the log keeps how each
+// turn ended, so a turn is read from the data (see `InTurn` in conversation.ts) and not guessed from the text.
+//
+// - What the user and the agent say, a plan and a notice are blocks of their own. They cut a turn into stretches.
+// - The tool calls of one stretch share one block (the view draws a card for two or more, a bare row for one).
+// - In a turn that did not end normally, the failures of its last stretch are pulled out under it, because they may
+//   be why it stopped. Elsewhere the agent dealt with them, and they stay in the card.
+// - Thinking shows only when the person asks for it, and never cuts a stretch.
+// - A turn that did not end normally says how, last.
+// - A turn begins a new group: the view puts more space before it than between blocks.
+import type {
+  AgentItem,
+  Conversation,
+  Item,
+  NoticeItem,
+  PlanItem,
+  StopReason,
+  ThoughtItem,
+  ToolItem,
+  UserItem,
+} from "./conversation.ts";
+
+export type Activity = "run" | "read" | "edit" | "search" | "fetch" | "other";
+
+const BY_NAME: Record<string, Activity> = {
+  Bash: "run",
+  Read: "read",
+  Edit: "edit",
+  MultiEdit: "edit",
+  Write: "edit",
+  NotebookEdit: "edit",
+  Grep: "search",
+  Glob: "search",
+  WebFetch: "fetch",
+  WebSearch: "fetch",
+};
+
+const BY_KIND: Record<string, Activity> = {
+  execute: "run",
+  read: "read",
+  edit: "edit",
+  delete: "edit",
+  move: "edit",
+  search: "search",
+  fetch: "fetch",
+};
+
+/** What a tool call does, by its name (Claude's own) and else by the kind ACP gives it. */
+export const activityOf = (tool: ToolItem): Activity =>
+  BY_NAME[tool.name ?? ""] ?? BY_KIND[tool.toolKind ?? ""] ?? "other";
+
+/** How many calls of each activity, in the order each first appeared. For a card's summary. */
+export const activityCounts = (
+  tools: readonly ToolItem[],
+): { activity: Activity; count: number }[] => {
+  const counts = new Map<Activity, number>();
+  for (const tool of tools) {
+    const activity = activityOf(tool);
+    counts.set(activity, (counts.get(activity) ?? 0) + 1);
+  }
+  return [...counts].map(([activity, count]) => ({ activity, count }));
+};
+
+const FINAL: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"]);
+
+/** A tool call that has not ended. */
+export const isLive = (tool: ToolItem): boolean => !FINAL.has(tool.status ?? "pending");
+
+export type LaidBlock = { key: string; turn: number; startsTurn: boolean } & (
+  | { kind: "user"; item: UserItem }
+  | { kind: "agent"; item: AgentItem }
+  | { kind: "thought"; item: ThoughtItem }
+  | { kind: "plan"; item: PlanItem }
+  | { kind: "notice"; item: NoticeItem }
+  | { kind: "work"; tools: readonly ToolItem[] }
+  /** A failure pulled out from under the card of a turn that stopped. */
+  | { kind: "failed"; tool: ToolItem }
+  /** How a turn that did not end normally ended. */
+  | { kind: "end"; stop: StopReason }
+);
+
+export type BlockOptions = { showThinking: boolean };
+
+/** What a block's kind is, apart from the fields every block has. */
+type Body = LaidBlock extends infer B
+  ? B extends LaidBlock
+    ? Omit<B, "key" | "turn" | "startsTurn">
+    : never
+  : never;
+
+const laidTurn = (
+  turn: number,
+  items: readonly Item[],
+  stop: StopReason | undefined,
+  { showThinking }: BlockOptions,
+): LaidBlock[] => {
+  const out: LaidBlock[] = [];
+  const add = (key: string, body: Body): LaidBlock => {
+    const block = { key, turn, startsTurn: false, ...body } as LaidBlock;
+    out.push(block);
+    return block;
+  };
+  let stretch: { key: string; tools: ToolItem[] } | undefined;
+  for (const item of items) {
+    switch (item.kind) {
+      case "tool": {
+        if (stretch === undefined) {
+          stretch = { key: `work:${item.id}`, tools: [] };
+          add(stretch.key, { kind: "work", tools: stretch.tools });
+        }
+        stretch.tools.push(item);
+        break;
+      }
+      case "thought":
+        // Never cuts a stretch: a thought between two tool calls leaves them in one card.
+        if (showThinking) add(`thought:${item.id}`, { kind: "thought", item });
+        break;
+      default:
+        stretch = undefined;
+        add(`${item.kind}:${item.id}`, { kind: item.kind, item } as Body);
+    }
+  }
+  const stopped = stop !== undefined && stop.stopReason !== "end_turn";
+  if (stopped) {
+    // The last stretch, if nothing was said after it: what failed in it may be why the turn stopped.
+    const last = out.findLast((block) => block.kind !== "thought");
+    if (last?.kind === "work") {
+      const failed = last.tools.filter((tool) => tool.status === "failed");
+      if (failed.length > 0) {
+        const at = out.indexOf(last);
+        const rest = last.tools.filter((tool) => tool.status !== "failed");
+        const pulled = failed.map(
+          (tool): LaidBlock => ({
+            key: `failed:${tool.id}`,
+            turn,
+            startsTurn: false,
+            kind: "failed",
+            tool,
+          }),
+        );
+        const replaced: LaidBlock[] =
+          rest.length > 0
+            ? [{ ...last, key: last.key, tools: rest } as LaidBlock, ...pulled]
+            : pulled;
+        out.splice(at, 1, ...replaced);
+      }
+    }
+    add(`end:${turn}`, { kind: "end", stop });
+  }
+  const first = out[0];
+  if (first !== undefined) first.startsTurn = true;
+  return out;
+};
+
+/** What laying out a turn depended on: if all of it is the same, so is the result, object for object. */
+export type BlockCache = Map<
+  number,
+  {
+    items: readonly Item[];
+    stop: StopReason | undefined;
+    showThinking: boolean;
+    blocks: LaidBlock[];
+  }
+>;
+
+const same = (a: readonly Item[], b: readonly Item[]): boolean =>
+  a.length === b.length && a.every((item, at) => item === b[at]);
+
+/**
+ * The blocks of a conversation, in order. With a `cache`, a turn that has not changed gives back the very blocks it gave
+ * before, so a view that remembers its blocks by identity redraws only the turn that is going.
+ */
+export const blocksOf = (
+  c: Conversation,
+  options: BlockOptions,
+  cache?: BlockCache,
+): LaidBlock[] => {
+  const byTurn = new Map<number, Item[]>();
+  for (const item of c.items) {
+    const items = byTurn.get(item.turn);
+    if (items === undefined) byTurn.set(item.turn, [item]);
+    else items.push(item);
+  }
+  const result: LaidBlock[] = [];
+  // Up to the turn that is going (its number is how many have ended). A turn that ended with nothing in it still says how.
+  for (let turn = 0; turn <= c.stops.length; turn += 1) {
+    const items = byTurn.get(turn) ?? [];
+    const stop = c.stops[turn];
+    if (items.length === 0 && stop === undefined) continue;
+    const cached = cache?.get(turn);
+    let blocks: LaidBlock[];
+    if (
+      cached !== undefined &&
+      cached.stop === stop &&
+      cached.showThinking === options.showThinking &&
+      same(cached.items, items)
+    ) {
+      blocks = cached.blocks;
+    } else {
+      blocks = laidTurn(turn, items, stop, options);
+      cache?.set(turn, { items, stop, showThinking: options.showThinking, blocks });
+    }
+    result.push(...blocks);
+  }
+  return result;
+};
+
+/** What the agent is doing now, for the line at the end of a turn that is going. */
+export type Step =
+  | { kind: "approval" }
+  | { kind: "tool"; tool: ToolItem }
+  | { kind: "thinking" }
+  | { kind: "working" };
+
+/**
+ * Nothing when the turn is over, or when the agent's own text is on its way (that is feedback enough). A thought
+ * that is not shown is still something the person should be told is going on.
+ */
+export const stepOf = (c: Conversation): Step | undefined => {
+  if (c.status === "idle") return undefined;
+  if (c.status === "requires_action") return { kind: "approval" };
+  const last = c.items.at(-1);
+  if (last === undefined || last.turn !== c.turns) return { kind: "working" };
+  switch (last.kind) {
+    case "tool":
+      return isLive(last) ? { kind: "tool", tool: last } : { kind: "working" };
+    case "thought":
+      return { kind: "thinking" };
+    case "agent":
+      return undefined;
+    default:
+      return { kind: "working" };
+  }
+};

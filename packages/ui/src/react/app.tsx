@@ -7,16 +7,24 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@ui-sdk/react/dialog";
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuContent,
+  MenuItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "@ui-sdk/react/menu";
 import {
   createResizableController,
   Resizable,
   ResizableHandle,
   ResizablePanel,
 } from "@ui-sdk/react/resizable";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { usageLabel } from "../model/index.ts";
 import { viewKey } from "../store/index.ts";
+import { thinking } from "../thinking.ts";
 import { CodeThemePicker } from "./code-theme-picker.tsx";
 import { Composer } from "./composer.tsx";
 import { ConfigForm } from "./config-form.tsx";
@@ -28,6 +36,7 @@ import {
   NewSessionDialog,
   RenameDialog,
 } from "./dialogs.tsx";
+import { useI18n } from "./i18n.tsx";
 import { ErrorCircleIcon, MoreIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
 import { PermissionCard } from "./permission.tsx";
 import { SearchDialog } from "./search.tsx";
@@ -81,6 +90,8 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
 
 export function App() {
   const store = useAppStore();
+  const { t } = useI18n();
+  const showThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
   const ready = useAppState((s) => s.ready);
   const hosts = useAppState((s) => s.hosts);
   const status = useAppState((s) => s.status);
@@ -249,6 +260,13 @@ export function App() {
                     </MenuTrigger>
                     <MenuContent>
                       <MenuItem value="rename">Rename</MenuItem>
+                      <MenuCheckboxItem
+                        value="thinking"
+                        checked={showThinking}
+                        onCheckedChange={(checked) => thinking.set(checked)}
+                      >
+                        {t("thinking.show")}
+                      </MenuCheckboxItem>
                       <MenuItem value="archive">
                         {session.archived ? "Restore" : "Archive"}
                       </MenuItem>
@@ -262,7 +280,11 @@ export function App() {
               </header>
             ) : null}
             {view !== undefined ? (
-              <ConversationView conversation={view.conversation} loading={view.loading} />
+              <ConversationView
+                key={viewKey(view.hostId, view.sessionId)}
+                conversation={view.conversation}
+                loading={view.loading}
+              />
             ) : (
               <div data-slot="empty">
                 {hostState === "connected" ? (

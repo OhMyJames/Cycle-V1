@@ -23,6 +23,8 @@ export type Translator = {
   t: (key: string, params?: Params & { count?: number }) => string;
   /** A number as this locale writes it. */
   number: (value: number, options?: Intl.NumberFormatOptions) => string;
+  /** Items joined as this locale writes a list: "a, b and c". */
+  list: (items: readonly string[]) => string;
   /** A date and time as this locale writes it. */
   date: (value: Date | number, options?: Intl.DateTimeFormatOptions) => string;
 };
@@ -46,6 +48,8 @@ export const createTranslator = (
     locale,
     t,
     number: (value, options) => new Intl.NumberFormat(locale, options).format(value),
+    list: (items) =>
+      new Intl.ListFormat(locale, { type: "conjunction", style: "long" }).format(items),
     date: (value, options) => new Intl.DateTimeFormat(locale, options).format(value),
   };
 };
