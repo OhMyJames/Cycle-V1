@@ -16,8 +16,15 @@ import {
   CYCLE_PROTOCOL_VERSION,
   CycleErrorCode,
   checkPrompt,
+  filesSearch,
   META,
   NOTIFICATIONS,
+  promptDequeue,
+  QUEUE_LIMIT,
+  QUEUE_UPDATE,
+  type QueueEntry,
+  type QueueReason,
+  QueueUpdateSchema,
   ReplayFromSeqSchema,
   SessionUsageSchema,
   sessionArchive,
@@ -34,17 +41,19 @@ import {
   INTERNAL_ERROR,
   INVALID_PARAMS,
   logUnavailable,
+  queueFull,
   RESOURCE_NOT_FOUND,
   RpcError,
   sessionBusy,
   sessionNotFound,
   UNSUPPORTED_VERSION,
 } from "./errors.ts";
+import { searchFiles } from "./files.ts";
 import { type SessionEntry, SessionIndex } from "./index-file.ts";
 import { BlobLogStore } from "./log/blobs.ts";
 import { JsonlLogStore } from "./log/jsonl.ts";
 import { attach } from "./log/replay.ts";
-import type { LogRecord, LogStore, NewRecord } from "./log/types.ts";
+import type { LogRecord, LogStore, NewRecord, SessionLog } from "./log/types.ts";
 import {
   type Attachment,
   type ClientConn,
@@ -116,6 +125,7 @@ export class Daemon {
   readonly #loading = new Map<string, Promise<Session>>();
   readonly #conns = new Set<ClientConn>();
   #counter = 0;
+  #closing = false;
 
   private constructor(options: DaemonOptions, index: SessionIndex, defaults: AgentDefaults) {
     this.#version = options.version ?? "dev";
@@ -169,6 +179,8 @@ export class Daemon {
   }
 
   async close(): Promise<void> {
+    // Stopping the agents is not a reason to hand anything back: what waits stays for the next start.
+    this.#closing = true;
     for (const session of this.#sessions.values()) {
       session.closed = true;
       session.link?.kill();
@@ -241,6 +253,8 @@ export class Daemon {
     const load = (async () => {
       const log = await this.#store.open(sessionId);
       const session = new Session(sessionId, entry, log);
+      // The queue is the last snapshot in the log; the index says whether there is anything to look for.
+      if (entry.queued === true) session.queue = await this.#queueIn(log);
       this.#clamp(session);
       this.#watch(session);
       this.#sessions.set(sessionId, session);
@@ -340,6 +354,97 @@ export class Daemon {
     void this.#write(session, { kind: "update", data: update }).then((written) => {
       if (written && announce) this.#changed();
     });
+    // A turn ended (an idle that says why, not a snapshot): the next prompt goes, or the queue is handed back.
+    const ended = update as { sessionUpdate: string; state?: string; stopReason?: unknown };
+    if (
+      ended.sessionUpdate === "state_update" &&
+      ended.state === "idle" &&
+      typeof ended.stopReason === "string" &&
+      session.queue.length > 0
+    ) {
+      if (ended.stopReason === "end_turn") this.#dispatchNext(session);
+      else
+        void this.#returnQueue(session, ended.stopReason === "cancelled" ? "cancelled" : "error");
+    }
+  }
+
+  // ---- the queue (docs/protocol.md §8) ----
+
+  /** The queue as the last snapshot in a log left it. */
+  async #queueIn(log: SessionLog): Promise<QueueEntry[]> {
+    const records = await log.read();
+    for (let i = records.length - 1; i >= 0; i--) {
+      const record = records[i];
+      if (record?.kind !== "update") continue;
+      const parsed = QueueUpdateSchema.safeParse(record.data);
+      if (parsed.success) return parsed.data.entries;
+    }
+    return [];
+  }
+
+  /** Writes the queue as it is now, with what was handed back by this change, if anything. */
+  #publishQueue(session: Session, back?: { returned: QueueEntry[]; reason: QueueReason }): void {
+    const queued = session.queue.length > 0;
+    if ((session.entry.queued === true) !== queued) {
+      this.#remember(session, { queued: queued ? true : undefined } as Partial<SessionEntry>);
+    }
+    void this.#write(session, {
+      kind: "update",
+      data: {
+        sessionUpdate: QUEUE_UPDATE,
+        entries: session.queue,
+        ...(back !== undefined ? back : {}),
+      },
+    }).then((written) => {
+      if (written) this.#changed();
+    });
+  }
+
+  /**
+   * Hands everything waiting back, to be put in the input box. Nothing is sent. A client acts on
+   * what is handed back only when it is there to be told, so with no client attached the queue
+   * stays, and is handed back, for the same reason, when one attaches. `force` is for that.
+   */
+  #returnQueue(session: Session, reason: QueueReason, force = false): void {
+    if (session.queue.length === 0 || this.#closing) return;
+    if (!force && session.attachments.size === 0) {
+      session.heldReason ??= reason;
+      return;
+    }
+    const returned = session.queue;
+    session.queue = [];
+    session.heldReason = undefined;
+    this.#publishQueue(session, { returned, reason });
+  }
+
+  /** A queue left behind with no turn to send it: the reason it was held, or a restart's. */
+  #returnStale(session: Session): void {
+    const status = session.status();
+    if (status !== "idle" && status !== "stopped") return;
+    this.#returnQueue(session, session.heldReason ?? "interrupted", true);
+  }
+
+  /** The oldest queued prompt goes to the agent, as the turn before it ended well. */
+  #dispatchNext(session: Session): void {
+    const next = session.queue.shift();
+    if (next === undefined) return;
+    this.#publishQueue(session);
+    session.agentState = "running";
+    this.#send(session, next.prompt).catch(() => {
+      session.agentState = "idle";
+      // It did not go, and what was behind it must not go past it: all of it is handed back, in order.
+      session.queue.unshift(next);
+      this.#returnQueue(session, "error");
+    });
+  }
+
+  /** Gives a prompt to the agent, starting it if it is not running. */
+  async #send(session: Session, prompt: unknown[]): Promise<unknown> {
+    const link = await this.#ensureAgent(session);
+    return link.agent.request(methods.agent.session.prompt, {
+      sessionId: session.entry.agentSessionId,
+      prompt,
+    } as never);
   }
 
   /**
@@ -665,6 +770,8 @@ export class Daemon {
       session.agentState = "idle";
       this.#endTurnWithError(session, CycleErrorCode.AgentExited, "The agent exited");
     }
+    // What waits for an agent that is gone is handed back, after the idle that says why.
+    this.#returnQueue(session, "error");
     this.#changed();
   }
 
@@ -762,6 +869,8 @@ export class Daemon {
             replay: ["start", "_cycle.seq"],
             agents: [...this.#agents.keys()],
             sessionOps: ["archive", "rename", "delete", "markRead"],
+            queue: true,
+            files: true,
           },
         },
       } as never;
@@ -928,6 +1037,9 @@ export class Daemon {
       }
       // Requests still waiting from before are asked of this client too.
       for (const pending of session.pending.values()) this.#offer(session, pending, attachment);
+      // A queue with no turn behind it was cut short by a restart. It is handed back now, after the
+      // replay and the snapshot, so the client that attached is told while it is listening.
+      this.#returnStale(session);
       return { configOptions: [] } as never;
     });
 
@@ -946,19 +1058,21 @@ export class Daemon {
           sessionId: session.id,
           ...problem,
         });
-      if (session.status() !== "idle" && session.status() !== "stopped")
-        throw sessionBusy(session.id);
+      this.#returnStale(session);
+      if (session.status() !== "idle" && session.status() !== "stopped") {
+        // The agent is busy: the prompt waits here, and goes when the turn ends well.
+        if (session.queue.length >= QUEUE_LIMIT) throw queueFull(session.id, QUEUE_LIMIT);
+        const queueId = randomUUID();
+        session.queue.push({ queueId, prompt: params.prompt });
+        this.#publishQueue(session);
+        return { messageId: queueId, _meta: { [META.queued]: true } } as never;
+      }
       // Marked at once: the agent's own "running" comes later, and a second prompt must not slip in.
       session.agentState = "running";
       session.turnEnded = false;
       this.#changed();
       try {
-        const link = await this.#ensureAgent(session);
-        const answer = await link.agent.request(methods.agent.session.prompt, {
-          sessionId: session.entry.agentSessionId,
-          prompt: params.prompt,
-        } as never);
-        return answer as never;
+        return (await this.#send(session, params.prompt)) as never;
       } catch (error) {
         // A turn that ended in failure is a turn end like any other: on record, so the session shows as unread.
         session.agentState = "idle";
@@ -969,6 +1083,8 @@ export class Daemon {
           typeof code === "number" ? code : INTERNAL_ERROR,
           error instanceof Error ? error.message : String(error),
         );
+        // The prompt never reached the agent, so no turn will end to send or return what was queued behind it.
+        this.#returnQueue(session, "error");
         throw error;
       }
     });
@@ -979,6 +1095,8 @@ export class Daemon {
       // ACP: every pending permission request is answered "cancelled" when a turn is cancelled.
       for (const pending of [...session.pending.values()])
         this.#settle(session, pending, pending.cancelled);
+      // A stop means the person wants to change direction: what waits goes back to the input box.
+      this.#returnQueue(session, "cancelled");
       await session.link?.agent
         .notify(methods.agent.session.cancel, { sessionId: session.entry.agentSessionId } as never)
         .catch(() => undefined);
@@ -1003,6 +1121,7 @@ export class Daemon {
 
     app.onRequest(methods.agent.session.close, async ({ params }) => {
       const session = this.#sessions.get(params.sessionId);
+      if (session !== undefined) this.#returnQueue(session, "closed");
       session?.link?.kill();
       return {} as never;
     });
@@ -1104,6 +1223,24 @@ export class Daemon {
         this.#changed();
         return {};
       };
+    cycle(promptDequeue, async (params) => {
+      const session = await this.#session(params.sessionId);
+      const at = session.queue.findIndex((entry) => entry.queueId === params.queueId);
+      const [entry] = at < 0 ? [] : session.queue.splice(at, 1);
+      if (entry === undefined) {
+        throw new RpcError(CycleErrorCode.NotQueued, "That prompt is not waiting", {
+          sessionId: session.id,
+          queueId: params.queueId,
+        });
+      }
+      this.#publishQueue(session);
+      return { prompt: entry.prompt };
+    });
+    cycle(filesSearch, async (params) => {
+      const session = await this.#session(params.sessionId);
+      const found = await searchFiles(session.entry.cwd, params.query, params.limit);
+      return { root: session.entry.cwd, ...found };
+    });
     cycle(sessionArchive, (params) =>
       change(async (session) => {
         if (session.status() === "running" || session.status() === "requires_action")

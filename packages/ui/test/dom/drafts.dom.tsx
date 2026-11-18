@@ -5,8 +5,13 @@ import type { SessionSummary } from "../../src/api.ts";
 import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
 import { fakeBridge, summary } from "../fake-bridge.ts";
+import { boxText, press, ready, write } from "./box.ts";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // Text is kept in the page's storage; each test starts with none.
+  localStorage.clear();
+});
 
 const sessions: SessionSummary[] = [
   { ...summary("s1"), title: "alpha", lastSeq: 2 },
@@ -35,7 +40,9 @@ const mount = async () => {
   await act(() => store.start());
   const open = async (title: string) => {
     await user.click(await screen.findByRole("option", { name: new RegExp(title) }));
-    return screen.findByRole("textbox", { name: "Message" });
+    const box = await screen.findByRole("textbox", { name: "Message" });
+    await ready(box);
+    return box;
   };
   return { store, user, open, ...script };
 };
@@ -49,25 +56,23 @@ const picker = () => {
 };
 
 test("what is written in one session is there when the person comes back to it, and not in another", async () => {
-  const { user, open } = await mount();
-  const alpha = await open("alpha");
-  await user.type(alpha, "half a sentence");
+  const { open } = await mount();
+  await write(await open("alpha"), "half a sentence");
   const beta = await open("beta");
-  expect((beta as HTMLTextAreaElement).value).toBe("");
-  await user.type(beta, "something else");
-  expect(((await open("alpha")) as HTMLTextAreaElement).value).toBe("half a sentence");
-  expect(((await open("beta")) as HTMLTextAreaElement).value).toBe("something else");
+  expect(boxText(beta)).toBe("");
+  await write(beta, "something else");
+  expect(boxText(await open("alpha"))).toBe("half a sentence");
+  expect(boxText(await open("beta"))).toBe("something else");
 });
 
 test("sending clears the draft of that session only", async () => {
-  const { user, open, named } = await mount();
-  await user.type(await open("alpha"), "to send");
-  await user.type(await open("beta"), "to keep");
-  await user.click(await open("alpha"));
-  await user.keyboard("{Enter}");
+  const { open, named } = await mount();
+  await write(await open("alpha"), "to send");
+  await write(await open("beta"), "to keep");
+  await press(await open("alpha"), "Enter");
   await waitFor(() => expect(named("prompt")).toHaveLength(1));
-  expect(((await open("alpha")) as HTMLTextAreaElement).value).toBe("");
-  expect(((await open("beta")) as HTMLTextAreaElement).value).toBe("to keep");
+  expect(boxText(await open("alpha"))).toBe("");
+  expect(boxText(await open("beta"))).toBe("to keep");
 });
 
 test("the images attached to a session stay with it while another is open", async () => {
@@ -104,8 +109,8 @@ test("an image still being read when the person goes to another session lands in
 });
 
 test("a deleted session takes its draft with it", async () => {
-  const { store, user, open } = await mount();
-  await user.type(await open("alpha"), "never sent");
+  const { store, open } = await mount();
+  await write(await open("alpha"), "never sent");
   expect(store.drafts.get("local:s1").text).toBe("never sent");
   await act(() => store.deleteSession("s1"));
   expect(store.drafts.get("local:s1").text).toBe("");
@@ -129,14 +134,22 @@ test("an image still being read when its session is deleted does not bring the d
 });
 
 test("a message that could not be sent is put back, in front of what has been written since", async () => {
-  const { user, open, bridge } = await mount();
+  const { open, bridge } = await mount();
   bridge.prompt = async () => {
     throw new Error("The daemon is not reachable");
   };
-  const box = (await open("alpha")) as HTMLTextAreaElement;
-  await user.type(box, "do not lose me");
-  await user.keyboard("{Enter}");
+  const box = await open("alpha");
+  await write(box, "do not lose me");
+  await press(box, "Enter");
   // The failure is shown, and the text is in the box again.
   await screen.findByText(/The daemon is not reachable/);
-  await waitFor(() => expect(box.value).toBe("do not lose me"));
+  await waitFor(() => expect(boxText(box)).toBe("do not lose me"));
+});
+
+test("what was written is still there when the app starts again", async () => {
+  const first = await mount();
+  await write(await first.open("alpha"), "half a sentence");
+  cleanup();
+  const second = await mount();
+  expect(boxText(await second.open("alpha"))).toBe("half a sentence");
 });

@@ -1,0 +1,182 @@
+import { afterEach, expect, test } from "bun:test";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  KEY_ENTER_COMMAND,
+  KEY_ESCAPE_COMMAND,
+  type LexicalEditor,
+  PASTE_COMMAND,
+} from "lexical";
+import { type ReactElement, useState } from "react";
+import { markdownOf } from "../../src/composer-markdown.ts";
+import { type InputKey, MarkdownInput } from "../../src/react/markdown-input.tsx";
+
+afterEach(cleanup);
+
+const editorOf = (box: HTMLElement): LexicalEditor =>
+  (box as unknown as { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+
+const insert = (box: HTMLElement, words: string) =>
+  act(() => {
+    editorOf(box).update(
+      () => {
+        $getRoot().selectEnd();
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertRawText(words);
+      },
+      { discrete: true },
+    );
+  });
+
+type Seen = { keys: InputKey[]; changes: string[]; files: File[] };
+
+/** The input with a parent that keeps the text, as the composer does. */
+function Parent({
+  start,
+  disabled,
+  seen,
+  setter,
+}: {
+  start: string;
+  disabled: boolean;
+  seen: Seen;
+  setter: { current: (text: string) => void };
+}): ReactElement {
+  const [value, set] = useState(start);
+  setter.current = set;
+  return (
+    <MarkdownInput
+      value={value}
+      onChange={(markdown) => {
+        seen.changes.push(markdown);
+        set(markdown);
+      }}
+      disabled={disabled}
+      label="Message"
+      placeholder="Message the agent"
+      onKey={(key) => {
+        seen.keys.push(key);
+        return key === "escape";
+      }}
+      onPasteFiles={(files) => seen.files.push(...files)}
+    />
+  );
+}
+
+/** Mounts it, and gives back what it was told, and a way to change the text from outside. */
+const mount = (start = "", options: { disabled?: boolean } = {}) => {
+  const seen: Seen = { keys: [], changes: [], files: [] };
+  const setter = { current: (_text: string) => {} };
+  render(<Parent start={start} disabled={options.disabled ?? false} seen={seen} setter={setter} />);
+  return { seen, set: (text: string) => act(() => setter.current(text)) };
+};
+
+test("what it starts with is shown as it reads, and the text is what was given", async () => {
+  mount("**bold** and my_file.py");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  expect(box.querySelector("strong")?.textContent).toBe("bold");
+  expect(box.textContent).toBe("bold and my_file.py");
+  expect(markdownOf(editorOf(box))).toBe("**bold** and my_file.py");
+});
+
+test("writing tells the parent the Markdown, and not what the parent itself put there", async () => {
+  const { seen } = mount("");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await insert(box, "hello **there**");
+  expect(seen.changes.at(-1)).toBe("hello **there**");
+  const before = seen.changes.length;
+  // The parent sends the same text back as the new value: nothing is said again.
+  await act(async () => {});
+  expect(seen.changes.length).toBe(before);
+});
+
+test("a text that comes from outside replaces the document", async () => {
+  const { set, seen } = mount("first");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  set("second one");
+  await waitFor(() => expect(markdownOf(editorOf(box))).toBe("second one"));
+  expect(seen.changes).toEqual([]);
+  set("");
+  await waitFor(() => expect(markdownOf(editorOf(box))).toBe(""));
+});
+
+test("Enter is asked of the parent and is never a new line; Shift+Enter is left to the editor", async () => {
+  const { seen } = mount("a");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  const plain = new KeyboardEvent("keydown", { key: "Enter", cancelable: true });
+  act(() => {
+    editorOf(box).dispatchCommand(KEY_ENTER_COMMAND, plain);
+  });
+  expect(seen.keys).toEqual(["enter"]);
+  expect(plain.defaultPrevented).toBe(true);
+  const shifted = new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, cancelable: true });
+  act(() => {
+    editorOf(box).dispatchCommand(KEY_ENTER_COMMAND, shifted);
+  });
+  expect(seen.keys).toEqual(["enter"]);
+  const composing = new KeyboardEvent("keydown", { key: "Enter", isComposing: true });
+  act(() => {
+    editorOf(box).dispatchCommand(KEY_ENTER_COMMAND, composing);
+  });
+  expect(seen.keys).toEqual(["enter"]);
+});
+
+test("a key the parent uses is not also the editor's", async () => {
+  const { seen } = mount("");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  const pressed = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+  act(() => {
+    editorOf(box).dispatchCommand(KEY_ESCAPE_COMMAND, pressed);
+  });
+  expect(seen.keys).toEqual(["escape"]);
+  expect(pressed.defaultPrevented).toBe(true);
+});
+
+test("pasting a picture hands it over, and pasting text puts the text in as typed", async () => {
+  const { seen } = mount("");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  const png = new File([new Uint8Array([1])], "a.png", { type: "image/png" });
+  const picture = {
+    clipboardData: { files: [png], getData: () => "" },
+    preventDefault: () => {},
+  } as unknown as ClipboardEvent;
+  act(() => {
+    editorOf(box).dispatchCommand(PASTE_COMMAND, picture);
+  });
+  expect(seen.files).toEqual([png]);
+  act(() => {
+    editorOf(box).update(() => $getRoot().selectEnd(), { discrete: true });
+  });
+  const text = {
+    clipboardData: {
+      files: [],
+      getData: (type: string) => (type === "text/plain" ? "a_b <i>x</i>" : "<b>other</b>"),
+    },
+    preventDefault: () => {},
+  } as unknown as ClipboardEvent;
+  act(() => {
+    editorOf(box).dispatchCommand(PASTE_COMMAND, text);
+  });
+  await waitFor(() => expect(markdownOf(editorOf(box))).toBe("a_b <i>x</i>"));
+});
+
+test("a disabled input cannot be written in", async () => {
+  mount("kept", { disabled: true });
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  expect(box.getAttribute("contenteditable")).toBe("false");
+});
+
+test("the placeholder shows while there is nothing, and goes when there is", async () => {
+  const { set } = mount("");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  expect(document.querySelector('[data-slot="composer-placeholder"]')?.textContent).toBe(
+    "Message the agent",
+  );
+  set("x");
+  await waitFor(() =>
+    expect(document.querySelector('[data-slot="composer-placeholder"]')).toBeNull(),
+  );
+  expect(box.textContent).toBe("x");
+});

@@ -4,7 +4,7 @@
 import { appendFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { app } from "electron";
+import { app, clipboard } from "electron";
 import { startApp } from "../../src/main/app.ts";
 
 const env = process.env as Record<string, string>;
@@ -93,9 +93,9 @@ const main = async () => {
       `!document.querySelector('[role="dialog"], [role="alertdialog"]')`,
     );
     for (let attempt = 0; attempt < 8; attempt++) {
-      await click(`document.querySelector('[data-slot="composer"] textarea')`);
+      await click(`document.querySelector('[data-slot="composer"] [data-slot="composer-input"]')`);
       const focused = await run<boolean>(
-        `document.activeElement === document.querySelector('[data-slot="composer"] textarea')`,
+        `document.activeElement === document.querySelector('[data-slot="composer"] [data-slot="composer-input"]')`,
       );
       if (focused) return;
       await sleep(250);
@@ -167,12 +167,45 @@ const main = async () => {
     await click(byText('[role="dialog"] button', "Start"));
     await waitFor(
       "the composer to be ready",
-      `document.querySelector('[data-slot="composer"] textarea') && !document.querySelector('[data-slot="composer"] textarea').disabled`,
+      `document.querySelector('[data-slot="composer"] [data-slot="composer-input"]')?.getAttribute('contenteditable') === 'true'`,
     );
     out({
       step: "session",
       title: await run(`document.querySelector('[data-slot="session-header"] h1')?.textContent`),
     });
+
+    // The box shows Markdown as it is typed, with real key events, and sends it as it was typed.
+    await focusComposer();
+    await type("a **bold** word, my_file.py and `code`");
+    await waitFor(
+      "the formatting",
+      `document.querySelector('[data-slot="composer-input"] strong')?.textContent === "bold" && document.querySelector('[data-slot="composer-input"] code')?.textContent === "code"`,
+    );
+    out({
+      step: "markdown-typed",
+      shown: await run(`document.querySelector('[data-slot="composer-input"]').textContent`),
+      underscoreKept: await run(
+        `document.querySelector('[data-slot="composer-input"]').textContent.includes("my_file.py")`,
+      ),
+    });
+    // Pasted text goes in as text, as it was copied: its asterisks are the person's, not formatting nobody typed.
+    clipboard.writeText("pasted **x** my_file.py");
+    contents.paste();
+    await waitFor(
+      "the pasted text",
+      `document.querySelector('[data-slot="composer-input"]').textContent.includes("pasted **x** my_file.py")`,
+    );
+    out({
+      step: "pasted",
+      shown: await run(`document.querySelector('[data-slot="composer-input"]').textContent`),
+    });
+    // And is emptied again, from the keyboard.
+    contents.selectAll();
+    await press("Backspace");
+    await waitFor(
+      "the box to be empty",
+      `document.querySelector('[data-slot="composer-input"]').textContent === ""`,
+    );
 
     // A message, and a streamed answer.
     await focusComposer();
@@ -183,10 +216,14 @@ const main = async () => {
         `document.activeElement ? document.activeElement.tagName + ':' + (document.activeElement.getAttribute('aria-label') ?? document.activeElement.getAttribute('data-slot') ?? '') : null`,
       ),
       rect: await run(
-        `JSON.stringify(document.querySelector('[data-slot="composer"] textarea').getBoundingClientRect())`,
+        `JSON.stringify(document.querySelector('[data-slot="composer"] [data-slot="composer-input"]').getBoundingClientRect())`,
       ),
-      value: await run(`document.querySelector('[data-slot="composer"] textarea').value`),
-      disabled: await run(`document.querySelector('[data-slot="composer"] textarea').disabled`),
+      value: await run(
+        `document.querySelector('[data-slot="composer"] [data-slot="composer-input"]').textContent`,
+      ),
+      editable: await run(
+        `document.querySelector('[data-slot="composer"] [data-slot="composer-input"]').getAttribute('contenteditable')`,
+      ),
     });
     await press("Enter");
     await sleep(1500);

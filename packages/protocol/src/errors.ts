@@ -11,6 +11,7 @@ export const CycleErrorCode = {
   ResumeFailed: -32013,
   InvalidConfig: -32014,
   LogUnavailable: -32015,
+  NotQueued: -32016,
 } as const;
 export type CycleErrorCode = (typeof CycleErrorCode)[keyof typeof CycleErrorCode];
 

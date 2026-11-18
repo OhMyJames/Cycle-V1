@@ -13,9 +13,18 @@
   },
   "dependencies": {
     "@cycle/acp": "workspace:*",
+    "@lexical/code": "0.53.0",
+    "@lexical/history": "0.53.0",
+    "@lexical/link": "0.53.0",
+    "@lexical/list": "0.53.0",
+    "@lexical/markdown": "0.53.0",
+    "@lexical/react": "0.53.0",
+    "@lexical/rich-text": "0.53.0",
+    "@lexical/utils": "0.53.0",
     "@streamdown/code": "2.0.1",
     "@ui-sdk/core": "0.1.0-beta.6",
     "@ui-sdk/react": "0.1.0-beta.6",
+    "lexical": "0.53.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "streamdown": "2.8.0"

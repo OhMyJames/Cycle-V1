@@ -103,6 +103,8 @@ test("connects, creates a session, and lists it", async () => {
     { sessionId: id, cwd: "/tmp", agent: "fake", archived: false, state: "idle" },
   ]);
   expect(of(events, "sessions").length).toBeGreaterThan(0);
+  // What the daemon said it can do reaches the page with the connection's state.
+  expect(of(events, "host-status").at(-1)?.capabilities).toEqual({ queue: true, files: true });
   expect((await m.agents("local")).map((a) => a.id)).toEqual(["fake"]);
 });
 
@@ -260,6 +262,11 @@ test("a connection that drops is picked up again, and a request still open is no
 
   drop();
   await until(() => of(events, "host-status").some((e) => e.state === "reconnecting"), "the loss");
+  // What the daemon can do is not forgotten while the line is down.
+  expect(of(events, "host-status").find((e) => e.state === "reconnecting")?.capabilities).toEqual({
+    queue: true,
+    files: true,
+  });
   await until(() => of(events, "host-status").at(-1)?.state === "connected", "the reconnect");
   // The daemon asked again on the new connection: still one request on screen, not two.
   await Bun.sleep(100);
@@ -366,6 +373,49 @@ test("the local host is not compared: the app carries it", async () => {
   const { m, events } = await manager("app", "0.1.1");
   await m.connect("local");
   expect(connectedStatus(events, "local")?.daemon).toBeUndefined();
+});
+
+test("a message sent while the agent works waits in the conversation, and can be taken back", async () => {
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { manager, fake } = await setup(fakeAgent({ onPrompt: () => held }));
+  const { m } = await manager();
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  await m.openSession("local", id);
+  await m.prompt("local", id, "first");
+  await m.prompt("local", id, "second");
+  await m.prompt("local", id, "third");
+  const waiting = async () => (await m.openSession("local", id)).conversation.queue;
+  // `until` takes a plain condition: look, and wait for the two to be there.
+  let queue = await waiting();
+  for (let tries = 0; queue.length < 2 && tries < 400; tries++) {
+    await Bun.sleep(5);
+    queue = await waiting();
+  }
+  const [second, third] = queue;
+  expect(queue.map((p) => p.prompt)).toEqual([
+    [{ type: "text", text: "second" }],
+    [{ type: "text", text: "third" }],
+  ]);
+  expect(second?.prompt).toEqual([{ type: "text", text: "second" }]);
+  // The person changes their mind about the second.
+  expect(await m.dequeue("local", id, second?.queueId ?? "")).toEqual([
+    { type: "text", text: "second" },
+  ]);
+  release();
+  await until(() => fake.log.prompts.length === 2, "the third to be sent");
+  expect(fake.log.prompts).toEqual(["first", "third"]);
+  expect(third?.queueId).toBeString();
+  // The snapshots that say so come after the agent got it.
+  queue = await waiting();
+  for (let tries = 0; queue.length > 0 && tries < 400; tries++) {
+    await Bun.sleep(5);
+    queue = await waiting();
+  }
+  expect(queue).toEqual([]);
 });
 
 test("a session that asks and then finishes is reported to the main process, and the first list is not a change", async () => {

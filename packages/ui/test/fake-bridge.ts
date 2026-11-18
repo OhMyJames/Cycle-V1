@@ -35,6 +35,8 @@ export const fakeBridge = (
     snapshot?: () => SessionSnapshot | Promise<SessionSnapshot>;
     connected?: boolean;
     update?: UpdateState;
+    /** What the daemon says it can do. Default: all of it. */
+    capabilities?: { queue: boolean; files: boolean };
     /** More hosts than the local one, and how each stands (by id; the local one's is `connected`). */
     hosts?: HostConfig[];
     states?: Record<string, ConnectionState>;
@@ -59,10 +61,17 @@ export const fakeBridge = (
       const hosts = [LOCAL, ...(options.hosts ?? [])];
       return {
         hosts,
-        status: hosts.map((h) => ({
-          hostId: h.id,
-          state: options.states?.[h.id] ?? (options.connected === false ? "closed" : "connected"),
-        })),
+        status: hosts.map((h) => {
+          const state =
+            options.states?.[h.id] ?? (options.connected === false ? "closed" : "connected");
+          return {
+            hostId: h.id,
+            state,
+            ...(state === "connected"
+              ? { capabilities: options.capabilities ?? { queue: true, files: true } }
+              : {}),
+          };
+        }),
         // What main has read of each host, through the same call a test may replace to say what a list holds.
         sessions: Object.fromEntries(
           await Promise.all(hosts.map(async (h) => [h.id, await bridge.sessions(h.id)] as const)),
@@ -86,6 +95,12 @@ export const fakeBridge = (
     ),
     prompt: record("prompt", async () => {}),
     cancel: record("cancel", async () => {}),
+    dequeue: record("dequeue", async () => []),
+    searchFiles: record("searchFiles", async () => ({
+      root: "/work",
+      entries: [],
+      truncated: false,
+    })),
     setSessionConfig: record("setSessionConfig", async () => {}),
     renameSession: record("renameSession", async () => {}),
     archiveSession: record("archiveSession", async () => {}),

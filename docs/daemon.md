@@ -22,7 +22,7 @@
 - `session/new`:daemon 分配 UUID,作为建议传给 agent;agent 回的 id 和它对应关系记在索引里。
 - `session/list`:只列 Cycle 自己的 session,带状态、agent、归档、标题和最新序号。
 - `session/resume`:附着;不带 `replayFrom` 只附着,`start` 或 `_cycle.seq` 补发,然后 `replay_complete` 和状态快照。
-- `session/prompt`:session 忙时拒绝(`session_busy`);agent 没在运行时先启动并恢复它。
+- `session/prompt`:agent 没在运行时先启动并恢复它;session 忙时入队(见下面"排队"),队列满了才拒绝(`session_busy`)。
 - 权限请求:写日志,发给所有附着的客户端,先到先得,其余客户端收到 `_cycle/request_resolved`;没人附着时挂起,有人附着再发;取消或 agent 退出时回答为已取消。
 - `session/cancel`、`session/set_config_option`(记入索引,agent 重启时重新应用)、`session/close`、`session/delete`。
 - `_cycle/agents/list`、`_cycle/session/archive`、`unarchive`、`set_title`,以及 `_cycle/session_list_changed` 通知。
@@ -35,6 +35,8 @@
 - **elicitation**(决策 0011):`elicitation/create` 和权限请求同一套机制(写日志、先到先得、`_cycle/request_resolved`、取消和 agent 退出时以 `cancel` 结束),但只发给在 `initialize` 里声明了 `elicitation.form` 的客户端;没有这样的客户端附着时立刻回 `{action:"cancel", _meta:{"cycle/noClient":true}}`,不挂起。
 - **附件字节落盘**(决策 0013):`BlobLogStore` 包住日志存储,`append` 把大的 base64 写到 `<数据目录>/blobs/<sessionId>/` 并在日志里留引用,`read`、`subscribe` 还原;删除 session 时整个目录一起删。daemon 其余部分和客户端不知道有这回事。
 - **用量**:`usage_update` 写进索引的 `usage`,`session/list` 的 `_meta["cycle/usage"]` 给出。
+- **排队**(协议 §8,笔记 `2026-11-18-prompt-queue-in-the-daemon`):忙时发来的 prompt 在 daemon 里排队,每条有 daemon 自己的 `queueId`,队列以 `_cycle/queue_update` 快照写进日志(图片字节照样走 blob),索引的 `queued` 标志让重启后知道要回读。turn 以 `end_turn` 结束才发下一条;其他结束方式、`session/cancel`、`session/close` 把剩下的整体退回(`returned`),不自动发。没有客户端附着,或 daemon 重启过,队列留着,下一次附着时在补发和状态快照之后退回;daemon 自己关闭不算退回的理由。`_cycle/prompt/dequeue` 取回一条。测试:`test/queue.test.ts`。
+- **`_cycle/files/search`**(协议 §8,`src/files.ts`):只返回路径,只在 session 的 `cwd` 里;符号链接不跟随也不列出,不进 `.git` 和 `node_modules`,点开头的名字只给带点的查询,条目数和时间有上限(超了带 `truncated`)。测试:`test/files.test.ts`(含指向外面的链接)。
 - **`_cycle/agent_defaults/*`**:读写都有实现,存在 `<数据目录>/agent-defaults.json`,新 session 按它开始,session 自己的配置覆盖它(此前这份文档误写成占位)。
 
 ## 没做

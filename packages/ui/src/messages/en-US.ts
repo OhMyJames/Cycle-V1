@@ -43,6 +43,33 @@ export const enUS = {
   },
   "composer.problem.unreadable": "{name} could not be read.",
 
+  // The box a message is written in
+  "composer.message": "Message",
+  "composer.placeholder.idle": "Message the agent",
+  "composer.placeholder.working": "Queue a message for when the agent is done",
+  "composer.placeholder.busy": "The agent is working. Stop it to send a message now.",
+  "composer.placeholder.none": "Choose or start a session",
+  "composer.send": "Send",
+  "composer.queue": "Queue",
+  "composer.stop": "Stop",
+
+  // The commands that fit what is typed after a slash
+  "composer.commands.label": "Commands",
+
+  // The files and folders that fit what is typed after an @
+  "composer.mentions.label": "Files and folders",
+  "composer.mentions.empty": "No file or folder matches that.",
+
+  // Messages sent while the agent works, waiting their turn
+  "composer.queued.label": "Queued messages",
+  "composer.queued.tag": "Queued",
+  "composer.queued.edit": "Edit queued message: {preview}",
+  "composer.queued.editShort": "Edit",
+  "composer.queued.images": {
+    one: "{count} image",
+    other: "{count} images",
+  },
+
   // The conversation: what the agent did, how a turn ended, what it is doing now
   "conversation.label": "Conversation",
   "conversation.loading": "Loading the conversation…",
