@@ -10,34 +10,24 @@ import {
 } from "@ui-sdk/react/menu";
 import type { HostConfig, HostStatus } from "../api.ts";
 import type { Translator } from "../i18n.ts";
-import type { Counts, Elsewhere, Mark, Workspace } from "../sessions.ts";
+import { type Counts, type Elsewhere, URGENCY, urgent, type Workspace } from "../sessions.ts";
 import { useI18n } from "./i18n.tsx";
 import { ChevronDownIcon, ServerIcon } from "./icons.tsx";
-import { HOST_STATE, StatusDot } from "./status.tsx";
+import { HOST_STATE, MARK_WORD, StatusDot } from "./status.tsx";
 
-const ORDER: readonly Mark[] = ["needs-you", "running", "background", "unread"];
 const ELSEWHERE = {
   "needs-you": "workspace.elsewhere.needsYou",
   running: "workspace.elsewhere.running",
   background: "workspace.elsewhere.background",
   unread: "workspace.elsewhere.unread",
 } as const;
-const WORD = {
-  "needs-you": "mark.needsYou",
-  running: "mark.running",
-  background: "mark.background",
-  unread: "mark.unread",
-} as const;
 
 /** In words, what the other workspaces have: "2 sessions need you, 1 session is unread". */
 export const elsewhereText = (t: Translator["t"], counts: Counts): string => {
-  const what = ORDER.filter((m) => counts[m] > 0).map((m) => t(ELSEWHERE[m], { count: counts[m] }));
+  const what = URGENCY.filter((m) => counts[m] > 0).map((m) =>
+    t(ELSEWHERE[m], { count: counts[m] }),
+  );
   return what.length === 0 ? "" : t("workspace.elsewhere.prefix", { what: what.join(", ") });
-};
-
-const urgent = (counts: Counts): { mark: Mark; count: number } | undefined => {
-  const mark = ORDER.find((m) => counts[m] > 0);
-  return mark === undefined ? undefined : { mark, count: counts[mark] };
 };
 
 /** A square number: how many sessions are in the most urgent class; the words are for those who do not see it. */
@@ -51,7 +41,7 @@ function Badge({ counts }: { counts: Counts }) {
         {top.count}
       </span>
       <span data-slot="visually-hidden">
-        {top.count}. {t(WORD[top.mark])}
+        {top.count}. {t(MARK_WORD[top.mark])}
       </span>
     </>
   );

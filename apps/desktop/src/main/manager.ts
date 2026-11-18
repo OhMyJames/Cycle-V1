@@ -408,12 +408,15 @@ export class ConnectionManager
   }
 
   /**
-   * The person has seen the session up to what main last read of it. Never a seq past the log: the row's own
-   * `lastSeq` is what the daemon said when it said the session was unread. A daemon that cannot is not asked.
+   * The person has seen the session up to what the daemon has now. Never a seq past the log: the row's own
+   * `lastSeq`. A daemon that cannot is not asked.
    */
   async markRead(hostId: string, sessionId: string): Promise<void> {
     const connection = this.#connection(hostId);
-    const row = connection.sessions.find((s) => s.sessionId === sessionId);
+    // The list as the daemon has it now: a row read before the news came in would say a seq below it.
+    const row = (await this.#refreshSessions(hostId, connection)).find(
+      (s) => s.sessionId === sessionId,
+    );
     if (row === undefined) return;
     await connection.client.markRead(sessionId, row.lastSeq);
   }

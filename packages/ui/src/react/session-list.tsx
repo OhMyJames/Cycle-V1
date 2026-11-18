@@ -2,7 +2,7 @@ import { Listbox, ListboxGroup, ListboxGroupLabel, ListboxItem } from "@ui-sdk/r
 import type { SessionSummary } from "../api.ts";
 import { markOf, type SessionGroup, type SessionList, sessionKey } from "../sessions.ts";
 import { useI18n } from "./i18n.tsx";
-import { MARK_STYLE, StatusDot } from "./status.tsx";
+import { MARK_STYLE, MARK_WORD, StatusDot } from "./status.tsx";
 
 /** The last part of a path, for a session that has no title yet. */
 const place = (cwd: string): string => cwd.split("/").filter(Boolean).at(-1) ?? cwd;
@@ -14,13 +14,6 @@ export const sessionTitle = (session: SessionSummary): string => {
 
 /** A host that is not connected, as a row of its sessions says it: who, and in what words. */
 export type Away = { name: string; word: string };
-
-const MARK_WORD = {
-  "needs-you": "mark.needsYou",
-  running: "mark.running",
-  background: "mark.background",
-  unread: "mark.unread",
-} as const;
 
 function Row({ session, away }: { session: SessionSummary; away: Away | undefined }) {
   const { t } = useI18n();

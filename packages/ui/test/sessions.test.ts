@@ -226,7 +226,10 @@ test("older sessions show a page and the rest on request; what has something to 
   const open = sessionList(many, { ...options, selected: `local:${hiddenOne.sessionId}` });
   expect(open.order).toContain(hiddenOne);
   const news = many.map((s) => (s === hiddenOne ? { ...s, unread: true } : s));
-  expect(sessionList(news, options).order.map((s) => s.sessionId)).toContain(hiddenOne.sessionId);
+  const withNews = sessionList(news, options);
+  expect(withNews.order.map((s) => s.sessionId)).toContain(hiddenOne.sessionId);
+  // It does not use the page up: the page is still full of the others.
+  expect(withNews.order).toHaveLength(PER_WORKSPACE + 1);
 });
 
 test("a session of a host that is away is in its day, not in what needs you or is running", () => {

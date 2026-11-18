@@ -26,6 +26,14 @@ export const MARK_STYLE: Record<Mark, { tone: Tone; shape: Shape }> = {
   unread: { tone: "accent", shape: "solid" },
 };
 
+/** What a mark says in words, as the keys of the messages: for a row and for the badge of the switcher. */
+export const MARK_WORD = {
+  "needs-you": "mark.needsYou",
+  running: "mark.running",
+  background: "mark.background",
+  unread: "mark.unread",
+} as const;
+
 /** What a session is doing that the person should see; idle and stopped say nothing. */
 export const SESSION_STATE: Partial<
   Record<SessionSummary["state"], { word: string; tone: Tone; shape: Shape }>

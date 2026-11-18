@@ -11,9 +11,15 @@ export const PER_WORKSPACE = 20;
 
 /** What is on a row, most urgent first: the one thing a row says of its session. */
 export type Mark = "needs-you" | "running" | "background" | "unread";
-const URGENCY: readonly Mark[] = ["needs-you", "running", "background", "unread"];
+export const URGENCY: readonly Mark[] = ["needs-you", "running", "background", "unread"];
 
 export type Counts = Record<Mark, number>;
+
+/** The most urgent class that has any, and how many sessions are in it. */
+export const urgent = (counts: Counts): { mark: Mark; count: number } | undefined => {
+  const mark = URGENCY.find((m) => counts[m] > 0);
+  return mark === undefined ? undefined : { mark, count: counts[mark] };
+};
 
 export type SessionGroup = {
   /** Unique among the groups, and the same from one call to the next. */
@@ -236,8 +242,8 @@ export const elsewhere = (
     if (w.key === current?.key) continue;
     for (const mark of URGENCY) counts[mark] += w.counts[mark];
   }
-  const mark = URGENCY.find((m) => counts[m] > 0);
-  return { mark, count: mark === undefined ? 0 : counts[mark], counts };
+  const top = urgent(counts);
+  return { mark: top?.mark, count: top?.count ?? 0, counts };
 };
 
 /** The day a time is in, by the local clock: 0 today, 1 yesterday, more before. */
@@ -289,11 +295,9 @@ export const sessionList = (
       return (ago === 0 ? "today" : ago === 1 ? "yesterday" : "earlier") === kind;
     });
     const list = day.filter((s) => {
-      const keep =
-        showAll ||
-        shown < PER_WORKSPACE ||
-        markOf(s, away) !== undefined ||
-        sessionKey(s) === selected;
+      // What has something to say, and the open one, are shown whatever the page holds, and do not use it up.
+      if (markOf(s, away) !== undefined || sessionKey(s) === selected) return true;
+      const keep = showAll || shown < PER_WORKSPACE;
       if (keep) shown += 1;
       else hidden += 1;
       return keep;

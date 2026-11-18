@@ -45,7 +45,7 @@ import {
 } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
 import { ErrorCircleIcon, MoreIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
-import { useInFront } from "./in-front.ts";
+import { useDay, useInFront } from "./in-front.ts";
 import { PermissionCard } from "./permission.tsx";
 import { SearchDialog } from "./search.tsx";
 import type { Away } from "./session-list.tsx";
@@ -167,29 +167,33 @@ export function App() {
     chosen: chosen !== undefined && chosen.on === openKey ? chosen.workspace : undefined,
     open: session,
   });
+  // A new session starts in the workspace that is shown, if its host can have one started.
+  const startOn =
+    current !== undefined && connectedHosts.some((h) => h.id === current.hostId)
+      ? current
+      : undefined;
   const elsewhere = useMemo(() => elsewhereOf(workspaces, current), [workspaces, current]);
+  const day = useDay();
   const list = useMemo(
     () =>
       sessionList(current?.sessions ?? [], {
         showAll,
         selected: openKey,
         away: awayHosts,
-        now: new Date(),
+        now: new Date(day),
       }),
-    [current, showAll, openKey, awayHosts],
+    [current, showAll, openKey, awayHosts, day],
   );
 
   // What is on screen has been seen: the daemon is told, so the mark goes and stays gone (also on another client).
   // Only while the app is in front, and only for a daemon that says there is news.
   const inFront = useInFront();
-  const unreadOpen = session?.unread === true;
-  const openHost = session?.hostId;
-  const openId = session?.sessionId;
+  // Run again with each list that still says so: a mark that could not be told is tried again with the next list.
   useEffect(() => {
-    if (!unreadOpen || !inFront || openHost === undefined || openId === undefined) return;
-    if (status[openHost]?.state !== "connected") return;
-    void store.markRead(openHost, openId);
-  }, [unreadOpen, inFront, openHost, openId, status, store]);
+    if (session?.unread !== true || !inFront) return;
+    if (status[session.hostId]?.state !== "connected") return;
+    void store.markRead(session.hostId, session.sessionId);
+  }, [session, inFront, status, store]);
 
   const working = view !== undefined && view.conversation.status !== "idle";
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
@@ -236,7 +240,8 @@ export function App() {
         const at = session === undefined ? -1 : list.order.indexOf(session);
         // A row on a host that is away and was never opened cannot be opened: the walk goes past it.
         const step = key === "]" ? 1 : -1;
-        let to = at + step;
+        // The open session is not in the workspace that is shown: the walk starts at the end it is going from.
+        let to = at === -1 ? (step === 1 ? 0 : list.order.length - 1) : at + step;
         while (list.order[to] !== undefined && away.has(list.order[to]?.hostId ?? "")) to += step;
         const next = list.order[to];
         if (next !== undefined) run(() => void store.selectSession(next.hostId, next.sessionId));
@@ -442,8 +447,8 @@ export function App() {
         open={panel === "new-session"}
         onOpenChange={(open) => !open && close()}
         hosts={connectedHosts}
-        defaultHost={current?.hostId ?? selectedHost}
-        defaultCwd={current?.cwd}
+        defaultHost={startOn?.hostId ?? selectedHost}
+        defaultCwd={startOn?.cwd}
         agents={agentsByHost}
         readDefaults={readDefaults}
         chooseDirectory={store.chooseDirectory}

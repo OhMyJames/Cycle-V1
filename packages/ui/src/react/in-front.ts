@@ -22,3 +22,24 @@ export function useInFront(): boolean {
   }, []);
   return front;
 }
+
+const dayOf = (): string => new Date().toDateString();
+
+/**
+ * The local day, as a string that changes at midnight: what depends on "today" is worked out again then, and not only
+ * when something else changes.
+ */
+export function useDay(): string {
+  const [day, setDay] = useState(dayOf);
+  useEffect(() => {
+    // From the day that is shown to the first second of the next.
+    const tomorrow = new Date(day);
+    tomorrow.setHours(24, 0, 1, 0);
+    const timer = setTimeout(
+      () => setDay(dayOf()),
+      Math.max(1000, tomorrow.getTime() - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [day]);
+  return day;
+}
