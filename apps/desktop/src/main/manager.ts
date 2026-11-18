@@ -195,7 +195,16 @@ export class ConnectionManager
       throw error;
     }
     this.#lastError.delete(hostId);
-    await this.#refreshSessions(hostId, connection);
+    try {
+      await this.#refreshSessions(hostId, connection);
+    } catch (error) {
+      // A daemon that answers but cannot list is not usable: say so, instead of sitting connected with no list.
+      this.#connections.delete(hostId);
+      await connection.client.close().catch(() => undefined);
+      this.#lastError.set(hostId, messageOf(error));
+      this.#options.emit({ type: "host-status", hostId, state: "closed", error: messageOf(error) });
+      throw error;
+    }
   }
 
   /** What a connected remote host's daemon is, and whether it is behind this app. */
@@ -264,6 +273,8 @@ export class ConnectionManager
     // An answer to an older question, arriving after the answer to a newer one, would put the list back.
     if (asked < connection.applied) return connection.sessions;
     connection.applied = asked;
+    // The host may have been removed while the question was out: its list must not come back.
+    if (this.#connections.get(hostId) !== connection) return sessions;
     const before = new Map(connection.sessions.map((s) => [s.sessionId, s]));
     connection.sessions = sessions;
     this.#lastSessions.set(hostId, sessions);

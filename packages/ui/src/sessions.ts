@@ -81,7 +81,8 @@ const younger = (a: SessionSummary, b: SessionSummary): number => {
   const right = timeOf(b);
   if (!Number.isNaN(left) && !Number.isNaN(right) && left !== right) return right - left;
   if (Number.isNaN(left) !== Number.isNaN(right)) return Number.isNaN(left) ? 1 : -1;
-  return b.lastSeq - a.lastSeq;
+  // `lastSeq` only means something within one daemon: across daemons the tie stays a tie (group by host first).
+  return before(a.hostId, b.hostId) || b.lastSeq - a.lastSeq;
 };
 
 export const newest = (a: SessionSummary, b: SessionSummary): number =>

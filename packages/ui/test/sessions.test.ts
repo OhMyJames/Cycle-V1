@@ -179,6 +179,19 @@ test("a session whose daemon gives no time comes after those that have one, and 
   expect(list.order.map((s) => s.sessionId)).toEqual(["z", "y", "x"]);
 });
 
+test("undated sessions of two daemons are not mixed by numbers that mean different things", () => {
+  const rows = [
+    on("a", "a1", { lastSeq: 500 }),
+    on("b", "b1", { lastSeq: 3 }),
+    on("a", "a2", { lastSeq: 400 }),
+    on("b", "b2", { lastSeq: 2 }),
+  ];
+  const order = (list: ReturnType<typeof sessionList>) => list.order.map((s) => s.sessionId);
+  expect(order(sessionList(rows, plain))).toEqual(order(sessionList([...rows].reverse(), plain)));
+  // Each daemon's own order holds, and the two stay apart.
+  expect(order(sessionList(rows, plain))).toEqual(["a1", "a2", "b1", "b2"]);
+});
+
 test("the same folder on two hosts is two projects, and one on another machine is named after its host", () => {
   const hosts = [
     { id: "local", name: "This computer", local: true },

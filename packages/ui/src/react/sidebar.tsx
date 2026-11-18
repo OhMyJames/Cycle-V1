@@ -86,6 +86,11 @@ export function Sidebar(props: SidebarProps) {
           >
             <StatusDot tone={how.tone} shape={how.shape} />
             {h.name} · {how.word}
+            {state?.error !== undefined && (state?.state ?? "closed") === "closed" ? (
+              <span data-slot="hint" title={state.error}>
+                {state.error}
+              </span>
+            ) : null}
             {(state?.state ?? "closed") === "closed" ? (
               <Button data-variant="ghost" onClick={() => props.onConnectHost(h.id)}>
                 Retry

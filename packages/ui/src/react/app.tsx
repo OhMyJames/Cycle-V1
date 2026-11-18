@@ -181,10 +181,11 @@ export function App() {
         );
       else if (key === "l")
         run(() => document.querySelector<HTMLElement>('[data-slot="composer"] textarea')?.focus());
-      else if (key === "." && working) run(() => void store.cancel());
+      else if (key === "." && working && hostState === "connected") run(() => void store.cancel());
       else if (
         key === "Enter" &&
         typing === null &&
+        hostState === "connected" &&
         firstAllow !== undefined &&
         view?.permissions[0] !== undefined
       ) {
@@ -192,7 +193,11 @@ export function App() {
         run(() => void store.answerPermission(request.key, firstAllow.optionId));
       } else if (key === "[" || key === "]") {
         const at = session === undefined ? -1 : list.order.indexOf(session);
-        const next = list.order[at + (key === "]" ? 1 : -1)];
+        // A row on a host that is away and was never opened cannot be opened: the walk goes past it.
+        const step = key === "]" ? 1 : -1;
+        let to = at + step;
+        while (list.order[to] !== undefined && away.has(list.order[to]?.hostId ?? "")) to += step;
+        const next = list.order[to];
         if (next !== undefined) run(() => void store.selectSession(next.hostId, next.sessionId));
       }
     };

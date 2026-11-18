@@ -147,7 +147,12 @@ export function NewSessionDialog({
               <Select
                 items={hosts.map((h) => ({ value: h.id, label: h.name }))}
                 value={hostId ?? null}
-                onValueChange={(next) => setChosenHost(next as string | null)}
+                onValueChange={(next) => {
+                  // A folder and settings of one host mean nothing on another.
+                  setChosenHost(next as string | null);
+                  setCwd("");
+                  setConfig({});
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />
