@@ -38,6 +38,7 @@
       "dependencies": {
         "@cycle/acp": "workspace:*",
         "@cycle/protocol": "workspace:*",
+        "zod": "^4.6.7",
       },
     },
     "packages/protocol": {
