@@ -33,7 +33,7 @@
 - **session 的启动参数**:`additionalDirectories`、`mcpServers`、`systemPrompt` 在 `session/new` 里校验(目录必须在 daemon 的机器上存在),存进索引,每次启动或恢复 agent 时重新发送。索引文件权限 0600,MCP 的 `env`/`headers` 只在这里,不进日志,也不在 `session/list` 里。
 - **agent 自己的变化回写**:`config_option_update` 写进索引的 `config`(agent 重启后按它恢复,不会改回去);`session_info_update.title` 写进标题,但用户起的名字不被覆盖(索引里标了 `titleFromAgent` 的才是 agent 起的;没有标记的一律当作用户的,包括这个功能之前写下的)。
 - **elicitation**(决策 0011):`elicitation/create` 和权限请求同一套机制(写日志、先到先得、`_cycle/request_resolved`、取消和 agent 退出时以 `cancel` 结束),但只发给在 `initialize` 里声明了 `elicitation.form` 的客户端;没有这样的客户端附着时立刻回 `{action:"cancel", _meta:{"cycle/noClient":true}}`,不挂起。
-- **附件字节落盘**(决策 0012):`BlobLogStore` 包住日志存储,`append` 把大的 base64 写到 `<数据目录>/blobs/<sessionId>/` 并在日志里留引用,`read`、`subscribe` 还原;删除 session 时整个目录一起删。daemon 其余部分和客户端不知道有这回事。
+- **附件字节落盘**(决策 0013):`BlobLogStore` 包住日志存储,`append` 把大的 base64 写到 `<数据目录>/blobs/<sessionId>/` 并在日志里留引用,`read`、`subscribe` 还原;删除 session 时整个目录一起删。daemon 其余部分和客户端不知道有这回事。
 - **用量**:`usage_update` 写进索引的 `usage`,`session/list` 的 `_meta["cycle/usage"]` 给出。
 - **`_cycle/agent_defaults/*`**:读写都有实现,存在 `<数据目录>/agent-defaults.json`,新 session 按它开始,session 自己的配置覆盖它(此前这份文档误写成占位)。
 

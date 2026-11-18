@@ -225,7 +225,7 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 
 ### 子 agent
 
-`subagent_update`(决策 0013)原样转给客户端:`sessionId` 是子的 id(不是可以打开的 session),`title`、`description`、`state`,以及 `_meta["cycle/subagent"]`:`toolCallId`、`background`、`parentId`、`summary`、`lastTool`、`usage`。只是通告:子 agent 的对话不转发,也不能对它发 `session/*` 请求。
+`subagent_update`(决策 0014)原样转给客户端:`sessionId` 是子的 id(不是可以打开的 session),`title`、`description`、`state`,以及 `_meta["cycle/subagent"]`:`toolCallId`、`background`、`parentId`、`summary`、`lastTool`、`usage`。只是通告:子 agent 的对话不转发,也不能对它发 `session/*` 请求。
 
 ## 10. agent 与配置
 
@@ -309,7 +309,7 @@ ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集
 - `request`:agent 发来的需要回答的请求,`data` 含 `requestId`、`method`、`params`。
 - `response`:对某个 `request` 的回答,`data` 含 `requestId` 和结果,以及回答来自哪个客户端。
 - `aborted`:某个 `request` 被中止。
-- 附件的字节(决策 0012):`update` 里 `image` 块的 `data` 和嵌入资源的 `blob`,base64 不小于 16 KiB 时不写进日志,而写在 `<数据目录>/blobs/<sessionId>/<sha256>`,日志里该字段为 `""`,所在对象的 `_meta["cycle/blob"]` 记 `{field, sha256, bytes}`。daemon 读日志时还原,客户端不会看到引用;文件丢了的那一块是 `data: ""` 加 `_meta["cycle/blobMissing"]: true`,其余照常。旧日志里内联的字节照常读。
+- 附件的字节(决策 0013):`update` 里 `image` 块的 `data` 和嵌入资源的 `blob`,base64 不小于 16 KiB 时不写进日志,而写在 `<数据目录>/blobs/<sessionId>/<sha256>`,日志里该字段为 `""`,所在对象的 `_meta["cycle/blob"]` 记 `{field, sha256, bytes}`。daemon 读日志时还原,客户端不会看到引用;文件丢了的那一块是 `data: ""` 加 `_meta["cycle/blobMissing"]: true`,其余照常。旧日志里内联的字节照常读。
 - `meta`:daemon 自己的事件(session 创建、agent 启动和退出、配置变更)。
 
 要求:

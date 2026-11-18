@@ -1,6 +1,6 @@
 import type { SessionUpdate } from "@cycle/acp";
 
-/** In a `subagent_update`'s `_meta`: what the SDK says of the task beyond what ACP has a field for (decision 0013). */
+/** In a `subagent_update`'s `_meta`: what the SDK says of the task beyond what ACP has a field for (decision 0014). */
 export const SUBAGENT_META = "cycle/subagent";
 
 type Task = {

@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { LogRecord, LogStore, NewRecord, ReadRange, SessionLog } from "./types.ts";
 
-/** Decision 0012: the bytes of attachments live beside the log, not in it. */
+/** Decision 0013: the bytes of attachments live beside the log, not in it. */
 export const BLOB_META = "cycle/blob";
 export const BLOB_MISSING_META = "cycle/blobMissing";
 /** base64 shorter than this stays in the log: a file for a few KB is not worth it. */
@@ -180,7 +180,7 @@ class BlobSessionLog implements SessionLog {
 }
 
 /**
- * Keeps attachment bytes out of a session's log (decision 0012). Wraps any store: the log it opens
+ * Keeps attachment bytes out of a session's log (decision 0013). Wraps any store: the log it opens
  * writes references and reads bytes.
  */
 export class BlobLogStore implements LogStore {

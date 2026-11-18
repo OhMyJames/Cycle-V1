@@ -39,9 +39,9 @@
 
 - `session/list`、`session/delete`:daemon 管理 session 列表和历史。
 - 音频;URL 模式的 elicitation(MCP 服务器的网页授权);`override` 模式的系统提示;SSE 的 MCP 服务器。这些都明确拒绝(`-32602`)或回绝,不静默忽略。
-- 子 agent 的对话:`subagent_update` 只通告(开始、进度、结束),不转发它的内容,也不能当 session 打开(决策 0013)。
+- 子 agent 的对话:`subagent_update` 只通告(开始、进度、结束),不转发它的内容,也不能当 session 打开(决策 0014)。
 - 压缩的摘要内容:`compaction_update` 只报开始、完成、失败,不带摘要。
-- 命令列表:`warmStart` 关着时(默认),`available_commands_update` 在 session 的 Claude 进程启动后(第一个 prompt)才有;桌面端的 daemon 开着它,`session/new` 就起进程(决策 0013)。
+- 命令列表:`warmStart` 关着时(默认),`available_commands_update` 在 session 的 Claude 进程启动后(第一个 prompt)才有;桌面端的 daemon 开着它,`session/new` 就起进程(决策 0014)。
 - `bypassPermissions` 模式:有意不提供。
 - `terminal`。
 - 凭证注入和真实模型的验证(需要登录或密钥,见下)。
@@ -59,8 +59,8 @@
 | 标题                                                  | 每个 turn 结束后用 SDK 的 `getSessionInfo` 取标题,和第一个 prompt 不同才发 `session_info_update`;只从给 Claude 的那个 `CLAUDE_CONFIG_DIR` 读,没有就不找(不碰 `~/.claude`)                                    | 单元测试(注入 `sessionInfo`);**真实模型:两个 turn 之后收到 `session_info_update`("Login form email validation");模拟 API 下没有标题,因为标题是 Claude 自己用模型生成的** |
 | 自由输入("其他")                                      | `AskUserQuestion` 的表单里每个问题多一个可选字符串字段 `qN_other`,选择字段不再必填;写了的就是答案(单选替换所选,多选追加),全空等于没回答                                                                      | 单元测试;真实二进制 + 模拟 API:`qN_other` 的文字进了给模型的工具结果;**真实模型:填 "green" 后模型说"你选了 green,不在我给的两个选项里"**                                 |
 | 命令(新 session)                                      | `warmStart` 开时 `session/new` 就起进程,命令列表随即发出,第一个 prompt 用同一个进程;闲置到 `idleMs` 释放;进程没有 prompt 时不当作 session 已在磁盘上                                                         | 单元测试(含闲置释放);真实二进制:没有任何 POST 请求时就有命令,之后第一个 prompt 正常,另一个进程能恢复;**真实模型:约 1 秒有命令,第一个 prompt 用时 1.7 秒**                |
-| 子 agent                                              | `system/task_started/progress/notification/updated` → `subagent_update`(决策 0013),开 `agentProgressSummaries`;后台 shell、监视器等不是子 agent 的任务不通告;进程释放时在跑的以 cancelled 结束               | 单元测试;**真实模型:Explore 子 agent 的 running(带 toolCallId、background)、进度(最近的工具、用量)、end_turn 都收到,模型说出了文件里的口令**                             |
-| 费用                                                  | 不用适配自己累加:SDK 的 `total_cost_usd` 对恢复的 session 从 transcript 里存的总额继续                                                                                                                       | **真实模型:两个进程里同一个 session,费用 0.0003 → 0.0012,没有掉回去**                                                                                                    |
+| 子 agent                                              | `system/task_started/progress/notification/updated` → `subagent_update`(决策 0014),开 `agentProgressSummaries`;后台 shell、监视器等不是子 agent 的任务不通告;进程释放时在跑的以 cancelled 结束               | 单元测试;**真实模型:Explore 子 agent 的 running(带 toolCallId、background)、进度(最近的工具、用量)、end_turn 都收到,模型说出了文件里的口令**                             |
+| 费用                                                  | 不用适配自己累加:SDK 的 `total_cost_usd` 对恢复的 session 从 transcript 里存的总额继续                                                                                                                       | **真实模型:两个进程里同一个 session,费用 0.0003 → 0.0013,没有掉回去**                                                                                                    |
 | elicitation                                           | `AskUserQuestion` → 表单(单选 `oneOf`、多选 `array`),答案写回工具的 `answers`;MCP 的 elicitation(form 模式)→ 表单;URL 模式拒绝。daemon 回 `cycle/noClient` 时,`AskUserQuestion` 退回权限请求,MCP 的按拒绝    | 单元测试;真实二进制 + 模拟 API:有能力的客户端收到表单,答案(luxon)进了给模型的工具结果;没有能力的客户端收到的是原来的权限卡                                               |
 
 ## 验证结果
