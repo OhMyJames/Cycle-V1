@@ -258,6 +258,11 @@ test("a connection that drops is picked up again, and a request still open is no
 
   drop();
   await until(() => of(events, "host-status").some((e) => e.state === "reconnecting"), "the loss");
+  // What the daemon can do is not forgotten while the line is down.
+  expect(of(events, "host-status").find((e) => e.state === "reconnecting")?.capabilities).toEqual({
+    queue: true,
+    files: true,
+  });
   await until(() => of(events, "host-status").at(-1)?.state === "connected", "the reconnect");
   // The daemon asked again on the new connection: still one request on screen, not two.
   await Bun.sleep(100);

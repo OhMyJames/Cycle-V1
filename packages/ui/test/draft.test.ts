@@ -236,6 +236,20 @@ test("a mention the words no longer say is not sent, and one picked twice is sen
   expect(store.get("k").mentions).toHaveLength(1);
 });
 
+test("a mention is sent for the whole word the text says, not for a longer name it is the start of", () => {
+  const sent = (text: string) =>
+    (promptBlocks({ text, attachments: [], mentions: [file("a.ts")] }) ?? []).filter(
+      (b) => b.type === "resource_link",
+    ).length;
+  expect(sent("see @a.tsx")).toBe(0);
+  expect(sent("see @a.tsconfig")).toBe(0);
+  expect(sent("mail@a.ts")).toBe(0);
+  expect(sent("see @a.ts")).toBe(1);
+  expect(sent("see @a.ts.")).toBe(1);
+  expect(sent("(@a.ts), and @a.ts: yes")).toBe(1);
+  expect(sent("@a.ts\nnext line")).toBe(1);
+});
+
 test("links share the block limit with the images: the words say it all when there is no room", () => {
   const mentions = Array.from({ length: 40 }, (_, i) => file(`f${i}.ts`));
   const text = mentions.map(mentionText).join(" ");

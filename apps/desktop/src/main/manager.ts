@@ -156,6 +156,8 @@ export class ConnectionManager
             state,
             ...(error !== undefined ? { error: messageOf(error) } : {}),
             ...(state === "connected" ? this.#daemonOf(host, connection.client) : {}),
+            // What the daemon can do is known from the connection it said it on: a drop that comes back to the same
+            // daemon does not take it away, or the box would stop queueing for as long as the line is down.
             ...(state === "connected"
               ? {
                   capabilities: {
@@ -163,7 +165,9 @@ export class ConnectionManager
                     files: connection.client.capabilities.files === true,
                   },
                 }
-              : {}),
+              : state === "reconnecting" && connection.status.capabilities !== undefined
+                ? { capabilities: connection.status.capabilities }
+                : {}),
           };
           this.#options.emit({ type: "host-status", ...connection.status });
           if (state === "connected" && was === "reconnecting") {

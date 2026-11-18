@@ -674,6 +674,21 @@ test("a slash at the start lists the commands that fit; the arrows choose, Enter
   );
 });
 
+test("a command typed in full is sent by Enter, not rewritten", async () => {
+  const { user, named } = await mount({ snapshot: () => withCommands("init", "compact") });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "/compact");
+  await screen.findByRole("listbox", { name: "Commands" });
+  await press(box, "Enter");
+  await waitFor(() =>
+    expect(named("prompt")).toEqual([
+      ["prompt", "local", "s1", [{ type: "text", text: "/compact" }]],
+    ]),
+  );
+});
+
 test("a slash that is not at the start of the message, or has a space after it, opens nothing", async () => {
   const { user } = await mount({ snapshot: () => withCommands("init") });
   await openFirstSession(user);

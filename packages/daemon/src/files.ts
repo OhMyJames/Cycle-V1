@@ -61,7 +61,11 @@ export const searchFiles = async (
       }
       let items: import("node:fs").Dirent[];
       try {
-        items = await readdir(dir, { withFileTypes: true });
+        // A directory listed earlier may have been swapped for a link since (the agent runs commands here): it is
+        // looked at again, and only a place that is still inside the folder is read.
+        const here = await realpath(dir);
+        if (here !== root && !here.startsWith(root + sep)) continue;
+        items = await readdir(here, { withFileTypes: true });
       } catch {
         continue;
       }

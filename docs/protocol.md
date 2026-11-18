@@ -249,7 +249,7 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 
 - **`entries` 是状态,`returned` 是事件。** 客户端以最后一条的 `entries` 为当前队列,所以从任意位置补发都能得到它。`returned` 和 `reason` 只在队列被退回的那一条里出现,客户端**只在它实时到达时**(`replay_complete` 之后)把内容放回输入框;补发过程中遇到的 `returned` 一律忽略,否则重启应用后每次历史里的退回都会再放一遍。
 - **附件字节**照决策 0013 存进 blob(daemon 的提取是递归的,覆盖快照里的 `entries[].prompt[]` 和 `returned[].prompt[]`),同一份内容按 sha256 只存一次,快照反复出现不会反复占用空间。
-- **发出**:turn 以 `idle` 加 `stopReason: "end_turn"` 结束时,daemon 取队头,写入它的 `user_message`(此时才写,所以历史里的顺序就是真实发生的顺序),发给 agent,再发一条新的 `_cycle/queue_update`。
+- **发出**:turn 以 `idle` 加 `stopReason: "end_turn"` 结束时,daemon 取队头发给 agent,再发一条新的 `_cycle/queue_update`。它的 `user_message` 和直接发的 prompt 一样,来自 agent 收到时的回显(Claude 适配会发),所以也是此时才进历史,历史里的顺序就是真实发生的顺序。
 - **退回,不自动发**:turn 以 `end_turn` 之外的原因结束(`cancelled`、`error`、`max_tokens`、`max_turn_requests`、`refusal`),或者 `session/cancel`、`session/close` 到达时,队列里剩下的**整体退回**:`entries` 清空,原内容放在 `returned`,`reason` 说明原因(`cancelled`、`error`、`closed`、`interrupted`)。客户端把 `returned` 的内容放回输入框,不当作错误显示。宁可退回,也不在用户已经叫停或出错之后替他发出他可能想改的消息。
 - **退回时没有客户端附着**(窗口都关了),或者 **daemon 重启**(进程被中断,没有机会退回):daemon 不退回,也不自动发送,队列留着。下一次有客户端附着时,daemon 在补发、`replay_complete` 和状态快照**之后**退回:原因照旧(重启则是 `interrupted`)。这条 `_cycle/queue_update` 是新写的记录(占新的序号),所以附着的客户端是实时收到它的。daemon 自己关闭时杀掉 agent 进程,不算退回的理由。
 - **撤回**:`_cycle/prompt/dequeue`(客户端 → daemon),参数 `{sessionId, queueId}`。成功时响应里带那条 prompt 的内容(`{prompt}`),客户端放回输入框编辑,并发一条 `_cycle/queue_update`。那条已经发出或不在队列里,以 `-32016`(`not_queued`)拒绝。
@@ -271,7 +271,7 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 1. 文本块里保留可读的 `@相对路径`,所以历史、其他客户端、别的 agent 都看得懂。
 2. 在 prompt 末尾追加一个 `resource_link` 块:`{type: "resource_link", name: 文件名, uri: "file:///绝对路径"}`,文件夹的 `uri` 以 `/` 结尾。同一个 `uri` 只追加一次。结构化引用才是准的:路径里有空格时,文本里的 `@` 形式可能有歧义。
 
-`resource_link` 和图片共用 32 块的上限;超了,客户端不发,先提示用户。`resource_link` 怎么交给模型是 agent 适配的事:Claude 适配把它写成 XML 标签(见 [docs/adapters/claude.md](adapters/claude.md)),不是协议的一部分。
+`resource_link` 和图片共用 32 块的上限;超了,多出的 `resource_link` 不发(文字里的 `@路径` 还在,agent 仍读得到路径),文字和图片不受影响。只有文字里还完整写着 `@路径`(前后是空白或标点,不是更长名字的开头)的提及才发。`resource_link` 怎么交给模型是 agent 适配的事:Claude 适配把它写成 XML 标签(见 [docs/adapters/claude.md](adapters/claude.md)),不是协议的一部分。
 
 ## 9. 权限请求与交互请求
 

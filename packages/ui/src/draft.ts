@@ -32,6 +32,26 @@ const EMPTY: Draft = { text: "", attachments: [], mentions: [] };
 export const mentionText = (mention: Pick<Mention, "path" | "kind">): string =>
   `@${mention.path}${mention.kind === "folder" ? "/" : ""}`;
 
+/**
+ * Whether the text still names a mention: its `@path` as a whole word. `@a.ts` is not in `@a.tsx`, and a mention whose
+ * @path was edited into another name is not sent.
+ */
+export const namesMention = (text: string, mention: Pick<Mention, "path" | "kind">): boolean => {
+  const word = mentionText(mention);
+  for (let at = text.indexOf(word); at !== -1; at = text.indexOf(word, at + 1)) {
+    const before = text[at - 1];
+    const after = text[at + word.length];
+    const startsWord = before === undefined || /[\s([{"']/.test(before);
+    const next = text[at + word.length + 1];
+    const endsWord =
+      after === undefined ||
+      /[\s,;:!?)\]}"']/.test(after) ||
+      (after === "." && (next === undefined || /\s/.test(next)));
+    if (startsWord && endsWord) return true;
+  }
+  return false;
+};
+
 /** The `file://` address of a path under a root, as the agent reads it. */
 export const fileUri = (root: string, path: string, kind: "file" | "folder"): string =>
   `file://${`${root.replace(/\/$/, "")}/${path}`.split("/").map(encodeURIComponent).join("/")}${kind === "folder" ? "/" : ""}`;
@@ -68,7 +88,7 @@ export const promptBlocks = (draft: Draft): PromptBlock[] | undefined => {
   // few (the same limit images are held to), and the words say it all when a link has no room.
   const seen = new Set<string>();
   const links = draft.mentions
-    .filter((m) => draft.text.includes(mentionText(m)) && !seen.has(m.uri) && seen.add(m.uri))
+    .filter((m) => namesMention(draft.text, m) && !seen.has(m.uri) && seen.add(m.uri))
     .map((m) => ({
       type: "resource_link" as const,
       name: m.name,

@@ -936,6 +936,8 @@ export class Daemon {
       } catch (error) {
         session.agentState = "idle";
         this.#changed();
+        // The prompt never reached the agent, so no turn will end to send or return what was queued behind it.
+        this.#returnQueue(session, "error");
         throw error;
       }
     });

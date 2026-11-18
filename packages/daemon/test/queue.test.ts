@@ -137,6 +137,46 @@ test("a turn that ends any way but end_turn hands the queue back", async () => {
   expect(fake.log.prompts).toEqual(["first"]);
 });
 
+test("a prompt that cannot reach the agent hands back what was queued behind it", async () => {
+  const fake = fakeAgent();
+  const start_ = gate();
+  let broken = false;
+  const definition = {
+    ...fake.definition,
+    launch: async (...args: Parameters<typeof fake.definition.launch>) => {
+      if (!broken) return fake.definition.launch(...args);
+      await start_.closed;
+      throw new Error("the agent did not start");
+    },
+  };
+  const daemon = await Daemon.start({ dataDir: dir, agents: [definition] });
+  open.push(daemon);
+  const c = await connectClient(daemon);
+  // Another window: a request is not held up by one from the first.
+  const other = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("first") });
+  await until(() => c.ended() === 1, "the first turn to end");
+  // The agent is gone, and the next prompt has to start it, which takes a while and then fails.
+  fake.crash();
+  await Bun.sleep(100);
+  broken = true;
+  const lost = c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("lost") });
+  const refused = lost.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  await other.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("behind") });
+  await until(() => queueUpdates(c.seen).length === 1, "the snapshot of the queue");
+  start_.open();
+  expect(await refused).toBeInstanceOf(Error);
+  await until(() => queueUpdates(c.seen).length === 2, "the queue to be handed back");
+  const back = queueUpdates(c.seen)[1]?.update;
+  expect(back).toMatchObject({ entries: [], reason: "error" });
+  expect(queueTexts({ entries: back?.returned ?? [] })).toEqual(["behind"]);
+});
+
 test("a queue that is full refuses the next prompt", async () => {
   const { c, sessionId } = await working();
   for (let i = 0; i < QUEUE_LIMIT; i++) {

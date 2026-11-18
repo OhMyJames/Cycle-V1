@@ -40,6 +40,9 @@ export type ComposerProps = {
   onSent?: () => void;
 };
 
+/** What a box with no conversation behind it has of a list: one array, so that reading it twice is the same value. */
+const NONE: never[] = [];
+
 /** How long after the last key the files are asked for. */
 const MENTION_DELAY = 120;
 
@@ -71,9 +74,12 @@ export function Composer({
   const { t, number } = useI18n();
   const store = useAppStore();
   const draft = useSyncExternalStore(store.drafts.subscribe, () => store.drafts.get(sessionKey));
-  const conversation = useAppState((s) => s.views[sessionKey]?.conversation);
-  const working = (conversation?.status ?? "idle") !== "idle";
-  const queue = conversation?.queue ?? [];
+  // Only what the box shows is watched: the conversation is made anew by every streamed update, and the box must not be drawn again for each.
+  const working = useAppState(
+    (s) => (s.views[sessionKey]?.conversation.status ?? "idle") !== "idle",
+  );
+  const queue = useAppState((s) => s.views[sessionKey]?.conversation.queue ?? NONE);
+  const commands = useAppState((s) => s.views[sessionKey]?.conversation.commands ?? NONE);
   const { text, attachments } = draft;
   // A daemon that has not said it queues is asked nothing it would refuse: a message waits for the turn to end.
   const capabilities = useAppState((s) => s.status[hostId]?.capabilities);
@@ -118,7 +124,7 @@ export function Composer({
   const commandRows: PickerRow[] =
     typed.slash === undefined
       ? []
-      : filterCommands(conversation?.commands ?? [], typed.slash).map((command) => ({
+      : filterCommands(commands, typed.slash).map((command) => ({
           key: command.name,
           name: `/${command.name}`,
           ...(command.hint !== undefined ? { hint: command.hint } : {}),
@@ -161,9 +167,7 @@ export function Composer({
   };
   const pick = (index: number) => {
     if (kind === "command") {
-      const command = (conversation?.commands ?? []).find(
-        (c) => c.name === commandRows[index]?.key,
-      );
+      const command = commands.find((c) => c.name === commandRows[index]?.key);
       if (command === undefined) return;
       // What was typed of it, the slash and the query, is replaced by the whole name and a space.
       input.current?.replaceBeforeCaret((typed.slash?.length ?? 0) + 1, commandText(command));
@@ -271,7 +275,10 @@ export function Composer({
         setPointed({ query, index: (active + (key === "up" ? rows.length - 1 : 1)) % rows.length });
         return true;
       }
-      if (key === "enter" || key === "tab") {
+      // `/compact` typed in full and Enter: the name is already there, and sending is what was meant. A file is still taken
+      // (its link is made when it is picked), and Tab always takes.
+      const complete = kind === "command" && rows[active]?.name === query;
+      if (key === "tab" || (key === "enter" && !complete)) {
         pick(active);
         return true;
       }
@@ -289,7 +296,9 @@ export function Composer({
     // They are the caret's unless it has nowhere to go: the first block going up, the last going down.
     const caret = input.current?.caret();
     if (caret === undefined || (key === "up" ? !caret.first : !caret.last)) return false;
-    const found = recall(sentTexts(conversation?.items ?? []), recalled.current, text, key);
+    // Read when the key is pressed, not watched.
+    const items = store.getState().views[sessionKey]?.conversation.items ?? [];
+    const found = recall(sentTexts(items), recalled.current, text, key);
     if (found === undefined) return false;
     recalled.current = found.state;
     store.drafts.setText(sessionKey, found.text);
