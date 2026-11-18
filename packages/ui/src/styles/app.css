@@ -25,11 +25,52 @@
   --color-sidebar: var(--ui-muted);
 }
 
+/* PingFang has fixed weights, so a weight of 420 would pick Medium and set all Chinese bold. These faces give it
+   Light below 350, Regular below 450, Medium below 550 and Semibold above; SF is variable and takes 420 as it is. */
+@font-face {
+  font-family: "Cycle PingFang";
+  src: local("PingFangSC-Light"), local("PingFang SC Light");
+  font-weight: 1 349;
+}
+@font-face {
+  font-family: "Cycle PingFang";
+  src: local("PingFangSC-Regular"), local("PingFang SC Regular");
+  font-weight: 350 449;
+}
+@font-face {
+  font-family: "Cycle PingFang";
+  src: local("PingFangSC-Medium"), local("PingFang SC Medium");
+  font-weight: 450 549;
+}
+@font-face {
+  font-family: "Cycle PingFang";
+  src: local("PingFangSC-Semibold"), local("PingFang SC Semibold");
+  font-weight: 550 1000;
+}
+
 /* DESIGN.md is the source of what these are and why. Components use the --cycle-* names; ui-sdk's own
    tokens are remapped here, once, so its controls take the same accent, radius and focus. */
 :root {
   --cycle-gap: 0.75rem;
   --cycle-gap-turn: 2rem;
+
+  /* Surfaces, warm grays. Workspace is the conversation; sidebar the window around it; raised is what lies
+     over them (menus, dialogs, the permission card); message the user's bubble and every sunken fill. */
+  --cycle-surface-workspace: light-dark(#fcfcfb, #161615);
+  --cycle-surface-sidebar: light-dark(#f7f7f5, #121211);
+  --cycle-surface-raised: light-dark(#ffffff, #1c1b1a);
+  --cycle-surface-message: light-dark(#f2f1ee, #262523);
+  --cycle-surface-hover: light-dark(#f0efec, #2a2927);
+  --cycle-surface-selected: light-dark(#e8e7e3, #33312e);
+  --cycle-surface-pressed: light-dark(#e8e7e3, #3a3835);
+  --cycle-border-subtle: light-dark(#efeeeb, #2a2927);
+  --cycle-border-default: light-dark(#e5e4e0, #34322f);
+
+  /* Ink: four steps, each a different level. Muted holds 4.5:1 on every surface above, selected included. */
+  --cycle-ink: light-dark(#1c1b1a, #f2f1ee);
+  --cycle-ink-secondary: light-dark(#4f4c48, #c4c1bb);
+  --cycle-ink-muted: light-dark(#6a6660, #9d9992);
+  --cycle-ink-disabled: light-dark(#8b8780, #787570);
 
   /* Colour: one accent for what can be acted on and what is happening; two more for states. */
   --cycle-accent: light-dark(oklch(0.511 0.262 277), oklch(0.68 0.19 277));
@@ -38,27 +79,68 @@
   --cycle-success: light-dark(oklch(0.48 0.12 150), oklch(0.76 0.16 150));
   --cycle-input-border: color-mix(in oklch, var(--ui-muted-foreground) 80%, var(--ui-background));
 
-  /* Type: four sizes. ui is ui-sdk's own (13px), so its controls and ours agree. */
+  /* Type: four sizes, each with its line (12/18, 13/20, 14/22, 16/24). ui is ui-sdk's own (13px), so its controls
+     and ours agree. Regular is 420 on a light ground and 400 on a dark one, where light text reads heavier. */
   --cycle-text-meta: 0.75rem;
   --cycle-text-ui: var(--ui-font-size, 0.8125rem);
   --cycle-text-body: 0.875rem;
   --cycle-text-title: 1rem;
+  --cycle-leading-meta: 1.5;
+  --cycle-leading-ui: 1.54;
+  --cycle-leading-body: 1.57;
+  --cycle-leading-title: 1.5;
+  --cycle-weight: 420;
 
-  /* Layout and motion. */
+  /* Radii echo the icons and nest: inner radius is outer radius less padding (a 12 menu with 4 of padding holds
+     8 rows). The control's is --ui-radius. */
+  --cycle-radius-sm: 4px;
+  --cycle-radius-card: 12px;
+  --cycle-radius-message: 16px;
+  --cycle-radius-composer: 20px;
+
+  /* Only what floats has a shadow. */
+  --cycle-shadow-popover: 0 4px 12px rgb(0 0 0 / 8%), 0 1px 3px rgb(0 0 0 / 6%);
+  --cycle-shadow-dialog: 0 16px 40px rgb(0 0 0 / 16%), 0 2px 8px rgb(0 0 0 / 8%);
+  --cycle-scrim: light-dark(rgb(0 0 0 / 10%), rgb(0 0 0 / 40%));
+
+  /* Layout and motion: 100ms for a state, 160ms for a disclosure, 200ms for something arriving. */
   --cycle-measure: 48rem;
   --cycle-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --cycle-in: 150ms;
-  --cycle-out: 120ms;
+  --cycle-motion-state: 100ms;
+  --cycle-motion-disclosure: 160ms;
+  --cycle-motion-enter: 200ms;
 
   /* ui-sdk, remapped. Its primary is what solid buttons, selection and checked states use. */
+  --ui-background: var(--cycle-surface-workspace);
+  --ui-foreground: var(--cycle-ink);
+  --ui-muted: var(--cycle-surface-message);
+  --ui-muted-foreground: var(--cycle-ink-muted);
+  --ui-border: var(--cycle-border-default);
+  --ui-shadow: var(--cycle-shadow-popover);
+  --ui-overlay: var(--cycle-scrim);
   --ui-primary: var(--cycle-accent);
   --ui-primary-foreground: var(--cycle-accent-foreground);
   --ui-ring-border: var(--cycle-accent);
   --ui-radius: 8px;
+  /* PingFang for Chinese comes through "Cycle PingFang" (the faces above), so 420 does not set it bold. */
+  --ui-font-sans:
+    -apple-system, BlinkMacSystemFont, "Cycle PingFang", "PingFang SC", system-ui, "Segoe UI",
+    sans-serif;
+  --ui-font-mono: ui-monospace, "SF Mono", Menlo, "Cycle PingFang", "PingFang SC", monospace;
 
-  font-family: var(--ui-font-sans, system-ui, -apple-system, "Segoe UI", sans-serif);
+  font-family: var(--ui-font-sans);
+  font-weight: var(--cycle-weight);
   /* ui-sdk sizes in rem: at 14px the root made its 13px controls 11px. */
   font-size: 16px;
+}
+
+/* The theme follows the system. What light-dark() cannot hold (a shadow, a weight) changes here. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cycle-weight: 400;
+    --cycle-shadow-popover: 0 4px 12px rgb(0 0 0 / 40%), 0 1px 3px rgb(0 0 0 / 30%);
+    --cycle-shadow-dialog: 0 16px 40px rgb(0 0 0 / 50%), 0 2px 8px rgb(0 0 0 / 30%);
+  }
 }
 
 /* A focus ring that can be seen: ui-sdk's is a pale 4px halo (1.3:1 on white). */
@@ -90,7 +172,7 @@ body {
   background: var(--ui-background);
   color: var(--ui-foreground);
   font-size: var(--cycle-text-ui);
-  line-height: 1.5;
+  line-height: var(--cycle-leading-ui);
 }
 
 [data-slot="starting"] {
@@ -216,6 +298,20 @@ svg[data-slot="dot"] {
   animation: cycle-spin 0.9s linear infinite;
 }
 
+/* What floats: a 1px edge, a shadow, and the raised surface. Corners nest: a menu of 12 with 4 of padding holds rows of 8,
+   and a dialog is 16. */
+:is([data-slot="menu-content"], [data-slot="select-content"]) {
+  border-radius: var(--cycle-radius-card);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-shadow-popover);
+}
+
+:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) {
+  border-radius: var(--cycle-radius-message);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-shadow-dialog);
+}
+
 /* Sidebar */
 [data-slot="sidebar"] {
   /* Keep ui-sdk's offscreen form fields inside the sidebar scroller. */
@@ -225,7 +321,7 @@ svg[data-slot="dot"] {
   gap: var(--cycle-gap);
   height: 100%;
   padding: var(--cycle-gap);
-  background: var(--ui-muted);
+  background: var(--cycle-surface-sidebar);
   overflow-x: hidden;
   overflow-y: auto;
   min-width: 0;
@@ -303,7 +399,7 @@ svg[data-slot="dot"] {
   border-radius: var(--ui-radius);
   border-color: transparent;
   background: transparent;
-  color: var(--ui-foreground);
+  color: var(--cycle-ink-secondary);
 }
 
 /* The list scrolls and clips: a ring drawn outside a row would be cut off, so it is drawn inside. */
@@ -312,10 +408,11 @@ svg[data-slot="dot"] {
 }
 
 [data-slot="sidebar"] [role="option"]:hover {
-  background: var(--ui-background);
+  background: var(--cycle-surface-hover);
 }
 
 [data-slot="sidebar"] [role="option"][aria-selected="true"] {
+  color: var(--cycle-ink);
   background: var(--ui-background);
   border-color: var(--ui-border);
   box-shadow: inset 2px 0 0 var(--cycle-accent);
@@ -415,11 +512,11 @@ svg[data-slot="dot"] {
   flex: none;
   min-width: 1.4em;
   padding: 0 0.3em;
-  border-radius: 4px;
+  border-radius: var(--cycle-radius-sm);
   text-align: center;
   font-size: var(--cycle-text-meta);
   font-weight: 600;
-  line-height: 1.5;
+  line-height: var(--cycle-leading-meta);
   color: var(--ui-background);
   background: var(--cycle-accent);
 }
@@ -637,7 +734,7 @@ html[data-platform="darwin"]
   margin: 0;
   font-size: var(--cycle-text-title);
   font-weight: 600;
-  line-height: 1.3;
+  line-height: var(--cycle-leading-title);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -708,7 +805,7 @@ html[data-platform="darwin"]
   gap: var(--cycle-gap);
   padding: 1rem var(--cycle-column-pad);
   font-size: var(--cycle-text-body);
-  line-height: 1.6;
+  line-height: var(--cycle-leading-body);
 }
 
 [data-slot="message"][data-role="user"] {
@@ -719,7 +816,7 @@ html[data-platform="darwin"]
   align-self: flex-end;
   max-width: 80%;
   background: var(--ui-muted);
-  border-radius: var(--ui-radius);
+  border-radius: var(--cycle-radius-message);
   padding: 0.5rem 0.75rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -771,9 +868,9 @@ html[data-platform="darwin"]
 
 [data-kind="tool"] {
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: var(--cycle-radius-card);
   font-size: var(--cycle-text-ui);
-  line-height: 1.5;
+  line-height: var(--cycle-leading-ui);
 }
 
 [data-kind="tool"][data-status="failed"],
@@ -835,7 +932,7 @@ html[data-platform="darwin"]
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius);
   font-size: var(--cycle-text-ui);
-  line-height: 1.5;
+  line-height: var(--cycle-leading-ui);
 }
 
 [data-kind="work"][data-status="failed"] {
@@ -971,7 +1068,7 @@ html[data-platform="darwin"]
   width: 14px;
   height: 14px;
   border: 1.5px solid var(--ui-muted-foreground);
-  border-radius: 4px;
+  border-radius: var(--cycle-radius-sm);
 }
 
 [data-slot="plan-mark"][data-status="in_progress"] {
@@ -1021,9 +1118,9 @@ html[data-platform="darwin"]
 [data-slot="permission"] {
   border: 1px solid var(--ui-border);
   border-top: 3px solid var(--cycle-attention);
-  border-radius: var(--ui-radius);
-  background: var(--ui-background);
-  box-shadow: var(--ui-shadow);
+  border-radius: var(--cycle-radius-card);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-shadow-popover);
   padding: 0.75rem;
   display: flex;
   flex-direction: column;
@@ -1147,7 +1244,7 @@ html[data-platform="darwin"]
 [data-slot="attachment"] img {
   width: 2rem;
   height: 2rem;
-  border-radius: calc(var(--ui-radius) / 2);
+  border-radius: var(--cycle-radius-sm);
   object-fit: cover;
 }
 
@@ -1186,7 +1283,7 @@ html[data-platform="darwin"]
   background: var(--ui-background);
   color: var(--ui-foreground);
   font-size: var(--cycle-text-ui);
-  line-height: 1.5;
+  line-height: var(--cycle-leading-ui);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   outline: none;
@@ -1228,7 +1325,7 @@ html[data-platform="darwin"]
 
 [data-slot="composer-input"] code {
   padding: 0.05em 0.3em;
-  border-radius: calc(var(--ui-radius) / 2);
+  border-radius: var(--cycle-radius-sm);
   background: var(--ui-muted);
   font-family: var(--ui-font-mono, ui-monospace, monospace);
   font-size: 0.9em;
@@ -1254,8 +1351,9 @@ html[data-platform="darwin"]
   padding: 0.25rem;
   overflow-y: auto;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
-  background: var(--ui-background);
+  border-radius: var(--cycle-radius-card);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-shadow-popover);
   list-style: none;
 }
 
@@ -1264,7 +1362,7 @@ html[data-platform="darwin"]
   align-items: baseline;
   gap: 0.5rem;
   padding: 0.25rem 0.5rem;
-  border-radius: calc(var(--ui-radius) / 2);
+  border-radius: var(--ui-radius);
   cursor: pointer;
   font-size: var(--cycle-text-ui);
 }
@@ -1306,7 +1404,7 @@ html[data-platform="darwin"]
   overflow: hidden;
   color: var(--ui-muted-foreground);
   font-size: var(--cycle-text-ui);
-  line-height: 1.5;
+  line-height: var(--cycle-leading-ui);
   pointer-events: none;
   text-overflow: ellipsis;
   white-space: nowrap;
