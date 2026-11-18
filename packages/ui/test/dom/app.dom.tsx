@@ -199,7 +199,7 @@ test("a permission request is shown with its options, and the click answers it",
     type: "environment-status",
     environmentId: "local",
     state: "connected",
-    capabilities: { queue: true, files: false },
+    capabilities: { queue: true, files: false, folders: true },
   });
   await waitFor(() => expect(deny.disabled).toBe(false));
   await write(box, "next message");
