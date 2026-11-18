@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   decide,
+  diffArgs,
   type Graph,
   markdown,
   outcome,
@@ -181,6 +184,15 @@ describe("the result of a suite", () => {
     ` ${pass} pass\n ${skip} skip\n ${fail} fail\n 3 expect() calls\nRan ${pass + skip + fail} tests across 1 file.`;
   const base = { suite, code: 0, timedOut: false, strict: false };
 
+  test("reads bun's summary, without colours, and the last of two", () => {
+    expect(parseSummary("\x1b[32m 4 pass\x1b[0m\n\x1b[2m 1 skip\x1b[0m\n 0 fail")).toEqual({
+      pass: 4,
+      skip: 1,
+      fail: 0,
+    });
+    expect(parseSummary(" 9 pass\nlater: a test printed this\n 2 pass\n 0 fail").pass).toBe(2);
+  });
+
   test("reads bun's summary", () => {
     expect(parseSummary(bun(4, 1, 2))).toEqual({ pass: 4, skip: 1, fail: 2 });
     expect(parseSummary("nothing here")).toEqual({ pass: 0, skip: 0, fail: 0 });
@@ -240,7 +252,10 @@ describe("the CI workflow", () => {
 
   test("the integration job runs on pull requests, with the whole history, and compares with the base", () => {
     expect(ci).toMatch(/^on:[\s\S]*\n {2}pull_request:/m);
-    expect(job).not.toMatch(/^ {4}if:/m);
+    // Not on a push to main: that is what the check job is for; the nightly run is all of them.
+    expect(job).toMatch(
+      /^ {4}if: github\.event_name == 'pull_request' \|\| github\.event_name == 'workflow_dispatch' \|\| github\.event_name == 'schedule'$/m,
+    );
     expect(job).toContain("fetch-depth: 0");
     expect(job).toContain("--changed origin/{0}', github.base_ref");
   });
@@ -272,6 +287,9 @@ describe("the CI workflow", () => {
   });
 });
 
+const cleanEnv = () =>
+  Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")));
+
 describe("the command line", () => {
   const cli = (...args: string[]) =>
     Bun.spawnSync(["bun", `${root}scripts/integration.ts`, ...args], {
@@ -296,6 +314,43 @@ describe("the command line", () => {
     expect(out.exitCode).toBe(0);
     expect(text).toContain("every suite: the change could not be compared");
     for (const name of ALL) expect(text).toContain(`run   ${name}`);
+  });
+
+  test("an option with no value, or written with =, is refused, not turned into a full run", () => {
+    expect(cli("--plan", "--changed").exitCode).toBe(2);
+    expect(cli("--plan", "--changed", "--strict").exitCode).toBe(2);
+    expect(cli("--plan", "--changed=origin/main").exitCode).toBe(2);
+    expect(cli("--plan", "--summary").exitCode).toBe(2);
+  });
+
+  test("a file moved out of a package is a change to the package it left: the diff is without renames", () => {
+    const repo = mkdtempSync(join(tmpdir(), "cv1-plan-"));
+    const git = (...a: string[]) => {
+      const out = Bun.spawnSync(["git", "-C", repo, ...a], { env: cleanEnv() });
+      if (out.exitCode !== 0) throw new Error(out.stderr.toString());
+      return out.stdout.toString();
+    };
+    try {
+      git("init", "-q", "-b", "main");
+      git("config", "user.email", "t@t");
+      git("config", "user.name", "t");
+      mkdirSync(join(repo, "packages/protocol/src"), { recursive: true });
+      mkdirSync(join(repo, "docs"));
+      writeFileSync(join(repo, "packages/protocol/src/a.ts"), "export const a = 1;\n".repeat(20));
+      git("add", "-A");
+      git("commit", "-q", "-m", "one");
+      git("mv", "packages/protocol/src/a.ts", "docs/a.md");
+      git("commit", "-q", "-am", "move");
+      // The same arguments as integration.ts's, so that a change to them is a change here.
+      const changed = Bun.spawnSync(["git", "-C", repo, ...diffArgs("HEAD~1")], { env: cleanEnv() })
+        .stdout.toString()
+        .split("\0")
+        .filter(Boolean);
+      expect(changed.sort()).toEqual(["docs/a.md", "packages/protocol/src/a.ts"]);
+      expect(names(changed)).toContain("backend");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   test("a name no suite has is refused", () => {

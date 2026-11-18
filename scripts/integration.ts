@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   decide,
+  diffArgs,
   formatPlan,
   markdown,
   outcome,
@@ -55,14 +56,14 @@ const unknownChange = (why: string): Plan => ({
 const changedFiles = (): string[] | string => {
   if (files !== undefined) return files;
   if (base === undefined) return "no change given";
-  const diff = Bun.spawnSync(["git", "diff", "--name-only", `${base}...HEAD`], {
+  const diff = Bun.spawnSync(["git", ...diffArgs(base)], {
     cwd: root,
     // A pre-commit hook has GIT_DIR in its environment; a git here must find this checkout, not the hook's.
     env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
   });
   if (diff.exitCode !== 0)
     return `git diff ${base}...HEAD failed: ${diff.stderr.toString().trim().split("\n")[0]}`;
-  return diff.stdout.toString().split("\n").filter(Boolean);
+  return diff.stdout.toString().split("\0").filter(Boolean);
 };
 
 const selection = (): Plan | undefined => {
@@ -75,6 +76,20 @@ const selection = (): Plan | undefined => {
     return unknownChange(error instanceof Error ? error.message : String(error));
   }
 };
+
+// An option that needs a value, with none, is a mistake to say, not a reason to run something else.
+for (const name of ["--changed", "--summary", "--github-output"]) {
+  const value = option(name);
+  if (args.includes(name) && (value === undefined || value.startsWith("--"))) {
+    console.error(`${name} needs a value`);
+    process.exit(2);
+  }
+}
+for (const a of args)
+  if (a.startsWith("--") && a.includes("=")) {
+    console.error(`write ${a.split("=")[0]} and its value as two words`);
+    process.exit(2);
+  }
 
 const planned = selection();
 const everything: Plan = {
@@ -144,6 +159,8 @@ const run = async (
   const timer = setTimeout(() => {
     timedOut = true;
     proc.kill(9);
+    // What it started shares its output pipes: until those end, reading them would not.
+    Bun.spawnSync(["pkill", "-9", "-f", scratch]);
   }, seconds * 1000);
   let output = "";
   const pass = async (stream: ReadableStream<Uint8Array>, to: (text: string) => void) => {
@@ -191,7 +208,15 @@ const finish = () => {
 if (chosen.run.some((s) => s.name === "smoke")) {
   console.log("== build the desktop app");
   if ((await run(["bun", "run", "build"], "apps/desktop", 60)).code !== 0) {
-    rows.push({ name: "smoke", status: "FAIL", reason: "the desktop app did not build" });
+    for (const suite of chosen.run)
+      rows.push({
+        name: suite.name,
+        status: suite.name === "smoke" ? "FAIL" : "skip",
+        reason:
+          suite.name === "smoke"
+            ? "the desktop app did not build"
+            : "not run: the build before the suites failed",
+      });
     failed = true;
     finish();
   }

@@ -44,6 +44,7 @@ jobs:
       - run: bun run check
 
   integration:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:

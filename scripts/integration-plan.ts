@@ -118,7 +118,7 @@ const NO_SUITE: [RegExp, string][] = [
   [/^\.(?:agents|claude|githooks)\//, "an agent skill, note or hook"],
   [/^(?:\.gitignore|\.mcp\.json|biome\.json|skills-lock\.json)$/, "editor and lint configuration"],
   [
-    /^scripts\/(?:check|boundaries|release-guard|set-apple-secrets)\b/,
+    /^scripts\/(?:check\.ts|boundaries(?:\.test)?\.ts|release-guard(?:\.test)?\.ts|set-apple-secrets\.sh)$/,
     "the gate's or release's own script",
   ],
   [/^\.github\/workflows\/release\.yml$/, "the release workflow"],
@@ -133,6 +133,15 @@ const EVERYTHING: [RegExp, string][] = [
   ],
   [/^scripts\/integration/, "the integration runner itself"],
   [/^\.github\/workflows\/ci\.yml$/, "the CI workflow"],
+];
+
+/** What to ask git for the changed paths: without rename detection (a file moved out of a package is a change to it), NUL-separated (a name with odd characters is not quoted). */
+export const diffArgs = (base: string): string[] => [
+  "diff",
+  "--name-only",
+  "--no-renames",
+  "-z",
+  `${base}...HEAD`,
 ];
 
 export type Plan = {
@@ -229,10 +238,13 @@ export const formatPlan = (result: Plan, chosen: ReturnType<typeof decide>): str
 };
 
 /** What bun test says at the end: " 12 pass", " 1 skip", " 0 fail". */
-export const parseSummary = (output: string): { pass: number; skip: number; fail: number } => {
+export const parseSummary = (raw: string): { pass: number; skip: number; fail: number } => {
+  // Colours, if the environment asked for them, and the last such line: it is bun's, after anything a test printed.
+  const output = raw.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
   const count = (word: string) => {
-    const match = new RegExp(`^\\s*(\\d+) ${word}\\s*$`, "m").exec(output);
-    return match ? Number(match[1]) : 0;
+    const all = [...output.matchAll(new RegExp(`^\\s*(\\d+) ${word}\\s*$`, "gm"))];
+    const last = all[all.length - 1];
+    return last ? Number(last[1]) : 0;
   };
   return { pass: count("pass"), skip: count("skip"), fail: count("fail") };
 };
