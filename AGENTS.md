@@ -15,13 +15,21 @@ cycle-v1 是 ADE(agentic development environment),是 cycle 的重写。这是�
 
 - 三层:L1 客户端到 daemon(自有协议,稳定,zod schema)、L2 daemon 到 agent(以 ACP v2 为主要参考)、L3 agent 适配。
 - 不使用官方 `claude-agent-acp`;Claude 适配自己写,且必须自包含、传输可替换,为云端 sandbox 留路。
-- L1 的消息模型以 ACP v2 为蓝本,字段和语义保持一致,不另造事件模型;类型由 zod 在 `packages/acp` 定义并固定版本。Cycle 自己的扩展用 `_cycle/*` 和 `_meta`。
+- L1 的消息模型以 ACP v2 为蓝本,字段和语义保持一致,不另造事件模型。ACP 类型只从 `@cycle/acp` 导入(它固定 SDK 的精确版本,是唯一导入 `@agentclientprotocol/sdk` 的地方)。Cycle 自己的扩展用 `_cycle/*` 和 `_meta`,用 zod 定义在 `@cycle/protocol`。
 - daemon 自己保存会话历史(JSONL),不依赖 agent 重放。只管理 Cycle 自己创建的 session。
 - session 事件日志用 JSONL,放在存储接口后面。
 - L1 事件由 L2 的 ACP 更新映射而来,不原样透传,使客户端不受 ACP 变化和具体 agent 的影响。
 - agent 是可替换的接口;v1 只实现 Claude。
 - 协议和传输分离。远程连接走 SSH 隧道,协议本身不依赖具体传输。
 - v1 范围外:git worktree、终端、diff、多 provider、Web 端。不要提前实现。
+
+## 命令
+
+- `bun run check`:门禁,提交前必须通过(pre-commit 钩子会运行它)。依次检查边界、类型、lint、测试。
+- `bun run format`:格式化并修复可自动修复的 lint。
+- 不要用 `--no-verify`、`@ts-ignore`、`@ts-expect-error` 或 `biome-ignore` 绕过它;修复原因,或有意改规则。
+- 测试放在各包的 `test/` 目录,与 `src/` 并列。
+- `bun install` 会把 `core.hooksPath` 设为 `.githooks`。
 
 ## 红线(参考 old-cycle,以后违反前先问)
 

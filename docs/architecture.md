@@ -11,7 +11,7 @@ Desktop(Electron) ──L1──▶ Daemon ──L2(ACP)──▶ Agent 适配�
 
 ### L1:客户端到 daemon
 
-- 基于 JSON-RPC 2.0,与传输分离。消息模型以 ACP v2 为蓝本,字段和语义保持一致,但类型由我们用 zod 自己定义并固定版本(见 [决策 0005](decisions/0005-acp-v2.md))。daemon 转发 agent 的消息并补充 Cycle 自己的能力,Cycle 的扩展放在 `_cycle/*` 方法和 `_meta` 里,不重复定义 ACP 已有的概念。
+- 基于 JSON-RPC 2.0,与传输分离。消息模型以 ACP v2 为蓝本,字段和语义保持一致。ACP 的类型来自固定版本的 SDK(只经 `@cycle/acp` 使用),Cycle 的扩展用 zod 定义在 `@cycle/protocol`(见 [决策 0005](decisions/0005-acp-v2.md))。daemon 转发 agent 的消息并补充 Cycle 自己的能力,Cycle 的扩展放在 `_cycle/*` 方法和 `_meta` 里,不重复定义 ACP 已有的概念。
 - daemon 长驻,支持多个客户端观察同一个 session;客户端断线后 session 继续运行。
 - **daemon 自己保存会话历史**(见 [决策 0002](decisions/0002-session-persistence.md)):JSONL,每个 session 一个文件,只追加,每条事件带单调递增的 `seq`。历史不依赖 agent 重放,因为云端 sandbox 销毁后 agent 侧的历史会丢。重连时按 `since=seq` 补发,或先取快照再接增量。
 - 会话内容沿用 ACP v2 的 item 模型:消息、tool call 等按稳定 id 打补丁。
@@ -44,8 +44,8 @@ Desktop(Electron) ──L1──▶ Daemon ──L2(ACP)──▶ Agent 适配�
 ## 规划中的仓库结构
 
 ```
-packages/protocol          L1 类型和 zod schema
-packages/acp               ACP v2 schema(固定版本)和 client 实现
+packages/protocol          Cycle 对 ACP 的扩展:_cycle/* 方法、_meta 键、错误码(zod)
+packages/acp               ACP v2 类型和常量(固定 SDK 版本,唯一导入它的地方)
 packages/daemon            会话管理、事件日志(JSONL)、ACP client 调度
 packages/adapters/claude   Claude 适配进程(基于 Claude Agent SDK)和 manifest
 apps/desktop               Electron(main:ssh 与 daemon 连接;renderer:UI)

@@ -28,6 +28,15 @@ Desktop(Electron) ──L1: Cycle 协议──▶ Daemon ──L2: ACP──▶ 
 
 详见 [docs/architecture.md](docs/architecture.md)。
 
+## 开发
+
+```bash
+bun install      # 安装依赖,并启用 pre-commit 钩子
+bun run check    # 边界、类型、lint、测试
+```
+
+目前是骨架:`packages/acp`、`packages/protocol` 有内容和测试,`daemon`、Claude 适配和 `desktop` 还是空壳。
+
 ## v1 不做
 
 git worktree、终端、diff 视图、多 provider、Web 端。

@@ -5,6 +5,7 @@
 本文定义 **L1**:Cycle 客户端和 daemon 之间的协议。L2(daemon 到 agent)直接使用 ACP v2,不在这里重述;L3 见 `docs/architecture.md`。
 
 依据:
+
 - 决策 [0005](decisions/0005-acp-v2.md):L1 以 ACP v2 为蓝本,字段和语义保持一致,类型由我们固定版本;Cycle 的扩展用 `_cycle/*` 和 `_meta`。
 - 决策 [0002](decisions/0002-session-persistence.md):daemon 自己保存历史,JSONL 是唯一来源。
 - 决策 [0006](decisions/0006-own-sessions.md):只管理 Cycle 自己的 session。
@@ -52,22 +53,22 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 
 下表中"客户端 → daemon"的方法,daemon 按 `sessionId` 路由到对应 agent 并转发,除非标注"daemon 处理"。
 
-| 方法 | 方向 | 在 L1 的行为 |
-| --- | --- | --- |
-| `initialize` | 客户端 → daemon | daemon 处理,见 §3 |
-| `session/new` | 客户端 → daemon | daemon 创建 session 并启动 agent,见 §6 |
-| `session/list` | 客户端 → daemon | daemon 处理,只返回 Cycle 自己的 session,见 §6 |
-| `session/resume` | 客户端 → daemon | daemon 处理,表示"附着并按需补发历史",见 §7 |
-| `session/prompt` | 客户端 → daemon | 转发。仅在 session 空闲时接受,见 §8 |
-| `session/cancel` | 客户端 → daemon | 转发(通知) |
-| `session/close` | 客户端 → daemon | daemon 处理:停止 agent 进程,保留历史 |
-| `session/delete` | 客户端 → daemon | daemon 处理:删除日志和索引,客户端必须先向用户确认 |
-| `session/set_config_option` | 客户端 → daemon | 转发,并把结果写入 session 的配置记录 |
-| `tool_call/cancel` | 客户端 → daemon | 转发 |
-| `session/update` | daemon → 客户端 | 转发 agent 的更新,并加上 `seq`,见 §5 |
-| `session/request_permission` | daemon → 客户端 | 转发 agent 的请求,见 §9 |
-| `elicitation/create` | daemon → 客户端 | 转发,处理方式同 §9 |
-| `auth/*` | — | v1 不用。agent 的登录由 agent 所在环境自己完成 |
+| 方法                         | 方向            | 在 L1 的行为                                      |
+| ---------------------------- | --------------- | ------------------------------------------------- |
+| `initialize`                 | 客户端 → daemon | daemon 处理,见 §3                                 |
+| `session/new`                | 客户端 → daemon | daemon 创建 session 并启动 agent,见 §6            |
+| `session/list`               | 客户端 → daemon | daemon 处理,只返回 Cycle 自己的 session,见 §6     |
+| `session/resume`             | 客户端 → daemon | daemon 处理,表示"附着并按需补发历史",见 §7        |
+| `session/prompt`             | 客户端 → daemon | 转发。仅在 session 空闲时接受,见 §8               |
+| `session/cancel`             | 客户端 → daemon | 转发(通知)                                        |
+| `session/close`              | 客户端 → daemon | daemon 处理:停止 agent 进程,保留历史              |
+| `session/delete`             | 客户端 → daemon | daemon 处理:删除日志和索引,客户端必须先向用户确认 |
+| `session/set_config_option`  | 客户端 → daemon | 转发,并把结果写入 session 的配置记录              |
+| `tool_call/cancel`           | 客户端 → daemon | 转发                                              |
+| `session/update`             | daemon → 客户端 | 转发 agent 的更新,并加上 `seq`,见 §5              |
+| `session/request_permission` | daemon → 客户端 | 转发 agent 的请求,见 §9                           |
+| `elicitation/create`         | daemon → 客户端 | 转发,处理方式同 §9                                |
+| `auth/*`                     | —               | v1 不用。agent 的登录由 agent 所在环境自己完成    |
 
 `session/update` 的变体沿用 ACP v2:`user_message(_chunk)`、`agent_message(_chunk)`、`agent_thought(_chunk)`、`state_update`、`tool_call_update`、`tool_call_content_chunk`、`terminal_update`、`terminal_output_chunk`、`plan_update`、`available_commands_update`、`config_option_update`、`session_info_update`、`usage_update`、`notice`、`compaction_update`、`compaction_summary_chunk`、`replay_complete`、`subagent_update`、`session_message(_chunk)`。客户端遇到不认识的变体应忽略,不得报错。
 
@@ -136,18 +137,19 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 客户端通过 `session/resume` 附着到一个 session。参数沿用 ACP 的 `ResumeSessionRequest`,其中 `replayFrom` 的取值扩展为:
 
-| `replayFrom` | 含义 |
-| --- | --- |
-| 缺省或 null | 只附着,不补发。之后的更新会推送给客户端 |
-| `{"type": "start"}` | 从第 1 条记录开始补发全部历史(ACP 已有) |
-| `{"type": "_cycle.seq", "after": N}` | 补发序号大于 N 的记录(Cycle 扩展) |
+| `replayFrom`                         | 含义                                    |
+| ------------------------------------ | --------------------------------------- |
+| 缺省或 null                          | 只附着,不补发。之后的更新会推送给客户端 |
+| `{"type": "start"}`                  | 从第 1 条记录开始补发全部历史(ACP 已有) |
+| `{"type": "_cycle.seq", "after": N}` | 补发序号大于 N 的记录(Cycle 扩展)       |
 
 行为:
 
 1. daemon 从自己的日志读取要补发的记录,按序号顺序以 `session/update` 发给该客户端,每条带 `cycle/seq`。补发过程中产生的新更新排在补发之后,不丢也不重复。
-2. 补发完成后发一条 `replay_complete` 更新(ACP 已有),它的 `cycle/seq` 是补发时的最新序号。
-3. 之后进入实时推送。
-4. 响应是 ACP 的 `ResumeSessionResponse`。
+2. 补发完成后发一条 `replay_complete` 更新(ACP 已有),它的 `cycle/seq` 是补发时的最新序号。没有补发时(`replayFrom` 缺省)不发。
+3. 随后发一条当前状态的 `state_update` 快照。ACP v2 规定每次成功的 `session/resume` 都在响应之前发这个快照,且响应本身不代表 session 空闲。快照是聚合状态而不是一次新的完成,客户端要幂等地应用它。
+4. 之后进入实时推送。
+5. 响应是 ACP 的 `ResumeSessionResponse`。
 
 **重连的标准做法**:客户端记住每个 session 收到的最大 `cycle/seq`,断线重连后用 `{"type": "_cycle.seq", "after": 该值}` 附着。daemon 不保存客户端的位置,位置完全由客户端持有。
 
@@ -229,14 +231,14 @@ daemon 启动 agent 时只传入显式白名单里的环境变量,不继承自�
 - 协议版本不兼容:用 ACP 的 `-32022`。
 - 其余是 Cycle 自己的,取 -32010 到 -32019,避开 ACP 已用的码:
 
-| 码 | 名称 | 含义 |
-| --- | --- | --- |
-| -32010 | `session_busy` | session 正在工作,不接受该操作 |
-| -32011 | `agent_unavailable` | agent 不可用(未安装、启动失败) |
-| -32012 | `agent_exited` | agent 进程在操作中退出 |
-| -32013 | `resume_failed` | agent 无法恢复该 session。历史仍可读,但不能继续对话 |
-| -32014 | `invalid_config` | 配置不符合 `configSchema` |
-| -32015 | `log_unavailable` | 历史日志读写失败 |
+| 码     | 名称                | 含义                                                |
+| ------ | ------------------- | --------------------------------------------------- |
+| -32010 | `session_busy`      | session 正在工作,不接受该操作                       |
+| -32011 | `agent_unavailable` | agent 不可用(未安装、启动失败)                      |
+| -32012 | `agent_exited`      | agent 进程在操作中退出                              |
+| -32013 | `resume_failed`     | agent 无法恢复该 session。历史仍可读,但不能继续对话 |
+| -32014 | `invalid_config`    | 配置不符合 `configSchema`                           |
+| -32015 | `log_unavailable`   | 历史日志读写失败                                    |
 
 ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集中定义,升级 ACP 时对照检查。
 
@@ -247,10 +249,16 @@ ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集
 每个 session 一个 JSONL 文件,一行一条记录,字段:
 
 ```json
-{"seq": 12, "ts": "2026-11-18T04:00:00.000Z", "kind": "update", "data": { "sessionUpdate": "agent_message_chunk", "...": "..." }}
+{
+  "seq": 12,
+  "ts": "2026-11-18T04:00:00.000Z",
+  "kind": "update",
+  "data": { "sessionUpdate": "agent_message_chunk", "...": "..." }
+}
 ```
 
 `kind` 取值:
+
 - `update`:agent 发来的 `session/update` 内容(daemon 合成的用户消息也是这一类)。
 - `request`:agent 发来的需要回答的请求,`data` 含 `requestId`、`method`、`params`。
 - `response`:对某个 `request` 的回答,`data` 含 `requestId` 和结果,以及回答来自哪个客户端。
@@ -258,6 +266,7 @@ ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集
 - `meta`:daemon 自己的事件(session 创建、agent 启动和退出、配置变更)。
 
 要求:
+
 - 只追加。写入单行,崩溃留下的末尾半行在读取时丢弃。
 - `seq` 严格递增且连续。读取时发现不连续视为日志损坏,以 `-32015` 报告,不静默跳过。
 - 日志不包含任何凭证。写入前过滤已知的敏感字段。待定:过滤规则。

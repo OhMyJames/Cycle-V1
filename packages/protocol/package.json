@@ -1,0 +1,13 @@
+{
+  "name": "@cycle/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@cycle/acp": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}
