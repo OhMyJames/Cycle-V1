@@ -25,6 +25,8 @@ export const SessionEntrySchema = z.object({
   /** The agent's latest `usage_update`: shown in the session list. */
   usage: SessionUsageSchema.optional(),
   archived: z.boolean().optional(),
+  /** True while prompts wait in the session's queue, so that loading a session knows to read it back from the log. */
+  queued: z.boolean().optional(),
   /** What was asked of the agent with `session/set_config_option`, applied again when it is restarted. */
   config: z.record(z.string(), z.string()).optional(),
   createdAt: z.string(),

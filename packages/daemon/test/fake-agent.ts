@@ -4,7 +4,7 @@ import type { AgentDefinition } from "../src/index.ts";
 
 type Script = {
   /** Called when a prompt arrives: what the agent does with it. */
-  onPrompt?: (ctx: Turn) => Promise<void>;
+  onPrompt?: (ctx: Turn) => Promise<unknown>;
 };
 
 export type Turn = {
@@ -106,15 +106,17 @@ export const fakeAgent = (
         void (async () => {
           await say({ sessionUpdate: "user_message", messageId, content: params.prompt });
           await say({ sessionUpdate: "state_update", state: "running" });
+          let ended = false;
           if (script.onPrompt) {
-            await script.onPrompt({
-              prompt: text,
-              blocks: params.prompt,
-              say,
-              ask,
-              elicit,
-              cancelled,
-            });
+            ended =
+              (await script.onPrompt({
+                prompt: text,
+                blocks: params.prompt,
+                say,
+                ask,
+                elicit,
+                cancelled,
+              })) === "ended";
           } else {
             await say({
               sessionUpdate: "agent_message_chunk",
@@ -122,7 +124,9 @@ export const fakeAgent = (
               content: { type: "text", text: `echo: ${text}` },
             });
           }
-          await say({ sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" });
+          // A script that ended the turn itself (an error, say) is not given a second ending.
+          if (!ended)
+            await say({ sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" });
         })().catch(() => {});
         return { messageId };
       });

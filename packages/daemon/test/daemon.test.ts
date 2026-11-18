@@ -136,24 +136,6 @@ test("a point past the end of the history is refused", async () => {
   ).rejects.toMatchObject({ code: -32602 });
 });
 
-test("a prompt while the session is working is refused", async () => {
-  let release: () => void = () => {};
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const { daemon } = await start(fakeAgent({ onPrompt: () => gate }));
-  const c = await connectClient(daemon);
-  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
-  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
-  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("slow") });
-  await expect(
-    c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("again") }),
-  ).rejects.toMatchObject({ code: CycleErrorCode.SessionBusy });
-  release();
-  await until(() => c.idle() >= 1, "the turn to end");
-  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("now") });
-});
-
 test("a permission request goes to every attached client; the first answer wins", async () => {
   const outcomes: unknown[] = [];
   const { daemon } = await start(

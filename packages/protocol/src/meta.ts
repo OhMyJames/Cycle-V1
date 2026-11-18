@@ -24,6 +24,8 @@ export const META = {
   requestId: "cycle/requestId",
   /** On the answer to an `elicitation/create` nobody could be asked: no attached client has the capability. */
   noClient: "cycle/noClient",
+  /** On the answer to a `session/prompt` that was queued, not sent: the agent was still working. */
+  queued: "cycle/queued",
 } as const;
 
 /** The version of Cycle's protocol, "major.minor". A different major is refused. */
@@ -38,6 +40,8 @@ export const CapabilitiesSchema = z.object({
   replay: z.array(z.string()),
   agents: z.array(z.string()),
   sessionOps: z.array(z.string()),
+  /** Prompts sent while the agent works are queued by the daemon (docs/protocol.md §8). */
+  queue: z.boolean().optional(),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 

@@ -1,4 +1,5 @@
 import type { SessionUpdate } from "@cycle/acp";
+import type { QueueEntry, QueueReason } from "@cycle/protocol";
 import type { AgentLink } from "./agent-link.ts";
 import type { SessionEntry } from "./index-file.ts";
 import type { SessionLog } from "./log/types.ts";
@@ -45,6 +46,10 @@ export class Session {
   /** The agent's last say on what it is doing. */
   agentState: "running" | "idle" | "requires_action" = "idle";
   readonly pending = new Map<string, Pending>();
+  /** Prompts sent while the agent was working, oldest first (docs/protocol.md §8). */
+  queue: QueueEntry[] = [];
+  /** Why the queue is being held for a client to attach, when it was to be handed back and none was there. */
+  heldReason: QueueReason | undefined;
   readonly attachments = new Set<Attachment>();
   #requests = 0;
   /**
