@@ -1,37 +1,32 @@
 import { Button } from "@ui-sdk/react/button";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@ui-sdk/react/select";
 import type { ReactNode } from "react";
-import type { HostConfig, HostStatus } from "../api.ts";
+import type { HostConfig, HostStatus, SessionSummary } from "../api.ts";
 import type { SessionList } from "../sessions.ts";
 import { useI18n } from "./i18n.tsx";
 import { MoreIcon, PlusIcon, SearchIcon } from "./icons.tsx";
-import { SessionListView } from "./session-list.tsx";
+import { type Away, SessionListView } from "./session-list.tsx";
 import { HOST_STATE, StatusDot } from "./status.tsx";
 
 export type SidebarProps = {
   hosts: HostConfig[];
   status: Record<string, HostStatus>;
-  selectedHost: string | undefined;
-  /** What is shown, grouped and ordered (sessions.ts). */
+  /** What is shown, grouped and ordered (sessions.ts): the sessions of every host. */
   list: SessionList;
-  selectedSession: string | undefined;
+  /** The open session, by its `sessionKey`. */
+  selected: string | undefined;
+  /** The hosts that are not connected, whose sessions are shown greyed. */
+  away: ReadonlyMap<string, Away>;
   showArchived: boolean;
-  onSelectHost: (hostId: string) => void;
-  onSelectSession: (sessionId: string) => void;
+  onSelectSession: (session: SessionSummary) => void;
   onNewSession: () => void;
   onSearch: () => void;
   onAddHost: () => void;
   onRemoveHost: (hostId: string) => void;
+  onConnectHost: (hostId: string) => void;
   onToggleArchived: () => void;
   onShowAll: () => void;
-  onAgentDefaults: () => void;
+  onAgentDefaults: (hostId: string) => void;
   /** Below the rest: the update footer. */
   children?: ReactNode;
 };
@@ -41,36 +36,21 @@ export const MOD = /Mac/.test(globalThis.navigator?.userAgent ?? "") ? "⌘" : "
 
 export function Sidebar(props: SidebarProps) {
   const { t } = useI18n();
-  const host = props.hosts.find((h) => h.id === props.selectedHost);
-  const state = props.selectedHost !== undefined ? props.status[props.selectedHost] : undefined;
-  const hostState = HOST_STATE[state?.state ?? "closed"];
+  const connected = props.hosts.filter((h) => props.status[h.id]?.state === "connected");
+  const several = props.hosts.length > 1;
+  const apart = props.hosts.filter((h) => props.away.has(h.id));
   return (
     <nav data-slot="sidebar" aria-label={t("sessions.label")}>
       <div data-slot="titlebar" aria-hidden="true" />
       <div data-slot="host-bar">
-        <Select
-          items={props.hosts.map((h) => ({ value: h.id, label: h.name }))}
-          value={props.selectedHost ?? null}
-          onValueChange={(next) => {
-            if (typeof next === "string") props.onSelectHost(next);
-          }}
-        >
-          <SelectTrigger aria-label="Host">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {props.hosts.map((h) => (
-              <SelectItem key={h.id} value={h.id}>
-                {h.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <span aria-hidden="true" />
         <Menu
           onAction={(value) => {
+            const [action, hostId] = String(value).split(":");
             if (value === "add-host") props.onAddHost();
-            else if (value === "remove-host" && host !== undefined) props.onRemoveHost(host.id);
-            else if (value === "agent-defaults") props.onAgentDefaults();
+            else if (action === "remove-host" && hostId !== undefined) props.onRemoveHost(hostId);
+            else if (action === "agent-defaults" && hostId !== undefined)
+              props.onAgentDefaults(hostId);
           }}
         >
           <MenuTrigger aria-label="Host actions" title="Host actions" data-variant="ghost">
@@ -78,23 +58,45 @@ export function Sidebar(props: SidebarProps) {
           </MenuTrigger>
           <MenuContent>
             <MenuItem value="add-host">Add host</MenuItem>
-            <MenuItem value="agent-defaults">Agent defaults</MenuItem>
-            {host !== undefined && host.kind !== "local" ? (
-              <>
-                <MenuSeparator />
-                <MenuItem value="remove-host">Remove host</MenuItem>
-              </>
-            ) : null}
+            {connected.map((h) => (
+              <MenuItem key={h.id} value={`agent-defaults:${h.id}`}>
+                {several ? `Agent defaults · ${h.name}` : "Agent defaults"}
+              </MenuItem>
+            ))}
+            {props.hosts.some((h) => h.kind !== "local") ? <MenuSeparator /> : null}
+            {props.hosts
+              .filter((h) => h.kind !== "local")
+              .map((h) => (
+                <MenuItem key={h.id} value={`remove-host:${h.id}`}>
+                  {`Remove ${h.name}`}
+                </MenuItem>
+              ))}
           </MenuContent>
         </Menu>
       </div>
-      <span data-slot="host-state" data-state={state?.state ?? "closed"} role="status">
-        <StatusDot tone={hostState.tone} shape={hostState.shape} />
-        {hostState.word}
-      </span>
+      {apart.map((h) => {
+        const state = props.status[h.id];
+        const how = HOST_STATE[state?.state ?? "closed"];
+        return (
+          <span
+            key={h.id}
+            data-slot="host-state"
+            data-state={state?.state ?? "closed"}
+            role="status"
+          >
+            <StatusDot tone={how.tone} shape={how.shape} />
+            {h.name} · {how.word}
+            {(state?.state ?? "closed") === "closed" ? (
+              <Button data-variant="ghost" onClick={() => props.onConnectHost(h.id)}>
+                Retry
+              </Button>
+            ) : null}
+          </span>
+        );
+      })}
       <Button
         data-variant="outline"
-        disabled={state?.state !== "connected"}
+        disabled={connected.length === 0}
         title={`New session  ${MOD}N`}
         onClick={props.onNewSession}
       >
@@ -114,7 +116,8 @@ export function Sidebar(props: SidebarProps) {
       {props.list.order.length > 0 ? (
         <SessionListView
           list={props.list}
-          selected={props.selectedSession}
+          selected={props.selected}
+          away={props.away}
           onSelect={props.onSelectSession}
           onShowAll={props.onShowAll}
         />

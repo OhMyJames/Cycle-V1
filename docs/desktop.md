@@ -56,8 +56,20 @@ type Environment = {
 - 可以**同时连着多个** daemon,侧栏的会话是它们的**汇总**。每个环境有自己的连接状态。
 - 环境的能力(能做什么)来自 daemon 的 `initialize`(§3 `_meta["cycle/capabilities"]`),界面按能力开关功能,不写 `if (remote)`。
 - 一个 session 在创建时绑定到它的环境,不能换:远程的 cwd 在本机不存在。
-- **断线**:一个环境断线(含重连中)时,它的会话保留最后一次的列表,灰显,不能新建 session、不能发 prompt;连上后用新列表替换。灰显的行 hover 的 tooltip 说明是哪个环境、为什么(断开、重连中)。
+- **断线**:一个环境断线(含重连中)时,它的会话保留最后一次的列表,灰显,不能新建 session、不能发 prompt;连上后用新列表替换。灰显的行 hover 的 tooltip 说明是哪个环境、为什么(断开、重连中)。**只在应用的一次运行内**:最后一次的列表由主进程保存在内存里,页面重载后仍在,但重启应用后没有;启动时就连不上的环境没有"最后一次"。
 - **版本落后的远程 daemon** 要能用:列表里没有的字段按缺失处理(protocol.md §3、§6),界面不报错。
+
+### 现状(哪些已经做了)
+
+名字还是 host,没有改成 environment(改名是单独的一步,等 `feat/composer` 合并之后做;设置文件的格式也在那时一起迁移)。已经做的是汇总:
+
+- 主进程在启动时连接所有 host,各自独立,连不上的不拖累别的;原因记在它的状态里,不弹全局错误条。
+- 侧栏是所有 host 的会话的一个列表,会话的身份是 `(hostId, sessionId)`,按 `updatedAt` 排序;旧 daemon 的会话(没有 `updatedAt`)排在有的之后,彼此按 `lastSeq`。
+- 同一个文件夹在两个 host 上是两个项目,另一台机器上的项目名后面带 host 名("app · Build box")。
+- 断线的 host:会话灰显、tooltip 说明原因,不在"Needs you"和"Working"里,侧栏里有它的状态和"Retry"。
+- 新建 session 可以选 host(只列已连接的);"Browse…"只对本机有。Agent defaults 按 host 分别设置。
+
+还没做:environment 的命名和设置格式、一次只显示一个 workspace 的 switcher、远程 workspace 的图标、未读和后台状态的显示(`cycle/unread`、`cycle/background` 已经由 daemon 给出,`CycleClient.markRead` 还没有调用方)。
 
 ### workspace
 
