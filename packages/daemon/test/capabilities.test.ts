@@ -350,6 +350,72 @@ test("the agent's title names a session until the user does", async () => {
   expect(told(later)).toEqual(["Fixing the login bug"]);
 });
 
+// ---- found in review ----
+
+test("a client that says it can answer forms, and cannot, does not hold the turn", async () => {
+  const answers: unknown[] = [];
+  const fake = fakeAgent({
+    onPrompt: async ({ elicit }) => {
+      answers.push(await elicit());
+    },
+  });
+  const { daemon } = await start(fake);
+  const broken = await connectClient(daemon, {
+    onElicitation: () => {
+      throw new Error("the screen for this is not there");
+    },
+  });
+  const { sessionId } = await broken.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await broken.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await broken.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("ask") });
+  await until(() => answers.length === 1, "the agent to be answered");
+  expect(answers[0]).toEqual({ action: "cancel", _meta: { "cycle/noClient": true } });
+});
+
+test("a directory that is not an absolute path is refused by the daemon, naming it", async () => {
+  const { daemon } = await start();
+  const c = await connectClient(daemon);
+  await expect(
+    c.agent.request(methods.agent.session.new, {
+      cwd: "/tmp",
+      additionalDirectories: ["src"],
+    } as never),
+  ).rejects.toMatchObject({ message: expect.stringContaining("src") });
+});
+
+test("the same title said again by an agent that started again is in the log once", async () => {
+  const fake = fakeAgent({
+    onPrompt: async ({ say }) => {
+      await say({ sessionUpdate: "session_info_update", title: "Fixing the login bug" });
+    },
+  });
+  const { daemon } = await start(fake);
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  for (const n of [1, 2]) {
+    await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text(`go ${n}`) });
+    await until(() => c.ended() >= n, "the turn to end");
+  }
+  const later = await connectClient(daemon);
+  await later.agent.request(methods.agent.session.resume, {
+    sessionId,
+    cwd: "/tmp",
+    replayFrom: { type: "start" },
+  });
+  await until(() => later.kinds().includes("replay_complete"), "the history");
+  expect(later.kinds().filter((k) => k === "session_info_update")).toHaveLength(1);
+});
+
+test("the index's directory is private, as the file is", async () => {
+  const nested = join(dir, "fresh", "data");
+  const daemon = await Daemon.start({ dataDir: nested, agents: [fakeAgent().definition] });
+  open.push(daemon);
+  const c = await connectClient(daemon);
+  await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  expect((await stat(join(nested, "index.json"))).mode & 0o777).toBe(0o600);
+});
+
 // ---- usage ----
 
 test("the latest usage is in the session list, and survives a restart", async () => {
@@ -439,6 +505,62 @@ test("the first of two capable clients to answer settles it; the other is told",
   expect(answers[0]).toMatchObject({ action: "accept", content: { pick: "a" } });
   await until(() => b.resolved.length === 1, "request_resolved");
   expect(b.resolved[0]).toMatchObject({ sessionId, outcome: { action: "accept" } });
+});
+
+test("what is typed into a form goes to the agent and not into the log or to the other clients", async () => {
+  const answers: unknown[] = [];
+  const { daemon } = await start(
+    fakeAgent({
+      onPrompt: async ({ elicit }) => {
+        answers.push(await elicit());
+      },
+    }),
+  );
+  const a = await connectClient(daemon, {
+    onElicitation: () => ({ action: "accept", content: { password: "hunter2-secret" } }),
+  });
+  const b = await connectClient(daemon, { onElicitation: () => "never" });
+  const { sessionId } = await a.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await a.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await b.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await a.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("ask") });
+  await until(() => answers.length === 1, "the agent to be answered");
+  expect(answers[0]).toEqual({ action: "accept", content: { password: "hunter2-secret" } });
+  await until(() => b.resolved.length === 1, "request_resolved");
+  expect(JSON.stringify(b.resolved[0])).not.toContain("hunter2-secret");
+  expect(await readFile(join(sessionsDir(dir), `${sessionId}.jsonl`), "utf8")).not.toContain(
+    "hunter2-secret",
+  );
+});
+
+test("a client's answer is only an action and its content: no `_meta`, and nonsense is a cancel", async () => {
+  const answers: unknown[] = [];
+  const replies = [
+    { action: "accept", content: { pick: "a" }, _meta: { "cycle/noClient": true } },
+    "garbage",
+    { action: "yes please" },
+  ];
+  const { daemon } = await start(
+    fakeAgent({
+      onPrompt: async ({ elicit }) => {
+        answers.push(await elicit());
+      },
+    }),
+  );
+  const c = await connectClient(daemon, { onElicitation: () => replies.shift() as never });
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  for (const n of [1, 2, 3]) {
+    await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text(`ask ${n}`) });
+    await until(() => answers.length === n, "the agent to be answered");
+  }
+  expect(answers).toEqual([
+    { action: "accept", content: { pick: "a" } },
+    // An answer the protocol layer rejects is a client that cannot answer: nobody to ask.
+    { action: "cancel", _meta: { "cycle/noClient": true } },
+    // An action nobody defined is a cancel.
+    { action: "cancel" },
+  ]);
 });
 
 test("with no client that can answer a form attached, the agent is told so at once and the turn goes on", async () => {

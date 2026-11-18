@@ -118,6 +118,8 @@ type SessionState = {
   started: boolean;
   /** The sub-agents the model has started, as far as clients were told. */
   subagents: Subagents;
+  /** The command list clients were last told, to say it again only when it changes. */
+  commandsKey: string | undefined;
   mode: PermissionMode;
   model: string | undefined;
   turn: Turn | undefined;
@@ -133,7 +135,7 @@ type SessionState = {
   /** Who to tell when something ends outside a turn (a compaction cut short). */
   client: AgentContext | undefined;
   /** True while a mode the user chose is on its way to the process: what it says meanwhile is stale. */
-  modeChanging: boolean;
+  modeChanging: number;
 };
 
 const modelOptions = (session: SessionState) =>
@@ -244,6 +246,19 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     }
   };
 
+  /** Announces the commands, unless they are the ones the clients were last told: a process that starts again has the same ones. */
+  const announceCommands = async (
+    client: AgentContext,
+    session: SessionState,
+    commands: readonly SlashCommand[],
+  ) => {
+    const update = commandsUpdate(commands);
+    const key = JSON.stringify((update as { availableCommands: unknown }).availableCommands);
+    if (key === session.commandsKey) return;
+    session.commandsKey = key;
+    await notify(client, session.id, update);
+  };
+
   const commandsUpdate = (commands: readonly SlashCommand[]): SessionUpdate => {
     const seen = new Set<string>();
     const availableCommands = [];
@@ -271,14 +286,14 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       const update = session.subagents.update(m);
       if (update !== undefined) await notify(client, session.id, update);
     } else if (m.subtype === "commands_changed") {
-      await notify(client, session.id, commandsUpdate(m.commands as SlashCommand[]));
+      await announceCommands(client, session, m.commands as SlashCommand[]);
     } else if (m.subtype === "status") {
       const mode = m.permissionMode as PermissionMode | undefined;
       if (
         mode !== undefined &&
         PERMISSION_MODES.includes(mode) &&
         mode !== session.mode &&
-        !session.modeChanging
+        session.modeChanging === 0
       ) {
         session.mode = mode;
         await notify(client, session.id, {
@@ -350,9 +365,13 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     // A client that did not say it can show a form is not sent one (ACP: the capability is the opt-in).
     if (!clientCanElicit) return "unavailable";
     const all = session.turn ? AbortSignal.any([signal, session.turn.permissions.signal]) : signal;
+    let forget = () => {};
     const aborted = new Promise<"aborted">((resolve) => {
       if (all.aborted) resolve("aborted");
-      all.addEventListener("abort", () => resolve("aborted"), { once: true });
+      const onAbort = () => resolve("aborted");
+      all.addEventListener("abort", onAbort, { once: true });
+      // The signal can be one that lives as long as the process: a listener is not left on it.
+      forget = () => all.removeEventListener("abort", onAbort);
     });
     const answer = client
       .request(
@@ -364,11 +383,13 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         (r) => r as unknown as FormResponse,
         () => "failed" as const,
       );
-    const response = await Promise.race([answer, aborted]);
+    const response = await Promise.race([answer, aborted]).finally(forget);
     if (response === "aborted") return "aborted";
     // A request that failed (a host that does not know the method, a broken connection) is not the
     // user saying no: it is nobody to ask. Only an abort ends the turn.
     if (response === "failed") return all.aborted ? "aborted" : "unavailable";
+    // Not an answer at all (a client that sent null): nobody to ask.
+    if (typeof response !== "object" || response === null) return "unavailable";
     if (response._meta?.[NO_CLIENT] === true) return "unavailable";
     return { action: response.action, content: response.content };
   };
@@ -552,7 +573,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       try {
         const commands = await query.supportedCommands();
         if (session.live === live && commands.length > 0) {
-          await notify(client, session.id, commandsUpdate(commands));
+          await announceCommands(client, session, commands);
         }
       } catch {
         // A process that cannot say is a process with no commands to show.
@@ -676,6 +697,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         cwd: params.cwd,
         started: false,
         subagents: new Subagents(),
+        commandsKey: undefined,
         mode: "default",
         model: undefined,
         turn: undefined,
@@ -685,7 +707,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         title: undefined,
         compaction: undefined,
         client: undefined,
-        modeChanging: false,
+        modeChanging: 0,
       };
       sessions.set(id, session);
       if (config.warmStart === true) {
@@ -716,6 +738,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           // The id is on disk in the Claude config directory: resume it.
           started: true,
           subagents: new Subagents(),
+          commandsKey: undefined,
           mode: "default",
           model: undefined,
           turn: undefined,
@@ -725,7 +748,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           title: undefined,
           compaction: undefined,
           client: undefined,
-          modeChanging: false,
+          modeChanging: 0,
         } satisfies SessionState);
       // What the daemon sends again on a resume is what the next process is started with.
       session.setup = setupOf(params);
@@ -802,9 +825,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         }
         session.mode = value as PermissionMode;
         // What the process says about its mode before it has this one is old news: not a change.
-        session.modeChanging = true;
+        // A count, not a flag: with two changes in flight the first to finish is not the last.
+        session.modeChanging++;
         apply(session, (query) => query.setPermissionMode(session.mode)).finally(() => {
-          session.modeChanging = false;
+          session.modeChanging--;
         });
       } else if (params.configId === "model" && typeof value === "string") {
         // "default" is no choice: Claude Code picks.

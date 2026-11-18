@@ -1,4 +1,4 @@
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { SessionUsageSchema } from "@cycle/protocol";
 import { z } from "zod";
@@ -113,11 +113,13 @@ export class SessionIndex {
   }
 
   async #save(): Promise<void> {
-    await mkdir(dirname(this.#path), { recursive: true });
+    await mkdir(dirname(this.#path), { recursive: true, mode: 0o700 });
     const temporary = `${this.#path}.${process.pid}.tmp`;
     const body = { version: 1, sessions: Object.fromEntries(this.#sessions) };
     // 0600: the index can hold what an MCP server is given to sign in with.
     await writeFile(temporary, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600 });
+    // The mode above is only for a file that is made new: one left by a crash keeps the one it had.
+    await chmod(temporary, 0o600);
     await rename(temporary, this.#path);
   }
 }

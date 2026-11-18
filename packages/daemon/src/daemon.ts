@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import {
   type AgentContext,
   agent as acpAgent,
@@ -71,6 +72,29 @@ const stringConfig = (value: unknown): Record<string, string> => {
  * agents, and serves any number of clients. A client sees a session through the session's log, so
  * replay and live updates are one path.
  */
+const ANSWER_ACTIONS = ["accept", "decline", "cancel"];
+
+/** A client's answer to a form as the agent may see it: its action and its content, nothing else a client could add (such as the daemon's own `_meta`). Anything that is not an answer is a cancel. */
+const elicitationAnswer = (response: unknown): { action: string; content?: object } => {
+  const r = (typeof response === "object" && response !== null ? response : {}) as {
+    action?: unknown;
+    content?: unknown;
+  };
+  if (typeof r.action !== "string" || !ANSWER_ACTIONS.includes(r.action)) {
+    return { action: "cancel" };
+  }
+  if (r.action === "accept" && typeof r.content === "object" && r.content !== null) {
+    return { action: "accept", content: r.content };
+  }
+  return { action: r.action };
+};
+
+const withoutContent = (outcome: unknown): unknown => {
+  if (typeof outcome !== "object" || outcome === null) return outcome;
+  const { content: _content, ...rest } = outcome as Record<string, unknown>;
+  return rest;
+};
+
 export class Daemon {
   readonly #version: string;
   readonly #agents: Map<string, AgentDefinition>;
@@ -154,13 +178,18 @@ export class Daemon {
     }
   }
 
+  /** Whether some attached client has said it can answer a form. */
+  #canAskForms(session: Session): boolean {
+    return [...session.attachments].some((attachment) => attachment.conn.elicitation);
+  }
+
   /**
    * A form is asked only while some attached client can answer it. When the last one goes the
    * agent is told so, as it is when none is attached to begin with, instead of waiting for a client
    * that may never come back (decision 0011).
    */
   #abandonForms(session: Session): void {
-    if ([...session.attachments].some((attachment) => attachment.conn.elicitation)) return;
+    if (this.#canAskForms(session)) return;
     for (const pending of [...session.pending.values()]) {
       if (pending.method === ELICITATION) {
         this.#settle(session, pending, { action: "cancel", _meta: { [META.noClient]: true } });
@@ -281,8 +310,11 @@ export class Daemon {
     );
   }
 
-  /** What an update tells the daemon about the session, beyond what it tells the client. */
-  /** Returns false for an update that must not reach the log: an agent title the user has overruled. */
+  /**
+   * What an update tells the daemon about the session, beyond what it tells the client. Returns
+   * false for an update that must not reach the log: an agent title the user has overruled, or one
+   * the log already has.
+   */
   #learn(session: Session, update: SessionUpdate): boolean {
     const u = update as {
       sessionUpdate: string;
@@ -305,6 +337,8 @@ export class Daemon {
       // The user's own name for a session wins over the agent's: a title that is not marked as the
       // agent's is the user's, which includes every title written before agents named sessions.
       const { title, titleFromAgent } = session.entry;
+      // An agent that starts again says its title again: once is enough.
+      if (u.title === title && titleFromAgent === true) return false;
       if (
         typeof u.title === "string" &&
         u.title !== "" &&
@@ -382,11 +416,10 @@ export class Daemon {
    * a question is not worth holding a turn for, and a client without the screen would never answer.
    */
   async #onElicitation(session: Session, params: Record<string, unknown>): Promise<unknown> {
-    const capable = [...session.attachments].some((attachment) => attachment.conn.elicitation);
-    if (!capable) return { action: "cancel", _meta: { [META.noClient]: true } };
+    if (!this.#canAskForms(session)) return { action: "cancel", _meta: { [META.noClient]: true } };
     return this.#ask(session, ELICITATION, params, {
       cancelled: { action: "cancel" },
-      answer: (response) => response,
+      answer: elicitationAnswer,
     });
   }
 
@@ -398,16 +431,26 @@ export class Daemon {
     attachment.conn
       .request(pending.method, pending.params)
       .then((answer) => this.#settle(session, pending, pending.answer(answer), attachment))
-      .catch(() => pending.asked.delete(attachment));
+      .catch(() => {
+        pending.asked.delete(attachment);
+        // A client that cannot answer a form (its handler failed, or it went) is not going to: when
+        // no other client has it, the agent is told so, as with no client at all (decision 0011).
+        if (pending.method === ELICITATION && pending.asked.size === 0) {
+          this.#settle(session, pending, { action: "cancel", _meta: { [META.noClient]: true } });
+        }
+      });
   }
 
   #settle(session: Session, pending: Pending, outcome: unknown, by?: Attachment): void {
     if (pending.settled) return;
     pending.settled = true;
     session.pending.delete(pending.requestId);
+    // What a person typed into a form can be a password or a token: the agent gets all of it, the
+    // log and the other clients get that it was answered, and how.
+    const shown = pending.method === ELICITATION ? withoutContent(outcome) : outcome;
     void session.log.append({
       kind: "response",
-      data: { requestId: pending.requestId, outcome, by: by?.conn.id ?? "daemon" },
+      data: { requestId: pending.requestId, outcome: shown, by: by?.conn.id ?? "daemon" },
     });
     pending.resolve(outcome);
     for (const other of pending.asked) {
@@ -416,7 +459,7 @@ export class Daemon {
         .notify(NOTIFICATIONS.requestResolved, {
           sessionId: session.id,
           requestId: pending.requestId,
-          outcome,
+          outcome: shown,
         })
         .catch(() => {});
     }
@@ -542,6 +585,12 @@ export class Daemon {
       this.#definition(agentId);
       // The directories are paths on THIS machine (the daemon's), not the client's. Say so up front.
       for (const directory of [params.cwd, ...(params.additionalDirectories ?? [])]) {
+        if (!isAbsolute(directory)) {
+          throw new RpcError(
+            INVALID_PARAMS,
+            `The ${directory === params.cwd ? "working directory" : "directory"} ${directory} is not an absolute path`,
+          );
+        }
         if (
           !(await stat(directory).then(
             (s) => s.isDirectory(),
