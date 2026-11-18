@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
-import { AlreadyRunningError } from "@cycle/transport";
+import { AlreadyRunningError } from "@cycle/transport/server";
 import { defaultDataDir, pathsFor } from "./config.ts";
 import { proxy } from "./proxy.ts";
 import { serve } from "./serve.ts";

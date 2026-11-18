@@ -1,7 +1,7 @@
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Daemon } from "@cycle/daemon";
-import { listenUnix } from "@cycle/transport";
+import { listenUnix } from "@cycle/transport/server";
 import { agentsFor } from "./agents.ts";
 import { loadConfig, type Paths } from "./config.ts";
 

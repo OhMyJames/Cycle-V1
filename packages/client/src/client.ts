@@ -6,7 +6,7 @@ import {
   type SessionUpdate,
 } from "@cycle/acp";
 import { CYCLE_PROTOCOL_VERSION, META, NOTIFICATIONS, seqOf } from "@cycle/protocol";
-import type { Channel } from "@cycle/transport";
+import type { Channel } from "@cycle/transport/client";
 
 export type ConnectionState = "connecting" | "connected" | "reconnecting" | "closed";
 
@@ -288,7 +288,7 @@ export class CycleClient {
         this.#channel = undefined;
         this.#state = "reconnecting";
         this.#events.connection?.("reconnecting", error);
-        await Bun.sleep(wait);
+        await new Promise((resolve) => setTimeout(resolve, wait));
         wait = Math.min(wait * 2, backoff.max);
       }
     }

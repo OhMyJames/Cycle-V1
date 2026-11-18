@@ -1,4 +1,4 @@
-import { bridgeStdio, isListening } from "@cycle/transport";
+import { bridgeStdio, isListening } from "@cycle/transport/server";
 import type { Paths } from "./config.ts";
 
 const MAIN = new URL("./main.ts", import.meta.url).pathname;

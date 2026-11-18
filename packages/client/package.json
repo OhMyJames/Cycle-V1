@@ -13,5 +13,8 @@
   },
   "devDependencies": {
     "@cycle/daemon": "workspace:*"
+  },
+  "scripts": {
+    "test:integration": "bun test ./test/integration/node.integration.ts"
   }
 }

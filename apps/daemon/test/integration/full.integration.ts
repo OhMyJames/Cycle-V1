@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionUpdate } from "@cycle/acp";
 import { CycleClient } from "@cycle/client";
-import { isListening, sshChannel } from "@cycle/transport";
+import { sshChannel } from "@cycle/transport/client";
+import { isListening } from "@cycle/transport/server";
 import {
   startMock,
   textReply,

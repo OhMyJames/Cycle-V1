@@ -1,15 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  AlreadyRunningError,
-  bridgeStdio,
-  type Channel,
-  connectUnix,
-  isListening,
-  listenUnix,
-  sshChannel,
-} from "../src/index.ts";
+import { type Channel, connectUnix, sshChannel } from "../src/client.ts";
+import { AlreadyRunningError, bridgeStdio, isListening, listenUnix } from "../src/server.ts";
 import { fakeSsh, tempDir } from "./support.ts";
 
 let dir: string;

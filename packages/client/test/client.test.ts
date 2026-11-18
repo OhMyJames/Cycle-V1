@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionUpdate } from "@cycle/acp";
 import { Daemon } from "@cycle/daemon";
-import { type Channel, connectUnix, listenUnix } from "@cycle/transport";
+import { type Channel, connectUnix } from "@cycle/transport/client";
+import { listenUnix } from "@cycle/transport/server";
 import { fakeAgent } from "../../daemon/test/fake-agent.ts";
 import { CycleClient, type PermissionAnswer } from "../src/index.ts";
 

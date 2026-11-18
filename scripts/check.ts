@@ -15,6 +15,19 @@ const rules: Rule[] = [
     why: "ACP v2 is a draft; every other package imports `@cycle/acp` so a change lands in one place.",
   },
   {
+    name: "no Bun APIs where Node runs",
+    pattern: /\bBun\./,
+    allowed: (f) =>
+      !(
+        f.startsWith("packages/client/src/") ||
+        f === "packages/transport/src/client.ts" ||
+        f === "packages/transport/src/channel.ts" ||
+        f.startsWith("packages/ui/src/") ||
+        f.startsWith("apps/desktop/src/")
+      ),
+    why: "Electron's main process is Node. Use node: modules there (see packages/transport/src/client.ts).",
+  },
+  {
     name: "no suppressed checks",
     pattern: /@ts-ignore|@ts-expect-error|biome-ignore/,
     allowed: (f) => f === "scripts/check.ts",

@@ -1,10 +1,9 @@
+// The half of the transport a daemon uses. It runs under Bun (Bun.listen, Bun.connect).
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { ndJsonStream, type Stream } from "@cycle/acp";
+import type { Channel } from "./channel.ts";
 import { SocketAdapter } from "./socket-adapter.ts";
-
-/** One end of a connection: ACP messages in and out, and a way to hang up. */
-export type Channel = { stream: Stream; close: () => void };
 
 export class AlreadyRunningError extends Error {
   constructor(path: string) {
@@ -74,33 +73,6 @@ export const listenUnix = async (options: {
       void rm(path, { force: true });
     },
   };
-};
-
-/** Connects to a daemon's unix socket. */
-export const connectUnix = async (path: string): Promise<Channel> => {
-  const adapter = new SocketAdapter();
-  const socket = await Bun.connect({
-    unix: path,
-    socket: {
-      open(s) {
-        adapter.attach(s);
-      },
-      data(_s, chunk) {
-        adapter.data(chunk);
-      },
-      drain() {
-        adapter.drain();
-      },
-      close() {
-        adapter.close();
-      },
-      error() {
-        adapter.close();
-      },
-    },
-  });
-  adapter.attach(socket);
-  return { stream: ndJsonStream(adapter.writable, adapter.readable), close: () => socket.end() };
 };
 
 /**
