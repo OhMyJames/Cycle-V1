@@ -24,6 +24,12 @@ export const META = {
   background: "cycle/background",
   /** In a session/list row, and in the state_update a client opens a session with: true once the session's history could not be written (docs/protocol.md section 12). Absent otherwise. */
   historyFailed: "cycle/historyFailed",
+  /**
+   * In the `session/resume` the daemon sends an agent: true when a turn of this session
+   * has been answered (it ended with `end_turn`), so the agent has a record of it of its own. An agent that finds none says so
+   * instead of starting the session over. Absent for a session that has had no such turn.
+   */
+  hadTurn: "cycle/hadTurn",
   /** In a `subagent_update`: what the adapter says of the task beyond ACP's fields (decision 0014). */
   subagent: "cycle/subagent",
   /** In a `session/list` row: the context the session uses and what it has cost (`SessionUsageSchema`). */

@@ -1102,3 +1102,36 @@ test("a session that is being deleted cannot be prompted or opened", async () =>
   release();
   await deleting;
 });
+
+/** What the agent was told when the daemon asked it to resume, after a daemon restart and one prompt. */
+const resumeMeta = async (stopReason: string | undefined, prompts: number) => {
+  const first = await start(fakeAgent(stopReason === undefined ? {} : { stopReason }));
+  const c = await connectClient(first.daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  for (let i = 0; i < prompts; i++) {
+    await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text(`turn ${i}`) });
+    await until(() => c.ended() >= i + 1, "the turn");
+  }
+  await first.daemon.close();
+  open = [];
+
+  const second = await start();
+  const d = await connectClient(second.daemon);
+  await d.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await d.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("after") });
+  await until(() => d.ended() >= 1, "the turn after the restart");
+  return (second.fake.log.resumes[0]?._meta ?? {}) as Record<string, unknown>;
+};
+
+test("the agent is told, when it is started again, that a turn of the session was answered", async () => {
+  expect((await resumeMeta(undefined, 1))["cycle/hadTurn"]).toBe(true);
+});
+
+test("a session with no turn yet is resumed with no such word: the agent has nothing of it", async () => {
+  expect((await resumeMeta(undefined, 0))["cycle/hadTurn"]).toBeUndefined();
+});
+
+test("a turn that ended in an error proves nothing about the agent's own record", async () => {
+  expect((await resumeMeta("error", 1))["cycle/hadTurn"]).toBeUndefined();
+});

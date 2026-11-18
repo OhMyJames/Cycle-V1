@@ -198,6 +198,13 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 附着只读取历史,不启动 agent。当客户端对一个 `stopped` 的 session 发 `session/prompt` 时,daemon 才启动 agent 进程,并用 session 日志里保存的 `cwd`、`mcpServers`、配置去恢复它(调用 agent 的 `session/resume`,**不带 `replayFrom`**,避免 agent 重复产生历史,否则日志里会出现重复记录)。恢复失败的处理见 §11。
 
+**agent 自己有没有这个 session 的记录。** 创建 session 时 agent 不一定已经有了它的记录(Claude 要到收到第一个 prompt 才写)。daemon 记下 session 里有没有一个被回答过的 turn(以 `end_turn` 结束;出错或被截断的不算,它们可能没到过 agent),并在恢复时把它放进 `session/resume` 的 `_meta["cycle/hadTurn"]`(为 `true` 时才带)。agent 据此决定怎么做:
+
+- 找到自己的记录:恢复它。
+- 没找到,且没有 `cycle/hadTurn`:这个 session 还没有过 turn,agent 把它当新的开始(用同一个 id),第一条消息照常完成。
+- 没找到,但有 `cycle/hadTurn`:记录丢了。agent 以错误回应这个 `session/resume`,daemon 报告为 `-32013`(`resume_failed`:历史仍可读,但不能继续对话,§11),而不是悄悄在同一个名字下开一段新对话。
+- agent 没办法查看自己的记录(Claude 适配器没有给 Claude 的配置目录,或查看失败)时,按有记录处理,与以前一样。
+
 已验证(2026-11-18,Claude Agent SDK 0.3.327,本地模拟 API):新进程、同一个 `CLAUDE_CONFIG_DIR`,不带 `replayFrom` 恢复后,模型收到的请求里包含之前的用户消息,上下文完整。恢复依赖 Claude 的 transcript 还在配置目录里,而 transcript 按 `cwd` 存放,所以恢复时必须用创建时的 `cwd`。细节见 [docs/adapters/claude.md](adapters/claude.md)。
 
 **agent 在恢复时发的状态快照不进日志。** ACP v2 要求 agent 在 `session/resume` 响应前发一条当前状态(`state_update`)。这是握手,不是历史:daemon 在等待 agent 的 resume 响应期间丢弃 agent 发来的更新。否则每次重启 agent 都会在历史里留下一条没有 `stopReason` 的 idle,客户端会把它当成一个 turn 的结束(实际测试中出现过,见 `packages/daemon` 的测试)。

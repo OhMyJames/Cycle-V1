@@ -503,3 +503,78 @@ test("a cancel while a permission is waiting for an answer ends the question and
     () => new Promise<never>(() => {}),
   );
 });
+
+/** The adapter, told by a stand-in for the SDK's `getSessionInfo` whether Claude has the session on disk. */
+const resumed = async (
+  record: "found" | "none" | "fails" | "cannot look",
+  meta: Record<string, unknown> = {},
+) => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "again"));
+  let outcome: unknown;
+  const sessionInfo =
+    record === "cannot look"
+      ? {}
+      : {
+          sessionInfo: async (sessionId: string, cwd: string) => {
+            // It is asked about this session, in the directory it was made in.
+            expect([sessionId, cwd]).toEqual([ID, "/work"]);
+            if (record === "fails") throw new Error("cannot read the config directory");
+            return record === "found" ? ({ summary: "s", firstPrompt: "s" } as never) : undefined;
+          },
+        };
+  await connect(
+    fake.run,
+    async ({ agent, waitForIdle }) => {
+      try {
+        await agent.request(methods.agent.session.resume, {
+          sessionId: ID,
+          cwd: "/work",
+          _meta: meta,
+        });
+      } catch (error) {
+        outcome = error;
+        return;
+      }
+      const idle = waitForIdle();
+      await agent.request(methods.agent.session.prompt, {
+        sessionId: ID,
+        prompt: [{ type: "text", text: "first" }],
+      });
+      await idle;
+    },
+    undefined,
+    sessionInfo,
+  );
+  return { fake, outcome };
+};
+
+test("a session Claude has on disk is resumed", async () => {
+  const { fake } = await resumed("found");
+  expect(fake.calls[0]?.options).toMatchObject({ resume: ID });
+});
+
+test("a session Claude never wrote (made, and no prompt sent) is started, not resumed", async () => {
+  const { fake, outcome } = await resumed("none");
+  expect(outcome).toBeUndefined();
+  expect(fake.calls[0]?.options.resume).toBeUndefined();
+  expect(fake.calls[0]?.options).toMatchObject({ sessionId: ID });
+});
+
+test("a session that had a turn answered and has no record any more is not started over: the resume says so", async () => {
+  const { fake, outcome } = await resumed("none", { "cycle/hadTurn": true });
+  expect(outcome).toMatchObject({ code: -32603 });
+  expect(String((outcome as Error).message)).toContain("no record");
+  expect(fake.calls).toHaveLength(0);
+});
+
+test("a session that had a turn answered and is on disk is resumed", async () => {
+  const { fake } = await resumed("found", { "cycle/hadTurn": true });
+  expect(fake.calls[0]?.options).toMatchObject({ resume: ID });
+});
+
+test("where the record cannot be looked at, the session is taken to be there, as it was before", async () => {
+  for (const record of ["fails", "cannot look"] as const) {
+    const { fake } = await resumed(record);
+    expect(fake.calls[0]?.options).toMatchObject({ resume: ID });
+  }
+});
