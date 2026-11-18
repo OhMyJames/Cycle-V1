@@ -2,7 +2,7 @@
 #
 #  push a tag v<version>  builds, signs, notarizes and publishes a GitHub release: the macOS app
 #                         (Apple silicon) and the Linux daemon. The tag must equal the version in
-#                         apps/desktop/package.json.
+#                         apps/desktop/package.json, and its commit must be on main (scripts/release-guard.ts).
 #  run by hand            builds the same and uploads them as workflow artifacts, nothing published.
 #                         With "sign" off (the default) the app is only ad hoc signed, which needs no
 #                         secrets: this is how the macOS job is iterated on.
@@ -36,9 +36,19 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The whole history: whether the tagged commit is on main cannot be told from a shallow clone.
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+      # Before anything is built, signed or published (the other jobs need this one). The current main and
+      # an older commit of main (a release made later for a past version) pass; a tag on a branch that was
+      # never merged does not, whatever version its package.json says. A manual run from a branch publishes
+      # nothing, so it is not asked.
+      - name: The tag is on main
+        if: github.ref_type == 'tag'
+        run: bun scripts/release-guard.ts HEAD --main origin/main
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: The tag is the app's version
         if: github.ref_type == 'tag'
