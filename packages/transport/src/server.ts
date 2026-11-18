@@ -1,7 +1,7 @@
 // The half of the transport a daemon uses. It runs under Bun (Bun.listen, Bun.connect).
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
-import { ndJsonStream, type Stream } from "@cycle/acp";
+import { ndJsonStream } from "@cycle/acp";
 import type { Channel } from "./channel.ts";
 import { SocketAdapter } from "./socket-adapter.ts";
 

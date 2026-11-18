@@ -91,6 +91,9 @@
     "packages/ui": {
       "name": "@cycle/ui",
       "version": "0.0.0",
+      "dependencies": {
+        "@cycle/acp": "workspace:*",
+      },
     },
   },
   "trustedDependencies": [
