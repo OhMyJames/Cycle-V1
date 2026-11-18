@@ -20,7 +20,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 /** What ssh may be given as the place to go: an address or an alias, never something it would read as an option. */
 export const isSshHost = (host: string): boolean =>
-  host.trim() !== "" && !host.startsWith("-") && !/[\s\p{Cc}]/u.test(host);
+  host.trim() !== "" && !host.trim().startsWith("-") && !/[\s\p{Cc}]/u.test(host);
 
 const strings = (value: unknown): string[] | undefined =>
   Array.isArray(value) && value.every((v) => typeof v === "string") ? value : undefined;
@@ -109,9 +109,14 @@ export const fileSettings = (path: string): Settings => {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return [LOCAL_ENVIRONMENT];
         // A file that is not JSON (a crash while it was written by hand, an editor's leftovers) must not keep the app from
         // opening: it is kept beside, as it was, and the app starts with this computer only.
+        // If it cannot be kept, it is not the app's to start without it: the person is told which file.
         if (error instanceof SyntaxError) {
-          await copyFile(path, `${path}.broken`).catch(() => undefined);
-          return [LOCAL_ENVIRONMENT];
+          try {
+            await copyFile(path, `${path}.broken-${Date.now()}`);
+            return [LOCAL_ENVIRONMENT];
+          } catch {
+            // Falls through to the error below.
+          }
         }
         throw new Error(
           `${path} cannot be read: ${error instanceof Error ? error.message : error}`,

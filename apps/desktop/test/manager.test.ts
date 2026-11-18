@@ -322,7 +322,7 @@ test("an environment whose address ssh would read as an option is refused, not s
       kind: "remote",
       transport: { type: "ssh", host: "-oProxyCommand=touch /tmp/x" },
     }),
-  ).rejects.toThrow("not an address");
+  ).rejects.toThrow("not an environment");
   expect((await m.environments()).environments.map((e) => e.id)).toEqual(["local"]);
 });
 

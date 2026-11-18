@@ -438,18 +438,23 @@ export class Daemon {
     // A new turn: its end, or its failure, is to be put on record (the one before left this set).
     session.turnEnded = false;
     this.#send(session, next.prompt).catch((error: unknown) => {
-      session.agentState = "idle";
-      this.#changed();
-      const code = (error as { code?: unknown } | null)?.code;
-      this.#endTurnWithError(
-        session,
-        typeof code === "number" ? code : INTERNAL_ERROR,
-        error instanceof Error ? error.message : String(error),
-      );
+      this.#promptFailed(session, error);
       // It did not go, and what was behind it must not go past it: all of it is handed back, in order.
       session.queue.unshift(next);
       this.#returnQueue(session, "error");
     });
+  }
+
+  /** A prompt that could not be given to the agent: a turn that ended in failure is a turn end like any other, on record, so the session shows as unread. */
+  #promptFailed(session: Session, error: unknown): void {
+    session.agentState = "idle";
+    this.#changed();
+    const code = (error as { code?: unknown } | null)?.code;
+    this.#endTurnWithError(
+      session,
+      typeof code === "number" ? code : INTERNAL_ERROR,
+      error instanceof Error ? error.message : String(error),
+    );
   }
 
   /** Gives a prompt to the agent, starting it if it is not running. */
@@ -1103,15 +1108,7 @@ export class Daemon {
       try {
         return (await this.#send(session, params.prompt)) as never;
       } catch (error) {
-        // A turn that ended in failure is a turn end like any other: on record, so the session shows as unread.
-        session.agentState = "idle";
-        this.#changed();
-        const code = (error as { code?: unknown } | null)?.code;
-        this.#endTurnWithError(
-          session,
-          typeof code === "number" ? code : INTERNAL_ERROR,
-          error instanceof Error ? error.message : String(error),
-        );
+        this.#promptFailed(session, error);
         // The prompt never reached the agent, so no turn will end to send or return what was queued behind it.
         this.#returnQueue(session, "error");
         throw error;

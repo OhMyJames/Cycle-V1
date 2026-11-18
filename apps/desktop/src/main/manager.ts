@@ -21,7 +21,7 @@ import {
   type SessionSummary,
 } from "@cycle/ui";
 import { daemonUpgradeCommand, isNewer } from "../shared/release.ts";
-import { isSshHost, LOCAL_ENVIRONMENT, type Settings } from "./settings.ts";
+import { environmentOf, LOCAL_ENVIRONMENT, type Settings } from "./settings.ts";
 
 export type ManagerOptions = {
   settings: Settings;
@@ -127,12 +127,15 @@ export class ConnectionManager
   async saveEnvironment(environment: EnvironmentConfig): Promise<void> {
     if (environment.id === LOCAL_ENVIRONMENT.id)
       throw new Error("The local daemon cannot be changed");
-    // What the page sends is not trusted: an address ssh would read as an option is refused here, not passed on.
-    if (environment.kind === "remote" && !isSshHost(environment.transport.host))
-      throw new Error("That is not an address ssh can connect to");
-    const rest = this.#environments.filter((h) => h.id !== environment.id);
-    this.#environments = [...rest, environment];
-    await this.#options.settings.save(this.#environments);
+    // What the page sends is not trusted: it is read as the file is, so what is not an environment this app can reach
+    // (an address ssh would read as an option, a shape it does not know) is refused, and what is kept is what was read.
+    const checked = environmentOf(environment);
+    if (checked === undefined)
+      throw new Error("That is not an environment this app can connect to");
+    const next = [...this.#environments.filter((h) => h.id !== checked.id), checked];
+    // The list changes once it is kept: a save that fails leaves things as they were.
+    await this.#options.settings.save(next);
+    this.#environments = next;
     this.#options.emit({ type: "environments", environments: this.#environments });
   }
 
@@ -142,8 +145,9 @@ export class ConnectionManager
     await this.disconnect(environmentId);
     this.#lastSessions.delete(environmentId);
     this.#lastError.delete(environmentId);
-    this.#environments = this.#environments.filter((h) => h.id !== environmentId);
-    await this.#options.settings.save(this.#environments);
+    const next = this.#environments.filter((h) => h.id !== environmentId);
+    await this.#options.settings.save(next);
+    this.#environments = next;
     this.#options.emit({ type: "environments", environments: this.#environments });
   }
 

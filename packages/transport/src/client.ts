@@ -84,8 +84,6 @@ export type SshOptions = {
  * and a prompt would hang the connection.
  */
 export const sshChannel = (options: SshOptions): Channel => {
-  // ssh reads a word that starts with "-" as an option, whatever else is in the list: -oProxyCommand=... runs a command here.
-  if (options.host.startsWith("-")) throw new Error("That is not an address ssh can connect to");
   return commandChannel({
     command: [
       options.ssh ?? "ssh",
@@ -95,6 +93,9 @@ export const sshChannel = (options: SshOptions): Channel => {
       "-o",
       "ServerAliveInterval=15",
       ...(options.args ?? []),
+      // Whatever the host is, it is the host: ssh reads a word that starts with "-" as an option unless this ends them
+      // (-oProxyCommand=... would run a command here).
+      "--",
       options.host,
       ...options.command,
     ],

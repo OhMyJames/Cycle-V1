@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EnvironmentConfig } from "@cycle/ui";
@@ -90,7 +90,9 @@ test("a file that is not JSON does not keep the app from opening: it is kept bes
   const path = join(dir, "settings.json");
   await writeFile(path, "{ not json");
   expect(await fileSettings(path).load()).toEqual([LOCAL_ENVIRONMENT]);
-  expect(await readFile(`${path}.broken`, "utf8")).toBe("{ not json");
+  const kept = (await readdir(dir)).filter((f) => f.startsWith("settings.json.broken-"));
+  expect(kept).toHaveLength(1);
+  expect(await readFile(join(dir, kept[0] as string), "utf8")).toBe("{ not json");
 });
 
 test("an address ssh would read as an option is not an environment, and is left as it was", async () => {
