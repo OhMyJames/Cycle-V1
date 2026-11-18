@@ -211,3 +211,80 @@ test("changes the permission mode, and refuses one it does not know", async () =
   });
   expect(fake.calls[0]?.options.permissionMode).toBe("plan");
 });
+
+test("a second prompt right after the first is refused: the turn exists before anything is awaited", async () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fake = fakeQuery(async () => {
+    await gate;
+    return textTurn(ID, "m", "done");
+  });
+  await connect(fake.run, async ({ agent, waitForIdle }) => {
+    await agent.request(methods.agent.session.new, {
+      cwd: "/work",
+      _meta: { "cycle/sessionId": ID },
+    });
+    const idle = waitForIdle();
+    await agent.request(methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "one" }],
+    });
+    await expect(
+      agent.request(methods.agent.session.prompt, {
+        sessionId: ID,
+        prompt: [{ type: "text", text: "two" }],
+      }),
+    ).rejects.toMatchObject({ code: -32600 });
+    release();
+    await idle;
+  });
+  expect(fake.calls).toHaveLength(1);
+});
+
+test("a cancel sent straight after the prompt ends the turn as cancelled, and stops the query", async () => {
+  const fake = fakeQuery(() => new Promise(() => {}));
+  await connect(fake.run, async ({ agent, updates, waitForIdle }) => {
+    await agent.request(methods.agent.session.new, {
+      cwd: "/work",
+      _meta: { "cycle/sessionId": ID },
+    });
+    const idle = waitForIdle();
+    await agent.request(methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "go" }],
+    });
+    // No await between the answer and the cancel: it may beat the query's start.
+    await agent.notify(methods.agent.session.cancel, { sessionId: ID });
+    expect(await idle).toMatchObject({ state: "idle", stopReason: "cancelled" });
+    expect(updates.at(-1)).toMatchObject({ stopReason: "cancelled" });
+  });
+  // Either it never started, or it was interrupted: it did not run on.
+  expect(fake.calls.length === 0 || fake.state.interrupts === 1).toBe(true);
+});
+
+test("after a cancel the session can take another prompt", async () => {
+  const fake = fakeQuery((call) =>
+    call.prompt === "first" ? new Promise(() => {}) : textTurn(ID, "m", "ok"),
+  );
+  await connect(fake.run, async ({ agent, waitForIdle }) => {
+    await agent.request(methods.agent.session.new, {
+      cwd: "/work",
+      _meta: { "cycle/sessionId": ID },
+    });
+    let idle = waitForIdle();
+    await agent.request(methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "first" }],
+    });
+    await agent.notify(methods.agent.session.cancel, { sessionId: ID });
+    await idle;
+    idle = waitForIdle();
+    await agent.request(methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "second" }],
+    });
+    expect(await idle).toMatchObject({ stopReason: "end_turn" });
+  });
+});

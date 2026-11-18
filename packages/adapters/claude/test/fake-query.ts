@@ -30,21 +30,29 @@ export const textTurn = (sessionId: string, messageId: string, text: string): SD
 /** A stand-in for the SDK's `query` that plays back messages and records its calls. */
 export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessage[]>) => {
   const calls: Call[] = [];
+  const state = { interrupts: 0 };
   const run = (call: Call): Query => {
     calls.push(call);
     let interrupted = false;
+    const signal = call.options.abortController?.signal;
+    const aborted = new Promise<never>((_, reject) => {
+      signal?.addEventListener("abort", () => reject(new Error("aborted")));
+    });
     const iterator = (async function* () {
-      for (const message of await turns(call)) {
+      // Like the SDK: an abort while waiting ends the iteration with an error.
+      const messages = await Promise.race([Promise.resolve(turns(call)), aborted]);
+      for (const message of messages) {
         if (interrupted) return;
         yield message;
       }
     })();
     return Object.assign(iterator, {
       interrupt: async () => {
+        state.interrupts++;
         interrupted = true;
         return undefined;
       },
     }) as unknown as Query;
   };
-  return { calls, run };
+  return { calls, run, state };
 };

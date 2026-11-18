@@ -3,6 +3,8 @@
  * It answers `POST /v1/messages` with a streamed reply, and records every request it gets.
  */
 
+export type MockReply = string | ReadableStream<Uint8Array>;
+
 export type MockRequest = { method: string; path: string; body: unknown };
 
 const sse = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -85,8 +87,54 @@ export const toolReply = (
 export const sentText = (body: unknown): string =>
   JSON.stringify((body as { messages?: unknown }).messages ?? []);
 
+/**
+ * A streamed text reply that stops after `first` and sends `rest` only once `release` is called, so a
+ * test can act while the model is still writing. If the client has gone by then, the rest is dropped.
+ */
+export const heldTextReply = (first: string, rest: string) => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const [head, ...tail] = textReply(first + rest).split("event: content_block_delta");
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        controller.enqueue(encoder.encode(head ?? ""));
+        controller.enqueue(
+          encoder.encode(
+            sse("content_block_delta", {
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "text_delta", text: first },
+            }),
+          ),
+        );
+        await gate;
+        controller.enqueue(
+          encoder.encode(
+            sse("content_block_delta", {
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "text_delta", text: rest },
+            }),
+          ),
+        );
+        // What followed the delta in the full reply.
+        const after = tail.join("event: content_block_delta").split("\n\n").slice(1).join("\n\n");
+        controller.enqueue(encoder.encode(after));
+        controller.close();
+      } catch {
+        // The client hung up.
+      }
+    },
+  });
+  return { body, release };
+};
+
 export const startMock = (
-  reply: (requests: MockRequest[]) => string = () => textReply("Hello from the mock."),
+  reply: (requests: MockRequest[]) => MockReply = () => textReply("Hello from the mock."),
 ) => {
   const requests: MockRequest[] = [];
   const server = Bun.serve({

@@ -8,7 +8,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { methods } from "@cycle/acp";
 import { tempConfigDir, withAdapter } from "./adapter-process.ts";
-import { type MockRequest, sentText, startMock, textReply, toolReply } from "./mock-anthropic.ts";
+import {
+  heldTextReply,
+  type MockRequest,
+  sentText,
+  startMock,
+  textReply,
+  toolReply,
+} from "./mock-anthropic.ts";
 
 const ID = "7c1e2f30-1111-4222-8333-944455566677";
 let cwd: string;
@@ -140,31 +147,51 @@ test("a tool call asks permission through ACP, and the answer decides", async ()
   }
 }, 120_000);
 
-test("cancel ends the turn as cancelled", async () => {
-  const slow = (): string => textReply("never finishes");
-  const mock = startMock(() => slow());
-  // Hold the reply until released, so the turn is still running when the cancel arrives.
+test("cancel, while the model is still writing, stops the turn and the rest never streams", async () => {
+  const held = heldTextReply("The first part. ", "THE SECOND PART THAT MUST NOT ARRIVE.");
+  const mock = startMock(() => held.body);
   const config = await tempConfigDir();
   const id = "b0526374-5555-4666-8777-d8889990aa1b";
-  const originalFetch = mock;
-  void originalFetch;
   try {
     await withAdapter(
-      { mockUrl: mock.url, configDir: config.dir, onPermission: () => "cancel" },
-      async ({ agent, idle }) => {
+      { mockUrl: mock.url, configDir: config.dir },
+      async ({ agent, updates, idle }) => {
         await agent.request(methods.agent.session.new, { cwd, _meta: { "cycle/sessionId": id } });
         const done = idle();
         await agent.request(methods.agent.session.prompt, {
           sessionId: id,
           prompt: [{ type: "text", text: "Go." }],
         });
+        // Wait until the first words have really streamed to the client.
+        const started = Date.now();
+        while (!updates.some((u) => u.sessionUpdate === "agent_message_chunk")) {
+          if (Date.now() - started > 30_000) throw new Error("the model never started writing");
+          await Bun.sleep(20);
+        }
+        const cancelledAt = Date.now();
         await agent.notify(methods.agent.session.cancel, { sessionId: id });
-        const end = await done;
-        console.log("end after cancel:", JSON.stringify(end));
-        expect(end).toMatchObject({ state: "idle" });
+        const end = await Promise.race([
+          done,
+          Bun.sleep(8_000).then(() => {
+            throw new Error("the turn did not end within 8s of the cancel");
+          }),
+        ]);
+        console.log("ended", Date.now() - cancelledAt, "ms after the cancel:", JSON.stringify(end));
+        expect(end).toMatchObject({ state: "idle", stopReason: "cancelled" });
+        // Now let the model carry on. Nothing more may reach the client.
+        held.release();
+        await Bun.sleep(1_000);
+        const text = updates
+          .filter((u) => u.sessionUpdate === "agent_message_chunk")
+          .map((u) => (u as unknown as { content: { text: string } }).content.text)
+          .join("");
+        expect(text).toContain("The first part.");
+        expect(text).not.toContain("MUST NOT ARRIVE");
+        expect(updates.at(-1)).toMatchObject({ state: "idle", stopReason: "cancelled" });
       },
     );
   } finally {
+    held.release();
     mock.stop();
     await config.dispose();
   }

@@ -87,12 +87,17 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     return session;
   };
 
-  const runTurn = async (client: AgentContext, session: SessionState, prompt: string) => {
-    const turn: Turn = { abort: new AbortController(), query: undefined, cancelled: false };
-    session.turn = turn;
+  const runTurn = async (
+    client: AgentContext,
+    session: SessionState,
+    turn: Turn,
+    prompt: string,
+  ) => {
     const translator = new TurnTranslator();
     let stop: StopReason = { stopReason: "end_turn" };
     try {
+      // A cancel can arrive before the query starts: then there is nothing to interrupt.
+      if (turn.cancelled) throw new Error("cancelled before it started");
       const options: Options = {
         cwd: session.cwd,
         env: config.env,
@@ -218,18 +223,28 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         throw new RequestError(-32600, "A turn is already running", { sessionId: session.id });
       }
       const messageId = randomUUID();
+      // The turn exists from here, before anything is awaited: a cancel or a second prompt that
+      // arrives while the first notifications are going out must find it.
+      const turn: Turn = { abort: new AbortController(), query: undefined, cancelled: false };
+      session.turn = turn;
       // The turn goes on after this answers: ACP v2 ends a turn with an idle state_update.
       void (async () => {
-        await notify(client, session.id, {
-          sessionUpdate: "user_message",
-          messageId,
-          content: params.prompt,
-        } as SessionUpdate);
-        await notify(client, session.id, {
-          sessionUpdate: "state_update",
-          state: "running",
-        } as SessionUpdate);
-        await runTurn(client, session, textOf(params.prompt));
+        try {
+          await notify(client, session.id, {
+            sessionUpdate: "user_message",
+            messageId,
+            content: params.prompt,
+          } as SessionUpdate);
+          await notify(client, session.id, {
+            sessionUpdate: "state_update",
+            state: "running",
+          } as SessionUpdate);
+          await runTurn(client, session, turn, textOf(params.prompt));
+        } catch {
+          // The connection is gone: there is no one to tell.
+        } finally {
+          if (session.turn === turn) session.turn = undefined;
+        }
       })();
       return { messageId };
     })

@@ -45,21 +45,21 @@
 
 `bun run test:integration`(在 `packages/adapters/claude` 下)把适配器作为独立进程启动,走真实的 SDK 和它自带的 Claude 二进制,对本地模拟 API 说话。`bun test` 和提交门禁不运行它。
 
-| 问题                                                         | 结果                                                                                                |
-| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| SDK 的 `query()` 能在 Bun 下运行,且这台机器上没有 `node` 吗? | 能。SDK 自带二进制,不需要 Claude 登录,也不需要 `claude` 在 PATH 上                                  |
-| daemon 提议的 sessionId 会被采用吗?                          | 会。`session/new` 返回同一个 id,第二个进程用它恢复                                                  |
-| **不带 `replayFrom` 恢复,上下文完整吗?**                     | **完整**。新进程、同一个 `CLAUDE_CONFIG_DIR`,恢复后发出的请求里包含第一个进程里的用户消息           |
-| 适配器自己发 `user_message` 吗?                              | 发,用 `session/prompt` 返回的 `messageId`。所以 Claude 不需要 daemon 合成这一条(协议 §8)            |
-| 权限请求                                                     | 触发 `session/request_permission`;允许后工具真的运行(文件被创建),拒绝后没有运行,tool call 为 failed |
-| 取消                                                         | 进行中的 turn 以 `state_update` idle、`stopReason: cancelled` 结束                                  |
-| resume 的状态快照                                            | 响应前收到一条 `state_update`                                                                       |
+| 问题                                                         | 结果                                                                                                                                                                                                                         |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SDK 的 `query()` 能在 Bun 下运行,且这台机器上没有 `node` 吗? | 能。SDK 自带二进制,不需要 Claude 登录,也不需要 `claude` 在 PATH 上                                                                                                                                                           |
+| daemon 提议的 sessionId 会被采用吗?                          | 会。`session/new` 返回同一个 id,第二个进程用它恢复                                                                                                                                                                           |
+| **不带 `replayFrom` 恢复,上下文完整吗?**                     | **完整**。新进程、同一个 `CLAUDE_CONFIG_DIR`,恢复后发出的请求里包含第一个进程里的用户消息                                                                                                                                    |
+| 适配器自己发 `user_message` 吗?                              | 发,用 `session/prompt` 返回的 `messageId`。所以 Claude 不需要 daemon 合成这一条(协议 §8)                                                                                                                                     |
+| 权限请求                                                     | 触发 `session/request_permission`;允许后工具真的运行(文件被创建),拒绝后没有运行,tool call 为 failed                                                                                                                          |
+| 取消                                                         | 模型正在流式输出时发 `session/cancel`:约 0.4 秒后以 idle、`stopReason: cancelled` 结束,模型之后才放出的剩余文本没有到达客户端。turn 在 prompt 一返回就存在,所以紧跟 prompt 的取消,或者紧跟的第二个 prompt(被拒绝),都不会漏掉 |
+| resume 的状态快照                                            | 响应前收到一条 `state_update`                                                                                                                                                                                                |
 
 ## 观察到的行为
 
 - Claude 对只读或安全的 Bash 命令(如 `echo`)不请求权限,所以测试用 `touch` 来触发审批。
 - SDK 启动的 Claude 进程会在发给模型的用户消息里自己加 `<system-reminder>` 文本(比如 git 提交的署名说明)。这是 Claude Code 自己的行为,不是适配器加的。
-- `cancel` 的测试是在 turn 启动期间发取消,没有覆盖"模型正在流式输出时取消"。这一点还没验证。
+- 取消时适配器无论 SDK 怎么结束都报 `cancelled`;"剩余文本没有到达"这条断言靠的是适配器不再转发,不能单独证明 Claude 进程已被终止(进程是否被终止没有断言)。
 
 ## 还没验证
 
