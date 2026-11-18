@@ -385,6 +385,8 @@ export class CycleClient {
         const api = this.#agent;
         if (api === undefined) throw new Error("The connection was lost again");
         for (const [sessionId, entry] of [...this.#watched]) {
+          // Dropped (unwatched, or gone) since the list was taken: not asked for.
+          if (this.#watched.get(sessionId) !== entry) continue;
           try {
             await this.#attach(sessionId, entry, api);
           } catch (error) {

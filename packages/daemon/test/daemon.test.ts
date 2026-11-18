@@ -996,3 +996,76 @@ test("a session being deleted cannot be opened again while its log is being remo
   release();
   await deleting;
 });
+
+test("a session whose history is damaged can be deleted", async () => {
+  const [good, bad] = (await seedSessions(2)) as [string, string];
+  const file = join(dir, "sessions", `${bad}.jsonl`);
+  const lines = (await readFile(file, "utf8")).split("\n");
+  lines.splice(1, 0, "{this is not json}");
+  await writeFile(file, lines.join("\n"));
+  const { daemon } = await start();
+  const c = await connectClient(daemon);
+  await c.agent.request(methods.agent.session.delete, { sessionId: bad });
+  const listed = (await c.agent.request(methods.agent.session.list, {})).sessions;
+  expect(listed.map((s) => s.sessionId)).toEqual([good]);
+  await expect(readFile(file, "utf8")).rejects.toThrow();
+});
+
+test("a list that is being read when a session is deleted leaves that session out and goes on", async () => {
+  const [first, second] = (await seedSessions(2)) as [string, string];
+  const real = new JsonlLogStore({ dir: join(dir, "sessions") });
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let waiting = false;
+  const store: LogStore = {
+    exists: (id) => real.exists(id),
+    remove: (id) => real.remove(id),
+    open: async (id) => {
+      if (id === first) {
+        waiting = true;
+        await gate;
+      }
+      return real.open(id);
+    },
+  };
+  const { daemon } = await startOn(store);
+  const c = await connectClient(daemon);
+  const d = await connectClient(daemon);
+  const listing = c.agent.request(methods.agent.session.list, {});
+  await until(() => waiting, "the list to be reading the first session");
+  await d.agent.request(methods.agent.session.delete, { sessionId: second });
+  release();
+  expect((await listing).sessions.map((s) => s.sessionId)).toEqual([first]);
+});
+
+test("a session that is being deleted cannot be prompted or opened", async () => {
+  const real = new JsonlLogStore({ dir: join(dir, "sessions") });
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let removing = false;
+  const store: LogStore = {
+    exists: (id) => real.exists(id),
+    open: (id) => real.open(id),
+    remove: async (id) => {
+      removing = true;
+      await held;
+      return real.remove(id);
+    },
+  };
+  const { daemon, fake } = await startOn(store);
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  const launches = fake.log.launches;
+  const deleting = c.agent.request(methods.agent.session.delete, { sessionId });
+  await until(() => removing, "the log to be on its way out");
+  await expect(
+    c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") }),
+  ).rejects.toMatchObject({ code: -32002 });
+  expect(fake.log.launches).toBe(launches);
+  release();
+  await deleting;
+});

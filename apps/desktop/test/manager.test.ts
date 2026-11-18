@@ -472,6 +472,10 @@ test("a session deleted elsewhere while the connection was away is gone here, an
   expect(first(of(a.events, "sessions").slice(-1)).sessions.map((s) => s.sessionId)).toEqual([
     keep,
   ]);
+  // The renderer is told, so it can drop the view and the dialogs of the session.
+  expect(of(a.events, "session-gone")).toEqual([
+    { type: "session-gone", hostId: "local", sessionId: doomed },
+  ]);
   await expect(a.m.openSession("local", doomed)).rejects.toThrow();
   // The session that is still there goes on being watched.
   const seen = of(a.events, "update").length;

@@ -113,6 +113,8 @@ export type AppEvent =
   | { type: "permission"; request: PermissionRequest; version: number }
   | { type: "permission-closed"; hostId: string; sessionId: string; key: string; version: number }
   | { type: "agent-defaults"; hostId: string; agent: string }
+  /** A session was deleted elsewhere while the connection was away: nothing of it is kept. */
+  | { type: "session-gone"; hostId: string; sessionId: string }
   | { type: "app-update"; state: UpdateState }
   /** A notification was pressed: show this session. */
   | { type: "focus-session"; hostId: string; sessionId: string };

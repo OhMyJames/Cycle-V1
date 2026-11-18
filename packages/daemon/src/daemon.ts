@@ -230,6 +230,8 @@ export class Daemon {
    */
   #session(sessionId: string): Promise<Session> {
     const loaded = this.#sessions.get(sessionId);
+    // A session being deleted is already gone to everyone who asks.
+    if (loaded?.closed) return Promise.reject(sessionNotFound(sessionId));
     if (loaded !== undefined) return Promise.resolve(loaded);
     const loading = this.#loading.get(sessionId);
     if (loading !== undefined) return loading;
@@ -983,20 +985,37 @@ export class Daemon {
     });
 
     app.onRequest(methods.agent.session.delete, async ({ params }) => {
-      const session = await this.#session(params.sessionId);
+      let session: Session;
+      try {
+        session = await this.#session(params.sessionId);
+      } catch (error) {
+        // A session whose history cannot be read can still be deleted: it is the way out of it.
+        if (!(error instanceof RpcError) || error.code !== CycleErrorCode.LogUnavailable)
+          throw error;
+        try {
+          await this.#index.delete(params.sessionId);
+          await this.#store.remove(params.sessionId);
+        } finally {
+          this.#changed();
+        }
+        return {} as never;
+      }
       if (session.status() === "running" || session.status() === "requires_action")
         throw sessionBusy(session.id);
       session.closed = true;
       session.link?.kill();
       for (const attachment of session.attachments) attachment.detach();
-      // The index first: from then on nobody can load the session again (a list that was being
-      // read, a client that was reconnecting), so none comes back from the dead while its log is
-      // being removed.
-      await this.#index.delete(session.id);
-      await session.log.close();
-      this.#sessions.delete(session.id);
-      await this.#store.remove(session.id);
-      this.#changed();
+      try {
+        // The index first, and the session out of the table at once: from then on nobody can load
+        // it again or get hold of it (a list that was being read, a client that was reconnecting),
+        // so none comes back from the dead while its log is being removed.
+        await this.#index.delete(session.id);
+        this.#sessions.delete(session.id);
+        await session.log.close();
+        await this.#store.remove(session.id);
+      } finally {
+        this.#changed();
+      }
       return {} as never;
     });
 

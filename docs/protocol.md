@@ -147,7 +147,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 ### 删除、归档、改名
 
-- 删除:`session/delete`。session 正在工作时拒绝(错误码见 §11)。daemon 先从索引里去掉它,再移除日志:从那一刻起,任何之后的 `session/resume`(包括断线重连时的)都得到 `-32002`,不会因为日志还没删完而把它重新加载出来;同时在读的列表跳过它。
+- 删除:`session/delete`。session 正在工作时拒绝(错误码见 §11)。daemon 先从索引里去掉它,再移除日志:从那一刻起,任何之后的 `session/resume`(包括断线重连时的)都得到 `-32002`,不会因为日志还没删完而把它重新加载出来;同时在读的列表跳过它。日志读不了的 session 也可以删除(不需要先能打开它):这是清掉它的办法。
 - 归档:`_cycle/session/archive` 和 `_cycle/session/unarchive`,只改 daemon 的索引,不动历史。工作中拒绝。
 - 改名:`_cycle/session/set_title`,参数 `{sessionId, title}`。daemon 自己保存标题。ACP v2 的 `session/set_title` 目前只在 unstable 里,稳定后改用它。
 

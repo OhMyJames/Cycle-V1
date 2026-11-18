@@ -217,3 +217,24 @@ test("a notification about a session that is gone shows nothing and says nothing
   expect(script.named("openSession")).toEqual([]);
   expect(store.getState().error).toBeUndefined();
 });
+
+test("a session deleted elsewhere takes its view, its draft and its place as the open one with it", async () => {
+  const { store, emit } = await opened();
+  const key = viewKey("local", "s1");
+  store.drafts.update(key, () => ({ text: "half a thought", attachments: [] }));
+  expect(store.getState().views[key]).toBeDefined();
+  expect(store.drafts.get(key).text).toBe("half a thought");
+  expect(store.getState().selectedSession).toBe("s1");
+
+  emit({ type: "session-gone", hostId: "local", sessionId: "s1" });
+  expect(store.getState().views[key]).toBeUndefined();
+  expect(store.getState().selectedSession).toBeUndefined();
+  expect(store.drafts.get(key).text).toBe("");
+});
+
+test("a session gone on another host does not close the one that is open here", async () => {
+  const { store, emit } = await opened();
+  emit({ type: "session-gone", hostId: "elsewhere", sessionId: "s1" });
+  expect(store.getState().selectedSession).toBe("s1");
+  expect(store.getState().views[viewKey("local", "s1")]).toBeDefined();
+});
