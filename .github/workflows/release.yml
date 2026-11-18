@@ -81,7 +81,8 @@ jobs:
     timeout-minutes: 45
     env:
       BUNDLE: apps/desktop/build/Cycle.app/Contents/Resources/app
-      SIGN: ${{ github.event_name == 'push' || inputs.sign }}
+      # A tag signs only when the repository variable RELEASE_SIGN is 'true'; by hand, when asked.
+      SIGN: ${{ (github.event_name == 'push' && vars.RELEASE_SIGN == 'true') || inputs.sign }}
       # Set on the repository (a variable, not a secret: only a name) when the Mac that builds already holds
       # the identity and a notarytool profile in its keychain. Then no Apple secret is needed at all.
       APPLE_NOTARY_PROFILE: ${{ vars.APPLE_NOTARY_PROFILE }}
@@ -205,4 +206,6 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" --generate-notes
+        # Without RELEASE_SIGN the app is only ad hoc signed: a browser download is refused by Gatekeeper
+        # until its quarantine mark is removed, so such a release is marked a pre-release.
+        run: gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" --generate-notes ${{ vars.RELEASE_SIGN == 'true' && '' || '--prerelease' }}
