@@ -105,7 +105,7 @@ test("strings: token shapes, private keys, bearer, env assignments, flags and js
     "lowercase99",
   ])
     expect(out).not.toContain(gone);
-  expect(out).toContain("ITSAPLAN_API_KEY=" + REDACTED);
+  expect(out).toContain(`ITSAPLAN_API_KEY=${REDACTED}`);
   expect(out).toContain('"user": "me"');
 });
 
