@@ -36,7 +36,7 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 连接建立后,客户端必须先发 `initialize`(ACP v2 的方法),在响应之前不得发其他请求。
 
 - `protocolVersion`:ACP 的协议版本,整数,仅在不兼容变更时递增。
-- Cycle 自己的版本放在 `_meta["cycle/protocolVersion"]`,格式 `"主.次"`,本文描述的是 `"0.2"`(`0.1` 到 `0.2` 只加了字段和 `markRead`,见 §6;实现跟上之前 daemon 仍报告 `0.1`)。主版本不同则 daemon 以 `-32022`(ACP 的 Unsupported protocol version)拒绝,并在 `data` 里列出自己支持的版本。次版本差异通过能力协商处理。
+- Cycle 自己的版本放在 `_meta["cycle/protocolVersion"]`,格式 `"主.次"`,本文描述的是 `"0.2"`(`0.1` 到 `0.2` 只加了字段和 `markRead`,见 §6)。主版本不同则 daemon 以 `-32022`(ACP 的 Unsupported protocol version)拒绝,并在 `data` 里列出自己支持的版本。次版本差异通过能力协商处理。
 - daemon 在 `initialize` 响应的 `_meta["cycle/capabilities"]` 中声明能力:
 
 ```json
@@ -138,6 +138,8 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 列表变化(新建、删除、归档、`cycle/state` 改变、`cycle/unread` 改变、`cycle/background` 在 0 与非 0 之间改变)通过通知 `_cycle/session_list_changed` 告诉所有客户端,通知里不带内容,客户端收到后重新拉列表。
 
+一个等待中的请求被回答(session 不再是 `requires_action`)也发这个通知。
+
 **`updatedAt` 自己的变化不发通知**:session 在流式输出时每条记录都会改它,每次都通知会让所有客户端不停地重拉列表。客户端在看到一个 session 状态改变的通知后重拉,拿到的就是新值。
 
 **缺失字段的含义**(旧 daemon):没有 `updatedAt` 的 session,排在有 `updatedAt` 的之后,彼此之间按 `cycle/lastSeq` 降序(同一个 daemon 里它可比);没有 `cycle/unread` 就不显示未读;没有 `cycle/background` 且 daemon 声明了 `markRead`(即 0.2),是 0;旧 daemon 上则不显示后台状态。
@@ -152,7 +154,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 未读由 daemon 记,不由客户端本地记:同一个 daemon 可以有几个客户端,换客户端、重装后也要一致(决定笔记 `2026-11-18-sidebar-workspace-environment`)。
 
-- daemon 在索引里为每个 session 记两个序号:`readSeq`(客户端标记过已读的位置)和 `attentionSeq`(最近一条"值得看"的记录的 seq)。"值得看"的记录是:`state_update` 变成 `requires_action`,以及 `state_update` 变成 `idle` 且带 `stopReason`(turn 结束,任何 `stopReason`,出错也算;agent 恢复时发的不带 `stopReason` 的 `idle` 只是状态快照,不算)。`meta` 记录、改标题、用量更新不算,否则它们会造成假的未读。
+- daemon 在索引里为每个 session 记两个序号:`readSeq`(客户端标记过已读的位置)和 `attentionSeq`(最近一条"值得看"的记录的 seq)。"值得看"的记录是:daemon 写下的一条 `request` 记录(权限或表单:不管 agent 有没有另发 `requires_action`,Claude 适配就不发),`state_update` 变成 `requires_action`,以及 `state_update` 变成 `idle` 且带 `stopReason`(turn 结束,任何 `stopReason`,出错也算;agent 恢复时发的不带 `stopReason` 的 `idle` 只是状态快照,不算)。`meta` 记录、改标题、用量更新不算,否则它们会造成假的未读。
 - `cycle/unread` = `attentionSeq > readSeq`。规则在 daemon,客户端不重新实现。
 - `_cycle/session/mark_read`,参数 `{sessionId, seq}`,响应 `{}`。`readSeq` 取原值和 `seq` 中大的那个,不会倒退;`seq` 大于该 session 的 `lastSeq` 以 `-32602` 拒绝。session 在工作时也接受。
 - 什么时候发由客户端决定:打开 session 且窗口有焦点时,以及回合结束时仍在看它时,发当时收到的最大 `seq`;不是每条更新都发。

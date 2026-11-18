@@ -15,7 +15,7 @@ The sidebar is one flat list sorted by `cycle/lastSeq`, with a host selector on 
 - **The sidebar shows one workspace at a time** (old-cycle's decision), with environment shown only as grouping inside the workspace switcher, not as top-level navigation.
 - **Order by `updatedAt`**, a top-level field of ACP `SessionInfo` filled by the daemon from the last non-`meta` record's `ts`. `lastSeq` stays for replay only. A change of `updatedAt` alone does not send `_cycle/session_list_changed`.
 - **Unread is kept by the daemon**: the index stores `readSeq` (set by `_cycle/session/mark_read`, never decreasing) and `attentionSeq` (last turn end or approval request); the list exposes `cycle/unread`. `cycle/background` counts running background sub-agents, in memory only. Both are added in protocol 0.2 and degrade to "absent" for older daemons.
-- Status: proposed in the protocol document and in `docs/desktop.md`; **nothing is implemented**. The unread design and the optional-field degradation rules were proposed by the assistant and not yet reviewed by the owner.
+- Status: the owner reviewed the protocol and `docs/desktop.md` drafts on 2026-11-18 and asked to proceed. The daemon side (protocol 0.2) is implemented; the client side (environment, workspace, the sidebar, and applying the missing-field rules) is not.
 
 ## Alternatives considered
 

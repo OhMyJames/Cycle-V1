@@ -325,6 +325,12 @@ export class Daemon {
   }
 
   #observe(session: Session, record: LogRecord): void {
+    // A request put to the owner (a permission, a form) is worth seeing whatever the agent says of
+    // its own state: the Claude adapter says nothing, and the daemon knows it is waiting.
+    if (record.kind === "request") {
+      this.#remember(session, { attentionSeq: record.seq });
+      return;
+    }
     if (record.kind !== "update") return;
     const update = record.data as Record<string, unknown>;
     if (update.sessionUpdate === "state_update") {
@@ -334,7 +340,8 @@ export class Daemon {
         update.state === "requires_action" ||
         (update.state === "idle" && update.stopReason !== undefined)
       ) {
-        this.#remember(session, { attentionSeq: record.seq });
+        // `#onUpdate` announces a change of state once the record is written: not twice.
+        this.#remember(session, { attentionSeq: record.seq }, false);
       }
     } else if (update.sessionUpdate === "subagent_update") {
       if (session.noteSubagent(update)) this.#changed();
@@ -388,12 +395,14 @@ export class Daemon {
     return true;
   }
 
-  #remember(session: Session, patch: Partial<SessionEntry>): void {
+  #remember(session: Session, patch: Partial<SessionEntry>, announce = true): void {
     session.entry = { ...session.entry, ...patch };
     // A session that is still being made is not in the index yet; it is put there with this entry.
     if (this.#index.get(session.id) === undefined) return;
     void this.#index.update(session.id, patch).then(
-      () => this.#changed(),
+      () => {
+        if (announce) this.#changed();
+      },
       () => undefined,
     );
   }
@@ -480,6 +489,8 @@ export class Daemon {
     if (pending.settled) return;
     pending.settled = true;
     session.pending.delete(pending.requestId);
+    // The session is no longer waiting on the owner: the list says so (the agent may say nothing).
+    this.#changed();
     // What a person typed into a form can be a password or a token: the agent gets all of it, the
     // log and the other clients get that it was answered, and how.
     const shown = pending.method === ELICITATION ? withoutContent(outcome) : outcome;
@@ -927,8 +938,9 @@ export class Daemon {
       const before = session.entry.readSeq ?? 0;
       if (params.seq <= before) return {};
       const unread = session.unread();
-      session.entry = { ...session.entry, readSeq: params.seq };
+      // On disk first: if that fails, what the list says and what a restart reads stay the same.
       await this.#index.update(session.id, { readSeq: params.seq });
+      session.entry = { ...session.entry, readSeq: params.seq };
       if (session.unread() !== unread) this.#changed();
       return {};
     });

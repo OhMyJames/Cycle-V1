@@ -609,6 +609,23 @@ test("a sub-agent is announced, reports progress, and ends", async () => {
   ).toBeUndefined();
 });
 
+test("a sub-agent that moves to the background later is announced as one", async () => {
+  const fake = fakeQuery(() => [
+    task("task_started", { task_id: "t1", tool_use_id: "tool_9", is_backgrounded: false }),
+    task("task_updated", { task_id: "t1", patch: { is_backgrounded: true } }),
+    ...textTurn(ID, "m", "ok"),
+  ]);
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "go" }]);
+    const [started, moved] = subs(updates);
+    expect(started?._meta?.["cycle/subagent"]?.background).toBe(false);
+    expect(moved).toMatchObject({ sessionId: "t1" });
+    expect(moved?._meta?.["cycle/subagent"]).toEqual({ toolCallId: "tool_9", background: true });
+    expect(moved?.state).toBeUndefined();
+  });
+});
+
 test("progress summaries are asked of the SDK when the configuration says to", async () => {
   const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
   await connect(

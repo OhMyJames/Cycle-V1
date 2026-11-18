@@ -431,8 +431,9 @@ test("the list says when a session last had something happen, and that is not th
   const worked = (await rowOf(c, sessionId)).row.updatedAt ?? "";
   expect(worked >= (fresh ?? "")).toBe(true);
   // The agent going away is a note of the daemon's: it moves nothing.
+  const announced = c.listChanged();
   fake.crash();
-  await Bun.sleep(100);
+  await until(() => c.listChanged() > announced, "the agent's exit to be announced");
   expect((await rowOf(c, sessionId)).row.updatedAt).toBe(worked);
 });
 
@@ -478,23 +479,33 @@ test("a turn that ended is unread until a client says it has seen it, and that i
   expect((await rowOf(e, sessionId)).meta["cycle/unread"]).toBe(false);
 });
 
-test("a session that is waiting on the owner is unread too, and a snapshot of idle is not an end", async () => {
+test("a session waiting on the owner is unread and announced even if the agent says nothing of it, and answering is announced", async () => {
+  // As the Claude adapter does: it asks for permission and sends no state_update of its own.
   const { daemon } = await start(
     fakeAgent({
-      onPrompt: async ({ say, ask }) => {
-        await say({ sessionUpdate: "state_update", state: "requires_action" });
+      onPrompt: async ({ ask }) => {
         await ask();
       },
     }),
   );
   const c = await connectClient(daemon, { onPermission: () => "never" });
   const sessionId = await startedSession(c);
-  // Attached and resumed, so the snapshot of idle was sent and logged nowhere: nothing to see yet.
+  // Attached and resumed: the snapshot of idle was sent, and logged nowhere. Nothing to see yet.
   expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(false);
+  const before = c.listChanged();
   await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
   await until(() => c.permissions.length > 0, "the request");
   expect((await rowOf(c, sessionId)).meta["cycle/unread"]).toBe(true);
   expect(stateOf((await rowOf(c, sessionId)).row)).toBe("requires_action");
+  await until(() => c.listChanged() > before, "the wait to be announced");
+
+  // A second client answers it: the list is announced again, with the session no longer waiting.
+  const waiting = c.listChanged();
+  const d = await connectClient(daemon, { onPermission: () => "allow" });
+  await d.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await until(() => d.permissions.length > 0, "the second client to be asked");
+  await until(() => c.listChanged() > waiting, "the answer to be announced");
+  expect(stateOf((await rowOf(c, sessionId)).row)).not.toBe("requires_action");
 });
 
 test("a long answer does not announce the list again for every piece of it", async () => {

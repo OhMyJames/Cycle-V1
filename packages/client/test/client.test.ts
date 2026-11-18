@@ -284,3 +284,26 @@ test("a client with a form handler is asked forms; one without is not, and the a
   expect(asked[0]).toMatchObject({ mode: "form", message: "Which one?" });
   expect(answers[1]).toEqual({ action: "accept", content: { pick: "b" } });
 });
+
+test("marks a session read, and clears its unread mark in the list", async () => {
+  const { make } = await setup();
+  const seen: { update: SessionUpdate; seq: number | undefined }[] = [];
+  const client = make({ update: (_id, update, seq) => seen.push({ update, seq }) });
+  await client.start();
+  const sessionId = await client.newSession({ cwd: "/tmp" });
+  await client.watch(sessionId, "/tmp");
+  await client.prompt(sessionId, text("hi"));
+  await until(
+    () => seen.some((s) => (s.update as { stopReason?: string }).stopReason === "end_turn"),
+    "the turn",
+  );
+  const unread = async () => {
+    const row = (await client.listSessions()).find((s) => s.sessionId === sessionId);
+    return row?._meta?.["cycle/unread"];
+  };
+  expect(await unread()).toBe(true);
+  const last = seqs(seen).at(-1);
+  if (last === undefined) throw new Error("no record seen");
+  await client.markRead(sessionId, last);
+  expect(await unread()).toBe(false);
+});

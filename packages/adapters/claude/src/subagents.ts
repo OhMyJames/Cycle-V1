@@ -67,9 +67,18 @@ export class Subagents {
     if (message.subtype === "task_updated") {
       const patch = task.patch ?? {};
       const end = endOf(patch.status, patch.error);
-      if (end === undefined && patch.description === undefined) return undefined;
+      // A task that moves to the background later says so here, and nowhere else (SDK: `task_updated`).
+      if (
+        end === undefined &&
+        patch.description === undefined &&
+        patch.is_backgrounded === undefined
+      ) {
+        return undefined;
+      }
       const update = this.#make(
-        task,
+        patch.is_backgrounded === undefined
+          ? task
+          : { ...task, is_backgrounded: patch.is_backgrounded },
         end ? { state: "idle", ...end } : undefined,
         patch.description,
       );

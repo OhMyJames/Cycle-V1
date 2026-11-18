@@ -36,7 +36,7 @@ bun run start                          # 启动桌面端
 
 ## 环境、workspace 与侧栏
 
-状态:设计草稿,实现未跟上。代码里现在叫 host(`HostConfig`、`hostId`),落地时改叫 environment。设计依据见决定笔记 [2026-11-18-sidebar-workspace-environment](../.agents/notes/2026-11-18-sidebar-workspace-environment.md)。
+状态:daemon 一侧(协议 0.2:`updatedAt`、`cycle/unread`、`cycle/background`、`mark_read`)已实现;客户端一侧(environment、workspace、侧栏)是设计,未实现。代码里现在叫 host(`HostConfig`、`hostId`),落地时改叫 environment。设计依据见决定笔记 [2026-11-18-sidebar-workspace-environment](../.agents/notes/2026-11-18-sidebar-workspace-environment.md)。
 
 ### 环境(environment)
 

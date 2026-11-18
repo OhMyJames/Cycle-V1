@@ -112,11 +112,9 @@ export class Session {
     return before !== this.backgroundCount() > 0;
   }
 
-  /** The agent process is gone, and its sub-agents with it. Returns whether any were in the background. */
-  endSubagents(): boolean {
-    const had = this.backgroundCount() > 0;
+  /** The agent process is gone, and its sub-agents with it. */
+  endSubagents(): void {
     this.#subagents.clear();
-    return had;
   }
 
   status(): SessionStatus {
