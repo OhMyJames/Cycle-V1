@@ -28,7 +28,6 @@
 /* DESIGN.md is the source of what these are and why. Components use the --cycle-* names; ui-sdk's own
    tokens are remapped here, once, so its controls take the same accent, radius and focus. */
 :root {
-  --cycle-sidebar: 16rem;
   --cycle-gap: 0.75rem;
 
   /* Colour: one accent for what can be acted on and what is happening; two more for states. */
@@ -100,9 +99,23 @@ body {
 }
 
 [data-slot="app"] {
-  display: grid;
-  grid-template-columns: var(--cycle-sidebar) minmax(0, 1fr);
   height: 100%;
+}
+
+/* ui-sdk's Resizable is a bordered box with padded panels: here it is the whole window. */
+[data-slot="app"] > [data-slot="resizable"] {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+[data-slot="app"] > [data-slot="resizable"] > [data-slot="resizable-panel"] {
+  padding: 0;
+  min-width: 0;
+}
+
+[data-slot="app"] [data-slot="resizable-handle"]:is(:hover, [data-dragging]) {
+  background: var(--cycle-accent);
 }
 
 [data-slot="stack"] {
@@ -206,8 +219,8 @@ svg[data-slot="dot"] {
   display: flex;
   flex-direction: column;
   gap: var(--cycle-gap);
+  height: 100%;
   padding: var(--cycle-gap);
-  border-right: 1px solid var(--ui-border);
   background: var(--ui-muted);
   overflow-x: hidden;
   overflow-y: auto;
@@ -281,6 +294,11 @@ svg[data-slot="dot"] {
   color: var(--ui-foreground);
 }
 
+/* The list scrolls and clips: a ring drawn outside a row would be cut off, so it is drawn inside. */
+[data-slot="sidebar"] [role="option"]:focus-visible {
+  outline-offset: -2px;
+}
+
 [data-slot="sidebar"] [role="option"]:hover {
   background: var(--ui-background);
 }
@@ -342,8 +360,39 @@ svg[data-slot="dot"] {
 [data-slot="main"] {
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-width: 0;
   min-height: 0;
+}
+
+/* macOS: the title bar is hidden and the traffic lights sit in the sidebar's corner, so the top of the
+   window is what you drag (the page sets data-platform from the user agent). */
+[data-slot="titlebar"] {
+  display: none;
+}
+
+html[data-platform="darwin"] [data-slot="titlebar"] {
+  display: block;
+  height: 1.25rem;
+  -webkit-app-region: drag;
+}
+
+html[data-platform="darwin"] :is([data-slot="session-header"], [data-slot="empty"]) {
+  -webkit-app-region: drag;
+}
+
+/* What can be clicked or selected is not a place to drag from: the error's reason has to be selectable. */
+html[data-platform="darwin"]
+  :is([data-slot="session-header"], [data-slot="empty"])
+  :is(button, a, input, textarea, code, [data-slot="reason"], [data-slot="empty-title"]) {
+  -webkit-app-region: no-drag;
+}
+
+/* With the sidebar folded the traffic lights are over the main area: the title starts after them. */
+html[data-platform="darwin"]
+  [data-slot="app"]:has([data-slot="resizable-panel"][data-collapsed])
+  [data-slot="session-header"] {
+  padding-left: 5.5rem;
 }
 
 [data-slot="banner"] {

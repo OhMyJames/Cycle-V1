@@ -46,6 +46,23 @@ for await (const file of sources.scan({ cwd: root })) {
     }
   }
 }
+// DESIGN.md and the stylesheet agree on the --cycle-* tokens: one that is written and not defined is a promise
+// nothing keeps, and one that is defined and not written is a decision nobody can see.
+{
+  const design = await Bun.file(`${root}DESIGN.md`).text();
+  const css = await Bun.file(`${root}packages/ui/src/styles/app.css`).text();
+  const named = new Set(design.match(/--cycle-[a-z-]+/g) ?? []);
+  const defined = new Set(
+    Array.from(css.matchAll(/^\s*(--cycle-[a-z-]+)\s*:/gm), (m) => m[1] as string),
+  );
+  for (const token of named)
+    if (!defined.has(token))
+      failures.push(`DESIGN.md names ${token}, which app.css does not define`);
+  for (const token of defined)
+    if (!named.has(token))
+      failures.push(`app.css defines ${token}, which DESIGN.md does not mention`);
+}
+
 if (failures.length > 0) {
   console.error(`boundaries failed:\n  ${failures.join("\n  ")}`);
   process.exit(1);

@@ -37,6 +37,9 @@ export type SidebarProps = {
   children?: ReactNode;
 };
 
+/** How the shortcut modifier is written here: ⌘ on a Mac, Ctrl+ elsewhere. */
+export const MOD = /Mac/.test(globalThis.navigator?.userAgent ?? "") ? "⌘" : "Ctrl+";
+
 /** The last part of a path, for a second line that says where a session works. */
 const place = (cwd: string): string => cwd.split("/").filter(Boolean).at(-1) ?? cwd;
 
@@ -48,6 +51,7 @@ export function Sidebar(props: SidebarProps) {
   const sorted = [...visible].sort((a, b) => b.lastSeq - a.lastSeq);
   return (
     <nav data-slot="sidebar" aria-label="Sessions">
+      <div data-slot="titlebar" aria-hidden="true" />
       <div data-slot="host-bar">
         <Select
           items={props.hosts.map((h) => ({ value: h.id, label: h.name }))}
@@ -96,6 +100,7 @@ export function Sidebar(props: SidebarProps) {
       <Button
         data-variant="outline"
         disabled={state?.state !== "connected"}
+        title={`New session  ${MOD}N`}
         onClick={props.onNewSession}
       >
         <PlusIcon />

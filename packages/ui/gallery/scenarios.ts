@@ -20,6 +20,8 @@ export type Scenario = {
   history?: SessionUpdate[];
   permissions?: PermissionRequest[];
   update?: UpdateState;
+  /** Presses Tab this many times with real input events, so :focus-visible shows as it does for a keyboard. */
+  tabs?: number;
   /** Runs once the page has drawn: open a dialog, press a key. */
   after?: (root: HTMLElement) => Promise<void>;
 };
@@ -269,16 +271,31 @@ export const scenarios: Record<string, Scenario> = {
       await new Promise((r) => setTimeout(r, 200));
     },
   },
-  focus: {
-    title: "Keyboard focus on a control and on a session",
-    sessions: [
-      session("s1", { title: "Fix the remote session" }),
-      session("s2", { title: "Second" }),
-    ],
+  // Where keyboard focus lands after 1 to 7 Tabs, and that it shows.
+  ...Object.fromEntries(
+    [1, 2, 3, 4, 5, 6, 7].map((n) => [
+      `focus-tab-${n}`,
+      {
+        title: `Keyboard focus after ${n} Tab${n > 1 ? "s" : ""}`,
+        sessions: [
+          session("s1", { title: "Fix the remote session" }),
+          session("s2", { title: "Second" }),
+        ],
+        history: conversation,
+        tabs: n,
+      } satisfies Scenario,
+    ]),
+  ),
+  "sidebar-collapsed": {
+    title:
+      "The sidebar folded away (Cmd+B); on a Mac the traffic lights sit where the title starts",
+    sessions: [session("s1", { title: "Fix the remote session" })],
     history: conversation,
-    after: async (root) => {
-      // Tab to a control the way a keyboard would: focus-visible only shows for keyboard focus.
-      (root.querySelector('[role="option"]') as HTMLElement | null)?.focus();
+    after: async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "b", metaKey: true, ctrlKey: true }),
+      );
+      await new Promise((r) => setTimeout(r, 300));
     },
   },
   "dialog-new-session": {

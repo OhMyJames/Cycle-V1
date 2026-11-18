@@ -235,6 +235,42 @@ test("deleting a session asks first", async () => {
   await waitFor(() => expect(named("deleteSession")).toEqual([["deleteSession", "local", "s1"]]));
 });
 
+test("Ctrl or Cmd+Enter allows a pending request, but not while typing in the message box", async () => {
+  const { user, emit, named } = await mount();
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  emit({
+    type: "permission",
+    version: 1,
+    request: {
+      key: "local:s1:p1",
+      hostId: "local",
+      sessionId: "s1",
+      title: "Allow Bash?",
+      subject: {
+        type: "tool_call",
+        toolCall: { name: "Bash", rawInput: { command: "rm -rf build" } },
+      },
+      options: [
+        { optionId: "allow", name: "Allow once", kind: "allow_once" },
+        { optionId: "deny", name: "Deny", kind: "reject_once" },
+      ],
+    },
+  });
+  await screen.findByLabelText("Allow Bash?");
+  // The key this platform's shortcut uses: Cmd on a Mac, Control elsewhere (the page reads the user agent).
+  const mod = /Mac/.test(navigator.userAgent) ? "Meta" : "Control";
+  await user.click(box);
+  await user.keyboard(`{${mod}>}{Enter}{/${mod}}`);
+  expect(named("answerPermission")).toHaveLength(0);
+  // Out of the message box, the same keys allow it.
+  await user.click(document.body);
+  await user.keyboard(`{${mod}>}{Enter}{/${mod}}`);
+  await waitFor(() =>
+    expect(named("answerPermission")).toEqual([["answerPermission", "local:s1:p1", "allow"]]),
+  );
+});
+
 test("an update that is found is offered, asks before it restarts, and the footer can check on demand", async () => {
   const { user, emit, named } = await mount();
   expect(await screen.findByText("Cycle 0.1.0")).toBeTruthy();

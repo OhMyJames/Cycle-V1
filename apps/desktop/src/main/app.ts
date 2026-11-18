@@ -105,6 +105,13 @@ export const startApp = async (options: AppOptions) => {
   window = new BrowserWindow({
     width: 1200,
     height: 800,
+    // Below this the sidebar and the conversation cannot both be used (DESIGN.md section 9).
+    minWidth: 720,
+    minHeight: 480,
+    // On a Mac the title bar is hidden; the traffic lights sit in the sidebar's corner.
+    ...(process.platform === "darwin"
+      ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 16, y: 14 } }
+      : {}),
     show: options.show ?? true,
     webPreferences: {
       preload: options.preloadPath,

@@ -3,7 +3,7 @@
 // (and `tokens`); none means all. Prints what each shot found: whether the page was ready, sideways overflow, errors.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { scenarios } from "./scenarios.ts";
+import { type Scenario, scenarios } from "./scenarios.ts";
 
 const here = new URL(".", import.meta.url).pathname;
 const argv = process.argv.slice(2);
@@ -14,7 +14,8 @@ const flag = (name: string, fallback: string): string => {
 const out = flag("out", join(here, "shots"));
 const themes = flag("themes", "light,dark").split(",");
 const sizes = flag("sizes", "1200x800").split(",");
-const VALUE_FLAGS = new Set(["--out", "--themes", "--sizes"]);
+const platform = flag("platform", "");
+const VALUE_FLAGS = new Set(["--out", "--themes", "--sizes", "--platform"]);
 const flagged = new Set(
   argv.flatMap((a, i) => (VALUE_FLAGS.has(a) ? [i, i + 1] : a.startsWith("--") ? [i] : [])),
 );
@@ -39,7 +40,15 @@ const jobs = names.flatMap((name) =>
   themes.flatMap((theme) =>
     sizes.map((size) => {
       const [width, height] = size.split("x").map(Number);
-      return { name, theme, width, height, out: join(out, `${name}.${theme}.${size}.png`) };
+      return {
+        name,
+        theme,
+        platform,
+        tabs: (scenarios as Record<string, Scenario | undefined>)[name]?.tabs ?? 0,
+        width,
+        height,
+        out: join(out, `${name}.${theme}.${size}.png`),
+      };
     }),
   ),
 );
@@ -76,6 +85,7 @@ for (const r of JSON.parse(line.slice(7)) as {
   ready: boolean;
   overflow: number;
   errors: string[];
+  focus?: { on: string; visible?: boolean; outline?: string };
   out: string;
 }[]) {
   const problems = [
@@ -83,6 +93,14 @@ for (const r of JSON.parse(line.slice(7)) as {
     r.overflow > 0 && `overflows by ${r.overflow}px`,
     r.errors.length > 0 && r.errors.join("; "),
   ].filter(Boolean);
+  // A tabbed shot says where the focus is, and fails if it is on a control that shows no ring.
+  if (r.focus !== undefined) {
+    const ringless = r.focus.visible !== true || /^none/.test(r.focus.outline ?? "none");
+    console.log(
+      `${ringless ? "!" : " "} ${r.name} (${r.theme}): focus on ${r.focus.on}; ${r.focus.outline ?? "no outline"}`,
+    );
+    if (ringless) problems.push("focus without a ring");
+  }
   if (problems.length > 0) bad++;
   if (problems.length > 0 || argv.includes("--all"))
     console.log(

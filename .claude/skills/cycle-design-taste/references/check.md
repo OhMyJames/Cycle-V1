@@ -24,7 +24,7 @@ bun .claude/skills/cycle-design-taste/scripts/scan-copy.mjs path/a.tsx # 指定�
 ## 3. 状态画廊
 
 `bun packages/ui/gallery/shoot.ts`(在仓库根目录)用真实组件和假数据画出每个状态,在真实 Electron 里截图,浅色和深色、
-1200×800 与 760×600,并报告页面是否横向溢出、有没有控制台错误。改了界面就跑一遍,**读几张最相关的截图**。
+1200×800 与 760×600(`--sizes` 换尺寸,`--platform darwin` 按 Mac 的标题栏画),并报告页面是否横向溢出、有没有控制台错误。改了界面就跑一遍,**读几张最相关的截图**。
 界面加了新状态,就在 `packages/ui/gallery/scenarios.ts` 里加一个场景。详见 `DESIGN.md` 第 12 节。
 
 ## 4. 在真实窗口里看

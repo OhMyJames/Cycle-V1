@@ -10,6 +10,9 @@ const params = new URLSearchParams(location.search);
 const name = params.get("s");
 const theme = params.get("theme");
 if (theme === "light" || theme === "dark") document.documentElement.style.colorScheme = theme;
+// `&platform=darwin` draws it as it is on a Mac (the title bar); otherwise as the user agent says.
+document.documentElement.dataset.platform =
+  params.get("platform") ?? (/Mac/.test(navigator.userAgent) ? "darwin" : "other");
 
 const root = document.getElementById("root");
 if (root === null) throw new Error("no #root");

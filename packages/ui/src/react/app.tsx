@@ -8,7 +8,13 @@ import {
   DialogTitle,
 } from "@ui-sdk/react/dialog";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
-import { useCallback, useState } from "react";
+import {
+  createResizableController,
+  Resizable,
+  ResizableHandle,
+  ResizablePanel,
+} from "@ui-sdk/react/resizable";
+import { useCallback, useEffect, useState } from "react";
 import { usageLabel } from "../model/index.ts";
 import { viewKey } from "../store/index.ts";
 import { Composer } from "./composer.tsx";
@@ -23,7 +29,7 @@ import {
 } from "./dialogs.tsx";
 import { ErrorCircleIcon, MoreIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
 import { PermissionCard } from "./permission.tsx";
-import { Sidebar, sessionTitle } from "./sidebar.tsx";
+import { MOD, Sidebar, sessionTitle } from "./sidebar.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 import { DaemonBanner, UpdateBanner, UpdateFooter } from "./update.tsx";
 
@@ -94,126 +100,194 @@ export function App() {
     [store, selectedHost],
   );
   const close = () => setPanel("none");
+  const [layout] = useState(createResizableController);
+  const visible = sessions
+    .filter((s) => showArchived || !s.archived)
+    .sort((a, b) => b.lastSeq - a.lastSeq);
+  const working = view !== undefined && view.conversation.status !== "idle";
+  const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
+
+  // Keyboard (DESIGN.md section 10). One handler, so every shortcut is in one place.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      // ⌘ on a Mac (Ctrl+B and Ctrl+N are cursor keys in a text field there); Ctrl elsewhere.
+      const isMac = MOD === "⌘";
+      if (!(isMac ? event.metaKey : event.ctrlKey) || event.altKey || panel !== "none") return;
+      const key = event.key;
+      // Typing: a shortcut that decides something (allowing a command) must not fire from a habit of the hand.
+      const typing =
+        event.target instanceof Element
+          ? event.target.closest("textarea, input, [contenteditable]")
+          : null;
+      const run = (action: () => void) => {
+        event.preventDefault();
+        action();
+      };
+      if (key === "n" && hostState === "connected") run(() => setPanel("new-session"));
+      else if (key === "b")
+        run(() =>
+          layout.isCollapsed("sidebar") ? layout.expand("sidebar") : layout.collapse("sidebar"),
+        );
+      else if (key === "l")
+        run(() => document.querySelector<HTMLElement>('[data-slot="composer"] textarea')?.focus());
+      else if (key === "." && working) run(() => void store.cancel());
+      else if (
+        key === "Enter" &&
+        typing === null &&
+        firstAllow !== undefined &&
+        view?.permissions[0] !== undefined
+      ) {
+        const request = view.permissions[0];
+        run(() => void store.answerPermission(request.key, firstAllow.optionId));
+      } else if (key === "[" || key === "]") {
+        const at = visible.findIndex((s) => s.sessionId === selectedSession);
+        const next = visible[at + (key === "]" ? 1 : -1)];
+        if (next !== undefined) run(() => void store.selectSession(next.sessionId));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   if (!ready) return <div data-slot="starting">Starting…</div>;
 
   return (
     <div data-slot="app">
-      <Sidebar
-        hosts={hosts}
-        status={status}
-        selectedHost={selectedHost}
-        sessions={sessions}
-        selectedSession={selectedSession}
-        showArchived={showArchived}
-        onSelectHost={(id) => void store.selectHost(id)}
-        onSelectSession={(id) => void store.selectSession(id)}
-        onNewSession={() => setPanel("new-session")}
-        onAddHost={() => setPanel("add-host")}
-        onRemoveHost={(id) => void store.removeHost(id)}
-        onToggleArchived={() => setShowArchived((v) => !v)}
-        onAgentDefaults={() => setPanel("defaults")}
-      >
-        <UpdateFooter />
-      </Sidebar>
-      <main data-slot="main">
-        <UpdateBanner />
-        {selectedHost !== undefined ? <DaemonBanner hostId={selectedHost} /> : null}
-        {error !== undefined ? (
-          <div data-slot="banner" data-severity="error" role="alert">
-            <ErrorCircleIcon />
-            <span>{error}</span>
-            <Button data-variant="ghost" onClick={store.dismissError}>
-              Dismiss
-            </Button>
-          </div>
-        ) : null}
-        {hostState === "reconnecting" ? (
-          <div data-slot="banner" data-severity="warning" role="status">
-            <WarningIcon />
-            Connection lost. Reconnecting… what you miss will be shown when it is back.
-          </div>
-        ) : null}
-        {session !== undefined ? (
-          <header data-slot="session-header">
-            <div data-slot="stack">
-              <h1>{sessionTitle(session)}</h1>
-              <span data-slot="hint">{session.cwd}</span>
-              {view?.conversation.usage !== undefined ? (
-                <span data-slot="usage">{usageLabel(view.conversation.usage)}</span>
-              ) : null}
-            </div>
-            <div data-slot="row">
-              <Button data-variant="outline" onClick={() => setPanel("settings")}>
-                <SettingsIcon />
-                Settings
-              </Button>
-              <Menu
-                onAction={(value) => {
-                  if (value === "rename") setPanel("rename");
-                  else if (value === "archive")
-                    void store.archiveSession(session.sessionId, !session.archived);
-                  else if (value === "delete") setPanel("delete");
-                }}
-              >
-                <MenuTrigger
-                  aria-label="Session actions"
-                  title="Session actions"
-                  data-variant="ghost"
-                >
-                  <MoreIcon />
-                </MenuTrigger>
-                <MenuContent>
-                  <MenuItem value="rename">Rename</MenuItem>
-                  <MenuItem value="archive">{session.archived ? "Restore" : "Archive"}</MenuItem>
-                  <MenuSeparator />
-                  <MenuItem value="delete" data-destructive>
-                    Delete
-                  </MenuItem>
-                </MenuContent>
-              </Menu>
-            </div>
-          </header>
-        ) : null}
-        {view !== undefined ? (
-          <ConversationView conversation={view.conversation} loading={view.loading} />
-        ) : (
-          <div data-slot="empty">
-            {hostState === "connected" ? (
-              <p>Choose a session, or start a new one.</p>
-            ) : hostState === "connecting" || hostState === "reconnecting" ? (
-              <p>Connecting to this host…</p>
-            ) : (
-              <div data-slot="empty-block" role="alert">
-                <ErrorCircleIcon size={20} />
-                <p data-slot="empty-title">Not connected to this host.</p>
-                {hostError !== undefined ? <code data-slot="reason">{hostError}</code> : null}
-                {selectedHost !== undefined ? (
-                  <Button
-                    data-variant="outline"
-                    onClick={() => void store.selectHost(selectedHost)}
-                  >
-                    Retry
+      <Resizable controller={layout} autoSaveId="cycle-layout">
+        <ResizablePanel
+          id="sidebar"
+          defaultSize="256px"
+          minSize="200px"
+          maxSize="360px"
+          collapsible
+          collapsedSize="0px"
+        >
+          <Sidebar
+            hosts={hosts}
+            status={status}
+            selectedHost={selectedHost}
+            sessions={sessions}
+            selectedSession={selectedSession}
+            showArchived={showArchived}
+            onSelectHost={(id) => void store.selectHost(id)}
+            onSelectSession={(id) => void store.selectSession(id)}
+            onNewSession={() => setPanel("new-session")}
+            onAddHost={() => setPanel("add-host")}
+            onRemoveHost={(id) => void store.removeHost(id)}
+            onToggleArchived={() => setShowArchived((v) => !v)}
+            onAgentDefaults={() => setPanel("defaults")}
+          >
+            <UpdateFooter />
+          </Sidebar>
+        </ResizablePanel>
+        <ResizableHandle aria-label="Resize sidebar" />
+        <ResizablePanel id="main" minSize="480px">
+          <main data-slot="main">
+            <UpdateBanner />
+            {selectedHost !== undefined ? <DaemonBanner hostId={selectedHost} /> : null}
+            {error !== undefined ? (
+              <div data-slot="banner" data-severity="error" role="alert">
+                <ErrorCircleIcon />
+                <span>{error}</span>
+                <Button data-variant="ghost" onClick={store.dismissError}>
+                  Dismiss
+                </Button>
+              </div>
+            ) : null}
+            {hostState === "reconnecting" ? (
+              <div data-slot="banner" data-severity="warning" role="status">
+                <WarningIcon />
+                Connection lost. Reconnecting… what you miss will be shown when it is back.
+              </div>
+            ) : null}
+            {session !== undefined ? (
+              <header data-slot="session-header">
+                <div data-slot="stack">
+                  <h1>{sessionTitle(session)}</h1>
+                  <span data-slot="hint">{session.cwd}</span>
+                  {view?.conversation.usage !== undefined ? (
+                    <span data-slot="usage">{usageLabel(view.conversation.usage)}</span>
+                  ) : null}
+                </div>
+                <div data-slot="row">
+                  <Button data-variant="outline" onClick={() => setPanel("settings")}>
+                    <SettingsIcon />
+                    Settings
                   </Button>
-                ) : null}
+                  <Menu
+                    onAction={(value) => {
+                      if (value === "rename") setPanel("rename");
+                      else if (value === "archive")
+                        void store.archiveSession(session.sessionId, !session.archived);
+                      else if (value === "delete") setPanel("delete");
+                    }}
+                  >
+                    <MenuTrigger
+                      aria-label="Session actions"
+                      title="Session actions"
+                      data-variant="ghost"
+                    >
+                      <MoreIcon />
+                    </MenuTrigger>
+                    <MenuContent>
+                      <MenuItem value="rename">Rename</MenuItem>
+                      <MenuItem value="archive">
+                        {session.archived ? "Restore" : "Archive"}
+                      </MenuItem>
+                      <MenuSeparator />
+                      <MenuItem value="delete" data-destructive>
+                        Delete
+                      </MenuItem>
+                    </MenuContent>
+                  </Menu>
+                </div>
+              </header>
+            ) : null}
+            {view !== undefined ? (
+              <ConversationView conversation={view.conversation} loading={view.loading} />
+            ) : (
+              <div data-slot="empty">
+                {hostState === "connected" ? (
+                  <p>Choose a session, or start a new one.</p>
+                ) : hostState === "connecting" || hostState === "reconnecting" ? (
+                  <p>Connecting to this host…</p>
+                ) : (
+                  <div data-slot="empty-block" role="alert">
+                    <ErrorCircleIcon size={20} />
+                    <p data-slot="empty-title">Not connected to this host.</p>
+                    {hostError !== undefined ? <code data-slot="reason">{hostError}</code> : null}
+                    {selectedHost !== undefined ? (
+                      <Button
+                        data-variant="outline"
+                        onClick={() => void store.selectHost(selectedHost)}
+                      >
+                        Retry
+                      </Button>
+                    ) : null}
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
-        <div data-slot="permissions">
-          {(view?.permissions ?? []).map((request) => (
-            <PermissionCard key={request.key} request={request} onAnswer={store.answerPermission} />
-          ))}
-        </div>
-        {view !== undefined ? (
-          <Composer
-            enabled={!view.loading}
-            working={view.conversation.status !== "idle"}
-            onSend={store.send}
-            onStop={store.cancel}
-          />
-        ) : null}
-      </main>
+            <div data-slot="permissions">
+              {(view?.permissions ?? []).map((request) => (
+                <PermissionCard
+                  key={request.key}
+                  request={request}
+                  onAnswer={store.answerPermission}
+                />
+              ))}
+            </div>
+            {view !== undefined ? (
+              <Composer
+                enabled={!view.loading}
+                working={view.conversation.status !== "idle"}
+                onSend={store.send}
+                onStop={store.cancel}
+              />
+            ) : null}
+          </main>
+        </ResizablePanel>
+      </Resizable>
 
       <NewSessionDialog
         open={panel === "new-session"}

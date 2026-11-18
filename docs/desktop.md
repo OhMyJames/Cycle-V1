@@ -38,7 +38,7 @@ bun run start                          # 启动桌面端
 
 agent 的输出是不可信的:里面可以有原始 HTML、链接、图片。
 
-- **窗口**:`contextIsolation`、`sandbox`、`nodeIntegration: false`。页面里没有 `require`、`process`、`ipcRenderer`,桥上只有约定的 20 个方法(冒烟测试逐项断言)。
+- **窗口**:`contextIsolation`、`sandbox`、`nodeIntegration: false`。页面里没有 `require`、`process`、`ipcRenderer`,桥上只有约定的方法(`API_METHODS` 加 `onEvent`,冒烟测试逐项断言)。
 - **IPC**:main 只接受来自应用自己页面(`senderFrame.url` 等于 index.html)的调用。
 - **导航**:不能跳转,不能开新窗口;http/https 链接交给用户的浏览器。无权限(`setPermissionRequestHandler` 一律拒绝)。
 - **CSP**:`default-src 'none'`,`connect-src 'none'`,没有 frame、没有内联脚本,`img-src` 只有自己和 data:。
