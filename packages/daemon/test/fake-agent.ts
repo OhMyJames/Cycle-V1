@@ -16,7 +16,8 @@ export type Turn = {
   /** Asks the user for a form (`elicitation/create`); the answer is whatever the daemon says. */
   elicit: () => Promise<unknown>;
   say: (update: object) => Promise<void>;
-  ask: () => Promise<unknown>;
+  /** Asks the user for permission; `extra` is added to the request (a `toolCall`, say). */
+  ask: (extra?: object) => Promise<unknown>;
   /** Resolves when a cancel has come in. */
   cancelled: Promise<void>;
 };
@@ -98,8 +99,9 @@ export const fakeAgent = (
             message: "Which one?",
             requestedSchema: { type: "object", properties: { pick: { type: "string" } } },
           } as never);
-        const ask = () =>
+        const ask = (extra: object = {}) =>
           client.request(methods.client.session.requestPermission, {
+            ...extra,
             sessionId,
             title: "Allow it?",
             options: [

@@ -1135,3 +1135,90 @@ test("a session with no turn yet is resumed with no such word: the agent has not
 test("a turn that ended in an error proves nothing about the agent's own record", async () => {
   expect((await resumeMeta("error", 1))["cycle/hadTurn"]).toBeUndefined();
 });
+
+test("tool input and output are kept without credentials: on disk, live, and in a replay", async () => {
+  const key = `sk-ant-${"q".repeat(24)}`;
+  const secrets = [key, "hunter2-value", "cookie-value", "form-answer-value"];
+  const { daemon } = await start(
+    fakeAgent({
+      onPrompt: async ({ say, ask }) => {
+        await say({
+          sessionUpdate: "tool_call",
+          toolCallId: "t1",
+          title: "Bash",
+          status: "in_progress",
+          rawInput: {
+            command: "curl https://example.test",
+            env: { ANTHROPIC_API_KEY: key, HOME: "/home/x" },
+            headers: [{ name: "Cookie", value: "cookie-value" }],
+          },
+        });
+        await ask({
+          subject: {
+            type: "tool_call",
+            toolCall: { toolCallId: "t1", rawInput: { password: "hunter2-value", cwd: "/tmp" } },
+          },
+        });
+        await say({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "t1",
+          status: "completed",
+          rawOutput: [{ type: "text", text: `ANTHROPIC_API_KEY=${key}\nUSER=me` }],
+        });
+      },
+    }),
+  );
+  const live = await connectClient(daemon, { onPermission: () => "allow" });
+  const { sessionId } = await live.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await live.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await live.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("go") });
+  await until(
+    () => live.seen.some((s) => (s.update as { status?: string }).status === "completed"),
+    "the tool to finish",
+  );
+
+  const late = await connectClient(daemon);
+  await late.agent.request(methods.agent.session.resume, {
+    sessionId,
+    cwd: "/tmp",
+    replayFrom: { type: "start" },
+  });
+  expect(late.seen.some((s) => (s.update as { status?: string }).status === "completed")).toBe(
+    true,
+  );
+
+  const disk = await readFile(join(dir, "sessions", `${sessionId}.jsonl`), "utf8").catch(() => "");
+  expect(disk).toContain("tool_call");
+  const everywhere = [
+    disk,
+    JSON.stringify(live.seen),
+    JSON.stringify(live.permissions),
+    JSON.stringify(late.seen),
+  ];
+  for (const where of everywhere) for (const secret of secrets) expect(where).not.toContain(secret);
+  // What a person needs to read the call is still there.
+  expect(disk).toContain("curl https://example.test");
+  expect(disk).toContain("/home/x");
+  expect(disk).toContain("USER=me");
+  expect(JSON.stringify(live.permissions)).toContain("/tmp");
+});
+
+test("a form's answer stays out of the log and a field named password in its schema stays in the form", async () => {
+  const { daemon } = await start(
+    fakeAgent({
+      onPrompt: async ({ elicit }) => {
+        await elicit();
+      },
+    }),
+  );
+  const c = await connectClient(daemon, {
+    onElicitation: () => ({ action: "accept", content: { pick: "form-answer-value" } }),
+  });
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("go") });
+  await until(() => c.elicitations.length === 1, "the form");
+  await Bun.sleep(50);
+  const disk = await readFile(join(dir, "sessions", `${sessionId}.jsonl`), "utf8");
+  expect(disk).not.toContain("form-answer-value");
+});
