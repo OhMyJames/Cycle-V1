@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { scanBundle } from "../src/main/delta.ts";
 import { BUILD_FILE, MAC_BUNDLE } from "../src/main/layout.ts";
 import { archiveName, manifestFor, manifestName } from "../src/shared/release.ts";
 import { BUILD_DIR } from "./package.ts";
@@ -32,9 +33,11 @@ const zipped = Bun.spawnSync(
 if (!zipped.success) throw new Error(`Could not archive ${app}.`);
 
 const sha256 = createHash("sha256").update(readFileSync(archive)).digest("hex");
+// What the bundle holds, file by file: an installed app that has most of it fetches only the rest.
+const tree = await scanBundle(app);
 const manifest = join(OUT_DIR, manifestName(info.platform, info.arch));
 writeFileSync(
   manifest,
-  `${JSON.stringify(manifestFor(info, { sha256, size: statSync(archive).size }), null, 2)}\n`,
+  `${JSON.stringify(manifestFor(info, { sha256, size: statSync(archive).size }, tree))}\n`,
 );
 console.log(JSON.stringify({ archive, manifest }));

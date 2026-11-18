@@ -5,8 +5,10 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { UpdateState } from "@cycle/ui/api";
+import { scanBundle } from "../src/main/delta.ts";
 import { SWAP_SCRIPT, type Swap, teamOf, Updater, verifySameTeam } from "../src/main/updater.ts";
-import { archiveName, manifestFor, manifestName } from "../src/shared/release.ts";
+import { archiveName, manifestFor, manifestName, type TreeEntry } from "../src/shared/release.ts";
+import { makeZip, type Spec, unzip, writeBundle, type ZipOptions } from "./zip-fixture.ts";
 
 const REPO = "o/r";
 const PLATFORM = { platform: "darwin", arch: "arm64" };
@@ -21,6 +23,11 @@ const github = {
   files: new Map<string, Uint8Array>(),
   status: 200,
   etag: '"v1"',
+  /** Whether a range request is answered with the range (as GitHub does), and what was sent of an archive. */
+  ranges: true,
+  ranged: 0,
+  /** What a range request is answered with when it is not 206. */
+  rangeStatus: 0,
 };
 
 beforeEach(async () => {
@@ -30,6 +37,9 @@ beforeEach(async () => {
   github.files = new Map();
   github.status = 200;
   github.etag = '"v1"';
+  github.ranges = true;
+  github.ranged = 0;
+  github.rangeStatus = 0;
   server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -42,7 +52,17 @@ beforeEach(async () => {
         return Response.json(github.releases, { headers: { etag: github.etag } });
       }
       const file = github.files.get(url.pathname);
-      return file ? new Response(Buffer.from(file)) : new Response("missing", { status: 404 });
+      if (!file) return new Response("missing", { status: 404 });
+      const range = /^bytes=(\d+)-(\d+)$/.exec(request.headers.get("range") ?? "");
+      if (range === null || !github.ranges) return new Response(Buffer.from(file));
+      if (github.rangeStatus !== 0) return new Response("no", { status: github.rangeStatus });
+      const start = Number(range[1]);
+      const end = Math.min(Number(range[2]), file.length - 1);
+      github.ranged += end - start + 1;
+      return new Response(Buffer.from(file.subarray(start, end + 1)), {
+        status: 206,
+        headers: { "content-range": `bytes ${start}-${end}/${file.length}` },
+      });
     },
   });
   base = `http://localhost:${server.port}`;
@@ -63,12 +83,14 @@ const publish = (
     manifest?: boolean;
     claimedSha?: string;
     claimedSize?: number;
+    tree?: TreeEntry[];
   } = {},
 ) => {
   const bytes = options.bytes ?? new TextEncoder().encode(`archive ${version}`);
   const manifest = manifestFor(
     { version, ...PLATFORM },
     { sha256: options.claimedSha ?? sha(bytes), size: options.claimedSize ?? bytes.length },
+    options.tree,
   );
   const tag = `v${version}`;
   const assets: unknown[] = [];
@@ -87,10 +109,19 @@ const publish = (
   github.releases.push({ tag_name: tag, draft: options.draft ?? false, assets });
 };
 
+/** The archive here is not a zip; the fake unpacks a bundle of the version the manifest names. */
+const fakeExtract = async (zip: string, into: string) => {
+  const app = join(into, "Cycle.app", "Contents/Resources/app");
+  await mkdir(app, { recursive: true });
+  const version = (await readFile(zip, "utf8")).replace("archive ", "");
+  await writeFile(join(app, "build.json"), JSON.stringify({ version, ...PLATFORM }));
+};
+
 const make = (over: Partial<ConstructorParameters<typeof Updater>[0]> = {}) => {
   const states: UpdateState[] = [];
   const log: string[] = [];
   const swaps: Swap[] = [];
+  const notes: string[] = [];
   const updater = new Updater({
     current: { version: "0.1.0", ...PLATFORM },
     appPath: join(dir, "apps", "Cycle.app"),
@@ -98,14 +129,6 @@ const make = (over: Partial<ConstructorParameters<typeof Updater>[0]> = {}) => {
     apiBase: base,
     assetPrefix: `${base}/dl/`,
     fetch,
-    // The archive here is not a zip; the fake unpacks a bundle of the version the manifest names.
-    extract: async (_zip, into) => {
-      log.push("extract");
-      const app = join(into, "Cycle.app", "Contents/Resources/app");
-      await mkdir(app, { recursive: true });
-      const version = (await readFile(_zip, "utf8")).replace("archive ", "");
-      await writeFile(join(app, "build.json"), JSON.stringify({ version, ...PLATFORM }));
-    },
     beforeSwap: async () => {
       log.push("beforeSwap");
     },
@@ -115,9 +138,14 @@ const make = (over: Partial<ConstructorParameters<typeof Updater>[0]> = {}) => {
     },
     quit: () => log.push("quit"),
     emit: (state) => states.push(state),
+    log: (message) => notes.push(message),
     ...over,
+    extract: async (zip, into) => {
+      log.push("extract");
+      await (over.extract ?? fakeExtract)(zip, into);
+    },
   });
-  return { updater, states, log, swaps };
+  return { updater, states, log, swaps, notes };
 };
 
 test("with nothing newer it says it is up to date, and a second ask is answered by GitHub with 'not modified'", async () => {
@@ -237,7 +265,7 @@ test("an unpacked bundle that is not the version promised is refused before anyt
   });
   await updater.check(false);
   await expect(updater.install()).rejects.toThrow(/not the version/);
-  expect(log).toEqual([]);
+  expect(log).toEqual(["extract"]);
 });
 
 test("a folder the user cannot write to, or a translocated app, is told so before downloading", async () => {
@@ -377,4 +405,141 @@ test("a signed app takes only an update of the same team that verifies; an ad ho
   await expect(broken("next", "cur")).rejects.toThrow(/not valid/);
   const adhoc = verifySameTeam(codesign({ cur: "TeamIdentifier=not set\n", next: listing("T2") }));
   await adhoc("next", "cur");
+});
+
+// ---- by the difference ----
+
+const buildJson = (version: string) => JSON.stringify({ version, ...PLATFORM });
+/** Something that does not compress, so that what is fetched can be told from what is not. */
+const filler = Array.from({ length: 40_000 }, (_, i) => ((i * 2654435761) >>> 0).toString(36)).join(
+  "",
+);
+const bundleOf = (version: string, extra: Spec = {}): Spec => ({
+  "Contents/Resources/app/build.json": buildJson(version),
+  "Contents/Resources/app/main.js": `main of ${version}`,
+  "Contents/Frameworks/Electron": filler,
+  "Contents/Frameworks/Current": { link: "Electron" },
+  ...extra,
+});
+
+/** The app as installed at 0.1.0, and a release of `version` whose archive carries a file table. */
+const installAndPublish = async (version: string, options: ZipOptions = {}, extra: Spec = {}) => {
+  const installed = join(dir, "apps", "Cycle.app");
+  await writeBundle(installed, bundleOf("0.1.0"));
+  const spec = bundleOf(version, extra);
+  const built = join(dir, `built-${version}`);
+  await writeBundle(built, spec);
+  const bytes = makeZip(spec, options);
+  publish(version, { bytes, tree: await scanBundle(built) });
+  return bytes;
+};
+const unpack = (updater: Partial<ConstructorParameters<typeof Updater>[0]> = {}) => ({
+  extract: async (zip: string, into: string) => {
+    await unzip(new Uint8Array(await readFile(zip)), into);
+  },
+  ...updater,
+});
+
+test("it updates by the difference: what is installed is reused and only what changed is fetched", async () => {
+  const zip = await installAndPublish("0.2.0");
+  const { updater, states, log, swaps, notes } = make(unpack());
+  await updater.check(false);
+  await updater.install();
+
+  // No whole archive: nothing was unpacked from one, and what was asked of the archive is a fraction of it.
+  expect(log).toEqual(["beforeSwap", "handOff", "quit"]);
+  expect(github.ranged).toBeGreaterThan(0);
+  const downloads = states.filter((s) => s.kind === "downloading");
+  expect(downloads.length).toBeGreaterThan(0);
+  expect(downloads.every((s) => s.kind === "downloading" && s.how === "difference")).toBe(true);
+  // (The first request is for the archive's end, which in an archive this small is all of it.)
+  const fetched = Number(/fetched (\d+) of/.exec(notes.at(-1) ?? "")?.[1]);
+  expect(notes.at(-1)).toMatch(
+    /by the difference: fetched \d+ of \d+ bytes, 2 files changed, 1 reused/,
+  );
+  expect(fetched).toBeLessThan(zip.length / 4);
+  expect(github.ranged).toBe(zip.length + fetched);
+  const app = swaps[0]?.newApp ?? "";
+  expect(
+    JSON.parse(await readFile(join(app, "Contents/Resources/app/build.json"), "utf8")).version,
+  ).toBe("0.2.0");
+  expect(await readFile(join(app, "Contents/Frameworks/Electron"), "utf8")).toBe(filler);
+  expect(states.at(-1)).toMatchObject({ kind: "installing", version: "0.2.0" });
+});
+
+test("a server that does not honour ranges costs only the saving: the whole archive is downloaded and installed", async () => {
+  await installAndPublish("0.2.0");
+  github.ranges = false;
+  const { updater, states, log, swaps, notes } = make(unpack());
+  await updater.check(false);
+  await updater.install();
+  expect(log).toEqual(["extract", "beforeSwap", "handOff", "quit"]);
+  expect(notes.join("\n")).toMatch(
+    /by the difference failed \(.*range.*\); downloading the whole update/,
+  );
+  expect(states.some((s) => s.kind === "downloading" && s.how === "whole")).toBe(true);
+  expect(existsSync(join(swaps[0]?.newApp ?? "", "Contents/Resources/app/build.json"))).toBe(true);
+});
+
+test("a fetched file that does not match the file table is not installed; the whole archive is used instead", async () => {
+  // main.js is stored here, and what the archive holds of it is not what the table hashed.
+  await installAndPublish("0.2.0", {
+    stored: ["Contents/Resources/app/main.js"],
+    corrupt: { "Contents/Resources/app/main.js": new TextEncoder().encode("main of 0.2.X") },
+  });
+  const { updater, log, notes } = make(unpack());
+  await updater.check(false);
+  await updater.install();
+  expect(log).toContain("extract");
+  expect(notes.join("\n")).toMatch(/does not match the file table/);
+});
+
+test("when the difference is most of the archive it is not worth it, and the archive is downloaded whole", async () => {
+  await installAndPublish("0.2.0");
+  // Nothing of the installed bundle is as the release has it.
+  await rm(join(dir, "apps", "Cycle.app"), { recursive: true });
+  await writeBundle(join(dir, "apps", "Cycle.app"), {
+    "Contents/Resources/app/build.json": buildJson("0.1.0"),
+    "Contents/Frameworks/Electron": "something else entirely",
+  });
+  const { updater, log, notes } = make(unpack());
+  await updater.check(false);
+  await updater.install();
+  expect(log).toContain("extract");
+  expect(notes.join("\n")).toMatch(/not worth it/);
+});
+
+test("a release whose table is unusable is installed whole, and the log says why", async () => {
+  await installAndPublish("0.2.0");
+  const key = `/dl/v0.2.0/${manifestName("darwin", "arm64")}`;
+  const manifest = JSON.parse(new TextDecoder().decode(github.files.get(key)));
+  manifest.tree = [
+    { path: "../escape", kind: "file", mode: 0o644, size: 1, sha256: "a".repeat(64) },
+  ];
+  github.files.set(key, new TextEncoder().encode(JSON.stringify(manifest)));
+  const { updater, log, notes } = make(unpack());
+  await updater.check(false);
+  await updater.install();
+  expect(log).toContain("extract");
+  expect(github.ranged).toBe(0);
+  expect(notes[0]).toMatch(/file table is not usable/);
+});
+
+test("with the difference turned off nothing is fetched piecewise", async () => {
+  await installAndPublish("0.2.0");
+  const { updater, log } = make(unpack({ delta: false }));
+  await updater.check(false);
+  await updater.install();
+  expect(log).toContain("extract");
+  expect(github.ranged).toBe(0);
+});
+
+test("a limit on requests is told to the user, not answered with the whole download that would meet it too", async () => {
+  await installAndPublish("0.2.0");
+  github.rangeStatus = 429;
+  const { updater, log, states } = make(unpack());
+  await updater.check(false);
+  await expect(updater.install()).rejects.toThrow(/limiting/);
+  expect(log).not.toContain("extract");
+  expect(states.at(-1)).toMatchObject({ kind: "error", version: "0.2.0" });
 });

@@ -11,6 +11,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scanBundle } from "../../src/main/delta.ts";
 import { archiveName, manifestFor, manifestName, RELEASE_REPO } from "../../src/shared/release.ts";
 import { evaluate } from "./cdp.ts";
 
@@ -79,10 +80,14 @@ test.skipIf(!ready)(
     const zip = join(root, archiveName(newer, info.platform, info.arch));
     run(["/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", next, zip]);
     const bytes = await readFile(zip);
+    // With the file table, as the release has it: the installed app takes what it has, and fetches the rest.
     const manifest = manifestFor(
       { version: newer, platform: info.platform, arch: info.arch },
       { sha256: createHash("sha256").update(bytes).digest("hex"), size: bytes.length },
+      await scanBundle(next),
     );
+    // What was asked of the archive: its end, and then only the files that are not in the installed app.
+    let ranged = 0;
     const files: Record<string, Uint8Array | string> = {
       [`/dl/${archiveName(newer, info.platform, info.arch)}`]: bytes,
       [`/dl/${manifestName(info.platform, info.arch)}`]: JSON.stringify(manifest),
@@ -104,9 +109,17 @@ test.skipIf(!ready)(
           ]);
         }
         const body = files[url.pathname];
-        return body === undefined
-          ? new Response("missing", { status: 404 })
-          : new Response(typeof body === "string" ? body : Buffer.from(body));
+        if (body === undefined) return new Response("missing", { status: 404 });
+        if (typeof body === "string") return new Response(body);
+        const range = /^bytes=(\d+)-(\d+)$/.exec(request.headers.get("range") ?? "");
+        if (range === null) return new Response(Buffer.from(body));
+        const start = Number(range[1]);
+        const end = Math.min(Number(range[2]), body.length - 1);
+        ranged += end - start + 1;
+        return new Response(Buffer.from(body.subarray(start, end + 1)), {
+          status: 206,
+          headers: { "content-range": `bytes ${start}-${end}/${body.length}` },
+        });
       },
     });
 
@@ -155,6 +168,10 @@ test.skipIf(!ready)(
         return JSON.parse(text).version === newer ? newer : undefined;
       });
       expect(installedVersion).toBe(newer);
+      // It was done by the difference: the files that changed (the version files, the signature) came
+      // over, not the Electron framework or Claude. The archive's end is read first, which is a few hundred KB.
+      expect(ranged).toBeGreaterThan(0);
+      expect(ranged).toBeLessThan(bytes.length / 4);
       const reopened = await until("the app to open again", 60_000, () => {
         const ps = Bun.spawnSync(["/usr/bin/pgrep", "-f", `${installed}/Contents/MacOS/Electron`]);
         const pid = Number(ps.stdout.toString().split("\n")[0]);

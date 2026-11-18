@@ -119,7 +119,14 @@ export type UpdateState = {
   | { kind: "checking" }
   | { kind: "up-to-date"; checkedAt: number }
   | { kind: "available"; version: string }
-  | { kind: "downloading"; version: string; received: number; total: number }
+  /** `how`: only what changed since this version ("difference"), or the whole app ("whole"; also when it is not said). */
+  | {
+      kind: "downloading";
+      version: string;
+      received: number;
+      total: number;
+      how?: "difference" | "whole";
+    }
   /** Unpacked and checked; the app is about to close and open again as the new version. */
   | { kind: "installing"; version: string }
   /** `version` is set when it was installing that version that failed: the user can try again. */
