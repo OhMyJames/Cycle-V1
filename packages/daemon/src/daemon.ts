@@ -33,6 +33,7 @@ import { AgentDefaults } from "./defaults-file.ts";
 import {
   INVALID_PARAMS,
   logUnavailable,
+  RESOURCE_NOT_FOUND,
   RpcError,
   sessionBusy,
   sessionNotFound,
@@ -690,6 +691,27 @@ export class Daemon {
     };
   }
 
+  /**
+   * A session whose history cannot be read, as the list shows it: what the index knows, with no
+   * `cycle/lastSeq` (that comes from the log) and no unread mark, and the marker.
+   */
+  #unreadableRow(sessionId: string, entry: SessionEntry) {
+    return {
+      sessionId,
+      cwd: entry.cwd,
+      updatedAt: entry.createdAt,
+      _meta: {
+        [META.archived]: entry.archived === true,
+        [META.agent]: entry.agent,
+        [META.state]: "stopped",
+        [META.historyFailed]: true,
+        ...(entry.config !== undefined ? { [META.config]: entry.config } : {}),
+        ...(entry.usage !== undefined ? { [META.usage]: entry.usage } : {}),
+        ...(entry.title !== undefined ? { title: entry.title } : {}),
+      },
+    };
+  }
+
   /** The app a client talks to: this connection's view of the daemon. */
   #facing(holder: { value?: ClientConn }) {
     const me = (): ClientConn => {
@@ -829,8 +851,19 @@ export class Daemon {
 
     app.onRequest(methods.agent.session.list, async () => {
       const rows = [];
-      for (const [sessionId, entry] of this.#index.list())
-        rows.push(await this.#row(sessionId, entry));
+      for (const [sessionId, entry] of this.#index.list()) {
+        try {
+          rows.push(await this.#row(sessionId, entry));
+        } catch (error) {
+          // Deleted while the list was being read.
+          if (error instanceof RpcError && error.code === RESOURCE_NOT_FOUND) continue;
+          // One session whose history cannot be read is that session's problem, not the list's: it
+          // is listed, marked, and says so when it is opened. Anything else is the list's.
+          if (!(error instanceof RpcError) || error.code !== CycleErrorCode.LogUnavailable)
+            throw error;
+          rows.push(this.#unreadableRow(sessionId, entry));
+        }
+      }
       return { sessions: rows } as never;
     });
 
@@ -956,10 +989,13 @@ export class Daemon {
       session.closed = true;
       session.link?.kill();
       for (const attachment of session.attachments) attachment.detach();
+      // The index first: from then on nobody can load the session again (a list that was being
+      // read, a client that was reconnecting), so none comes back from the dead while its log is
+      // being removed.
+      await this.#index.delete(session.id);
       await session.log.close();
       this.#sessions.delete(session.id);
       await this.#store.remove(session.id);
-      await this.#index.delete(session.id);
       this.#changed();
       return {} as never;
     });

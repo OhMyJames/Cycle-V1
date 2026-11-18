@@ -307,3 +307,65 @@ test("marks a session read, and clears its unread mark in the list", async () =>
   await client.markRead(sessionId, last);
   expect(await unread()).toBe(false);
 });
+
+test("a watched session deleted by another client while this one was away does not keep the host from reconnecting", async () => {
+  const { make, drop, network } = await setup();
+  const states: string[] = [];
+  const gone: string[] = [];
+  const seen: { update: SessionUpdate; seq: number | undefined }[] = [];
+  const a = make({
+    connection: (s) => states.push(s),
+    gone: (id) => gone.push(id),
+    update: (id, update, seq) => {
+      if (id === healthy) seen.push({ update, seq });
+    },
+  });
+  await a.start();
+  const healthy = await a.newSession({ cwd: "/tmp" });
+  const doomed = await a.newSession({ cwd: "/tmp" });
+  await a.watch(healthy, "/tmp");
+  await a.watch(doomed, "/tmp");
+  // Another client has its own way in, so it can act while this one's network is down.
+  const other = new CycleClient({
+    connect: () => connectUnix(join(dir, "d.sock")),
+    backoff: { first: 10, max: 50 },
+  });
+  cleanup.push(() => other.close());
+  await other.start();
+  network(false);
+  drop();
+  await until(() => states.includes("reconnecting"), "the loss to be noticed");
+  await other.delete(doomed);
+  network(true);
+  await until(() => a.state === "connected", "the reconnect");
+
+  // It says so once, and is connected only now: not once per attempt, and not before it is done.
+  expect(gone).toEqual([doomed]);
+  expect(states.at(-1)).toBe("connected");
+  expect(states.filter((s) => s === "connected")).toHaveLength(2);
+  // The healthy session is attached again and carries on.
+  await other.watch(healthy, "/tmp");
+  await other.prompt(healthy, text("still there"));
+  await until(
+    () => seen.some((s) => (s.update as { stopReason?: string }).stopReason === "end_turn"),
+    "the healthy session to go on",
+  );
+  // And the next drop does not ask for the deleted one again.
+  drop();
+  await until(() => states.filter((s) => s === "connected").length === 3, "the next reconnect");
+  expect(gone).toEqual([doomed]);
+});
+
+test("watching a session that is not there fails, and it is not kept for the next reconnect", async () => {
+  const { make, drop } = await setup();
+  const states: string[] = [];
+  const gone: string[] = [];
+  const a = make({ connection: (s) => states.push(s), gone: (id) => gone.push(id) });
+  await a.start();
+  await expect(a.watch("00000000-0000-4000-8000-000000000000", "/tmp")).rejects.toMatchObject({
+    code: -32002,
+  });
+  drop();
+  await until(() => states.filter((s) => s === "connected").length === 2, "the reconnect");
+  expect(gone).toEqual([]);
+});

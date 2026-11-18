@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { methods } from "@cycle/acp";
 import { CycleErrorCode } from "@cycle/protocol";
@@ -902,4 +902,97 @@ test("the list is announced as changed when a session's history fails, even with
   await until(() => watcher.listChanged() > before, "the list to be announced as changed");
   const row = (await watcher.agent.request(methods.agent.session.list, {})).sessions[0];
   expect(((row?._meta ?? {}) as Record<string, unknown>)["cycle/historyFailed"]).toBe(true);
+});
+
+const seedSessions = async (count: number) => {
+  const first = await start();
+  const c = await connectClient(first.daemon);
+  const ids: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+    await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+    await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text(`hello ${i}`) });
+    ids.push(sessionId);
+  }
+  await until(() => c.ended() >= count, "the turns");
+  await first.daemon.close();
+  open = [];
+  return ids;
+};
+
+test("a session whose history is damaged is listed with a marker; the others are listed and open as usual", async () => {
+  const [good, bad] = (await seedSessions(2)) as [string, string];
+  const file = join(dir, "sessions", `${bad}.jsonl`);
+  const lines = (await readFile(file, "utf8")).split("\n");
+  lines.splice(1, 0, "{this is not json}");
+  await writeFile(file, lines.join("\n"));
+
+  const { daemon } = await start();
+  const c = await connectClient(daemon);
+  const listed = (await c.agent.request(methods.agent.session.list, {})).sessions;
+  expect(listed.map((s) => s.sessionId).sort()).toEqual([good, bad].sort());
+  const meta = (id: string | undefined) =>
+    (listed.find((s) => s.sessionId === id)?._meta ?? {}) as Record<string, unknown>;
+  expect(meta(bad)["cycle/historyFailed"]).toBe(true);
+  expect(meta(bad)["cycle/lastSeq"]).toBeUndefined();
+  expect(meta(bad)["cycle/state"]).toBe("stopped");
+  expect(meta(good)["cycle/historyFailed"]).toBeUndefined();
+  expect(meta(good)["cycle/lastSeq"]).toBeGreaterThan(0);
+  // The damaged one says so when it is opened; the healthy one opens and works.
+  await expect(
+    c.agent.request(methods.agent.session.resume, { sessionId: bad, cwd: "/tmp" }),
+  ).rejects.toMatchObject({ code: CycleErrorCode.LogUnavailable });
+  await c.agent.request(methods.agent.session.resume, { sessionId: good, cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.prompt, {
+    sessionId: good,
+    prompt: text("more"),
+  });
+  await until(() => c.ended() >= 1, "the healthy session to take a turn");
+});
+
+test("a half line left by a crash is not damage: the session is listed and opens as before", async () => {
+  const [id] = (await seedSessions(1)) as [string];
+  await appendFile(join(dir, "sessions", `${id}.jsonl`), '{"seq": 99, "kind":"upd');
+  const { daemon } = await start();
+  const c = await connectClient(daemon);
+  const listed = (await c.agent.request(methods.agent.session.list, {})).sessions;
+  expect(listed.map((s) => s.sessionId)).toEqual([id]);
+  expect(
+    ((listed[0]?._meta ?? {}) as Record<string, unknown>)["cycle/historyFailed"],
+  ).toBeUndefined();
+  await c.agent.request(methods.agent.session.resume, { sessionId: id, cwd: "/tmp" });
+});
+
+test("a session being deleted cannot be opened again while its log is being removed, and a list read meanwhile goes on", async () => {
+  const real = new JsonlLogStore({ dir: join(dir, "sessions") });
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let removing = false;
+  const store: LogStore = {
+    exists: (id) => real.exists(id),
+    open: (id) => real.open(id),
+    remove: async (id) => {
+      removing = true;
+      await held;
+      return real.remove(id);
+    },
+  };
+  const fake = fakeAgent();
+  const daemon = await Daemon.start({ dataDir: dir, agents: [fake.definition], store });
+  open.push(daemon);
+  const c = await connectClient(daemon);
+  const keep = (await c.agent.request(methods.agent.session.new, { cwd: "/tmp" })).sessionId;
+  const doomed = (await c.agent.request(methods.agent.session.new, { cwd: "/tmp" })).sessionId;
+  const deleting = c.agent.request(methods.agent.session.delete, { sessionId: doomed });
+  await until(() => removing, "the log to be on its way out");
+  await expect(
+    c.agent.request(methods.agent.session.resume, { sessionId: doomed, cwd: "/tmp" }),
+  ).rejects.toMatchObject({ code: -32002 });
+  expect(
+    (await c.agent.request(methods.agent.session.list, {})).sessions.map((s) => s.sessionId),
+  ).toEqual([keep]);
+  release();
+  await deleting;
 });

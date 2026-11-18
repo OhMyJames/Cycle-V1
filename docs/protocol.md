@@ -133,7 +133,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 - `cycle/state`:`"running"`、`"idle"`、`"requires_action"` 或 `"stopped"`(agent 进程不在)。
 - `cycle/lastSeq`:该 session 的最新序号。**只用于补发**(§7):它是每个 session 自己数的记录条数,不是时间,不能在 session 之间比较,客户端不得用它排序。
 - `cycle/unread`:布尔。有值得看的新记录晚于客户端上次标记已读的位置,见"已读"。
-- `cycle/historyFailed`:布尔,为 `true` 时这个 session 的历史写不进去了(§12“写入失败”)。没有时省略。
+- `cycle/historyFailed`:布尔,为 `true` 时这个 session 的历史不可用:写不进去了(§12“写入失败”),或读不了(日志里有损坏的整行,§12)。没有时省略。读不了的 session 照样出现在列表里,行里没有 `cycle/lastSeq` 和 `cycle/unread`(它们来自日志),`updatedAt` 是创建时间,`cycle/state` 是 `stopped`;打开它(`session/resume`)以 `-32015` 失败。一个 session 的日志读不了,不影响列表里的其他 session。
 - `cycle/background`:整数,仍在运行的后台子 agent 数(`subagent_update` 里 `_meta["cycle/subagent"].background` 为 true 且 `state` 还不是终态,见 §9)。为 0 时省略。它只记在内存里:daemon 重启后 agent 进程不在了,归 0,不写进索引。
 - `cycle/usage`:最近一次 `usage_update`,`{used, size, cost?: {amount, currency}}`:已用的上下文 token、窗口大小、累计费用。daemon 存在索引里,列表不用重放日志就能显示;还没有过 `usage_update` 的 session 没有这个字段。
 
@@ -147,7 +147,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 ### 删除、归档、改名
 
-- 删除:`session/delete`。session 正在工作时拒绝(错误码见 §11)。
+- 删除:`session/delete`。session 正在工作时拒绝(错误码见 §11)。daemon 先从索引里去掉它,再移除日志:从那一刻起,任何之后的 `session/resume`(包括断线重连时的)都得到 `-32002`,不会因为日志还没删完而把它重新加载出来;同时在读的列表跳过它。
 - 归档:`_cycle/session/archive` 和 `_cycle/session/unarchive`,只改 daemon 的索引,不动历史。工作中拒绝。
 - 改名:`_cycle/session/set_title`,参数 `{sessionId, title}`。daemon 自己保存标题。ACP v2 的 `session/set_title` 目前只在 unstable 里,稳定后改用它。
 
@@ -185,6 +185,8 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 **重连的标准做法**:客户端记住每个 session 收到的最大 `cycle/seq`,断线重连后用 `{"type": "_cycle.seq", "after": 该值}` 附着。daemon 不保存客户端的位置,位置完全由客户端持有。
 
 如果 `after` 大于 session 当前的最新序号,daemon 以 `-32602`(Invalid params)拒绝。
+
+**重连时某个 session 已经没有了**(断线期间别的客户端删除了它):daemon 对该 session 的 `session/resume` 回 `-32002`。客户端把这个 session 从观察列表里去掉,告诉界面,并继续附着其余的 session,不重试整个连接,也不再带着它重连。只有连接本身的错误才重试整个连接。在所有 session 都附着完之前,客户端的连接状态不是 `connected`。
 
 **历史补发不经过 agent。** agent 进程可能已经退出(daemon 重启、sandbox 销毁),历史照样可读。
 
@@ -355,6 +357,8 @@ session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session
 - 权限答复和表单答复在 `response` 记录写成功之后才交给 agent;写不成,agent 得到的是取消,不是客户端的答案。`request` 记录写不成时,请求没有给任何客户端看过,agent 同样得到取消。
 
 同一个 session 同时被几个请求打开(比如两个客户端同时 `session/resume`)时,daemon 只加载一次,日志只有一个写入者;打开日志本身也是先占位再读文件,同一个 session 的第二次打开会被拒绝,打开失败会释放占位。
+
+**读不了。** 日志里有损坏的整行(不是 JSON、不是记录、`seq` 不连续)时,这个 session 的读取以 `-32015` 失败,但只是这一个 session:`session/list` 仍列出所有 session,损坏的那个带 `cycle/historyFailed: true`(§6),其余照常打开、读取、写入。崩溃留下的末尾半行不算损坏,仍在打开时截掉。
 
 日志的写入细节:打开时先把崩溃留下的末尾半行截掉,再追加,否则新记录会接在半行后面,损坏落在文件中间。写入按调用顺序逐条进行,保证序号和文件一致。
 

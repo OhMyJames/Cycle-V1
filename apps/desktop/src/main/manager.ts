@@ -146,6 +146,7 @@ export class ConnectionManager
           this.#onResolved(hostId, connection, sessionId, String(requestId)),
         listChanged: () => void this.#refreshSessions(hostId, connection).catch(() => undefined),
         defaultsChanged: (agent) => this.#options.emit({ type: "agent-defaults", hostId, agent }),
+        gone: (sessionId) => this.#onGone(connection, sessionId),
         connection: (state, error) => {
           // A connection that came back asks for the list again: it may have changed while away.
           const was = connection.status.state;
@@ -309,6 +310,14 @@ export class ConnectionManager
       connection.watched.delete(sessionId);
       throw error;
     }
+  }
+
+  /** A watched session was deleted elsewhere while the connection was away: nothing is waiting on it any more. */
+  #onGone(connection: Connection, sessionId: string): void {
+    const watched = connection.watched.get(sessionId);
+    if (watched === undefined) return;
+    for (const pending of watched.pending.values()) pending.answer({ outcome: "cancelled" });
+    connection.watched.delete(sessionId);
   }
 
   #onUpdate(
