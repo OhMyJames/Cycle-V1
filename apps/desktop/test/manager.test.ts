@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Daemon } from "@cycle/daemon";
@@ -107,6 +107,7 @@ test("connects, creates a session, and lists it", async () => {
   expect(of(events, "environment-status").at(-1)?.capabilities).toEqual({
     queue: true,
     files: true,
+    folders: true,
   });
   expect((await m.agents("local")).map((a) => a.id)).toEqual(["fake"]);
 });
@@ -274,6 +275,7 @@ test("a connection that drops is picked up again, and a request still open is no
   ).toEqual({
     queue: true,
     files: true,
+    folders: true,
   });
   await until(
     () => of(events, "environment-status").at(-1)?.state === "connected",
@@ -599,6 +601,17 @@ test("the last list of a host that goes away is still given, and a host removed 
   await m.saveEnvironment(far);
   await m.removeEnvironment("far");
   expect((await m.environments()).sessions.far).toBeUndefined();
+});
+
+test("an environment's folders are listed through its daemon, and a path that is not a folder is refused", async () => {
+  const { manager } = await setup();
+  const { m, events } = await manager();
+  await m.connect("local");
+  expect(of(events, "environment-status").at(-1)?.capabilities?.folders).toBe(true);
+  await mkdir(join(dir, "daemon", "wanted", "inner"), { recursive: true });
+  const listed = await m.listFolders("local", join(dir, "daemon", "wanted"));
+  expect(listed.folders).toEqual([{ name: "inner" }]);
+  await expect(m.listFolders("local", "relative")).rejects.toThrow();
 });
 
 test("a session says when it last had something happen", async () => {

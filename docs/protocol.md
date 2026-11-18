@@ -45,7 +45,8 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
   "agents": ["claude"],
   "sessionOps": ["archive", "rename", "delete", "markRead"],
   "queue": true,
-  "files": true
+  "files": true,
+  "folders": true
 }
 ```
 
@@ -60,24 +61,25 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 
 下表中"客户端 → daemon"的方法,daemon 按 `sessionId` 路由到对应 agent 并转发,除非标注"daemon 处理"。
 
-| 方法                         | 方向            | 在 L1 的行为                                      |
-| ---------------------------- | --------------- | ------------------------------------------------- |
-| `initialize`                 | 客户端 → daemon | daemon 处理,见 §3                                 |
-| `session/new`                | 客户端 → daemon | daemon 创建 session 并启动 agent,见 §6            |
-| `session/list`               | 客户端 → daemon | daemon 处理,只返回 Cycle 自己的 session,见 §6     |
-| `session/resume`             | 客户端 → daemon | daemon 处理,表示"附着并按需补发历史",见 §7        |
-| `session/prompt`             | 客户端 → daemon | 转发。session 忙时入队,见 §8                      |
-| `_cycle/prompt/dequeue`      | 客户端 → daemon | daemon 处理:把排队的 prompt 撤回,见 §8            |
-| `_cycle/files/search`        | 客户端 → daemon | daemon 处理:在 session 的 `cwd` 里找文件,见 §8    |
-| `session/cancel`             | 客户端 → daemon | 转发(通知)                                        |
-| `session/close`              | 客户端 → daemon | daemon 处理:停止 agent 进程,保留历史              |
-| `session/delete`             | 客户端 → daemon | daemon 处理:删除日志和索引,客户端必须先向用户确认 |
-| `session/set_config_option`  | 客户端 → daemon | 转发,并把结果写入 session 的配置记录              |
-| `tool_call/cancel`           | 客户端 → daemon | 转发                                              |
-| `session/update`             | daemon → 客户端 | 转发 agent 的更新,并加上 `seq`,见 §5              |
-| `session/request_permission` | daemon → 客户端 | 转发 agent 的请求,见 §9                           |
-| `elicitation/create`         | daemon → 客户端 | 转发,处理方式同 §9                                |
-| `auth/*`                     | —               | v1 不用。agent 的登录由 agent 所在环境自己完成    |
+| 方法                         | 方向            | 在 L1 的行为                                          |
+| ---------------------------- | --------------- | ----------------------------------------------------- |
+| `initialize`                 | 客户端 → daemon | daemon 处理,见 §3                                     |
+| `session/new`                | 客户端 → daemon | daemon 创建 session 并启动 agent,见 §6                |
+| `session/list`               | 客户端 → daemon | daemon 处理,只返回 Cycle 自己的 session,见 §6         |
+| `session/resume`             | 客户端 → daemon | daemon 处理,表示"附着并按需补发历史",见 §7            |
+| `session/prompt`             | 客户端 → daemon | 转发。session 忙时入队,见 §8                          |
+| `_cycle/prompt/dequeue`      | 客户端 → daemon | daemon 处理:把排队的 prompt 撤回,见 §8                |
+| `_cycle/files/search`        | 客户端 → daemon | daemon 处理:在 session 的 `cwd` 里找文件,见 §8        |
+| `_cycle/folders/list`        | 客户端 → daemon | daemon 处理:列出一个目录下的文件夹(选 `cwd` 用),见 §8 |
+| `session/cancel`             | 客户端 → daemon | 转发(通知)                                            |
+| `session/close`              | 客户端 → daemon | daemon 处理:停止 agent 进程,保留历史                  |
+| `session/delete`             | 客户端 → daemon | daemon 处理:删除日志和索引,客户端必须先向用户确认     |
+| `session/set_config_option`  | 客户端 → daemon | 转发,并把结果写入 session 的配置记录                  |
+| `tool_call/cancel`           | 客户端 → daemon | 转发                                                  |
+| `session/update`             | daemon → 客户端 | 转发 agent 的更新,并加上 `seq`,见 §5                  |
+| `session/request_permission` | daemon → 客户端 | 转发 agent 的请求,见 §9                               |
+| `elicitation/create`         | daemon → 客户端 | 转发,处理方式同 §9                                    |
+| `auth/*`                     | —               | v1 不用。agent 的登录由 agent 所在环境自己完成        |
 
 `session/update` 的变体沿用 ACP v2:`user_message(_chunk)`、`agent_message(_chunk)`、`agent_thought(_chunk)`、`state_update`、`tool_call_update`、`tool_call_content_chunk`、`terminal_update`、`terminal_output_chunk`、`plan_update`、`available_commands_update`、`config_option_update`、`session_info_update`、`usage_update`、`notice`、`compaction_update`、`compaction_summary_chunk`、`replay_complete`、`subagent_update`、`session_message(_chunk)`,以及 Cycle 自己的 `_cycle/queue_update`(§8)。客户端遇到不认识的变体应忽略,不得报错。
 
@@ -275,6 +277,20 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 - **只在 `cwd` 内**:daemon 对每个候选取 `realpath`,不在 `cwd` 的 `realpath` 之内的丢掉;符号链接不跟随,也不列出。`cwd` 不存在时返回空列表,不是错误。
 - **有上限**:最多检查 50,000 个条目、最多走 2 秒;到了上限就带 `truncated: true` 返回已找到的。跳过 `.git` 和 `node_modules`;名字以 `.` 开头的文件,只有 `query` 里含 `.` 时才给。
 - 这是 daemon 读本机文件系统的新入口:不返回文件内容,只返回路径;只在 loopback、unix socket 或 SSH 通道上服务,不放宽。session 不存在以 `-32002` 拒绝。
+
+### 选文件夹
+
+新建 session 要在 daemon 所在机器的文件系统里选一个 `cwd`;远程环境的文件夹在本机看不到,所以由 daemon 来列。**不依赖 session**(session 还不存在)。
+
+`_cycle/folders/list`(客户端 → daemon),参数 `{path?, hidden?}`,响应 `{path, parent, home, folders: [{name}], truncated}`:
+
+- `path` 缺省是 daemon 所属用户的主目录;给了就必须是绝对路径,否则以 `-32602` 拒绝。
+- 响应的 `path` 是**真实路径**(`realpath`,符号链接已解开):客户端显示它,往下走时用 `path` 加 `name` 拼出下一个。`parent` 是上一级(根目录没有上一级,为 `null`);`home` 是主目录,给"回到主目录"用。
+- `folders` 只有**文件夹**,不含文件,更不含内容。指向文件夹的符号链接算文件夹(这是为了能走进 `~/work` 这样的链接),指向别处的不算。名字以 `.` 开头的,只有 `hidden: true` 才给。按名字排序,不分大小写,同序的以字节序为准。
+- **有上限**:最多 1,000 个;多了带 `truncated: true` 返回已有的。
+- 错误:`path` 不存在,`-32002`;不是文件夹或读不了,`-32602`,`data.reason` 是 `not_a_folder` 或 `unreadable`。
+- **和 `_cycle/files/search` 不同,它不限定在某个 `cwd` 之内**:选文件夹本来就要走遍整个文件系统。它给出的只有文件夹的名字,而且谁能连上 daemon,谁本来就能让 agent 在这台机器上执行命令;所以没有新增能被利用的东西。仍然只在 loopback、unix socket 或 SSH 通道上服务,不放宽。
+- 能力 `folders` 为 `true` 才有这个方法。旧 daemon 没有:客户端不提供浏览,用户自己输入路径。
 
 **发送**:composer 里的 `@路径` 在发送时变成两样东西:
 

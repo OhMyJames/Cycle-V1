@@ -239,6 +239,34 @@ export class CycleClient {
     };
   }
 
+  /**
+   * The folders in a folder on the daemon's machine, for choosing where a session works (docs/protocol.md §8). Without a
+   * path: the daemon's user's home. A daemon that does not say it can is older: it is not asked.
+   */
+  async listFolders(
+    path?: string,
+    hidden?: boolean,
+  ): Promise<{
+    path: string;
+    parent: string | null;
+    home: string;
+    folders: { name: string }[];
+    truncated: boolean;
+  }> {
+    if (this.#capabilities.folders !== true)
+      throw new Error("This daemon is too old to list its folders");
+    return (await this.#request("_cycle/folders/list", {
+      ...(path !== undefined ? { path } : {}),
+      ...(hidden === true ? { hidden } : {}),
+    })) as {
+      path: string;
+      parent: string | null;
+      home: string;
+      folders: { name: string }[];
+      truncated: boolean;
+    };
+  }
+
   async cancel(sessionId: string): Promise<void> {
     await this.#api().notify(methods.agent.session.cancel, { sessionId } as never);
   }

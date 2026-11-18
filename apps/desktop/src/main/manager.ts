@@ -13,6 +13,7 @@ import {
   type EnvironmentStatus,
   emptyConversation,
   type FileSearch,
+  type FolderListing,
   type NewSession,
   type PermissionRequest,
   type PromptBlock,
@@ -189,6 +190,7 @@ export class ConnectionManager
                   capabilities: {
                     queue: connection.client.capabilities.queue === true,
                     files: connection.client.capabilities.files === true,
+                    folders: connection.client.capabilities.folders === true,
                   },
                 }
               : state === "reconnecting" && connection.status.capabilities !== undefined
@@ -424,6 +426,14 @@ export class ConnectionManager
 
   async cancel(environmentId: string, sessionId: string): Promise<void> {
     await this.#connection(environmentId).client.cancel(sessionId);
+  }
+
+  async listFolders(
+    environmentId: string,
+    path?: string,
+    hidden?: boolean,
+  ): Promise<FolderListing> {
+    return this.#connection(environmentId).client.listFolders(path, hidden);
   }
 
   async searchFiles(environmentId: string, sessionId: string, query: string): Promise<FileSearch> {

@@ -128,6 +128,23 @@ export const enUS = {
   "mark.background": "Background work is running",
   "mark.unread": "Unread",
 
+  // Choosing a folder on another environment's machine, from the New session dialog
+  "folders.title": "Choose a folder",
+  "folders.path": "Folder",
+  "folders.list": "Folders",
+  "folders.up": "Up one level",
+  "folders.home": "Home",
+  "folders.hidden": "Show hidden folders",
+  "folders.empty": "There are no folders here.",
+  "folders.loading": "Reading the folder…",
+  "folders.truncated": "Only the first {count} folders are shown.",
+  "folders.choose": "Choose this folder",
+  "folders.cancel": "Back",
+  "folders.error": "This folder cannot be shown: {reason}",
+  "folders.retry": "Try again",
+  "newSession.browse": "Browse…",
+  "common.cancel": "Cancel",
+
   // The workspace switcher: a workspace is a folder on one environment
   "workspace.label": "Workspace",
   "workspace.switch": "Switch workspace",

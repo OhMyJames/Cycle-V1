@@ -58,6 +58,8 @@ export const CapabilitiesSchema = z.object({
   queue: z.boolean().optional(),
   /** `_cycle/files/search` is there (docs/protocol.md §8). */
   files: z.boolean().optional(),
+  /** `_cycle/folders/list` is there (docs/protocol.md §8). */
+  folders: z.boolean().optional(),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 

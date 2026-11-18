@@ -10,15 +10,14 @@ import {
 } from "@ui-sdk/react/command";
 import { Dialog, DialogBackdrop, DialogContent, DialogTitle } from "@ui-sdk/react/dialog";
 import type { EnvironmentConfig, EnvironmentStatus, SessionSummary } from "../api.ts";
-import { markOf } from "../sessions.ts";
+import { markOf, workspacesOf } from "../sessions.ts";
 import { useI18n } from "./i18n.tsx";
 import { PlusIcon, SearchIcon } from "./icons.tsx";
 import { sessionTitle } from "./sidebar.tsx";
-import { MARK_STYLE, MARK_WORD, StatusDot } from "./status.tsx";
+import { ENVIRONMENT_STATE, MARK_STYLE, MARK_WORD, StatusDot } from "./status.tsx";
+import { Remote } from "./workspace-switcher.tsx";
 
 const NEW_SESSION = "action:new-session";
-
-const place = (cwd: string): string => cwd.split("/").filter(Boolean).at(-1) ?? cwd;
 
 export type SearchDialogProps = {
   open: boolean;
@@ -37,7 +36,22 @@ export type SearchDialogProps = {
  */
 export function SearchDialog(props: SearchDialogProps) {
   const { t } = useI18n();
-  const several = props.environments.length > 1;
+  // The sessions are found by workspace: a folder on one environment, as the switcher has them.
+  const away = new Set(
+    props.environments.filter((e) => props.status[e.id]?.state !== "connected").map((e) => e.id),
+  );
+  const workspaces = workspacesOf(
+    props.environments.flatMap((e) => props.sessions[e.id] ?? []),
+    {
+      environments: props.environments.map((e) => ({
+        id: e.id,
+        name: e.name,
+        local: e.kind === "local",
+      })),
+      away,
+      showArchived: true,
+    },
+  );
   // A row's value names it; what it stands for is looked up, not parsed out of the text (an id may hold any character).
   const rows = new Map<string, { environmentId: string; sessionId: string }>();
   for (const environment of props.environments)
@@ -68,34 +82,53 @@ export function SearchDialog(props: SearchDialogProps) {
           </div>
           <CommandEmpty>{t("search.empty")}</CommandEmpty>
           <CommandList>
-            {props.environments.flatMap((environment) => {
-              const ordered = [...(props.sessions[environment.id] ?? [])].sort(
-                (a, b) => b.lastSeq - a.lastSeq,
+            {workspaces.map((workspace) => {
+              const environment = props.environments.find((e) => e.id === workspace.environmentId);
+              return (
+                <CommandGroup key={workspace.key}>
+                  <CommandGroupLabel>
+                    {environment !== undefined && environment.kind !== "local" ? (
+                      <Remote
+                        environment={environment}
+                        state={
+                          ENVIRONMENT_STATE[props.status[environment.id]?.state ?? "closed"].word
+                        }
+                      />
+                    ) : null}
+                    {workspace.name}
+                  </CommandGroupLabel>
+                  {workspace.sessions.map((session) => {
+                    const mark = markOf(session, away);
+                    const style = mark !== undefined ? MARK_STYLE[mark] : undefined;
+                    return (
+                      <CommandItem
+                        key={rowValue(session.environmentId, session.sessionId)}
+                        value={rowValue(session.environmentId, session.sessionId)}
+                        keywords={[
+                          workspace.name,
+                          workspace.cwd,
+                          session.agent,
+                          environment?.name ?? "",
+                        ]}
+                      >
+                        <CommandItemIcon>
+                          {style !== undefined ? (
+                            <StatusDot tone={style.tone} shape={style.shape} />
+                          ) : null}
+                        </CommandItemIcon>
+                        <span data-slot="search-row">
+                          <span data-slot="search-title">{sessionTitle(session)}</span>
+                          <span data-slot="search-meta">
+                            {mark !== undefined ? <span>{t(MARK_WORD[mark])}</span> : null}
+                            <span>{session.agent}</span>
+                            {session.archived ? <span>{t("search.archived")}</span> : null}
+                          </span>
+                        </span>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
               );
-              return ordered.map((session) => {
-                const mark =
-                  props.status[environment.id]?.state === "connected" ? markOf(session) : undefined;
-                return (
-                  <CommandItem
-                    key={rowValue(environment.id, session.sessionId)}
-                    value={rowValue(environment.id, session.sessionId)}
-                  >
-                    <CommandItemIcon>
-                      {mark !== undefined ? <StatusDot {...MARK_STYLE[mark]} /> : null}
-                    </CommandItemIcon>
-                    <span data-slot="search-row">
-                      <span data-slot="search-title">{sessionTitle(session)}</span>
-                      <span data-slot="search-meta">
-                        {mark !== undefined ? <span>{t(MARK_WORD[mark])}</span> : null}
-                        <span>{place(session.cwd)}</span>
-                        <span>{session.agent}</span>
-                        {several ? <span>{t("search.on", { host: environment.name })}</span> : null}
-                        {session.archived ? <span>{t("search.archived")}</span> : null}
-                      </span>
-                    </span>
-                  </CommandItem>
-                );
-              });
             })}
             {canCreate ? (
               <CommandGroup>

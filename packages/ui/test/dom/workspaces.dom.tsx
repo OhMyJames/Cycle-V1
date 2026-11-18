@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { SessionSummary } from "../../src/api.ts";
+import type { EnvironmentConfig, SessionSummary } from "../../src/api.ts";
 import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
 import { fakeBridge, summary } from "../fake-bridge.ts";
@@ -109,4 +109,46 @@ test("a daemon that says nothing of news is never told anything", async () => {
   await waitFor(() => expect(named("openSession")).toHaveLength(1));
   await act(() => Bun.sleep(20));
   expect(named("markRead")).toEqual([]);
+});
+
+test("the search finds sessions by workspace: each group is a folder on one environment, and a folder name finds its sessions", async () => {
+  const far: EnvironmentConfig = {
+    id: "far",
+    name: "Build box",
+    kind: "remote",
+    transport: { type: "ssh", host: "box" },
+  };
+  const script = fakeBridge({ connected: true, environments: [far] });
+  script.bridge.sessions = async (id) =>
+    id === "local"
+      ? [row("mine", { cwd: "/work/app" }), row("other", { cwd: "/work/lib", lastSeq: 5 })]
+      : [row("remote-one", { environmentId: "far", cwd: "/srv/api" })];
+  const store = new AppStore(script.bridge);
+  const user = userEvent.setup();
+  render(
+    <StoreProvider store={store}>
+      <App />
+    </StoreProvider>,
+  );
+  await act(() => store.start());
+  await screen.findAllByRole("option");
+  await user.keyboard(
+    `{${/Mac/.test(navigator.userAgent) ? "Meta" : "Control"}>}k{/${/Mac/.test(navigator.userAgent) ? "Meta" : "Control"}}`,
+  );
+  const search = await screen.findByRole("combobox", { name: "Search sessions" });
+  const dialog = screen.getByRole("dialog");
+  const groups = within(dialog).getAllByRole("group");
+  // A group per workspace; the remote one has the icon that says where.
+  expect(groups.map((g) => g.textContent)).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining("app"),
+      expect.stringContaining("lib"),
+      expect.stringContaining("api"),
+    ]),
+  );
+  expect(within(dialog).getByRole("img", { name: "On Build box · Connected" })).toBeTruthy();
+  // The folder is not in the row, but it finds the row.
+  await user.type(search, "lib");
+  await waitFor(() => expect(within(dialog).getAllByRole("option")).toHaveLength(1));
+  expect(within(dialog).getByRole("option").textContent).toContain("other");
 });

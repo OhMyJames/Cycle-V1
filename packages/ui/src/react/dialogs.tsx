@@ -25,8 +25,9 @@ import {
   SelectValue,
 } from "@ui-sdk/react/select";
 import { useEffect, useRef, useState } from "react";
-import type { AgentInfo, EnvironmentConfig } from "../api.ts";
+import type { AgentInfo, EnvironmentConfig, EnvironmentStatus, FolderListing } from "../api.ts";
 import { ConfigForm } from "./config-form.tsx";
+import { FolderBrowser } from "./folder-browser.tsx";
 import { useI18n } from "./i18n.tsx";
 
 type OpenProps = { open: boolean; onOpenChange: (open: boolean) => void };
@@ -77,6 +78,10 @@ export type NewSessionProps = OpenProps & {
   ) => Promise<Record<string, string> | undefined>;
   /** Opens this computer's folder chooser: only what is on this computer can be chosen with it. */
   chooseDirectory: () => Promise<string | undefined>;
+  /** The folders in a folder on an environment's machine: for an environment that is not this computer. */
+  listFolders: (environmentId: string, path?: string, hidden?: boolean) => Promise<FolderListing>;
+  /** How each environment stands, and what its daemon can do. */
+  status: Record<string, EnvironmentStatus>;
   onCreate: (
     environmentId: string,
     params: {
@@ -96,6 +101,8 @@ export function NewSessionDialog({
   agents,
   readDefaults,
   chooseDirectory,
+  listFolders,
+  status,
   onCreate,
 }: NewSessionProps) {
   const { t } = useI18n();
@@ -109,6 +116,8 @@ export function NewSessionDialog({
     (a) => a.available,
   );
   const [cwd, setCwd] = useState("");
+  // Choosing the folder on another environment's machine takes the place of the form until it is chosen or left.
+  const [browsing, setBrowsing] = useState(false);
   // The agent that was picked, and for which environment: another environment has other agents, so the pick does not carry over.
   const [picked, setPicked] = useState<{ environmentId: string; agentId: string } | null>(null);
   const [config, setConfig] = useState<Record<string, string>>({});
@@ -126,6 +135,7 @@ export function NewSessionDialog({
   useEffect(() => {
     if (!open) return;
     setChosenEnvironment(startEnvironment.current ?? null);
+    setBrowsing(false);
     setCwd(startCwd.current ?? "");
   }, [open]);
 
@@ -152,99 +162,122 @@ export function NewSessionDialog({
     <Dialog open={open} onOpenChange={(next) => onOpenChange(next)}>
       <DialogBackdrop />
       <DialogContent>
-        <DialogTitle>New session</DialogTitle>
-        <DialogDescription>
-          {environment !== undefined && environments.length > 1
-            ? t("newSession.onHost", { host: environment.name })
-            : "The agent works in this directory, on the host you are connected to."}
-        </DialogDescription>
-        <div data-slot="stack">
-          {environments.length > 1 ? (
-            <Field name="host">
-              <FieldLabel>{t("newSession.host")}</FieldLabel>
-              <Select
-                items={environments.map((h) => ({ value: h.id, label: h.name }))}
-                value={environmentId ?? null}
-                onValueChange={(next) => {
-                  // A folder and settings of one environment mean nothing on another.
-                  setChosenEnvironment(next as string | null);
-                  setCwd("");
-                  setConfig({});
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {environments.map((h) => (
-                    <SelectItem key={h.id} value={h.id}>
-                      {h.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          ) : null}
-          <Field name="cwd">
-            <FieldLabel>Directory</FieldLabel>
-            <div data-slot="row">
-              <Input
-                value={cwd}
-                placeholder="/path/to/project"
-                onChange={(e) => setCwd(e.currentTarget.value)}
-              />
-              {environment?.kind === "local" ? (
-                <Button
-                  data-variant="outline"
-                  onClick={async () => {
-                    const chosen = await chooseDirectory();
-                    if (chosen !== undefined) setCwd(chosen);
-                  }}
-                >
-                  Browse…
-                </Button>
+        {browsing && environmentId !== undefined ? (
+          <>
+            <DialogTitle>{t("folders.title")}</DialogTitle>
+            <FolderBrowser
+              start={cwd.startsWith("/") ? cwd : undefined}
+              list={(path, hidden) => listFolders(environmentId, path, hidden)}
+              onChoose={(path) => {
+                setCwd(path);
+                setBrowsing(false);
+              }}
+              onBack={() => setBrowsing(false)}
+            />
+          </>
+        ) : (
+          <>
+            <DialogTitle>New session</DialogTitle>
+            <DialogDescription>
+              {environment !== undefined && environments.length > 1
+                ? t("newSession.onHost", { host: environment.name })
+                : "The agent works in this directory, on the host you are connected to."}
+            </DialogDescription>
+            <div data-slot="stack">
+              {environments.length > 1 ? (
+                <Field name="host">
+                  <FieldLabel>{t("newSession.host")}</FieldLabel>
+                  <Select
+                    items={environments.map((h) => ({ value: h.id, label: h.name }))}
+                    value={environmentId ?? null}
+                    onValueChange={(next) => {
+                      // A folder and settings of one environment mean nothing on another.
+                      setChosenEnvironment(next as string | null);
+                      setCwd("");
+                      setConfig({});
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {environments.map((h) => (
+                        <SelectItem key={h.id} value={h.id}>
+                          {h.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              ) : null}
+              <Field name="cwd">
+                <FieldLabel>Directory</FieldLabel>
+                <div data-slot="row">
+                  <Input
+                    value={cwd}
+                    placeholder="/path/to/project"
+                    onChange={(e) => setCwd(e.currentTarget.value)}
+                  />
+                  {environment?.kind === "local" ? (
+                    <Button
+                      data-variant="outline"
+                      onClick={async () => {
+                        const chosen = await chooseDirectory();
+                        if (chosen !== undefined) setCwd(chosen);
+                      }}
+                    >
+                      {t("newSession.browse")}
+                    </Button>
+                  ) : status[environmentId ?? ""]?.capabilities?.folders === true ? (
+                    <Button data-variant="outline" onClick={() => setBrowsing(true)}>
+                      {t("newSession.browse")}
+                    </Button>
+                  ) : null}
+                </div>
+              </Field>
+              {available.length > 1 ? (
+                <Field name="agent">
+                  <FieldLabel>Agent</FieldLabel>
+                  <Select
+                    items={available.map((a) => ({ value: a.id, label: a.name }))}
+                    value={agent?.id ?? null}
+                    onValueChange={(next) => {
+                      if (environmentId !== undefined && typeof next === "string")
+                        setPicked({ environmentId, agentId: next });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {available.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              ) : null}
+              {agent !== undefined ? (
+                <ConfigForm schema={agent.configSchema} value={config} onChange={setConfig} />
+              ) : null}
+              {agent === undefined ? (
+                <p data-slot="hint">No agent is available on this host.</p>
               ) : null}
             </div>
-          </Field>
-          {available.length > 1 ? (
-            <Field name="agent">
-              <FieldLabel>Agent</FieldLabel>
-              <Select
-                items={available.map((a) => ({ value: a.id, label: a.name }))}
-                value={agent?.id ?? null}
-                onValueChange={(next) => {
-                  if (environmentId !== undefined && typeof next === "string")
-                    setPicked({ environmentId, agentId: next });
-                }}
+            <div data-slot="row">
+              <DialogClose>{t("common.cancel")}</DialogClose>
+              <Button
+                data-variant="solid"
+                disabled={agent === undefined || cwd.trim() === ""}
+                onClick={create}
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {available.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          ) : null}
-          {agent !== undefined ? (
-            <ConfigForm schema={agent.configSchema} value={config} onChange={setConfig} />
-          ) : null}
-          {agent === undefined ? <p data-slot="hint">No agent is available on this host.</p> : null}
-        </div>
-        <div data-slot="row">
-          <DialogClose>Cancel</DialogClose>
-          <Button
-            data-variant="solid"
-            disabled={agent === undefined || cwd.trim() === ""}
-            onClick={create}
-          >
-            Start
-          </Button>
-        </div>
+                Start
+              </Button>
+            </div>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -485,6 +485,8 @@ export function App() {
         agents={agentsByEnvironment}
         readDefaults={readDefaults}
         chooseDirectory={store.chooseDirectory}
+        listFolders={store.listFolders}
+        status={status}
         onCreate={store.createSession}
       />
       <EnvironmentDialog

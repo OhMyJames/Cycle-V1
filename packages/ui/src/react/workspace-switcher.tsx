@@ -48,7 +48,7 @@ function Badge({ counts }: { counts: Counts }) {
 }
 
 /** Says a workspace is on another environment, with which, and how it is connected: for the eye and for the reader. */
-function Remote({ environment, state }: { environment: EnvironmentConfig; state: string }) {
+export function Remote({ environment, state }: { environment: EnvironmentConfig; state: string }) {
   const { t } = useI18n();
   const tip = t("workspace.onState", { host: environment.name, state });
   return (
