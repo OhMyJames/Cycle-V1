@@ -53,15 +53,14 @@ export function SearchDialog(props: SearchDialogProps) {
     },
   );
   // A row's value names it; what it stands for is looked up, not parsed out of the text (an id may hold any character).
-  const rows = new Map<string, { environmentId: string; sessionId: string }>();
-  for (const environment of props.environments)
-    for (const s of props.sessions[environment.id] ?? [])
-      rows.set(`session:${environment.id}/${s.sessionId}`, {
-        environmentId: environment.id,
-        sessionId: s.sessionId,
-      });
   const rowValue = (environmentId: string, sessionId: string) =>
     `session:${environmentId}/${sessionId}`;
+  const rows = new Map<string, { environmentId: string; sessionId: string }>();
+  for (const session of workspaces.flatMap((w) => w.sessions))
+    rows.set(rowValue(session.environmentId, session.sessionId), {
+      environmentId: session.environmentId,
+      sessionId: session.sessionId,
+    });
   const canCreate = props.environments.some((h) => props.status[h.id]?.state === "connected");
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>

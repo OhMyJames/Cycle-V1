@@ -190,6 +190,52 @@ test("on another environment the folder is chosen by browsing its machine", asyn
   expect(asked[0]).toBeUndefined();
 });
 
+test("browsing stays where it is when the page around it changes, and the hidden toggle keeps the folder", async () => {
+  const { user, bridge, emit } = await mount();
+  const asked: (string | undefined)[] = [];
+  bridge.listFolders = folders(asked);
+  await user.click(await screen.findByRole("button", { name: "New session" }));
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("combobox"));
+  await user.click(await screen.findByRole("option", { name: "Build box" }));
+  await user.click(within(dialog).getByRole("button", { name: "Browse…" }));
+  await user.click(await screen.findByRole("option", { name: "docs" }));
+  await screen.findByText("/home/me/docs", { selector: "code" });
+  const before = asked.length;
+  // Something else happens in the app: the page is drawn again, and the browser is where it was.
+  await emit({ type: "environment-status", environmentId: "far", state: "connected" });
+  await user.click(screen.getByRole("button", { name: "Show hidden folders" }));
+  await waitFor(() => expect(asked.length).toBe(before + 1));
+  expect(asked.at(-1)).toBe("/home/me/docs");
+  expect(screen.getByText("/home/me/docs", { selector: "code" })).toBeTruthy();
+});
+
+test("a folder that cannot be listed can be left by going up or home", async () => {
+  const { user, bridge } = await mount();
+  const base = folders([]);
+  bridge.listFolders = async (environment, path) => {
+    if (path === "/home/me/locked") throw new Error("The folder cannot be read");
+    const listing = await base(environment, path);
+    return path === undefined || path === "/home/me"
+      ? { ...listing, folders: [...listing.folders, { name: "locked" }] }
+      : listing;
+  };
+  await user.click(await screen.findByRole("button", { name: "New session" }));
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("combobox"));
+  await user.click(await screen.findByRole("option", { name: "Build box" }));
+  await user.click(within(dialog).getByRole("button", { name: "Browse…" }));
+  await user.click(await screen.findByRole("option", { name: "locked" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("The folder cannot be read");
+  // The way out is there: up from where it failed, and home.
+  expect((screen.getByRole("button", { name: "Up one level" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+  await user.click(screen.getByRole("button", { name: "Up one level" }));
+  await screen.findByText("/home/me", { selector: "code" });
+  await screen.findByRole("option", { name: "locked" });
+});
+
 test("browsing starts from the folder that is typed, and from home when that cannot be read", async () => {
   const { user, bridge } = await mount();
   const asked: (string | undefined)[] = [];

@@ -11,7 +11,6 @@ export const enUS = {
   "search.empty": "No session matches that.",
   "search.group.actions": "Actions",
   "search.action.newSession": "New session",
-  "search.on": "on {host}",
   "search.archived": "archived",
   "search.open": "Search sessions",
 

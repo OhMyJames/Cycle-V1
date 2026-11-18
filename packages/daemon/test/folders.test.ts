@@ -49,9 +49,11 @@ test("a link to a folder is a folder, a link to a file or to nothing is not, and
   expect(through.path.endsWith("real")).toBe(true);
 });
 
-test("with no path it is the home folder", async () => {
-  const list = await listFolders(undefined, false);
-  expect(list.home).toBe(homedir());
+test("with no path it is the home folder: a folder of the test's own, not the machine's", async () => {
+  await mkdir(join(root, "home", "mine"), { recursive: true });
+  const list = await listFolders(undefined, false, FOLDER_LIST_LIMIT, join(root, "home"));
+  expect(list.home).toBe(join(root, "home"));
+  expect(names(list)).toEqual(["mine"]);
 });
 
 test("a path that is not absolute, not there, or not a folder is refused, and says why", async () => {
@@ -62,6 +64,12 @@ test("a path that is not absolute, not there, or not a folder is refused, and sa
     code: -32602,
     data: { reason: "not_a_folder" },
   });
+  // A path through a file leads to no folder either, and a NUL byte is no path.
+  await expect(listFolders(join(root, "file.txt", "inside"), false)).rejects.toMatchObject({
+    code: -32602,
+    data: { reason: "not_a_folder" },
+  });
+  await expect(listFolders("/tmp/a\0b", false)).rejects.toMatchObject({ code: -32602 });
 });
 
 test("a folder with more than the limit gives the limit, and says so", async () => {

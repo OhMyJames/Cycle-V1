@@ -5,7 +5,13 @@ import {
   methods,
   type SessionUpdate,
 } from "@cycle/acp";
-import { CYCLE_PROTOCOL_VERSION, META, NOTIFICATIONS, seqOf } from "@cycle/protocol";
+import {
+  CYCLE_PROTOCOL_VERSION,
+  type FolderList,
+  META,
+  NOTIFICATIONS,
+  seqOf,
+} from "@cycle/protocol";
 import type { Channel } from "@cycle/transport/client";
 
 /** ACP's "resource not found": the daemon has no such session. */
@@ -243,28 +249,13 @@ export class CycleClient {
    * The folders in a folder on the daemon's machine, for choosing where a session works (docs/protocol.md §8). Without a
    * path: the daemon's user's home. A daemon that does not say it can is older: it is not asked.
    */
-  async listFolders(
-    path?: string,
-    hidden?: boolean,
-  ): Promise<{
-    path: string;
-    parent: string | null;
-    home: string;
-    folders: { name: string }[];
-    truncated: boolean;
-  }> {
+  async listFolders(path?: string, hidden?: boolean): Promise<FolderList> {
     if (this.#capabilities.folders !== true)
       throw new Error("This daemon is too old to list its folders");
     return (await this.#request("_cycle/folders/list", {
       ...(path !== undefined ? { path } : {}),
       ...(hidden === true ? { hidden } : {}),
-    })) as {
-      path: string;
-      parent: string | null;
-      home: string;
-      folders: { name: string }[];
-      truncated: boolean;
-    };
+    })) as FolderList;
   }
 
   async cancel(sessionId: string): Promise<void> {

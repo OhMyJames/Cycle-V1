@@ -72,6 +72,17 @@ export const filesSearch = cycleMethod(
 );
 
 /** What `_cycle/folders/list` gives (docs/protocol.md §8): the names of folders, never files or contents. */
+export const FolderListSchema = z.object({
+  /** The real path (links resolved) of what was listed. */
+  path: z.string(),
+  /** One level up; null at the root. */
+  parent: z.string().nullable(),
+  home: z.string(),
+  folders: z.array(z.object({ name: z.string() })),
+  truncated: z.boolean(),
+});
+export type FolderList = z.infer<typeof FolderListSchema>;
+
 export const foldersList = cycleMethod(
   "_cycle/folders/list",
   z.object({
@@ -80,15 +91,7 @@ export const foldersList = cycleMethod(
     /** Names that start with a dot are given only when asked for. */
     hidden: z.boolean().optional(),
   }),
-  z.object({
-    /** The real path (links resolved) of what was listed. */
-    path: z.string(),
-    /** One level up; null at the root. */
-    parent: z.string().nullable(),
-    home: z.string(),
-    folders: z.array(z.object({ name: z.string() })),
-    truncated: z.boolean(),
-  }),
+  FolderListSchema,
 );
 
 /**
