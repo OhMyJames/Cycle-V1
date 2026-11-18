@@ -243,10 +243,13 @@ export class AppStore {
       snapshot = await this.#bridge.openSession(environmentId, sessionId);
     } catch (error) {
       this.#held.delete(key);
-      this.#set((s) => {
-        const { [key]: _gone, ...views } = s.views;
-        return { views };
-      });
+      // What was read before is still what there is: a re-read that failed does not take the conversation away.
+      if (existing !== undefined) this.#setView(key, { ...existing, loading: false });
+      else
+        this.#set((s) => {
+          const { [key]: _gone, ...views } = s.views;
+          return { views };
+        });
       throw error;
     }
     let view: SessionView = {

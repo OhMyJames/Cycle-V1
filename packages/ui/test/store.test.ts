@@ -152,6 +152,30 @@ test("a missed event makes it ask main for the session again", async () => {
   expect(store.getState().views[viewKey("local", "s1")]?.version).toBe(9);
 });
 
+test("a re-read that fails does not take the conversation away", async () => {
+  let version = 1;
+  let broken = false;
+  const script = fakeBridge({
+    snapshot: () => {
+      if (broken) throw new Error("the connection dropped");
+      return {
+        conversation: [text("kept")].reduce(applyUpdate, emptyConversation()),
+        permissions: [],
+        version,
+      };
+    },
+  });
+  const { store, emit, named } = await opened(script);
+  broken = true;
+  version = 9;
+  emit(update(4, text("skipped ahead")));
+  await Bun.sleep(10);
+  expect(named("openSession")).toHaveLength(2);
+  const view = store.getState().views[viewKey("local", "s1")];
+  expect(view?.loading).toBe(false);
+  expect(view?.conversation.items.length).toBeGreaterThan(0);
+});
+
 test("events that come while a session is being read are applied after it, in order", async () => {
   let release: (s: SessionSnapshot) => void = () => {};
   const script = fakeBridge({
