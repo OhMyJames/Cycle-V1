@@ -9,6 +9,7 @@
 // On Linux the same files make a folder. That is what the tests launch.
 import {
   chmodSync,
+  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -119,6 +120,8 @@ export const packageApp = (outDir = BUILD_DIR): Packaged => {
     ] as const) {
       plist = setPlistString(plist, key, value);
     }
+    // The Info.plist already names electron.icns: put Cycle's icon in its place.
+    copyFileSync(join(import.meta.dir, "../assets/icon.icns"), join(resources, "electron.icns"));
     // It names default_app.asar, which is gone; Cycle's code is a folder, which Electron does not check.
     writeFileSync(plistPath, removePlistDict(plist, "ElectronAsarIntegrity"));
     // Changing the bundle broke Electron's own signature, and Apple silicon runs nothing unsigned.

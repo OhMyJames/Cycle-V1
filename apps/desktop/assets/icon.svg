@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Cycle">
+  <title>Cycle</title>
+  <!-- The glyph is iconmcp's "agent-loop" (a loop arrow around a spark), drawn on its 16-unit grid. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f46e5"/>
+      <stop offset="1" stop-color="#1e1b4b"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <g transform="translate(192 192) scale(40)" fill="none" stroke="#fff" stroke-width="0.95" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13.75 8 A5.75 5.75 0 1 1 8 2.25 C9.6 2.25 11.1 2.9 12.25 4 L13.75 5.5"/>
+    <path d="M13.75 2.25 L13.75 5.5 L10.5 5.5"/>
+    <path d="M8 5.5 Q8 8 10.5 8 Q8 8 8 10.5 Q8 8 5.5 8 Q8 8 8 5.5 Z" fill="#fff"/>
+  </g>
+</svg>
