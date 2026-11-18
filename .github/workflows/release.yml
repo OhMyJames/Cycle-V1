@@ -106,7 +106,7 @@ jobs:
           CYCLE_DAEMON_BIN="$PWD/$BUNDLE/bin/cycle-daemon" bun run --cwd apps/daemon test:integration
 
       - name: The app opens a window that connects to its own daemon
-        run: CYCLE_PACKAGED_APP="$PWD/apps/desktop/build/Cycle.app" bun test apps/desktop/test/integration/packaged.integration.ts
+        run: CYCLE_PACKAGED_APP="$PWD/apps/desktop/build/Cycle.app" bun test ./apps/desktop/test/integration/packaged.integration.ts
 
       - name: Import the signing certificate
         if: env.SIGN == 'true' && env.APPLE_NOTARY_PROFILE == ''
@@ -180,7 +180,7 @@ jobs:
 
       - name: The signed app still opens and connects
         if: env.SIGN == 'true'
-        run: CYCLE_PACKAGED_APP="$PWD/apps/desktop/build/Cycle.app" bun test apps/desktop/test/integration/packaged.integration.ts
+        run: CYCLE_PACKAGED_APP="$PWD/apps/desktop/build/Cycle.app" bun test ./apps/desktop/test/integration/packaged.integration.ts
 
       - name: Archive and manifest
         run: bun run --cwd apps/desktop release-assets

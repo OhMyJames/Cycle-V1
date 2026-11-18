@@ -2,7 +2,7 @@
 
 一个 ADE(agentic development environment)。cycle 的重写版:协议先行,更小、更容易维护和改造。
 
-> 状态:设计阶段。目前只有文档,还没有代码。
+> 状态:v1 可用。桌面应用(macOS,Apple 芯片)加 Linux daemon,Claude 为唯一的 agent。签名公证、自动更新、图标还没做。使用见 [docs/getting-started.md](docs/getting-started.md)。
 
 ## 目标(v1)
 
@@ -35,7 +35,7 @@ bun install      # 安装依赖,并启用 pre-commit 钩子
 bun run check    # 边界、类型、lint、测试
 ```
 
-后端已齐:`packages/acp`、`protocol`、`daemon`(会话层)、`transport`(unix socket 和 ssh)、`client`(带断线重连)、`adapters/claude`,以及可运行的 `apps/daemon`(`serve` 和 `proxy`)。`apps/desktop` 还是空壳。
+`apps/daemon`(daemon,可编译成单文件)、`apps/desktop`(Electron 应用)、`packages/*`(协议、传输、客户端、界面、Claude 适配)。门禁约 7 秒;集成测试(`bun run test:integration`)启动真实进程;`bun run build` 构建 daemon 和桌面端,`bun run start` 启动。详见 [docs/testing.md](docs/testing.md)。
 
 ## v1 不做
 
@@ -43,6 +43,7 @@ git worktree、终端、diff 视图、多 provider、Web 端。
 
 ## 文档
 
+- [docs/getting-started.md](docs/getting-started.md):安装和使用(从这里开始)
 - [docs/architecture.md](docs/architecture.md):架构与分层
 - [docs/protocol.md](docs/protocol.md):协议规范(草稿)
 - [docs/desktop.md](docs/desktop.md):桌面客户端:构建、结构、安全设置、已知缺口

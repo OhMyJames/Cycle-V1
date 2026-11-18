@@ -36,6 +36,8 @@ if (!result.success) {
   process.exit(1);
 }
 await cp(join(platformDir, binary), join(out, "claude"));
+await cp(join(root, "scripts/install.sh"), join(out, "install.sh"));
+await chmod(join(out, "install.sh"), 0o755);
 await chmod(join(out, "claude"), 0o755);
 await chmod(join(out, "cycle-daemon"), 0o755);
 
