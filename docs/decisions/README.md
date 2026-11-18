@@ -15,3 +15,4 @@
 - [0009 应用自己更新自己](0009-self-update.md):已接受(自己写,不用 Squirrel)
 - [0010 附件以 ACP 内容块内联发送](0010-attachments-inline.md):已接受(有大小上限;落盘方案推迟)
 - [0011 agent 向用户提问(elicitation)](0011-elicitation.md):已接受(只发给声明了能力的客户端,没有就回退)
+- [0012 界面的源语言是 en-US,为 i18n 预留](0012-ui-language-en-us.md):已接受(文字进消息目录;新文字走目录,存量由棘轮只减不增)

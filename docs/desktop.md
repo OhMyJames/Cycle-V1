@@ -94,7 +94,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - **远端 daemon 的升级**:应用只更新自己和自带的本地 daemon,不替用户在别的机器上装东西。远端的 daemon 版本(初始化时它报告自己的版本,构建时写入,和应用同一个版本号)比应用旧时,顶部会出现横幅和一条要在那台机器上运行的命令(下载本版本的 tarball、校验、`install.sh`、`cycle stop`)。`dev`(从源码运行)和比应用新的版本不提示。限于 Linux x64。
 - **签名后的更新**:更新里已有"签名团队必须和当前应用相同"的检查,但还没有在真实的 Developer ID 签名包上跑过(目前发布的包只有 ad hoc 签名,这一条检查被跳过)。
 - **会话内容的全文搜索**:⌘K 搜的是标题、文件夹、agent 和主机(跨已连接的主机)。对话内容的全文要在历史所在的 daemon 里做。
-- **图片的发送要等 daemon 的附件支持**:界面已经能显示图片、能从按钮/粘贴/拖放附加图片,但只有 agent 声明能收图片(`promptCapabilities.image`)时才出现附加的控件。没有这个声明的 daemon 上,附加的入口不出现。
+- **图片的发送只对声明了能力的 agent 开放**:附加的控件(按钮、粘贴、拖放)只在 `_cycle/agents/list` 里这个 agent 的 `promptCapabilities.image` 存在时出现。带附件支持的 daemon(decision 0010)上的 Claude 声明了;更早的 daemon 不报告,界面上就没有附加入口,不会发出 daemon 不认的内容。主进程这一段有测试(`apps/desktop/test/manager.test.ts`):能力被报告,图片块原样送达 agent,没有声明的 agent 拒绝图片。
 - **界面文字迁入 i18n 目录**:源语言是 en-US(decision 0012);新文字已经走目录,存量约 60 处还在标记里,门禁的棘轮保证不再增加。
 - **当前设置的来源**:session 设置对话框显示的是 daemon 索引里记下的设置;agent 自己改的(比如 Claude 的 plan 模式切换)不会反映回来。
 - **Claude 的 `config.json`**(`configDir`、密钥):没有 UI,因为它会把凭证放上线路。要在 daemon 所在机器上手改。

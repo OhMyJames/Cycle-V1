@@ -97,6 +97,42 @@ test("connects, creates a session, and lists it", async () => {
   expect((await m.agents("local")).map((a) => a.id)).toEqual(["fake"]);
 });
 
+test("an agent that takes images says so, and a message of blocks reaches it as the same blocks", async () => {
+  const fake = fakeAgent({}, { promptCapabilities: { image: {} } });
+  const { manager } = await setup(fake);
+  const { m } = await manager();
+  await m.connect("local");
+  // What the composer looks at to decide whether to offer an attach button.
+  const [agent] = await m.agents("local");
+  expect(agent?.promptCapabilities?.image).toEqual({});
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  await m.openSession("local", id);
+  const picture = { type: "image" as const, data: "iVBORw0KGgo=", mimeType: "image/png" };
+  await m.prompt("local", id, [{ type: "text", text: "what is this" }, picture]);
+  await until(() => fake.log.blocks.length === 1, "the agent to be asked");
+  expect(fake.log.blocks[0]).toEqual([{ type: "text", text: "what is this" }, picture]);
+  // A plain text still goes as it always did.
+  await m.prompt("local", id, "and this");
+  await until(() => fake.log.blocks.length === 2, "the second prompt");
+  expect(fake.log.blocks[1]).toEqual([{ type: "text", text: "and this" }]);
+});
+
+test("an image to an agent that did not say it takes images is refused, and nothing reaches it", async () => {
+  const fake = fakeAgent();
+  const { manager } = await setup(fake);
+  const { m } = await manager();
+  await m.connect("local");
+  const [agent] = await m.agents("local");
+  // No word of images: the interface has no attach button for this agent.
+  expect(agent?.promptCapabilities?.image).toBeUndefined();
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  await m.openSession("local", id);
+  await expect(
+    m.prompt("local", id, [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }]),
+  ).rejects.toThrow();
+  expect(fake.log.blocks).toHaveLength(0);
+});
+
 test("a session opened after the fact comes whole, and its version counts the events", async () => {
   const { manager } = await setup();
   const { m, events } = await manager();
