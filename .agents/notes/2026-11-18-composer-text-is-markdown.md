@@ -25,4 +25,4 @@ A textarea cannot style part of its text. Rendering Markdown while it is typed n
 
 - Round-trip tests (fixed cases, and random text) show the text coming back as typed for the cases listed there, including `* item` (the list marker is kept). Syntax with no node (a table) stays text. What was not tried: every Markdown construct Lexical may normalise.
 - Lexical is a pinned dependency and is upgraded as a set.
-- Lexical runs headless in the gate's tests and in happy-dom. happy-dom has no selection or input events for it, so DOM tests drive the editor through its commands, and real typing, IME and pasting are checked only in the Electron smoke test.
+- Lexical runs headless in the gate's tests and in happy-dom. happy-dom has no selection or input events for it, so DOM tests drive the editor through its commands, and real typing and pasting are checked in the Electron smoke test; IME is not checked at all (the code leaves an Enter that confirms a composition alone, but no input method was tried).

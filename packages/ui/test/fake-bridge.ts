@@ -34,6 +34,8 @@ export const fakeBridge = (
     snapshot?: () => SessionSnapshot | Promise<SessionSnapshot>;
     connected?: boolean;
     update?: UpdateState;
+    /** What the daemon says it can do. Default: all of it. */
+    capabilities?: { queue: boolean; files: boolean };
   } = {},
 ) => {
   const calls: [string, ...unknown[]][] = [];
@@ -57,6 +59,9 @@ export const fakeBridge = (
         {
           hostId: "local",
           state: options.connected ? ("connected" as const) : ("closed" as const),
+          ...(options.connected
+            ? { capabilities: options.capabilities ?? { queue: true, files: true } }
+            : {}),
         },
       ],
     })),

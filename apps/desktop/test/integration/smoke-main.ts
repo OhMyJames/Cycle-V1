@@ -4,7 +4,7 @@
 import { appendFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { app } from "electron";
+import { app, clipboard } from "electron";
 import { startApp } from "../../src/main/app.ts";
 
 const env = process.env as Record<string, string>;
@@ -187,6 +187,17 @@ const main = async () => {
       underscoreKept: await run(
         `document.querySelector('[data-slot="composer-input"]').textContent.includes("my_file.py")`,
       ),
+    });
+    // Pasted text goes in as text, as it was copied: its asterisks are the person's, not formatting nobody typed.
+    clipboard.writeText("pasted **x** my_file.py");
+    contents.paste();
+    await waitFor(
+      "the pasted text",
+      `document.querySelector('[data-slot="composer-input"]').textContent.includes("pasted **x** my_file.py")`,
+    );
+    out({
+      step: "pasted",
+      shown: await run(`document.querySelector('[data-slot="composer-input"]').textContent`),
     });
     // And is emptied again, from the keyboard.
     contents.selectAll();

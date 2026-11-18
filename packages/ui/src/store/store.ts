@@ -423,6 +423,7 @@ const toStatus = (event: AppEvent & { type: "host-status" }): HostStatus => ({
   state: event.state,
   ...(event.error !== undefined ? { error: event.error } : {}),
   ...(event.daemon !== undefined ? { daemon: event.daemon } : {}),
+  ...(event.capabilities !== undefined ? { capabilities: event.capabilities } : {}),
 });
 
 const applyToView = (view: SessionView, event: AppEvent & { version: number }): SessionView => {

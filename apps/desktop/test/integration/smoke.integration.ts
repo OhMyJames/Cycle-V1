@@ -108,6 +108,7 @@ test.skipIf(!ready)(
       // The box showed Markdown as it was typed, with the characters of a file name left alone.
       expect(String(step("markdown-typed")?.shown)).toBe("a bold word, my_file.py and code");
       expect(step("markdown-typed")?.underscoreKept).toBe(true);
+      expect(String(step("pasted")?.shown)).toContain("pasted **x** my_file.py");
       expect(String(step("answer")?.text)).toContain("Hello from the mock");
       expect(String(step("permission")?.text)).toContain("touch made-by-the-agent.txt");
       expect(String(step("allowed")?.text)).toContain("All done");

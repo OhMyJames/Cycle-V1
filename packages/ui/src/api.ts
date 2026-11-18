@@ -24,6 +24,11 @@ export type HostStatus = {
   hostId: string;
   state: ConnectionState;
   error?: string;
+  /**
+   * What the daemon on the host can do beyond what every daemon does (docs/protocol.md §3). Absent until it has said: a
+   * client that needs one of them waits, and does not assume.
+   */
+  capabilities?: { queue: boolean; files: boolean };
   /** What the daemon on the host says it is. Not for the local one, which the app carries. */
   daemon?: {
     version: string;

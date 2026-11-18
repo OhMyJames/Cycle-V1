@@ -62,11 +62,13 @@ const mount = async (
   options: {
     snapshot?: () => SessionSnapshot;
     configure?: (script: ReturnType<typeof fakeBridge>) => void;
+    capabilities?: { queue: boolean; files: boolean };
   } = {},
 ) => {
   const script = fakeBridge({
     connected: true,
     ...(options.snapshot ? { snapshot: options.snapshot } : {}),
+    ...(options.capabilities ? { capabilities: options.capabilities } : {}),
   });
   options.configure?.(script);
   const store = new AppStore(script.bridge);
@@ -843,4 +845,46 @@ test("a mention taken back from the queue is a mention again", async () => {
   await user.click(await screen.findByRole("button", { name: /Edit queued message/ }));
   await waitFor(() => expect(boxText(box)).toBe("see @a.ts"));
   expect(store.drafts.get("local:s1").mentions.map((m) => m.uri)).toEqual(["file:///work/a.ts"]);
+});
+
+test("a daemon that does not queue is not sent a message while the agent works, and says why", async () => {
+  const { user, emit, named } = await mount({ capabilities: { queue: false, files: false } });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  emit({
+    type: "update",
+    hostId: "local",
+    sessionId: "s1",
+    update: u({ sessionUpdate: "state_update", state: "running" }),
+    version: 1,
+  });
+  await write(box, "next");
+  const send = (await screen.findByRole("button", { name: "Send" })) as HTMLButtonElement;
+  expect(send.disabled).toBe(true);
+  await press(box, "Enter");
+  expect(named("prompt")).toHaveLength(0);
+  expect(document.querySelector('[data-slot="composer-placeholder"]')).toBeNull();
+  expect(box.getAttribute("aria-placeholder")).toBe(
+    "The agent is working. Stop it to send a message now.",
+  );
+  // The text stays: it goes when the turn is over.
+  expect(boxText(box)).toBe("next");
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+});
+
+test("a daemon that does not find files is not asked for them", async () => {
+  const { user, bridge, named } = await mount({ capabilities: { queue: true, files: false } });
+  bridge.searchFiles = async () => {
+    throw new Error("must not be asked");
+  };
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "@ma");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  });
+  expect(screen.queryByRole("listbox", { name: "Files and folders" })).toBeNull();
+  expect(named("searchFiles")).toHaveLength(0);
 });

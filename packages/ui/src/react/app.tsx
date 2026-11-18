@@ -302,6 +302,7 @@ export function App() {
             {view !== undefined ? (
               <Composer
                 key={viewKey(view.hostId, view.sessionId)}
+                hostId={view.hostId}
                 sessionKey={viewKey(view.hostId, view.sessionId)}
                 canAttach={
                   agents.find((a) => a.id === session?.agent)?.promptCapabilities?.image != null

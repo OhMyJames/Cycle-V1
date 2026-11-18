@@ -94,6 +94,8 @@ test("connects, creates a session, and lists it", async () => {
     { sessionId: id, cwd: "/tmp", agent: "fake", archived: false, state: "idle" },
   ]);
   expect(of(events, "sessions").length).toBeGreaterThan(0);
+  // What the daemon said it can do reaches the page with the connection's state.
+  expect(of(events, "host-status").at(-1)?.capabilities).toEqual({ queue: true, files: true });
   expect((await m.agents("local")).map((a) => a.id)).toEqual(["fake"]);
 });
 

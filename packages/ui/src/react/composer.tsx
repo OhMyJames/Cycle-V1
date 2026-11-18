@@ -28,6 +28,8 @@ import { optionId, PickerMenu, type PickerRow } from "./picker-menu.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 
 export type ComposerProps = {
+  /** The host it is on, for what its daemon can do. */
+  hostId: string;
   /** The session this box is for, as `viewKey` names it. A box is made anew for each session. */
   sessionKey: string;
   /** False when there is no session, or it is still being read. */
@@ -57,7 +59,7 @@ const previewOf = (prompt: QueuedPrompt): { text: string; images: number } => ({
   images: prompt.prompt.filter((b) => b.type === "image").length,
 });
 
-export function Composer({ sessionKey, enabled, canAttach = false }: ComposerProps) {
+export function Composer({ hostId, sessionKey, enabled, canAttach = false }: ComposerProps) {
   const { t, number } = useI18n();
   const store = useAppStore();
   const draft = useSyncExternalStore(store.drafts.subscribe, () => store.drafts.get(sessionKey));
@@ -65,6 +67,10 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
   const working = (conversation?.status ?? "idle") !== "idle";
   const queue = conversation?.queue ?? [];
   const { text, attachments } = draft;
+  // A daemon that has not said it queues is asked nothing it would refuse: a message waits for the turn to end.
+  const capabilities = useAppState((s) => s.status[hostId]?.capabilities);
+  const canQueue = capabilities?.queue === true;
+  const canFind = capabilities?.files === true;
   // Counts the sends: an image still being read when the message goes out belongs to that message, not to the next one.
   const sent = useRef(0);
   const recalled = useRef<Recall>(NOT_RECALLING);
@@ -88,7 +94,7 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
   // Files are asked for a moment after the last key, and only what answers the query as it stands now is shown.
   useEffect(() => {
     const query = typed.mention;
-    if (query === undefined) {
+    if (query === undefined || !canFind) {
       setFound(undefined);
       return;
     }
@@ -102,7 +108,7 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
       current = false;
       clearTimeout(timer);
     };
-  }, [typed.mention, store]);
+  }, [typed.mention, canFind, store]);
   const commandRows: PickerRow[] =
     typed.slash === undefined
       ? []
@@ -175,7 +181,8 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
     input.current?.focus();
   };
   // While the agent works, a message is queued: it goes when the turn ends well (docs/protocol.md §8).
-  const canSend = enabled && (text.trim() !== "" || attachments.length > 0);
+  const canSend =
+    enabled && (!working || canQueue) && (text.trim() !== "" || attachments.length > 0);
 
   const megabytes = (bytes: number) =>
     number(bytes / 1048576, { style: "unit", unit: "megabyte", maximumFractionDigits: 0 });
@@ -421,7 +428,9 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
             placeholder={
               enabled
                 ? working
-                  ? t("composer.placeholder.working")
+                  ? canQueue
+                    ? t("composer.placeholder.working")
+                    : t("composer.placeholder.busy")
                   : t("composer.placeholder.idle")
                 : t("composer.placeholder.none")
             }
@@ -442,7 +451,7 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
           </Button>
         ) : null}
         <Button data-variant="solid" disabled={!canSend} onClick={send}>
-          {working ? t("composer.queue") : t("composer.send")}
+          {working && canQueue ? t("composer.queue") : t("composer.send")}
         </Button>
       </div>
     </div>

@@ -38,6 +38,7 @@ import { blobsDir, defaultsPath, indexPath, sessionsDir } from "./data-dir.ts";
 import { AgentDefaults } from "./defaults-file.ts";
 import {
   INVALID_PARAMS,
+  queueFull,
   RpcError,
   sessionBusy,
   sessionNotFound,
@@ -858,7 +859,7 @@ export class Daemon {
       this.#returnStale(session);
       if (session.status() !== "idle" && session.status() !== "stopped") {
         // The agent is busy: the prompt waits here, and goes when the turn ends well.
-        if (session.queue.length >= QUEUE_LIMIT) throw sessionBusy(session.id);
+        if (session.queue.length >= QUEUE_LIMIT) throw queueFull(session.id, QUEUE_LIMIT);
         const queueId = randomUUID();
         session.queue.push({ queueId, prompt: params.prompt });
         this.#publishQueue(session);

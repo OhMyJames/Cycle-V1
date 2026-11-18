@@ -139,6 +139,14 @@ export class ConnectionManager
             state,
             ...(error !== undefined ? { error: messageOf(error) } : {}),
             ...(state === "connected" ? this.#daemonOf(host, connection.client) : {}),
+            ...(state === "connected"
+              ? {
+                  capabilities: {
+                    queue: connection.client.capabilities.queue === true,
+                    files: connection.client.capabilities.files === true,
+                  },
+                }
+              : {}),
           };
           this.#options.emit({ type: "host-status", ...connection.status });
           if (state === "connected" && was === "reconnecting") {
