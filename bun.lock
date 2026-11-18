@@ -29,7 +29,7 @@
       "name": "@cycle/adapter-claude",
       "version": "0.0.0",
       "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.3.327",
+        "@anthropic-ai/claude-agent-sdk": "0.3.327",
         "@cycle/acp": "workspace:*",
       },
     },
@@ -48,6 +48,13 @@
       "dependencies": {
         "@cycle/acp": "workspace:*",
         "zod": "^4.6.7",
+      },
+    },
+    "packages/transport": {
+      "name": "@cycle/transport",
+      "version": "0.0.0",
+      "dependencies": {
+        "@cycle/acp": "workspace:*",
       },
     },
   },
@@ -107,6 +114,8 @@
     "@cycle/desktop": ["@cycle/desktop@workspace:apps/desktop"],
 
     "@cycle/protocol": ["@cycle/protocol@workspace:packages/protocol"],
+
+    "@cycle/transport": ["@cycle/transport@workspace:packages/transport"],
 
     "@hono/node-server": ["@hono/node-server@2.1.9", "", { "peerDependencies": { "hono": "^4 || ^5.0.0-0" } }, "sha512-Sk4NQd3GFY0WZWCzndwFMPwJhtD0y9qjsQ+pjID0/03nK9pxyBCUoUHCho8QYBLBVhi0ssL8UkNPHqbgSOFPIQ=="],
 
