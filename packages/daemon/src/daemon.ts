@@ -31,6 +31,7 @@ import type { AgentDefinition } from "./agents.ts";
 import { blobsDir, defaultsPath, indexPath, sessionsDir } from "./data-dir.ts";
 import { AgentDefaults } from "./defaults-file.ts";
 import {
+  INTERNAL_ERROR,
   INVALID_PARAMS,
   logUnavailable,
   RpcError,
@@ -432,6 +433,7 @@ export class Daemon {
       ) {
         // `#onUpdate` announces a change of state once the record is written: not twice.
         this.#remember(session, { attentionSeq: record.seq }, false);
+        if (update.state === "idle") session.turnEnded = true;
       }
     } else if (update.sessionUpdate === "subagent_update") {
       if (session.noteSubagent(update)) this.#changed();
@@ -612,6 +614,27 @@ export class Daemon {
     });
   }
 
+  /**
+   * A turn that ended in failure the agent did not report (it exited, or the prompt could not be sent) is put on record
+   * as the end of the turn, once: that record is what makes the session unread. The list is announced again after it
+   * is written, because a client that re-lists on the first announcement reads the row before the mark.
+   */
+  #endTurnWithError(session: Session, code: number, message: string): void {
+    if (session.turnEnded) return;
+    session.turnEnded = true;
+    void this.#write(session, {
+      kind: "update",
+      data: {
+        sessionUpdate: "state_update",
+        state: "idle",
+        stopReason: "error",
+        error: { code, message },
+      },
+    }).then((written) => {
+      if (written) this.#changed();
+    });
+  }
+
   #onAgentClosed(session: Session, link: AgentLink | undefined): void {
     if (session.link !== link && link !== undefined) return;
     const wasWorking = session.agentState !== "idle";
@@ -637,15 +660,7 @@ export class Daemon {
     if (wasWorking) {
       // Whoever is watching is told the turn is over, rather than left waiting for an idle.
       session.agentState = "idle";
-      void this.#write(session, {
-        kind: "update",
-        data: {
-          sessionUpdate: "state_update",
-          state: "idle",
-          stopReason: "error",
-          error: { code: CycleErrorCode.AgentExited, message: "The agent exited" },
-        },
-      });
+      this.#endTurnWithError(session, CycleErrorCode.AgentExited, "The agent exited");
     }
     this.#changed();
   }
@@ -900,6 +915,7 @@ export class Daemon {
         throw sessionBusy(session.id);
       // Marked at once: the agent's own "running" comes later, and a second prompt must not slip in.
       session.agentState = "running";
+      session.turnEnded = false;
       this.#changed();
       try {
         const link = await this.#ensureAgent(session);
@@ -909,8 +925,15 @@ export class Daemon {
         } as never);
         return answer as never;
       } catch (error) {
+        // A turn that ended in failure is a turn end like any other: on record, so the session shows as unread.
         session.agentState = "idle";
         this.#changed();
+        const code = (error as { code?: unknown } | null)?.code;
+        this.#endTurnWithError(
+          session,
+          typeof code === "number" ? code : INTERNAL_ERROR,
+          error instanceof Error ? error.message : String(error),
+        );
         throw error;
       }
     });
