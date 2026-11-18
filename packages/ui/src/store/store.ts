@@ -112,14 +112,19 @@ export class AppStore {
       this.#set((s) => (s.update === undefined ? { update } : {}));
     });
     await this.#attempt(async () => {
-      const { hosts, status } = await this.#bridge.hosts();
+      const { hosts, status, sessions } = await this.#bridge.hosts();
       this.#set({
         ready: true,
         hosts,
         status: Object.fromEntries(status.map((s) => [s.hostId, s])),
+        // What main has read so far, also from a host that has since gone away.
+        sessions,
+        selectedHost: hosts[0]?.id,
       });
-      const first = hosts[0];
-      if (first !== undefined) await this.selectHost(first.id);
+      // Main connects every host: the agents of those that already are, now; of the others, when each connects.
+      await Promise.all(
+        status.filter((s) => s.state === "connected").map((s) => this.#loadAgents(s.hostId)),
+      );
     });
     this.#set({ ready: true });
   }
@@ -135,9 +140,12 @@ export class AppStore {
       case "hosts":
         this.#set({ hosts: event.hosts });
         return;
-      case "host-status":
+      case "host-status": {
+        const was = this.#state.status[event.hostId]?.state;
         this.#set((s) => ({ status: { ...s.status, [event.hostId]: toStatus(event) } }));
+        if (event.state === "connected" && was !== "connected") void this.#loadAgents(event.hostId);
         return;
+      }
       case "sessions":
         this.#set((s) => ({ sessions: { ...s.sessions, [event.hostId]: event.sessions } }));
         return;
@@ -237,61 +245,46 @@ export class AppStore {
 
   // ---- what the user does ----
 
-  /** Selects a host, connecting to it if it is not. */
-  selectHost = async (hostId: string): Promise<void> => {
-    this.#set({ selectedHost: hostId, selectedSession: undefined });
-    await this.#attempt(async () => {
-      const state = this.#state.status[hostId]?.state;
-      if (state !== "connected" && state !== "connecting" && state !== "reconnecting") {
-        await this.#bridge.connect(hostId);
-      }
-      const [sessions, agents] = await Promise.all([
-        this.#bridge.sessions(hostId),
-        this.#bridge.agents(hostId),
-      ]);
-      this.#set((s) => ({
-        sessions: { ...s.sessions, [hostId]: sessions },
-        agents: { ...s.agents, [hostId]: agents },
-      }));
-    });
+  /** Asks main to connect to a host again. Why it cannot is in the host's status, not in an error to dismiss. */
+  connectHost = async (hostId: string): Promise<void> => {
+    try {
+      await this.#bridge.connect(hostId);
+    } catch {
+      // The status says why.
+    }
   };
 
-  /** Reads the sessions of every connected host that has not been read, so that a search can span hosts. */
-  loadAllSessions = async (): Promise<void> => {
-    const hostIds = Object.values(this.#state.status)
-      .filter((s) => s.state === "connected" && this.#state.sessions[s.hostId] === undefined)
-      .map((s) => s.hostId);
-    await Promise.all(
-      hostIds.map((hostId) =>
-        this.#attempt(async () => {
-          const sessions = await this.#bridge.sessions(hostId);
-          this.#set((s) => ({ sessions: { ...s.sessions, [hostId]: sessions } }));
-        }),
-      ),
-    );
-  };
+  async #loadAgents(hostId: string): Promise<void> {
+    await this.#attempt(async () => {
+      const agents = await this.#bridge.agents(hostId);
+      this.#set((s) => ({ agents: { ...s.agents, [hostId]: agents } }));
+    });
+  }
 
   /** Shows a session of any host: a notification about it was pressed. */
   focusSession = async (hostId: string, sessionId: string): Promise<void> => {
-    if (this.#state.selectedHost !== hostId) await this.selectHost(hostId);
-    // The host may have failed to open, or the person may have gone to another meanwhile; and the session may be gone.
-    if (this.#state.selectedHost !== hostId) return;
     if (!this.#state.sessions[hostId]?.some((s) => s.sessionId === sessionId)) return;
-    await this.selectSession(sessionId);
+    await this.selectSession(hostId, sessionId);
   };
 
-  selectSession = async (sessionId: string): Promise<void> => {
-    const hostId = this.#state.selectedHost;
-    if (hostId === undefined) return;
-    this.#set({ selectedSession: sessionId });
-    await this.#attempt(() => this.#load(hostId, sessionId));
+  /**
+   * Opens a session, on the host it is on. A host that is away still lists its sessions, as they were: one that was
+   * open before can be read again, as it was; one that was not has nothing to show, and the person is told why.
+   */
+  selectSession = async (hostId: string, sessionId: string): Promise<void> => {
+    const state = this.#state.status[hostId]?.state;
+    if (state !== "connected" && this.#state.views[viewKey(hostId, sessionId)] === undefined) {
+      const name = this.#state.hosts.find((h) => h.id === hostId)?.name ?? hostId;
+      this.#set({ error: `${name} is not connected, so this session cannot be opened.` });
+      return;
+    }
+    this.#set({ selectedHost: hostId, selectedSession: sessionId });
+    if (state === "connected") await this.#attempt(() => this.#load(hostId, sessionId));
   };
 
-  createSession = async (params: NewSession): Promise<void> => {
-    const hostId = this.#state.selectedHost;
-    if (hostId === undefined) return;
+  createSession = async (hostId: string, params: NewSession): Promise<void> => {
     const sessionId = await this.#attempt(() => this.#bridge.createSession(hostId, params));
-    if (sessionId !== undefined) await this.selectSession(sessionId);
+    if (sessionId !== undefined) await this.selectSession(hostId, sessionId);
   };
 
   /** What is written for each session and not yet sent (drafts.ts). */
@@ -372,18 +365,36 @@ export class AppStore {
   };
 
   saveHost = async (host: HostConfig): Promise<void> => {
-    await this.#attempt(() => this.#bridge.saveHost(host));
+    const saved = await this.#attempt(async () => {
+      await this.#bridge.saveHost(host);
+      return true;
+    });
+    // A host that is added is connected at once, as every host is when the app starts.
+    if (saved === true) await this.connectHost(host.id);
   };
 
   removeHost = async (hostId: string): Promise<void> => {
     await this.#attempt(async () => {
       await this.#bridge.removeHost(hostId);
       this.drafts.forgetHost(hostId);
-      if (this.#state.selectedHost === hostId) {
-        this.#set({ selectedHost: undefined, selectedSession: undefined });
-        const next = this.#state.hosts[0];
-        if (next !== undefined) await this.selectHost(next.id);
-      }
+      this.#set((s) => {
+        const { [hostId]: _sessions, ...sessions } = s.sessions;
+        const { [hostId]: _agents, ...agents } = s.agents;
+        const { [hostId]: _status, ...status } = s.status;
+        const views = Object.fromEntries(
+          Object.entries(s.views).filter(([, view]) => view.hostId !== hostId),
+        );
+        const open = s.selectedHost === hostId;
+        return {
+          sessions,
+          agents,
+          status,
+          views,
+          ...(open
+            ? { selectedHost: s.hosts.find((h) => h.id !== hostId)?.id, selectedSession: undefined }
+            : {}),
+        };
+      });
     });
   };
 

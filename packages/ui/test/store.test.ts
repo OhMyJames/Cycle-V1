@@ -4,7 +4,7 @@ import type { AppEvent, PermissionRequest, SessionSnapshot } from "../src/api.ts
 import { applyUpdate, emptyConversation } from "../src/model/index.ts";
 import { AppStore, viewKey } from "../src/store/index.ts";
 
-import { fakeBridge, idle, text } from "./fake-bridge.ts";
+import { fakeBridge, idle, summary as summaryOf, text } from "./fake-bridge.ts";
 
 const update = (version: number, u: SessionUpdate, sessionId = "s1"): AppEvent => ({
   type: "update",
@@ -14,23 +14,92 @@ const update = (version: number, u: SessionUpdate, sessionId = "s1"): AppEvent =
   version,
 });
 
-const opened = async (script = fakeBridge()) => {
+const opened = async (script = fakeBridge({ connected: true })) => {
   const store = new AppStore(script.bridge);
   await store.start();
-  await store.selectSession("s1");
+  await store.selectSession("local", "s1");
   return { store, ...script };
 };
 
-test("starts: reads the hosts, connects to the first, and lists its sessions and agents", async () => {
-  const { bridge, named } = fakeBridge();
+test("starts: reads the hosts and what main has of them, and the agents of those that are connected", async () => {
+  const { bridge, named } = fakeBridge({ connected: true });
   const store = new AppStore(bridge);
   await store.start();
   const s = store.getState();
   expect(s.ready).toBe(true);
   expect(s.selectedHost).toBe("local");
-  expect(named("connect")).toHaveLength(1);
+  // Main connects every host: the page does not.
+  expect(named("connect")).toHaveLength(0);
   expect(s.sessions.local?.map((x) => x.sessionId)).toEqual(["s1"]);
   expect(s.agents.local?.map((a) => a.id)).toEqual(["fake"]);
+});
+
+test("the agents of a host are read when it connects, not before", async () => {
+  const script = fakeBridge({ connected: false });
+  const store = new AppStore(script.bridge);
+  await store.start();
+  expect(store.getState().agents.local).toBeUndefined();
+  expect(script.named("agents")).toEqual([]);
+  script.emit({ type: "host-status", hostId: "local", state: "connected" });
+  await Bun.sleep(5);
+  expect(store.getState().agents.local?.map((a) => a.id)).toEqual(["fake"]);
+});
+
+test("a session of a host that is away cannot be opened unless it was already, and the person is told", async () => {
+  const script = fakeBridge({ connected: false });
+  const store = new AppStore(script.bridge);
+  await store.start();
+  // Its last list is there, from main, though the host is not connected.
+  expect(store.getState().sessions.local?.map((x) => x.sessionId)).toEqual(["s1"]);
+  await store.selectSession("local", "s1");
+  expect(store.getState().error).toBe(
+    "This computer is not connected, so this session cannot be opened.",
+  );
+  expect(store.getState().selectedSession).toBeUndefined();
+  expect(script.named("openSession")).toEqual([]);
+
+  // Open while it was connected, then the host goes away: what was read can still be looked at.
+  store.dismissError();
+  script.emit({ type: "host-status", hostId: "local", state: "connected" });
+  await store.selectSession("local", "s1");
+  script.emit({ type: "host-status", hostId: "local", state: "closed" });
+  await store.selectSession("local", "s1");
+  expect(store.getState().error).toBeUndefined();
+  expect(store.getState().selectedSession).toBe("s1");
+  expect(script.named("openSession")).toHaveLength(1);
+});
+
+test("a host that is saved is connected, and one that is removed leaves nothing behind", async () => {
+  const script = fakeBridge({ connected: true });
+  const store = new AppStore(script.bridge);
+  await store.start();
+  await store.selectSession("local", "s1");
+  await store.saveHost({ id: "box", name: "Box", kind: "ssh", host: "me@box" });
+  expect(script.named("connect")).toEqual([["connect", "box"]]);
+  script.emit({
+    type: "sessions",
+    hostId: "box",
+    sessions: [{ ...summaryOf("b1"), hostId: "box" }],
+  });
+  script.emit({ type: "host-status", hostId: "box", state: "connected" });
+  await store.removeHost("box");
+  const s = store.getState();
+  expect(s.sessions.box).toBeUndefined();
+  expect(s.agents.box).toBeUndefined();
+  expect(s.status.box).toBeUndefined();
+  // What was open on another host stays open.
+  expect(s.selectedSession).toBe("s1");
+});
+
+test("a host that cannot be connected says so in its status, not in an error to dismiss", async () => {
+  const script = fakeBridge();
+  script.bridge.connect = async () => {
+    throw new Error("Host key verification failed");
+  };
+  const store = new AppStore(script.bridge);
+  await store.start();
+  await store.connectHost("local");
+  expect(store.getState().error).toBeUndefined();
 });
 
 test("opening a session shows what main has, and then each event in turn", async () => {
@@ -84,7 +153,7 @@ test("events that come while a session is being read are applied after it, in or
   });
   const store = new AppStore(script.bridge);
   await store.start();
-  const selecting = store.selectSession("s1");
+  const selecting = store.selectSession("local", "s1");
   await Bun.sleep(5);
   // Two events overtake the answer; one of them was already in the snapshot.
   script.emit(update(1, text("seen")));
@@ -154,14 +223,14 @@ test("a session that cannot be opened is not left half-shown", async () => {
   });
   const store = new AppStore(script.bridge);
   await store.start();
-  await store.selectSession("gone");
+  await store.selectSession("local", "gone");
   expect(store.getState().error).toBe("No such session");
   expect(store.getState().views[viewKey("local", "gone")]).toBeUndefined();
 });
 
 test("creating a session opens it, and deleting one clears it", async () => {
   const { store, named } = await opened();
-  await store.createSession({ cwd: "/work", agent: "fake" });
+  await store.createSession("local", { cwd: "/work", agent: "fake" });
   expect(named("createSession")).toEqual([
     ["createSession", "local", { cwd: "/work", agent: "fake" }],
   ]);

@@ -69,27 +69,27 @@ test("a project shows a page of its sessions and says how many more it has", () 
 
 test("the open session is shown however far down its project it is", () => {
   const rows = Array.from({ length: PER_PROJECT + 5 }, (_, n) => row(`s${n}`, { lastSeq: n }));
-  const list = sessionList(rows, { ...plain, selected: "s0" });
+  const list = sessionList(rows, { ...plain, selected: "local:s0" });
   expect(ids(list)).toContain("s0");
   expect(list.hidden).toBe(0);
 });
 
 test("the open session is shown, and its project is not opened any further than that", () => {
   const rows = Array.from({ length: 300 }, (_, n) => row(`s${n}`, { lastSeq: n }));
-  const list = sessionList(rows, { ...plain, selected: "s279" });
+  const list = sessionList(rows, { ...plain, selected: "local:s279" });
   // s279 is the 21st newest: the page, plus one.
   expect(list.order).toHaveLength(PER_PROJECT + 1);
   expect(list.order.at(-1)?.sessionId).toBe("s279");
   // An open one on the first page changes nothing.
-  expect(sessionList(rows, { ...plain, selected: "s299" }).order).toHaveLength(PER_PROJECT);
+  expect(sessionList(rows, { ...plain, selected: "local:s299" }).order).toHaveLength(PER_PROJECT);
 });
 
 test("the open session in Working leaves its project the same size as when it is in it", () => {
   const rows = Array.from({ length: 300 }, (_, n) => row(`s${n}`, { lastSeq: n }));
-  const idle = sessionList(rows, { ...plain, selected: "s250" });
+  const idle = sessionList(rows, { ...plain, selected: "local:s250" });
   const running = sessionList(
     rows.map((r) => (r.sessionId === "s250" ? { ...r, state: "running" as const } : r)),
-    { ...plain, selected: "s250" },
+    { ...plain, selected: "local:s250" },
   );
   const project = (list: ReturnType<typeof sessionList>) => list.groups.at(-1)?.sessions.length;
   // In the project it is the 50th row; running, it is in Working, and the project is still as long: it does not jump.
@@ -99,9 +99,11 @@ test("the open session in Working leaves its project the same size as when it is
 
 test("an open session that is not in the list changes nothing", () => {
   const rows = Array.from({ length: 30 }, (_, n) => row(`s${n}`, { lastSeq: n }));
-  expect(sessionList(rows, { ...plain, selected: "nobody" }).order).toHaveLength(PER_PROJECT);
+  expect(sessionList(rows, { ...plain, selected: "local:nobody" }).order).toHaveLength(PER_PROJECT);
   const archived = [...rows, row("gone", { archived: true, lastSeq: 0 })];
-  expect(sessionList(archived, { ...plain, selected: "gone" }).order).toHaveLength(PER_PROJECT);
+  expect(sessionList(archived, { ...plain, selected: "local:gone" }).order).toHaveLength(
+    PER_PROJECT,
+  );
 });
 
 test("a folder with a trailing slash is the same project, and the root and an empty folder are named", () => {
@@ -134,8 +136,8 @@ test("the names of the projects are given for every session, also those in Worki
     [row("1", { cwd: "/a/app", state: "running" }), row("2", { cwd: "/b/app" })],
     plain,
   );
-  expect(list.names.get("/a/app")).toBe("a/app");
-  expect(list.names.get("/b/app")).toBe("b/app");
+  expect(list.names.get("local|/a/app")).toBe("a/app");
+  expect(list.names.get("local|/b/app")).toBe("b/app");
 });
 
 test("projects with the same newest session are ordered by their folder, and the list is the same every time", () => {
@@ -147,4 +149,99 @@ test("an empty list has no groups, and the order is the same call after call", (
   expect(sessionList([], plain)).toEqual({ groups: [], order: [], hidden: 0, names: new Map() });
   const rows = [row("a", { lastSeq: 1 }), row("b", { lastSeq: 1 })];
   expect(ids(sessionList(rows, plain))).toEqual(ids(sessionList([...rows].reverse(), plain)));
+});
+
+const on = (hostId: string, id: string, over: Partial<SessionSummary> = {}) =>
+  row(id, { hostId, ...over });
+
+test("sessions are ordered by when they last had something happen, across hosts", () => {
+  const list = sessionList(
+    [
+      on("local", "a", { updatedAt: "2026-11-18T10:00:00.000Z", lastSeq: 900 }),
+      on("far", "b", { updatedAt: "2026-11-18T12:00:00.000Z", lastSeq: 2 }),
+      on("local", "c", { updatedAt: "2026-11-18T11:00:00.000Z", lastSeq: 1 }),
+    ],
+    plain,
+  );
+  // By time, whatever their numbers say: the two hosts' counters mean different things.
+  expect(list.groups.flatMap((g) => g.sessions.map((s) => s.sessionId))).toEqual(["b", "c", "a"]);
+});
+
+test("a session whose daemon gives no time comes after those that have one, and keeps its daemon's order", () => {
+  const list = sessionList(
+    [
+      on("old", "x", { lastSeq: 50 }),
+      on("old", "y", { lastSeq: 70 }),
+      on("new", "z", { updatedAt: "2020-01-01T00:00:00.000Z", lastSeq: 1 }),
+    ],
+    plain,
+  );
+  expect(list.order.map((s) => s.sessionId)).toEqual(["z", "y", "x"]);
+});
+
+test("undated sessions of two daemons are not mixed by numbers that mean different things", () => {
+  const rows = [
+    on("a", "a1", { lastSeq: 500 }),
+    on("b", "b1", { lastSeq: 3 }),
+    on("a", "a2", { lastSeq: 400 }),
+    on("b", "b2", { lastSeq: 2 }),
+  ];
+  const order = (list: ReturnType<typeof sessionList>) => list.order.map((s) => s.sessionId);
+  expect(order(sessionList(rows, plain))).toEqual(order(sessionList([...rows].reverse(), plain)));
+  // Each daemon's own order holds, and the two stay apart.
+  expect(order(sessionList(rows, plain))).toEqual(["a1", "a2", "b1", "b2"]);
+});
+
+test("the same folder on two hosts is two projects, and one on another machine is named after its host", () => {
+  const hosts = [
+    { id: "local", name: "This computer", local: true },
+    { id: "far", name: "Build box", local: false },
+  ];
+  const list = sessionList(
+    [
+      on("local", "a", { lastSeq: 2 }),
+      on("far", "b", { lastSeq: 1 }),
+      on("far", "c", { lastSeq: 3 }),
+    ],
+    { ...plain, hosts },
+  );
+  expect(list.groups.map((g) => g.label).toSorted()).toEqual(["app", "app · Build box"]);
+  expect(list.groups.map((g) => g.key)).toEqual([...new Set(list.groups.map((g) => g.key))]);
+  expect(list.groups.find((g) => g.label === "app · Build box")?.sessions).toHaveLength(2);
+});
+
+test("a name is made longer only against projects on the same host", () => {
+  const hosts = [
+    { id: "local", name: "This computer", local: true },
+    { id: "far", name: "Build box", local: false },
+  ];
+  const list = sessionList(
+    [on("local", "a", { cwd: "/home/me/app" }), on("far", "b", { cwd: "/srv/work/app" })],
+    { ...plain, hosts },
+  );
+  expect(list.groups.map((g) => g.label).toSorted()).toEqual(["app", "app · Build box"]);
+});
+
+test("the open session is found by host and id, not by id alone", () => {
+  const rows = [
+    ...Array.from({ length: PER_PROJECT + 5 }, (_, n) => on("a", `s${n}`, { lastSeq: n })),
+    ...Array.from({ length: PER_PROJECT + 5 }, (_, n) => on("b", `s${n}`, { lastSeq: n })),
+  ];
+  const list = sessionList(rows, { ...plain, selected: "b:s0" });
+  expect(list.order.filter((s) => s.hostId === "b" && s.sessionId === "s0")).toHaveLength(1);
+  expect(list.order.filter((s) => s.hostId === "a" && s.sessionId === "s0")).toHaveLength(0);
+});
+
+test("sessions of a host that is away wait for no one and work for no one", () => {
+  const list = sessionList(
+    [
+      on("far", "ask", { state: "requires_action" }),
+      on("far", "run", { state: "running" }),
+      on("local", "mine", { state: "running" }),
+    ],
+    { ...plain, away: new Set(["far"]) },
+  );
+  expect(list.groups.map((g) => g.kind)).toEqual(["working", "project"]);
+  expect(list.groups[0]?.sessions.map((s) => s.sessionId)).toEqual(["mine"]);
+  expect(list.order.map((s) => s.sessionId).toSorted()).toEqual(["ask", "mine", "run"]);
 });

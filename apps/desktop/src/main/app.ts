@@ -145,6 +145,8 @@ export const startApp = async (options: AppOptions) => {
   });
   contents.on("will-attach-webview", (event) => event.preventDefault());
   await window.loadURL(indexUrl);
+  // Every host is connected from here, not when the person picks one: what is wrong with one is in its status.
+  void manager.connectAll();
   if (options.update !== undefined && options.update.disabled === undefined) {
     await cleanStale(options.update.appPath);
     updater.start();

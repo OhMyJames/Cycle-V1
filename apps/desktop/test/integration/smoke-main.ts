@@ -148,8 +148,8 @@ const main = async () => {
     });
 
     await waitFor(
-      "the host to be connected",
-      `document.querySelector('[data-slot="host-state"]')?.dataset.state === "connected"`,
+      "a host to be connected (the New session button is on)",
+      `[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'New session' && !b.disabled)`,
     );
     out({ step: "connected" });
     if (real) {
@@ -291,7 +291,7 @@ const main = async () => {
     await run("location.reload()").catch(() => undefined);
     await waitFor(
       "the app again",
-      `document.querySelector('[data-slot="host-state"]')?.dataset.state === "connected"`,
+      `[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'New session' && !b.disabled)`,
     );
     await click(`document.querySelector('[role="option"]')`);
     await waitFor("the conversation back", `${has(hello)} && ${has(finished)}`);
