@@ -44,13 +44,37 @@ const TOKEN_SHAPES = [
   /\bAIza[0-9A-Za-z_-]{35}\b/g,
   /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
 ];
-const BEARER = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{12,}/g;
-/** `ANTHROPIC_API_KEY=sk...` (what `cat .env` prints): the name stays, the value goes. Upper case only: `const token = f()` is code. */
+/** The token has a digit in it and is long: "Bearer tokenization strategy" is prose. */
+const BEARER =
+  /\b(Bearer|Basic)\s+(?=[A-Za-z0-9._~+/=-]{16,})(?=[A-Za-z0-9._~+/=-]*\d)[A-Za-z0-9._~+/=-]+/g;
+/** `https://user:password@host`: the password goes. */
+const URL_PASSWORD = /(\b[a-z][a-z0-9+.-]{0,15}:\/\/[^\s/:@]+:)([^\s/@]+)(@)/gi;
+/** `token=abc` with nothing around the `=` (a query string, an env file in lower case); `token = f()` is code. */
+const BARE_ASSIGNMENT =
+  /(\b[A-Za-z0-9]*[_-]?(?:password|passwd|token|secret|api[_-]?key|access[_-]?key)=)([^\s&"';]+)/gi;
+/** `ANTHROPIC_API_KEY=sk...` (what `cat .env` prints): the name stays, the value goes. Upper case, nothing around the `=`: `const API_KEY = x` and `A == B` are code. */
 const ENV_ASSIGNMENT =
-  /(\b[A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|CREDENTIALS?)[ \t]*=[ \t]*)("[^"\n]*"|'[^'\n]*'|[^\s"';]+)/g;
-/** `--token=abc`, `--api-key abc`. */
-const FLAG =
-  /(--[a-z0-9-]*(?:token|password|passwd|secret|api-key|apikey)(?:=|[ \t]+))("[^"\n]*"|'[^'\n]*'|[^\s"'-][^\s"']*)/gi;
+  /(\b[A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|CREDENTIALS?)=(?!=))("[^"\n]*"|'[^'\n]*'|[^\s"';]+)/g;
+/** What follows a flag's name: `=abc`, ` abc`, ` "a b"`. */
+const FLAG_NAME = /(?:token|password|passwd|secret|api-?key)(?:=|[ \t]+)/gi;
+const FLAG_VALUE = /^(?:"[^"\n]*"|'[^'\n]*'|[^\s"'-][^\s"']*)/;
+const FLAG_HEAD = /(?:^|[^\w-])--[a-z0-9-]*$/i;
+/** `--token=abc`, `--api-key abc`. Found by the name first and looked back from there: bounded work on any input. */
+const redactFlags = (text: string): string => {
+  let out = "";
+  let from = 0;
+  for (const found of text.matchAll(FLAG_NAME)) {
+    const nameAt = found.index ?? 0;
+    const valueAt = nameAt + found[0].length;
+    if (nameAt < from) continue;
+    if (!FLAG_HEAD.test(text.slice(Math.max(0, nameAt - 40), nameAt))) continue;
+    const value = FLAG_VALUE.exec(text.slice(valueAt, valueAt + 4096))?.[0];
+    if (value === undefined || keep(value)) continue;
+    out += text.slice(from, valueAt) + REDACTED;
+    from = valueAt + value.length;
+  }
+  return from === 0 ? text : out + text.slice(from);
+};
 /** `"password": "abc"` in JSON that is text (a config file, a curl body). */
 const JSON_PAIR = /("([^"\n]{1,64})"[ \t]*:[ \t]*)("(?:[^"\\\n]|\\.)*")/g;
 
@@ -62,12 +86,17 @@ export const redactText = (text: string): string => {
   let out = text.replace(PRIVATE_KEY_BLOCK, REDACTED);
   for (const shape of TOKEN_SHAPES) out = out.replace(shape, REDACTED);
   out = out.replace(BEARER, (_, scheme: string) => `${scheme} ${REDACTED}`);
+  out = out.replace(
+    URL_PASSWORD,
+    (_, head: string, _password: string, at: string) => `${head}${REDACTED}${at}`,
+  );
+  out = out.replace(BARE_ASSIGNMENT, (whole, name: string, value: string) =>
+    keep(value) ? whole : `${name}${REDACTED}`,
+  );
   out = out.replace(ENV_ASSIGNMENT, (whole, name: string, value: string) =>
     keep(value) ? whole : `${name}${REDACTED}`,
   );
-  out = out.replace(FLAG, (whole, name: string, value: string) =>
-    keep(value) ? whole : `${name}${REDACTED}`,
-  );
+  out = redactFlags(out);
   out = out.replace(JSON_PAIR, (whole, head: string, key: string, value: string) =>
     isSecretKey(key) && value !== '""' && !keep(value) ? `${head}"${REDACTED}"` : whole,
   );

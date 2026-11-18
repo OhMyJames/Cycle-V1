@@ -83,6 +83,9 @@ test("strings: token shapes, private keys, bearer, env assignments, flags and js
     'DB_PASSWORD="two words"',
     "curl --token=abc123 --api-key def456",
     '{"password": "hunter2hunter2", "user": "me"}',
+    "postgres://admin:s3cretpass@db.example/x",
+    "GET /v1?token=querytoken99&page=2",
+    "password=lowercase99",
   ].join("\n");
   const out = redactText(text);
   for (const gone of [
@@ -97,6 +100,9 @@ test("strings: token shapes, private keys, bearer, env assignments, flags and js
     "abc123",
     "def456",
     "hunter2hunter2",
+    "s3cretpass",
+    "querytoken99",
+    "lowercase99",
   ])
     expect(out).not.toContain(gone);
   expect(out).toContain("ITSAPLAN_API_KEY=" + REDACTED);
@@ -111,6 +117,13 @@ test("text that is only text is untouched", () => {
     "git checkout main && bun run check",
     "sk-short",
     '{"password": ""}',
+    "Basic configuration of the server",
+    "Bearer tokenization strategy",
+    "const API_KEY = process.env.API_KEY;",
+    "PRIMARY_KEY = 'id'",
+    "if (MAX_TOKEN == 5) run()",
+    "https://example.test/a:b@c",
+    "token = f()",
   ])
     expect(redactText(text)).toBe(text);
 });
@@ -142,4 +155,15 @@ test("a very deep value does not hang or throw", () => {
   for (let i = 0; i < 200; i++) deep = { a: deep };
   expect(() => redactTool(deep)).not.toThrow();
   expect(isSecretKey("Api-Key")).toBe(true);
+});
+
+test("a large string with nothing to find is cleaned in linear time", () => {
+  const started = performance.now();
+  for (const text of [
+    "-".repeat(200_000),
+    "--a".repeat(70_000),
+    `${"--abc-".padEnd(80, "x")}`.repeat(3_000),
+  ])
+    redactText(text);
+  expect(performance.now() - started).toBeLessThan(1_000);
 });

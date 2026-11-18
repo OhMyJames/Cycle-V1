@@ -1203,7 +1203,7 @@ test("tool input and output are kept without credentials: on disk, live, and in 
   expect(JSON.stringify(live.permissions)).toContain("/tmp");
 });
 
-test("a form's answer stays out of the log and a field named password in its schema stays in the form", async () => {
+test("a form's answer stays out of the log", async () => {
   const { daemon } = await start(
     fakeAgent({
       onPrompt: async ({ elicit }) => {
