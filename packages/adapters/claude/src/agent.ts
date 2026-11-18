@@ -782,16 +782,18 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           replayFrom: params.replayFrom,
         });
       }
-      const known = sessions.get(params.sessionId);
       const hadTurn =
         (params._meta as Record<string, unknown> | null | undefined)?.[HAD_TURN] === true;
+      // Looked at before the session is taken or made: nothing is awaited between the two.
+      const started =
+        sessions.has(params.sessionId) || (await recordOf(params.sessionId, params.cwd, hadTurn));
       const session =
-        known ??
+        sessions.get(params.sessionId) ??
         ({
           id: params.sessionId,
           cwd: params.cwd,
           // Whether Claude has this session on disk (see `recordOf`): it is resumed if so, and made if not.
-          started: await recordOf(params.sessionId, params.cwd, hadTurn),
+          started,
           subagents: new Subagents(),
           commandsKey: undefined,
           mode: "default",

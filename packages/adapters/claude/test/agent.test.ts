@@ -515,7 +515,9 @@ const resumed = async (
     record === "cannot look"
       ? {}
       : {
-          sessionInfo: async () => {
+          sessionInfo: async (sessionId: string, cwd: string) => {
+            // It is asked about this session, in the directory it was made in.
+            expect([sessionId, cwd]).toEqual([ID, "/work"]);
             if (record === "fails") throw new Error("cannot read the config directory");
             return record === "found" ? ({ summary: "s", firstPrompt: "s" } as never) : undefined;
           },

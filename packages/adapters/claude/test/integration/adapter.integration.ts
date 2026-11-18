@@ -503,3 +503,38 @@ test("a session that had a turn answered, whose record Claude no longer has, is 
     await config.dispose();
   }
 }, 60_000);
+
+test("a session that had a turn answered, whose record is there, is resumed with its context", async () => {
+  const mock = startMock(() => textReply("Noted."));
+  const config = await tempConfigDir();
+  const id = "bf526374-5555-4666-8777-d88899900011";
+  try {
+    await withAdapter({ mockUrl: mock.url, configDir: config.dir }, async ({ agent, idle }) => {
+      await agent.request(methods.agent.session.new, { cwd, _meta: { "cycle/sessionId": id } });
+      const done = idle();
+      await agent.request(methods.agent.session.prompt, {
+        sessionId: id,
+        prompt: [{ type: "text", text: "Remember the word MANGO." }],
+      });
+      await done;
+    });
+    await withAdapter({ mockUrl: mock.url, configDir: config.dir }, async ({ agent, idle }) => {
+      // The daemon says a turn was answered; Claude has its record, so this is a resume as any other.
+      await agent.request(methods.agent.session.resume, {
+        sessionId: id,
+        cwd,
+        _meta: { "cycle/hadTurn": true },
+      });
+      const done = idle();
+      await agent.request(methods.agent.session.prompt, {
+        sessionId: id,
+        prompt: [{ type: "text", text: "What was the word?" }],
+      });
+      await done;
+    });
+    expect(sentText(asked(mock.requests).at(-1)?.body)).toContain("MANGO");
+  } finally {
+    mock.stop();
+    await config.dispose();
+  }
+}, 60_000);
