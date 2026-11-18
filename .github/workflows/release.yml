@@ -125,6 +125,21 @@ jobs:
           security find-identity -v -p codesigning
           echo "CYCLE_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
 
+      # A service on the owner's Mac may see the login keychain locked even when the owner has it
+      # unlocked in a terminal. If the repository has KEYCHAIN_PASSWORD (the Mac user's login password),
+      # unlock it here; without it this step does nothing.
+      - name: Unlock the login keychain
+        if: env.SIGN == 'true' && env.APPLE_NOTARY_PROFILE != ''
+        env:
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          if [ -n "$KEYCHAIN_PASSWORD" ]; then
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$HOME/Library/Keychains/login.keychain-db"
+            echo "unlocked"
+          else
+            echo "no KEYCHAIN_PASSWORD set; leaving the keychain as it is"
+          fi
+
       - name: Where the keychain stands (diagnostic)
         if: env.SIGN == 'true' && env.APPLE_NOTARY_PROFILE != ''
         run: |
