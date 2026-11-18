@@ -23,10 +23,49 @@ describe("importsOf", () => {
     expect(importsOf(text).sort()).toEqual(["a", "b", "c", "d", "e", "fg", "h", "i"]);
   });
 
+  test("several on one line, and ones with comments and quotes inside", () => {
+    expect(importsOf('import a from "a"; import r from "react"; export * from "b";')).toEqual([
+      "a",
+      "react",
+      "b",
+    ]);
+    expect(importsOf('import {\n  a, // it\'s\n  b /* "x" */,\n} from "node:fs";')).toEqual([
+      "node:fs",
+    ]);
+    expect(importsOf("const m = await import(`node:fs`);")).toEqual(["node:fs"]);
+    expect(importsOf('import def, { a as b } from "m"; import * as ns from "n";')).toEqual([
+      "m",
+      "n",
+    ]);
+    expect(importsOf('import type def from "t"; export type { A } from "u";')).toEqual(["t", "u"]);
+    expect(importsOf('import x = require("y");')).toEqual(["y"]);
+    expect(importsOf("export const a = 1\nexport { b }\nimport.meta.url;")).toEqual([]);
+  });
+
+  test("a template literal with a substitution in it is not a module name; foo.import(...) is not an import", () => {
+    expect(importsOf(`await import(\`./x/$${"{name}"}.ts\`);`)).toEqual([]);
+    expect(importsOf('foo.import("zzz"); foo.require("zzz");')).toEqual([]);
+  });
+
+  test("a block comment holding an import, and a string holding a require, are nothing", () => {
+    expect(importsOf('/*\nimport x from "node:fs";\n*/')).toEqual([]);
+    expect(importsOf("const s = \"call require('fs')\";")).toEqual([]);
+  });
+
+  test("takes time in proportion to the text, with or without semicolons", () => {
+    const started = performance.now();
+    importsOf("export const a = 1\n".repeat(200_000));
+    importsOf("import a\n".repeat(200_000));
+    importsOf("import {\n".repeat(50_000));
+    expect(performance.now() - started).toBeLessThan(3000);
+  });
+
   test("a comment or a string that looks like an import is not one", () => {
     const text = [
       '// import x from "in-comment";',
+      "/*",
       ' * import y from "in-block-comment";',
+      " */",
       "const s = \"import z from 'in-string'\";",
     ].join("\n");
     expect(importsOf(text)).toEqual([]);
@@ -57,6 +96,18 @@ const cases: [string, string, boolean][] = [
   ["packages/ui/src/model/x.ts", 'import { a } from "./blocks.ts";', false],
   ["packages/ui/src/api.ts", 'import type { C } from "./model/index.ts";', false],
   ["packages/ui/src/api.ts", 'import { useState } from "react";', true],
+  ["packages/ui/src/model/x.ts", 'import { a } from "../react/index.ts";', true],
+  ["packages/ui/src/model/x.ts", 'import { a } from "../store/store.ts";', true],
+  [
+    "packages/ui/src/model/x.ts",
+    'import { a } from "../../../../apps/desktop/src/main/app.ts";',
+    true,
+  ],
+  ["packages/ui/src/model/x.ts", 'import { a } from "../api.ts";', false],
+  ["packages/ui/src/model/x.ts", 'import { a } from "./sub/y.ts";', false],
+  ["packages/ui/src/api.ts", 'import { a } from "./react/index.ts";', true],
+  ["packages/ui/src/model/x.ts", 'import a from "a"; import r from "react";', true],
+  ["packages/ui/src/model/x.ts", 'import {\n a, // it\'s\n} from "node:fs";', true],
   // The page
   ["apps/desktop/src/renderer/main.tsx", 'import { readFile } from "node:fs";', true],
   ["apps/desktop/src/renderer/main.tsx", 'import { join } from "path";', true],
@@ -64,6 +115,17 @@ const cases: [string, string, boolean][] = [
   ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/daemon";', true],
   ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/client";', true],
   ["apps/desktop/src/renderer/main.tsx", 'const m = await import("node:os");', true],
+  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/transport";', true],
+  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/protocol";', true],
+  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/desktop";', true],
+  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/adapter-claude";', true],
+  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/daemon-app";', true],
+  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "module";', true],
+  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "tty";', true],
+  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "vm";', true],
+  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "fs/promises";', true],
+  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "bun:sqlite";', true],
+  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "bun";', true],
   ["packages/ui/src/react/app.tsx", 'import { x } from "bun:test";', true],
   ["packages/ui/src/react/app.tsx", 'import { api } from "@cycle/ui/api";', false],
   ["packages/ui/src/react/app.tsx", 'import { createRoot } from "react-dom/client";', false],
@@ -72,6 +134,8 @@ const cases: [string, string, boolean][] = [
   ["apps/desktop/src/preload/preload.ts", 'import { x } from "@cycle/daemon";', true],
   ["apps/desktop/src/preload/preload.ts", 'import { x } from "@cycle/daemon/src/daemon.ts";', true],
   ["apps/desktop/src/preload/preload.ts", 'import { x } from "../main/app.ts";', true],
+  ["apps/desktop/src/preload/preload.ts", 'import { x } from "./helper.ts";', true],
+  ["apps/desktop/src/preload/preload.ts", 'import { x } from "electron/renderer";', false],
   ["apps/desktop/src/preload/preload.ts", 'import { x } from "node:fs";', true],
   ["apps/desktop/src/preload/preload.ts", 'import { x } from "react";', true],
   ["apps/desktop/src/preload/preload.ts", 'import { x } from "@cycle/ui";', true],

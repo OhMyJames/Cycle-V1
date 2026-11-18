@@ -8,6 +8,9 @@
 //             Electron, no Bun, and nothing that starts or talks to the daemon directly (it goes by the bridge).
 //   preload   apps/desktop/src/preload: sandboxed. electron, and the bridge contract from @cycle/ui/api, nothing else.
 
+import { builtinModules } from "node:module";
+import { posix } from "node:path";
+
 export type Zone = "model" | "renderer" | "preload";
 
 export const zoneOf = (file: string): Zone[] => {
@@ -20,43 +23,156 @@ export const zoneOf = (file: string): Zone[] => {
   return zones;
 };
 
-/** The module names a file imports: static, side-effect, re-export, dynamic and require. A line in a comment is not one. */
+type Token = { kind: "word" | "string" | "dynamic" | "punct"; text: string };
+
+/**
+ * A file as words, strings and punctuation, one pass: comments are skipped, a string ends at its quote or at the
+ * end of its line (so one quote that is really in a regular expression spoils only its line), a template literal
+ * with ${} in it is "dynamic" (its module cannot be known).
+ */
+const tokenize = (text: string): Token[] => {
+  const tokens: Token[] = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    const c = text[i] as string;
+    if (c === " " || c === "\t" || c === "\n" || c === "\r") {
+      i++;
+    } else if (c === "/" && text[i + 1] === "/") {
+      const eol = text.indexOf("\n", i);
+      i = eol === -1 ? n : eol;
+    } else if (c === "/" && text[i + 1] === "*") {
+      const close = text.indexOf("*/", i + 2);
+      i = close === -1 ? n : close + 2;
+    } else if (c === '"' || c === "'") {
+      let j = i + 1;
+      while (j < n && text[j] !== c && text[j] !== "\n") j += text[j] === "\\" ? 2 : 1;
+      tokens.push({ kind: "string", text: text.slice(i + 1, j) });
+      i = j + 1;
+    } else if (c === "`") {
+      let j = i + 1;
+      let depth = 0;
+      let dynamic = false;
+      while (j < n && !(text[j] === "`" && depth === 0)) {
+        if (text[j] === "\\") j += 2;
+        else if (text[j] === "$" && text[j + 1] === "{") {
+          dynamic = true;
+          depth++;
+          j += 2;
+        } else {
+          if (depth > 0 && text[j] === "}") depth--;
+          j++;
+        }
+      }
+      tokens.push({ kind: dynamic ? "dynamic" : "string", text: text.slice(i + 1, j) });
+      i = j + 1;
+    } else if (/[A-Za-z_$]/.test(c)) {
+      let j = i + 1;
+      while (j < n && /[\w$]/.test(text[j] as string)) j++;
+      tokens.push({ kind: "word", text: text.slice(i, j) });
+      i = j;
+    } else {
+      tokens.push({ kind: "punct", text: c });
+      i++;
+    }
+  }
+  return tokens;
+};
+
+/**
+ * The module names a file imports: static, side-effect, re-export, dynamic and require. Read from the tokens, so a
+ * comment or a string that looks like an import is not one, and several imports on a line are all found.
+ * What it does not see: an import behind a template literal that has ${} in it, and a regular expression with a
+ * backtick in it, which swallows what follows up to the next backtick.
+ */
 export const importsOf = (text: string): string[] => {
+  const t = tokenize(text);
   const found: string[] = [];
-  const patterns = [
-    /^[ \t]*(?:import|export)\b[^;'"]*?\bfrom\s*["']([^"']+)["']/gm,
-    /^[ \t]*import\s*["']([^"']+)["']/gm,
-    /\b(?:import|require)\s*\(\s*["']([^"']+)["']/g,
-  ];
-  for (const pattern of patterns)
-    for (const match of text.matchAll(pattern)) found.push(match[1] as string);
+  const is = (k: number, kind: Token["kind"], value?: string) =>
+    t[k]?.kind === kind && (value === undefined || t[k]?.text === value);
+  // Where each "{" closes, found once for the whole file (looking forward from each would be quadratic on a file
+  // of unclosed braces). One that never closes goes to the end.
+  const closes = new Map<number, number>();
+  const open: number[] = [];
+  for (let j = 0; j < t.length; j++) {
+    if (is(j, "punct", "{")) open.push(j);
+    else if (is(j, "punct", "}")) {
+      const at = open.pop();
+      if (at !== undefined) closes.set(at, j);
+    }
+  }
+  // Past the "}" that closes the "{" at k.
+  const afterBraces = (k: number): number => (closes.get(k) ?? t.length - 1) + 1;
+  // "from" and then the module, if that is what is at k.
+  const fromModule = (k: number) => {
+    if (is(k, "word", "from") && is(k + 1, "string")) found.push((t[k + 1] as Token).text);
+  };
+  for (let k = 0; k < t.length; k++) {
+    if (!is(k, "word") || is(k - 1, "punct", ".")) continue;
+    const word = (t[k] as Token).text;
+    if (word === "require" || (word === "import" && is(k + 1, "punct", "("))) {
+      if (is(k + 1, "punct", "(") && is(k + 2, "string")) found.push((t[k + 2] as Token).text);
+    } else if (word === "import") {
+      if (is(k + 1, "string")) found.push((t[k + 1] as Token).text);
+      else if (!is(k + 1, "punct", ".")) {
+        let j = k + 1;
+        if (is(j, "word", "type") && !is(j + 1, "word", "from")) j++;
+        // The clause: a default name, then "* as name" or "{ ... }", each optional.
+        if (is(j, "word") && !is(j, "word", "from")) j++;
+        if (is(j, "punct", ",")) j++;
+        if (is(j, "punct", "*")) j += is(j + 1, "word", "as") ? 3 : 1;
+        else if (is(j, "punct", "{")) j = afterBraces(j);
+        fromModule(j);
+      }
+    } else if (word === "export") {
+      let j = k + 1;
+      if (is(j, "word", "type")) j++;
+      if (is(j, "punct", "*")) {
+        j++;
+        if (is(j, "word", "as") && is(j + 1, "word")) j += 2;
+      } else if (is(j, "punct", "{")) j = afterBraces(j);
+      else continue;
+      fromModule(j);
+    }
+  }
   return found;
 };
 
 const NODE = /^(?:node:|bun(?::|$)|electron(?:\/|$))/;
-const BUILTIN =
-  /^(?:assert|buffer|child_process|cluster|crypto|dgram|dns|events|fs|http|http2|https|net|os|path|perf_hooks|process|readline|stream|tls|url|util|worker_threads|zlib)(?:\/|$)/;
+// Node's own modules by their bare names ("fs", "fs/promises"). An npm package with one of these names (a polyfill
+// called "events") would be refused too: the page has none, and if it should, it is a decision to make here.
+const BUILTINS = builtinModules.filter((m) => !m.startsWith("_"));
+const isBuiltin = (name: string) => BUILTINS.some((m) => name === m || name.startsWith(`${m}/`));
 // Packages that run in the daemon or the main process: the page has no business with them.
-const BACKEND = /^@cycle\/(?:daemon|client|transport|protocol|desktop)(?:\/|$)|^@cycle\/adapter/;
+const BACKEND =
+  /^@cycle\/(?:daemon|daemon-app|client|transport|protocol|desktop)(?:\/|$)|^@cycle\/adapter/;
 
 const isRelative = (name: string) => name.startsWith(".");
 
-const forbidden: Record<Zone, (name: string) => string | undefined> = {
-  model: (name) => {
-    if (isRelative(name) || name === "@cycle/acp") return undefined;
-    return "the model is pure TypeScript: it may import only relative files and @cycle/acp";
+/** Inside the zone, after the relative name is resolved: the model's own files, and the bridge contract that wraps them. */
+const inModel = (resolved: string) =>
+  resolved.startsWith("packages/ui/src/model/") ||
+  resolved.replace(/\.tsx?$/, "") === "packages/ui/src/api";
+
+const forbidden: Record<Zone, (name: string, file: string) => string | undefined> = {
+  model: (name, file) => {
+    if (name === "@cycle/acp") return undefined;
+    if (isRelative(name)) {
+      if (inModel(posix.normalize(posix.join(posix.dirname(file), name)))) return undefined;
+      return "the model may import only its own files (packages/ui/src/model, api.ts), not code that uses the page or the main process";
+    }
+    return "the model is pure TypeScript: it may import only its own files and @cycle/acp";
   },
   renderer: (name) => {
-    if (NODE.test(name) || BUILTIN.test(name))
+    if (NODE.test(name) || isBuiltin(name))
       return "the page runs in a browser: no Node, Bun or Electron module";
     if (BACKEND.test(name))
       return "the page reaches the daemon only through the bridge (@cycle/ui/api), not by importing it";
     return undefined;
   },
   preload: (name) => {
-    if (isRelative(name))
-      return "the preload is bundled alone: it may not import app code by relative path";
-    if (name === "electron" || name === "@cycle/ui/api") return undefined;
+    if (name === "electron" || name === "electron/renderer" || name === "@cycle/ui/api")
+      return undefined;
     return "the preload may import only electron and @cycle/ui/api";
   },
 };
@@ -69,7 +185,7 @@ export const violations = (file: string, text: string): string[] => {
   const out: string[] = [];
   for (const zone of zones)
     for (const name of names) {
-      const why = forbidden[zone](name);
+      const why = forbidden[zone](name, file);
       if (why) out.push(`${file}: ${zone} imports "${name}" (${why})`);
     }
   return out;
