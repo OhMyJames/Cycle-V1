@@ -294,6 +294,13 @@ export class AppStore {
     await this.#attempt(() => this.#bridge.prompt(hostId, sessionId, content));
   };
 
+  /** Takes a queued prompt back to edit it. Undefined if it had gone to the agent, or came back, meanwhile. */
+  dequeue = async (queueId: string): Promise<PromptBlock[] | undefined> => {
+    const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
+    if (hostId === undefined || sessionId === undefined) return undefined;
+    return this.#attempt(() => this.#bridge.dequeue(hostId, sessionId, queueId));
+  };
+
   cancel = async (): Promise<void> => {
     const { selectedHost: hostId, selectedSession: sessionId } = this.#state;
     if (hostId === undefined || sessionId === undefined) return;

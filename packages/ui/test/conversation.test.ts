@@ -282,3 +282,70 @@ test("the header's words for usage", () => {
     "10% of context · $1.50",
   );
 });
+
+const queued = (...texts: string[]) =>
+  texts.map((text, i) => ({ queueId: `q${i}`, prompt: [{ type: "text", text }] }));
+const queueUpdate = (entries: object[], extra: object = {}) =>
+  u({ sessionUpdate: "_cycle/queue_update", entries, ...extra });
+
+test("the queue is the last snapshot, whole", () => {
+  const c = reduce([queueUpdate(queued("a", "b")), queueUpdate(queued("b"))]);
+  expect(c.queue.map((p) => p.queueId)).toEqual(["q0"]);
+  expect(reduce([queueUpdate([])], c).queue).toEqual([]);
+});
+
+test("what the daemon hands back, heard live, is set once per hand-back", () => {
+  const back = queueUpdate([], { returned: queued("a", "b"), reason: "cancelled" });
+  const first = reduce([back]);
+  expect(first.returned?.serial).toBe(1);
+  expect(first.returned?.reason).toBe("cancelled");
+  expect(first.returned?.prompts.map((p) => p.prompt[0]?.text)).toEqual(["a", "b"]);
+  expect(first.queue).toEqual([]);
+  expect(reduce([back], first).returned?.serial).toBe(2);
+  // A snapshot with nothing handed back leaves the last hand-back as it was: it is not heard again.
+  expect(reduce([queueUpdate(queued("c"))], first).returned).toBe(first.returned);
+});
+
+test("what was handed back before, met again in a replay, is history and goes nowhere", () => {
+  const back = queueUpdate([], { returned: queued("a"), reason: "error" });
+  const replayed = reduce(
+    [queueUpdate(queued("a")), back, u({ sessionUpdate: "replay_complete" })],
+    {
+      ...emptyConversation(),
+      replaying: true,
+    },
+  );
+  expect(replayed.returned).toBeUndefined();
+  expect(replayed.queue).toEqual([]);
+  // The same hand-back arriving after the replay is live.
+  expect(reduce([back], replayed).returned?.serial).toBe(1);
+});
+
+test("a malformed queue entry is left out, not trusted", () => {
+  const c = reduce([queueUpdate([{ queueId: 1, prompt: [] }, { queueId: "x" }, ...queued("ok")])]);
+  expect(c.queue).toHaveLength(1);
+  expect(c.queue[0]?.queueId).toBe("q0");
+});
+
+test("the agent's commands are kept, with the hint of one that takes input", () => {
+  const c = reduce([
+    u({
+      sessionUpdate: "available_commands_update",
+      availableCommands: [
+        { type: "command", name: "init", description: "Set up" },
+        {
+          type: "command",
+          name: "review",
+          description: "Review",
+          input: { type: "text", hint: "PR" },
+        },
+        { type: "other", name: "x", description: "" },
+        { type: "command", name: "", description: "" },
+      ],
+    }),
+  ]);
+  expect(c.commands).toEqual([
+    { name: "init", description: "Set up" },
+    { name: "review", description: "Review", hint: "PR" },
+  ]);
+});

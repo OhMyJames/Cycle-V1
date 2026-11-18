@@ -61,6 +61,15 @@ export type StopReason = {
   error?: { code?: number; message?: string } | null | undefined;
 };
 
+/** A prompt waiting for the agent, as the daemon holds it (docs/protocol.md §8). `queueId` is the daemon's. */
+export type QueuedPrompt = { queueId: string; prompt: Block[] };
+
+/** Prompts the daemon handed back, to be put in the input box. `serial` changes each time, so one is acted on once. */
+export type Returned = { serial: number; prompts: QueuedPrompt[]; reason?: string };
+
+/** A command the agent offers, typed as `/name` at the start of a message. */
+export type Command = { name: string; description: string; hint?: string };
+
 export type Conversation = {
   items: Item[];
   status: Status;
@@ -70,6 +79,11 @@ export type Conversation = {
   /** True from the start of a replay until `replay_complete`. */
   replaying: boolean;
   usage: Usage | undefined;
+  /** The prompts sent while the agent works, oldest first: the last snapshot the daemon wrote. */
+  queue: QueuedPrompt[];
+  /** What the daemon last handed back. Only set when it arrives live: a replay never sets it. */
+  returned: Returned | undefined;
+  commands: Command[];
   /** Updates of a kind this version does not draw. */
   ignored: number;
 };
@@ -81,8 +95,45 @@ export const emptyConversation = (): Conversation => ({
   lastStop: undefined,
   replaying: false,
   usage: undefined,
+  queue: [],
+  returned: undefined,
+  commands: [],
   ignored: 0,
 });
+
+const queuedPrompts = (value: unknown): QueuedPrompt[] =>
+  Array.isArray(value)
+    ? value.flatMap((entry): QueuedPrompt[] => {
+        const e = entry as { queueId?: unknown; prompt?: unknown } | null;
+        return typeof e?.queueId === "string" && Array.isArray(e.prompt)
+          ? [{ queueId: e.queueId, prompt: e.prompt as Block[] }]
+          : [];
+      })
+    : [];
+
+const commandsOf = (value: unknown): Command[] =>
+  Array.isArray(value)
+    ? value.flatMap((entry): Command[] => {
+        const e = entry as {
+          type?: unknown;
+          name?: unknown;
+          description?: unknown;
+          input?: { type?: unknown; hint?: unknown } | null;
+        } | null;
+        // Only commands: an entry of another type is something this version does not offer.
+        if (e === null || (e.type !== undefined && e.type !== "command")) return [];
+        if (typeof e.name !== "string" || e.name === "") return [];
+        const hint =
+          e.input?.type === "text" && typeof e.input.hint === "string" ? e.input.hint : "";
+        return [
+          {
+            name: e.name,
+            description: typeof e.description === "string" ? e.description : "",
+            ...(hint === "" ? {} : { hint }),
+          },
+        ];
+      })
+    : [];
 
 const FINAL: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"]);
 
@@ -251,7 +302,25 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
     }
     case "replay_complete":
       return { ...c, replaying: false };
+    case "_cycle/queue_update": {
+      const returned = queuedPrompts(u.returned);
+      return {
+        ...c,
+        queue: queuedPrompts(u.entries),
+        // Handed back is an event: heard live, it goes to the input box once; in a replay it is history.
+        ...(returned.length > 0 && !c.replaying
+          ? {
+              returned: {
+                serial: (c.returned?.serial ?? 0) + 1,
+                prompts: returned,
+                ...(typeof u.reason === "string" ? { reason: u.reason } : {}),
+              },
+            }
+          : {}),
+      };
+    }
     case "available_commands_update":
+      return { ...c, commands: commandsOf(u.availableCommands) };
     case "config_option_update":
     case "session_info_update":
       // Known, and not drawn in the conversation.

@@ -134,6 +134,21 @@ test("sends a prompt, ignoring an empty one, and can cancel", async () => {
   expect(named("cancel")).toHaveLength(1);
 });
 
+test("takes a queued prompt back, and an error says why it could not", async () => {
+  const script = fakeBridge();
+  script.bridge.dequeue = async (_host, _session, queueId) => {
+    if (queueId === "gone")
+      throw new Error(
+        "Error invoking remote method 'cycle:dequeue': Error: That prompt is not waiting",
+      );
+    return [{ type: "text", text: "back" }];
+  };
+  const { store } = await opened(script);
+  expect(await store.dequeue("q1")).toEqual([{ type: "text", text: "back" }]);
+  expect(await store.dequeue("gone")).toBeUndefined();
+  expect(store.getState().error).toBe("That prompt is not waiting");
+});
+
 test("what goes wrong is kept for the user, without Electron's wrapping, and can be dismissed", async () => {
   const script = fakeBridge();
   script.bridge.prompt = async () => {

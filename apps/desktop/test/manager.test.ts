@@ -358,3 +358,40 @@ test("the local host is not compared: the app carries it", async () => {
   await m.connect("local");
   expect(connectedStatus(events, "local")?.daemon).toBeUndefined();
 });
+
+test("a message sent while the agent works waits in the conversation, and can be taken back", async () => {
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { manager, fake } = await setup(fakeAgent({ onPrompt: () => held }));
+  const { m } = await manager();
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  await m.openSession("local", id);
+  await m.prompt("local", id, "first");
+  await m.prompt("local", id, "second");
+  await m.prompt("local", id, "third");
+  const waiting = async () => (await m.openSession("local", id)).conversation.queue;
+  // `until` takes a plain condition: look, and wait for the two to be there.
+  let queue = await waiting();
+  for (let tries = 0; queue.length < 2 && tries < 400; tries++) {
+    await Bun.sleep(5);
+    queue = await waiting();
+  }
+  const [second, third] = queue;
+  expect(queue.map((p) => p.prompt)).toEqual([
+    [{ type: "text", text: "second" }],
+    [{ type: "text", text: "third" }],
+  ]);
+  expect(second?.prompt).toEqual([{ type: "text", text: "second" }]);
+  // The person changes their mind about the second.
+  expect(await m.dequeue("local", id, second?.queueId ?? "")).toEqual([
+    { type: "text", text: "second" },
+  ]);
+  release();
+  await until(() => fake.log.prompts.length === 2, "the third to be sent");
+  expect(fake.log.prompts).toEqual(["first", "third"]);
+  expect(third?.queueId).toBeString();
+  expect((await waiting()).length).toBe(0);
+});

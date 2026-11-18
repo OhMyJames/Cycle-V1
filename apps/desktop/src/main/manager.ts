@@ -281,6 +281,10 @@ export class ConnectionManager
     await this.#connection(hostId).client.cancel(sessionId);
   }
 
+  async dequeue(hostId: string, sessionId: string, queueId: string): Promise<PromptBlock[]> {
+    return (await this.#connection(hostId).client.dequeue(sessionId, queueId)) as PromptBlock[];
+  }
+
   async setSessionConfig(hostId: string, sessionId: string, configId: string, value: string) {
     await this.#connection(hostId).client.setConfig(sessionId, configId, value);
   }

@@ -189,6 +189,14 @@ export class CycleClient {
     return answer.messageId;
   }
 
+  /** Takes a queued prompt back (docs/protocol.md §8). Rejects if it was sent, or handed back, meanwhile. */
+  async dequeue(sessionId: string, queueId: string): Promise<unknown[]> {
+    const answer = (await this.#request("_cycle/prompt/dequeue", { sessionId, queueId })) as {
+      prompt: unknown[];
+    };
+    return answer.prompt;
+  }
+
   async cancel(sessionId: string): Promise<void> {
     await this.#api().notify(methods.agent.session.cancel, { sessionId } as never);
   }
