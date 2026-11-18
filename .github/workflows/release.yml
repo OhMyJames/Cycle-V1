@@ -82,6 +82,10 @@ jobs:
     env:
       BUNDLE: apps/desktop/build/Cycle.app/Contents/Resources/app
       SIGN: ${{ github.event_name == 'push' || inputs.sign }}
+      # Set on the repository (a variable, not a secret: only a name) when the Mac that builds already holds
+      # the identity and a notarytool profile in its keychain. Then no Apple secret is needed at all.
+      APPLE_NOTARY_PROFILE: ${{ vars.APPLE_NOTARY_PROFILE }}
+      APPLE_SIGN_IDENTITY: ${{ vars.APPLE_SIGN_IDENTITY }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -101,7 +105,7 @@ jobs:
           CYCLE_DAEMON_BIN="$PWD/$BUNDLE/bin/cycle-daemon" bun run --cwd apps/daemon test:integration
 
       - name: Import the signing certificate
-        if: env.SIGN == 'true'
+        if: env.SIGN == 'true' && env.APPLE_NOTARY_PROFILE == ''
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -129,10 +133,12 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
         run: |
-          printf '%s' "$APPLE_API_KEY" > "$APPLE_API_KEY_PATH"
-          chmod 600 "$APPLE_API_KEY_PATH"
+          if [ -z "$APPLE_NOTARY_PROFILE" ]; then
+            printf '%s' "$APPLE_API_KEY" > "$APPLE_API_KEY_PATH"
+            chmod 600 "$APPLE_API_KEY_PATH"
+          fi
           bun run --cwd apps/desktop sign
-          rm "$APPLE_API_KEY_PATH"
+          rm -f "$APPLE_API_KEY_PATH"
 
       - name: The signed app passes Gatekeeper, and what is inside it still runs
         if: env.SIGN == 'true'
