@@ -17,7 +17,12 @@ export type ClientEvents = {
   /** An update of a session, once each: a replay after a reconnect never repeats one. */
   update?: (sessionId: string, update: SessionUpdate, seq: number | undefined) => void;
   /** The agent wants permission. If this is missing, the request is answered "cancelled". */
-  permission?: (sessionId: string, request: Record<string, unknown>) => Promise<PermissionAnswer>;
+  permission?: (
+    sessionId: string,
+    request: Record<string, unknown>,
+    /** The daemon's id for it: `resolved` names the same one. Absent from an older daemon. */
+    requestId: string | undefined,
+  ) => Promise<PermissionAnswer>;
   /** A request this client was asked has been answered somewhere else: close its dialog. */
   resolved?: (sessionId: string, requestId: string | number, outcome: unknown) => void;
   /** Sessions were created, deleted, archived, renamed or changed state: list them again. */
@@ -225,8 +230,13 @@ export class CycleClient {
       })
       .onRequest(methods.client.session.requestPermission, async ({ params }) => {
         const handler = this.#events.permission;
+        const id = (params._meta as Record<string, unknown> | null | undefined)?.[META.requestId];
         const answer = handler
-          ? await handler(params.sessionId, params as unknown as Record<string, unknown>)
+          ? await handler(
+              params.sessionId,
+              params as unknown as Record<string, unknown>,
+              typeof id === "string" ? id : undefined,
+            )
           : { outcome: "cancelled" as const };
         return { outcome: answer } as never;
       })

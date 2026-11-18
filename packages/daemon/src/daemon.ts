@@ -246,7 +246,13 @@ export class Daemon {
 
   async #onPermission(session: Session, params: Record<string, unknown>): Promise<unknown> {
     const requestId = session.nextRequestId();
-    const clientParams = { ...params, sessionId: session.id };
+    // The id is in _meta so a client can match `_cycle/request_resolved` to the dialog it is showing.
+    const meta = (params._meta ?? {}) as Record<string, unknown>;
+    const clientParams = {
+      ...params,
+      sessionId: session.id,
+      _meta: { ...meta, [META.requestId]: requestId },
+    };
     let resolve: (outcome: unknown) => void = () => {};
     const outcome = new Promise<unknown>((r) => {
       resolve = r;

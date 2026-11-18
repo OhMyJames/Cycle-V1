@@ -32,8 +32,14 @@
       "name": "@cycle/desktop",
       "version": "0.0.0",
       "dependencies": {
+        "@cycle/client": "workspace:*",
         "@cycle/protocol": "workspace:*",
+        "@cycle/transport": "workspace:*",
+        "@cycle/ui": "workspace:*",
         "electron": "45.3.4",
+      },
+      "devDependencies": {
+        "@cycle/daemon": "workspace:*",
       },
     },
     "packages/acp": {

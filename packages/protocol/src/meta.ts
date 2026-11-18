@@ -18,6 +18,8 @@ export const META = {
   archived: "cycle/archived",
   state: "cycle/state",
   lastSeq: "cycle/lastSeq",
+  /** On a permission request sent to a client: the daemon's id for it, as `_cycle/request_resolved` names it. */
+  requestId: "cycle/requestId",
 } as const;
 
 /** The version of Cycle's protocol, "major.minor". A different major is refused. */
