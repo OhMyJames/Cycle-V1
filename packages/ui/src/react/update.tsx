@@ -2,6 +2,7 @@ import { Button } from "@ui-sdk/react/button";
 import { useState } from "react";
 import type { UpdateState } from "../api.ts";
 import { ConfirmDialog } from "./dialogs.tsx";
+import { DownloadIcon, ErrorCircleIcon, WarningIcon } from "./icons.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 
 const megabytes = (bytes: number): string => (bytes / 1e6).toFixed(0);
@@ -41,6 +42,7 @@ export function UpdateBanner() {
     update.kind === "error" ? update.version : (update as { version: string }).version;
   return (
     <div data-slot="banner" data-severity={failedInstall ? "error" : "info"} role="status">
+      {failedInstall ? <ErrorCircleIcon /> : <DownloadIcon />}
       <span data-slot="update-line">
         {failedInstall
           ? `Updating to ${version} failed: ${updateLine(update)}`
@@ -69,6 +71,7 @@ export function DaemonBanner({ hostId }: { hostId: string }) {
   if (daemon?.upgrade === undefined) return null;
   return (
     <div data-slot="banner" data-severity="warning" role="status">
+      <WarningIcon />
       <div data-slot="stack">
         <span>
           Cycle on this host is {daemon.version}, older than this app. To update it, run this on

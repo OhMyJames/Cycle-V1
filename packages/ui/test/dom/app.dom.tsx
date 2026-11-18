@@ -3,10 +3,11 @@ import type { SessionUpdate } from "@cycle/acp";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PermissionRequest, SessionSnapshot } from "../../src/api.ts";
+import { codeTheme } from "../../src/code-theme.ts";
 import { applyUpdate, emptyConversation } from "../../src/model/index.ts";
 import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
-import { fakeBridge, idle, text } from "../fake-bridge.ts";
+import { fakeBridge, idle, summary, text } from "../fake-bridge.ts";
 
 afterEach(cleanup);
 
@@ -190,7 +191,7 @@ test("shows what went wrong, and lets it be dismissed", async () => {
 test("says so when the connection is lost", async () => {
   const { emit } = await mount();
   emit({ type: "host-status", hostId: "local", state: "reconnecting" });
-  const note = await screen.findByText(/Reconnecting/);
+  const note = await screen.findByText(/Connection lost/);
   expect(note.getAttribute("role") ?? note.parentElement?.getAttribute("role")).toBe("status");
 });
 
@@ -226,11 +227,194 @@ test("starts a session from the defaults of the agent, in the directory typed", 
 test("deleting a session asks first", async () => {
   const { user, named } = await mount();
   await openFirstSession(user);
-  await user.click(await screen.findByRole("button", { name: "Delete" }));
+  // Delete is in the session's menu: out of the way, so that it is not pressed by habit.
+  await user.click(await screen.findByRole("button", { name: "Session actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
   const dialog = await screen.findByRole("alertdialog");
   expect(named("deleteSession")).toHaveLength(0);
   await user.click(within(dialog).getByRole("button", { name: "Delete" }));
   await waitFor(() => expect(named("deleteSession")).toEqual([["deleteSession", "local", "s1"]]));
+});
+
+test("Ctrl or Cmd+Enter allows a pending request, but not while typing in the message box", async () => {
+  const { user, emit, named } = await mount();
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  emit({
+    type: "permission",
+    version: 1,
+    request: {
+      key: "local:s1:p1",
+      hostId: "local",
+      sessionId: "s1",
+      title: "Allow Bash?",
+      subject: {
+        type: "tool_call",
+        toolCall: { name: "Bash", rawInput: { command: "rm -rf build" } },
+      },
+      options: [
+        { optionId: "allow", name: "Allow once", kind: "allow_once" },
+        { optionId: "deny", name: "Deny", kind: "reject_once" },
+      ],
+    },
+  });
+  await screen.findByLabelText("Allow Bash?");
+  // The key this platform's shortcut uses: Cmd on a Mac, Control elsewhere (the page reads the user agent).
+  const mod = /Mac/.test(navigator.userAgent) ? "Meta" : "Control";
+  await user.click(box);
+  await user.keyboard(`{${mod}>}{Enter}{/${mod}}`);
+  expect(named("answerPermission")).toHaveLength(0);
+  // Out of the message box, the same keys allow it.
+  await user.click(document.body);
+  await user.keyboard(`{${mod}>}{Enter}{/${mod}}`);
+  await waitFor(() =>
+    expect(named("answerPermission")).toEqual([["answerPermission", "local:s1:p1", "allow"]]),
+  );
+});
+
+test("the colours of code can be chosen, and the choice is kept", async () => {
+  const { user } = await mount();
+  try {
+    expect(codeTheme.get()).toBe("github");
+    await user.click(await screen.findByRole("combobox", { name: "Code colours" }));
+    await user.click(await screen.findByRole("option", { name: "Catppuccin" }));
+    await waitFor(() => expect(codeTheme.get()).toBe("catppuccin"));
+    expect(localStorage.getItem("cycle-code-theme")).toBe("catppuccin");
+  } finally {
+    // Global state of the page: whatever happens above, the next test starts from the default.
+    codeTheme.set("github");
+  }
+});
+
+test("Ctrl or Cmd+K searches the sessions by what each shows, and Enter opens the one found", async () => {
+  const { user, named } = await mount();
+  await screen.findByRole("option", { name: /work/ });
+  const mod = /Mac/.test(navigator.userAgent) ? "Meta" : "Control";
+  await user.keyboard(`{${mod}>}k{/${mod}}`);
+  const box = await screen.findByRole("combobox", { name: "Search sessions" });
+  // The summary has no title: it is shown by its folder, and found by it.
+  await user.type(box, "zzz");
+  expect(await screen.findByText("No session matches that.")).toBeTruthy();
+  await user.clear(box);
+  await user.type(box, "work");
+  await user.keyboard("{Enter}");
+  await waitFor(() => expect(named("openSession")).toEqual([["openSession", "local", "s1"]]));
+});
+
+test("images can be attached when the agent takes them, and go with the message as image blocks", async () => {
+  const { user, named } = await mount({
+    configure: (script) => {
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          configSchema: {},
+          promptCapabilities: { image: {} },
+        },
+      ];
+    },
+  });
+  await openFirstSession(user);
+  const attach = await screen.findByRole("button", { name: "Attach image" });
+  expect(attach).toBeTruthy();
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+  if (picker === null) throw new Error("no file input");
+  const png = new File([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])], "shot.png", {
+    type: "image/png",
+  });
+  await user.upload(picker, png);
+  expect(await screen.findByRole("button", { name: "Remove shot.png" })).toBeTruthy();
+  await user.type(await screen.findByRole("textbox", { name: "Message" }), "what is this");
+  await user.keyboard("{Enter}");
+  await waitFor(() => expect(named("prompt")).toHaveLength(1));
+  expect(named("prompt")[0]).toEqual([
+    "prompt",
+    "local",
+    "s1",
+    [
+      { type: "text", text: "what is this" },
+      { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
+    ],
+  ]);
+  // The attachment is gone once sent.
+  expect(screen.queryByRole("button", { name: "Remove shot.png" })).toBeNull();
+});
+
+test("two images added one right after the other both stay", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          configSchema: {},
+          promptCapabilities: { image: {} },
+        },
+      ];
+    },
+  });
+  await openFirstSession(user);
+  await screen.findByRole("button", { name: "Attach image" });
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+  if (picker === null) throw new Error("no file input");
+  const png = (name: string) =>
+    new File([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])], name, { type: "image/png" });
+  // Not awaited between: the second starts while the first is still being read.
+  await user.upload(picker, png("one.png"));
+  await user.upload(picker, png("two.png"));
+  expect(await screen.findByRole("button", { name: "Remove one.png" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Remove two.png" })).toBeTruthy();
+});
+
+test("a session found by the search that is archived is shown, not selected out of sight", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.sessions = async () => [{ ...summary("s1"), archived: true }];
+    },
+  });
+  const mod = /Mac/.test(navigator.userAgent) ? "Meta" : "Control";
+  await user.keyboard(`{${mod}>}k{/${mod}}`);
+  await user.type(await screen.findByRole("combobox", { name: "Search sessions" }), "work");
+  await user.keyboard("{Enter}");
+  // The list now includes the archived session, and it is the selected one.
+  expect(await screen.findByRole("option", { name: /work/ })).toBeTruthy();
+});
+
+test("a file that is not an image the agent takes is refused with the reason, and nothing is attached", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          configSchema: {},
+          promptCapabilities: { image: {} },
+        },
+      ];
+    },
+  });
+  await openFirstSession(user);
+  await screen.findByRole("button", { name: "Attach image" });
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+  if (picker === null) throw new Error("no file input");
+  // The picker's own filter (`accept`) is only a hint: a drop or a paste brings anything, so the code checks again.
+  await userEvent
+    .setup({ applyAccept: false })
+    .upload(picker, new File(["x"], "pic.bmp", { type: "image/bmp" }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "pic.bmp is not a PNG, JPEG, GIF or WebP image.",
+  );
+  expect(screen.queryByRole("list", { name: "Attached images" })).toBeNull();
+});
+
+test("without the agent's word that it takes images, there is nothing to attach them with", async () => {
+  const { user } = await mount();
+  await openFirstSession(user);
+  await screen.findByRole("textbox", { name: "Message" });
+  expect(screen.queryByRole("button", { name: "Attach image" })).toBeNull();
 });
 
 test("an update that is found is offered, asks before it restarts, and the footer can check on demand", async () => {

@@ -82,12 +82,14 @@ test.skipIf(!ready)(
           "answerPermission",
           "archiveSession",
           "cancel",
+          "checkForUpdate",
           "chooseDirectory",
           "connect",
           "createSession",
           "deleteSession",
           "disconnect",
           "hosts",
+          "installUpdate",
           "onEvent",
           "openSession",
           "prompt",
@@ -97,6 +99,7 @@ test.skipIf(!ready)(
           "sessions",
           "setAgentDefaults",
           "setSessionConfig",
+          "updateState",
         ].sort(),
       );
 

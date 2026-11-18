@@ -9,6 +9,9 @@ declare global {
   }
 }
 
+// The page cannot ask Node for the platform; the user agent says it (the style of the title bar depends on it).
+document.documentElement.dataset.platform = /Mac/.test(navigator.userAgent) ? "darwin" : "other";
+
 const store = new AppStore(window.cycle);
 const root = document.getElementById("root");
 if (root === null) throw new Error("no #root");

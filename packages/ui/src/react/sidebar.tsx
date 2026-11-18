@@ -1,5 +1,6 @@
 import { Button } from "@ui-sdk/react/button";
 import { Listbox, ListboxItem } from "@ui-sdk/react/listbox";
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
 import {
   Select,
   SelectContent,
@@ -9,18 +10,14 @@ import {
 } from "@ui-sdk/react/select";
 import type { ReactNode } from "react";
 import type { HostConfig, HostStatus, SessionSummary } from "../api.ts";
+import { useI18n } from "./i18n.tsx";
+import { MoreIcon, PlusIcon, SearchIcon } from "./icons.tsx";
+import { HOST_STATE, SESSION_STATE, StatusDot } from "./status.tsx";
 
 export const sessionTitle = (session: SessionSummary): string => {
   if (session.title !== undefined && session.title !== "") return session.title;
   const parts = session.cwd.split("/").filter(Boolean);
   return parts.at(-1) ?? session.cwd;
-};
-
-const STATE_WORDS: Record<string, string> = {
-  running: "working",
-  requires_action: "needs you",
-  idle: "",
-  stopped: "",
 };
 
 export type SidebarProps = {
@@ -33,6 +30,7 @@ export type SidebarProps = {
   onSelectHost: (hostId: string) => void;
   onSelectSession: (sessionId: string) => void;
   onNewSession: () => void;
+  onSearch: () => void;
   onAddHost: () => void;
   onRemoveHost: (hostId: string) => void;
   onToggleArchived: () => void;
@@ -41,13 +39,22 @@ export type SidebarProps = {
   children?: ReactNode;
 };
 
+/** How the shortcut modifier is written here: ⌘ on a Mac, Ctrl+ elsewhere. */
+export const MOD = /Mac/.test(globalThis.navigator?.userAgent ?? "") ? "⌘" : "Ctrl+";
+
+/** The last part of a path, for a second line that says where a session works. */
+const place = (cwd: string): string => cwd.split("/").filter(Boolean).at(-1) ?? cwd;
+
 export function Sidebar(props: SidebarProps) {
+  const { t } = useI18n();
   const host = props.hosts.find((h) => h.id === props.selectedHost);
   const state = props.selectedHost !== undefined ? props.status[props.selectedHost] : undefined;
+  const hostState = HOST_STATE[state?.state ?? "closed"];
   const visible = props.sessions.filter((s) => props.showArchived || !s.archived);
   const sorted = [...visible].sort((a, b) => b.lastSeq - a.lastSeq);
   return (
     <nav data-slot="sidebar" aria-label="Sessions">
+      <div data-slot="titlebar" aria-hidden="true" />
       <div data-slot="host-bar">
         <Select
           items={props.hosts.map((h) => ({ value: h.id, label: h.name }))}
@@ -67,51 +74,84 @@ export function Sidebar(props: SidebarProps) {
             ))}
           </SelectContent>
         </Select>
-        <span data-slot="host-state" data-state={state?.state ?? "closed"} role="status">
-          {state?.state === "connected" ? "connected" : (state?.state ?? "not connected")}
-        </span>
+        <Menu
+          onAction={(value) => {
+            if (value === "add-host") props.onAddHost();
+            else if (value === "remove-host" && host !== undefined) props.onRemoveHost(host.id);
+            else if (value === "agent-defaults") props.onAgentDefaults();
+          }}
+        >
+          <MenuTrigger aria-label="Host actions" title="Host actions" data-variant="ghost">
+            <MoreIcon />
+          </MenuTrigger>
+          <MenuContent>
+            <MenuItem value="add-host">Add host</MenuItem>
+            <MenuItem value="agent-defaults">Agent defaults</MenuItem>
+            {host !== undefined && host.kind !== "local" ? (
+              <>
+                <MenuSeparator />
+                <MenuItem value="remove-host">Remove host</MenuItem>
+              </>
+            ) : null}
+          </MenuContent>
+        </Menu>
       </div>
-      <div data-slot="row">
-        <Button data-variant="outline" onClick={props.onAddHost}>
-          Add host
-        </Button>
-        {host !== undefined && host.kind !== "local" ? (
-          <Button data-variant="ghost" onClick={() => props.onRemoveHost(host.id)}>
-            Remove
-          </Button>
-        ) : null}
-        <Button data-variant="ghost" onClick={props.onAgentDefaults}>
-          Agent defaults
-        </Button>
-      </div>
+      <span data-slot="host-state" data-state={state?.state ?? "closed"} role="status">
+        <StatusDot tone={hostState.tone} shape={hostState.shape} />
+        {hostState.word}
+      </span>
       <Button
-        data-variant="solid"
+        data-variant="outline"
         disabled={state?.state !== "connected"}
+        title={`New session  ${MOD}N`}
         onClick={props.onNewSession}
       >
+        <PlusIcon />
         New session
       </Button>
-      <Listbox
-        aria-label="Sessions"
-        value={props.selectedSession ?? null}
-        onValueChange={(next) => {
-          if (typeof next === "string") props.onSelectSession(next);
-        }}
+      <Button
+        data-variant="ghost"
+        data-slot="search-button"
+        title={`${t("search.open")}  ${MOD}K`}
+        onClick={props.onSearch}
       >
-        {sorted.map((session) => (
-          <ListboxItem
-            key={session.sessionId}
-            value={session.sessionId}
-            data-archived={session.archived || undefined}
-          >
-            <span data-slot="session-title">{sessionTitle(session)}</span>
-            <span data-slot="session-state" data-state={session.state}>
-              {STATE_WORDS[session.state] ?? ""}
-            </span>
-          </ListboxItem>
-        ))}
-      </Listbox>
-      {sorted.length === 0 ? <p data-slot="hint">No sessions yet.</p> : null}
+        <SearchIcon />
+        {t("search.open")}
+        <kbd>{MOD}K</kbd>
+      </Button>
+      {sorted.length > 0 ? (
+        <Listbox
+          aria-label="Sessions"
+          value={props.selectedSession ?? null}
+          onValueChange={(next) => {
+            if (typeof next === "string") props.onSelectSession(next);
+          }}
+        >
+          {sorted.map((session) => {
+            const doing = SESSION_STATE[session.state];
+            return (
+              <ListboxItem
+                key={session.sessionId}
+                value={session.sessionId}
+                data-archived={session.archived || undefined}
+                data-needs-you={session.state === "requires_action" || undefined}
+              >
+                <span data-slot="session-dot">
+                  {doing !== undefined ? <StatusDot tone={doing.tone} shape={doing.shape} /> : null}
+                </span>
+                <span data-slot="session-main">
+                  <span data-slot="session-title">{sessionTitle(session)}</span>
+                  <span data-slot="session-meta" data-state={session.state}>
+                    {doing?.word ?? place(session.cwd)}
+                  </span>
+                </span>
+              </ListboxItem>
+            );
+          })}
+        </Listbox>
+      ) : (
+        <p data-slot="hint">No sessions yet.</p>
+      )}
       <Button data-variant="ghost" onClick={props.onToggleArchived}>
         {props.showArchived ? "Hide archived" : "Show archived"}
       </Button>

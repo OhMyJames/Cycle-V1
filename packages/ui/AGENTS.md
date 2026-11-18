@@ -14,6 +14,12 @@ The interface: React components, and the model of a conversation they draw. Buil
   re-run the tests.
 - Put `@layer ui-sdk;` at the top of the global stylesheet.
 
+## Design
+
+- Interface work follows the project skill `.claude/skills/cycle-design-taste` (ours, not vendored): tokens only,
+  every state drawn, plain copy, motion only to show a change, one icon set (iconmcp). Run
+  `bun .claude/skills/cycle-design-taste/scripts/scan-copy.mjs` on a change to the interface's text.
+
 ## Rules for this package
 
 - The reducer that turns `session/update` into a conversation (`src/model/`) is pure TypeScript. It must not
