@@ -89,6 +89,16 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - **图片**:agent 和用户消息里的图片(png、jpeg、gif、webp;svg 不是)用 data URL 画,不请求网络;超过大小上限的显示成一行字。Markdown 里的远程图片仍然不加载。
 - **搜索**:⌘K(Windows、Linux 是 Ctrl+K)。
 
+## 输入框(composer)
+
+- **Markdown 输入**(决策笔记 `2026-11-18-composer-text-is-markdown`):输入框是 Lexical 编辑器,文本即 Markdown,边写边渲染;发出去的是敲下的字(`composer-markdown.ts` 把 Lexical 会改写的字符换成私用区的占位再换回来,测试覆盖固定样例和随机文本)。Enter 发送,Shift+Enter 换行,输入法组合中的 Enter 不发送;粘贴图片变成附件,粘贴文字按文字放入。
+- **草稿**:每个 session 一份,文字存在渲染进程的 localStorage(键含主机和 session),图片只在内存里;发送、删除 session 时清掉。发送失败,内容放回输入框。
+- **排队**:agent 工作时同一个框继续写,按钮变成"Queue";排队的消息列在输入框上方,可以 Edit 取回;停止或出错后 daemon 退回的消息自动放回输入框(不当作错误)。
+- **回看**:空输入框里按 ↑ 取回上一条发过的消息(从对话里读),↓ 回来;只有光标在首块、末块时才生效。
+- **命令**:消息最开头的 `/` 列出 agent 的命令(`available_commands_update`),空格之前有效;**提及**:`@` 之后列出 session 目录里的文件和文件夹(`_cycle/files/search`),文字里写 `@路径`,发送时另附 `resource_link` 块(决策笔记 `2026-11-18-mentions-are-resource-links`)。
+- **测试**:DOM 测试(happy-dom 没有 Lexical 要用的选区和输入事件)通过编辑器自己的命令驱动;真实的敲键、粘贴、输入法只在 Electron 冒烟测试里走(`smoke-main.ts` 敲 `**bold**` 并检查渲染)。
+- **没做**:@ 提及没有 chip 节点(是普通文字加一个记在草稿里的链接),所以从存储恢复的草稿里文字还在、结构化的链接没有;提及里没有别的 session;输入历史只读当前对话里的消息;Lexical 对撤销/重做、拖选等的行为没有逐项验证。
+
 ## 还没做
 
 - **远端 daemon 的升级**:应用只更新自己和自带的本地 daemon,不替用户在别的机器上装东西。远端的 daemon 版本(初始化时它报告自己的版本,构建时写入,和应用同一个版本号)比应用旧时,顶部会出现横幅和一条要在那台机器上运行的命令(下载本版本的 tarball、校验、`install.sh`、`cycle stop`)。`dev`(从源码运行)和比应用新的版本不提示。限于 Linux x64。
