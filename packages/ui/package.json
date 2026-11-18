@@ -19,6 +19,7 @@
     "streamdown": "2.8.0"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^21.0.4",
     "@tailwindcss/cli": "^4.3.5",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
@@ -27,5 +28,9 @@
     "@types/react-dom": "^19.3.0",
     "happy-dom": "^21.0.4",
     "tailwindcss": "^4.3.5"
+  },
+  "scripts": {
+    "build:css": "bun scripts/build-css.ts",
+    "test:dom": "bun test --preload ./test/dom/setup.ts ./test/dom/*.dom.tsx"
   }
 }

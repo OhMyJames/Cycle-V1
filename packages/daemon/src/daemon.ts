@@ -371,6 +371,7 @@ export class Daemon {
         [META.agent]: entry.agent,
         [META.state]: session.status(),
         [META.lastSeq]: session.log.lastSeq(),
+        ...(entry.config !== undefined ? { [META.config]: entry.config } : {}),
         ...(entry.title !== undefined ? { title: entry.title } : {}),
       },
     };
@@ -578,6 +579,7 @@ export class Daemon {
         const config = { ...(session.entry.config ?? {}), [params.configId]: value };
         session.entry = { ...session.entry, config };
         await this.#index.update(session.id, { config });
+        this.#changed();
       }
       return answer as never;
     });

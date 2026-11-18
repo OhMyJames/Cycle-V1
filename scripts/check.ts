@@ -52,10 +52,18 @@ if (failures.length > 0) {
 }
 console.log("boundaries ok");
 
+// The interface's tests need a browser's globals, which would break the other tests if every test had
+// them, so they are named *.dom.tsx and run on their own, with happy-dom preloaded.
+const domTests = Array.from(new Glob("packages/ui/test/dom/*.dom.tsx").scanSync({ cwd: root })).map(
+  (file) => `./${file}`,
+);
+
 const steps: [string, string[]][] = [
+  ["css", ["bun", "run", "--cwd", "packages/ui", "build:css"]],
   ["typecheck", ["bun", "run", "typecheck"]],
   ["lint", ["bun", "run", "lint"]],
   ["test", ["bun", "test"]],
+  ["test (dom)", ["bun", "test", "--preload", "./packages/ui/test/dom/setup.ts", ...domTests]],
 ];
 for (const [name, cmd] of steps) {
   console.log(`\n== ${name}`);

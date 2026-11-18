@@ -21,7 +21,7 @@ export const connectUnix = (path: string): Promise<Channel> =>
       resolve({
         stream: ndJsonStream(
           writable as WritableStream<Uint8Array>,
-          readable as ReadableStream<Uint8Array>,
+          readable as unknown as ReadableStream<Uint8Array>,
         ),
         close: () => socket.destroy(),
       });
@@ -50,7 +50,7 @@ export const commandChannel = (options: CommandOptions): Channel => {
   return {
     stream: ndJsonStream(
       Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-      Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+      Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>,
     ),
     close: () => {
       child.kill();

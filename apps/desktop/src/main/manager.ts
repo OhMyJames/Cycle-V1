@@ -187,6 +187,9 @@ export class ConnectionManager implements Omit<AppApi, "chooseDirectory"> {
         agent: String(meta["cycle/agent"] ?? ""),
         state: (meta["cycle/state"] as SessionSummary["state"]) ?? "stopped",
         lastSeq: Number(meta["cycle/lastSeq"] ?? 0),
+        ...(typeof meta["cycle/config"] === "object" && meta["cycle/config"] !== null
+          ? { config: meta["cycle/config"] as Record<string, string> }
+          : {}),
       };
     });
     connection.sessions = sessions;

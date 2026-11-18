@@ -31,6 +31,8 @@ export type SessionSummary = {
   agent: string;
   state: "running" | "idle" | "requires_action" | "stopped";
   lastSeq: number;
+  /** What the session was set to, by name (the agent's settings). */
+  config?: Record<string, string>;
 };
 
 export type AgentInfo = {

@@ -383,3 +383,24 @@ test("a default for a setting the agent does not have is refused, and defaults s
     code: CycleErrorCode.AgentUnavailable,
   });
 });
+
+test("a session's own settings are in the list, and a change is announced", async () => {
+  const { daemon } = await start();
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, {
+    cwd: "/work",
+    _meta: { "cycle/config": { mode: "plan" } },
+  });
+  const before = c.listChanged();
+  await c.agent.request(methods.agent.session.setConfigOption, {
+    sessionId,
+    configId: "mode",
+    type: "id",
+    value: "acceptEdits",
+  } as never);
+  await until(() => c.listChanged() > before, "the change to be announced");
+  const listed = await c.agent.request(methods.agent.session.list, {});
+  expect(((listed.sessions[0]?._meta ?? {}) as Record<string, unknown>)["cycle/config"]).toEqual({
+    mode: "acceptEdits",
+  });
+});

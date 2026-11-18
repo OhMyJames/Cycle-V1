@@ -1,0 +1,335 @@
+/* The ui-sdk layer comes first (its docs ask for it above everything), then Tailwind, which Streamdown's
+   markup needs for its utility classes, then ui-sdk's default look, then Streamdown's own, then ours.
+   Ours is unlayered, so it wins over all of them without !important. */
+@layer ui-sdk;
+
+@import "tailwindcss";
+@import "@ui-sdk/core/web.css" layer(components);
+@import "streamdown/styles.css";
+@source "../../node_modules/streamdown/dist/*.js";
+
+/* Streamdown is written for shadcn's colour names (text-muted-foreground, bg-sidebar, ...), which
+   Tailwind only knows if they are defined. Here they are ui-sdk's tokens, so a change of theme
+   there changes the markdown too. Without this those classes are not generated and it is drawn bare. */
+@theme inline {
+  --color-background: var(--ui-background);
+  --color-foreground: var(--ui-foreground);
+  --color-muted: var(--ui-muted);
+  --color-muted-foreground: var(--ui-muted-foreground);
+  --color-border: var(--ui-border);
+  --color-input: var(--ui-input);
+  --color-ring: var(--ui-ring);
+  --color-primary: var(--ui-primary);
+  --color-primary-foreground: var(--ui-primary-foreground);
+  --color-destructive: var(--ui-destructive);
+  --color-sidebar: var(--ui-muted);
+}
+
+:root {
+  --cycle-sidebar: 18rem;
+  --cycle-gap: 0.75rem;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ui-background);
+  color: var(--ui-foreground);
+}
+
+[data-slot="starting"] {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="app"] {
+  display: grid;
+  grid-template-columns: var(--cycle-sidebar) minmax(0, 1fr);
+  height: 100%;
+}
+
+[data-slot="stack"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cycle-gap);
+  min-width: 0;
+}
+
+[data-slot="row"] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+[data-slot="hint"] {
+  color: var(--ui-muted-foreground);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+/* Sidebar */
+[data-slot="sidebar"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cycle-gap);
+  padding: var(--cycle-gap);
+  border-right: 1px solid var(--ui-border);
+  overflow-y: auto;
+  min-width: 0;
+}
+
+[data-slot="host-bar"] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+[data-slot="host-state"] {
+  font-size: 0.8em;
+  color: var(--ui-muted-foreground);
+  white-space: nowrap;
+}
+
+[data-slot="host-state"][data-state="reconnecting"] {
+  color: var(--ui-destructive);
+}
+
+[data-slot="session-title"] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-slot="session-state"] {
+  font-size: 0.8em;
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="session-state"][data-state="requires_action"] {
+  color: var(--ui-destructive);
+  font-weight: 600;
+}
+
+[data-archived] {
+  opacity: 0.6;
+}
+
+/* Main */
+[data-slot="main"] {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+[data-slot="banner"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cycle-gap);
+  padding: 0.5rem var(--cycle-gap);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+[data-slot="banner"][data-severity="error"] {
+  color: var(--ui-destructive);
+}
+
+[data-slot="session-header"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cycle-gap);
+  padding: 0.5rem var(--cycle-gap);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+[data-slot="session-header"] h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+[data-slot="empty"],
+[data-slot="loading"] {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  color: var(--ui-muted-foreground);
+  padding: 2rem;
+}
+
+/* Conversation */
+[data-slot="conversation"] {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cycle-gap);
+  padding: var(--cycle-gap);
+}
+
+[data-slot="message"][data-role="user"] {
+  align-self: flex-end;
+  max-width: 80%;
+  background: var(--ui-muted);
+  border-radius: var(--ui-radius, 0.5rem);
+  padding: 0.5rem 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+[data-slot="message"][data-role="agent"] {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+[data-slot="blocked-image"],
+[data-slot="unsafe-link"],
+[data-slot="block-note"] {
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="thought"],
+[data-slot="tool"] {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius, 0.5rem);
+  font-size: 0.9em;
+}
+
+[data-slot="thought"] [data-slot="thought-text"] {
+  padding: 0.5rem 0.75rem;
+  color: var(--ui-muted-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+[data-slot="tool"] > button {
+  display: flex;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+}
+
+[data-slot="tool-name"] {
+  font-weight: 600;
+}
+
+[data-slot="tool-summary"] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ui-muted-foreground);
+  font-family: ui-monospace, monospace;
+}
+
+[data-slot="tool-status"] {
+  font-size: 0.85em;
+}
+
+[data-slot="tool"][data-status="failed"] [data-slot="tool-status"],
+[data-slot="tool"][data-status="cancelled"] [data-slot="tool-status"] {
+  color: var(--ui-destructive);
+}
+
+[data-slot="tool-input"],
+[data-slot="tool-output"] {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  overflow-x: auto;
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-top: 1px solid var(--ui-border);
+}
+
+[data-slot="plan"] {
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+[data-slot="plan"] li[data-status="completed"] {
+  text-decoration: line-through;
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="notice"] {
+  color: var(--ui-muted-foreground);
+  font-size: 0.9em;
+}
+
+[data-slot="notice"][data-severity="error"] {
+  color: var(--ui-destructive);
+}
+
+/* Permission requests */
+[data-slot="permissions"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0 var(--cycle-gap);
+}
+
+[data-slot="permission"] {
+  border: 2px solid var(--ui-ring);
+  border-radius: var(--ui-radius, 0.5rem);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+[data-slot="permission-title"] {
+  font-weight: 600;
+}
+
+[data-slot="permission-detail"] {
+  margin: 0;
+  padding: 0.5rem;
+  background: var(--ui-muted);
+  border-radius: var(--ui-radius, 0.5rem);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+[data-slot="permission-actions"] {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Composer */
+[data-slot="composer"] {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: var(--cycle-gap);
+  border-top: 1px solid var(--ui-border);
+}
+
+[data-slot="composer"] textarea {
+  flex: 1;
+  min-height: 2.5rem;
+  max-height: 14rem;
+}
+
+[data-slot="config-form"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cycle-gap);
+}
