@@ -8,6 +8,14 @@ import {
 import { CYCLE_PROTOCOL_VERSION, META, NOTIFICATIONS, seqOf } from "@cycle/protocol";
 import type { Channel } from "@cycle/transport/client";
 
+/** ACP's "resource not found": the daemon has no such session. */
+const RESOURCE_NOT_FOUND = -32002;
+
+const isSessionGone = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  (error as { code?: unknown }).code === RESOURCE_NOT_FOUND;
+
 export type ConnectionState = "connecting" | "connected" | "reconnecting" | "closed";
 
 /** What the daemon asks of the user. Resolve with the chosen option, or `cancelled`. */
@@ -45,6 +53,11 @@ export type ClientEvents = {
   listChanged?: () => void;
   /** An agent's defaults were changed, here or by another client. */
   defaultsChanged?: (agent: string) => void;
+  /**
+   * A session this client was watching no longer exists on the daemon (another client deleted it
+   * while this one was away). It is not watched any more; the others carry on.
+   */
+  gone?: (sessionId: string) => void;
   connection?: (state: ConnectionState, error?: unknown) => void;
 };
 
@@ -176,7 +189,13 @@ export class CycleClient {
   async watch(sessionId: string, cwd: string): Promise<void> {
     const entry = this.#watched.get(sessionId) ?? { cwd, lastSeq: 0, replayed: false };
     this.#watched.set(sessionId, entry);
-    await this.#attach(sessionId, entry);
+    try {
+      await this.#attach(sessionId, entry);
+    } catch (error) {
+      // A session that is not there is not kept to be asked for at every reconnect.
+      if (isSessionGone(error)) this.#watched.delete(sessionId);
+      throw error;
+    }
   }
 
   unwatch(sessionId: string): void {
@@ -272,12 +291,16 @@ export class CycleClient {
     return this.#api().request(method as never, params as never);
   }
 
-  async #attach(sessionId: string, entry: { cwd: string; lastSeq: number; replayed: boolean }) {
+  async #attach(
+    sessionId: string,
+    entry: { cwd: string; lastSeq: number; replayed: boolean },
+    api: ClientContext = this.#api(),
+  ) {
     // The first attach asks for everything; after that, only what came after what was seen.
     const replayFrom = entry.replayed
       ? { type: "_cycle.seq", after: entry.lastSeq }
       : { type: "start" };
-    await this.#api().request(methods.agent.session.resume, {
+    await api.request(methods.agent.session.resume, {
       sessionId,
       cwd: entry.cwd,
       replayFrom,
@@ -386,9 +409,23 @@ export class CycleClient {
     while (!this.#closing) {
       try {
         await this.#connectOnce();
-        // Back in the same place: ask for what was missed in every session being watched.
-        this.#state = "connected";
-        for (const [sessionId, entry] of this.#watched) await this.#attach(sessionId, entry);
+        // Back in the same place: ask for what was missed in every session being watched. The
+        // client is not "connected" to anyone until that is done.
+        const api = this.#agent;
+        if (api === undefined) throw new Error("The connection was lost again");
+        for (const [sessionId, entry] of [...this.#watched]) {
+          // Dropped (unwatched, or gone) since the list was taken: not asked for.
+          if (this.#watched.get(sessionId) !== entry) continue;
+          try {
+            await this.#attach(sessionId, entry, api);
+          } catch (error) {
+            // One session that is gone is that session's end, not the host's: the rest are
+            // attached. Anything else (the connection itself) is tried again from the start.
+            if (!isSessionGone(error)) throw error;
+            this.#watched.delete(sessionId);
+            this.#events.gone?.(sessionId);
+          }
+        }
         this.#setState("connected");
         return;
       } catch (error) {

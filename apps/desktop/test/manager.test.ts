@@ -46,6 +46,8 @@ const setup = async (fake = fakeAgent(), daemonVersion?: string) => {
     await daemon.close();
   });
   const channels: Channel[] = [];
+  /** Managers (by name) that cannot reach the daemon for now. */
+  const held = new Set<string>();
   const manager = async (
     name = "app",
     appVersion?: string,
@@ -55,6 +57,7 @@ const setup = async (fake = fakeAgent(), daemonVersion?: string) => {
     const m = new ConnectionManager({
       settings: fileSettings(join(dir, `settings-${name}.json`)),
       channelFor: () => async () => {
+        if (held.has(name)) throw new Error("the network is down");
         const channel = await connectUnix(socket);
         channels.push(channel);
         return channel;
@@ -71,6 +74,7 @@ const setup = async (fake = fakeAgent(), daemonVersion?: string) => {
   return {
     fake,
     manager,
+    held,
     drop: () => {
       for (const channel of channels.splice(0)) channel.close();
     },
@@ -490,6 +494,43 @@ test("a hook that fails does not stop the list from being read, and a manager wi
   const quiet = await manager("quiet");
   await quiet.m.connect("local");
   expect(quiet.events.length).toBeGreaterThan(0);
+});
+
+test("a session deleted elsewhere while the connection was away is gone here, and the rest is as before", async () => {
+  const { manager, held, drop } = await setup();
+  const a = await manager("a");
+  await a.m.connect("local");
+  const keep = await a.m.createSession("local", { cwd: "/tmp" });
+  const doomed = await a.m.createSession("local", { cwd: "/tmp" });
+  await a.m.openSession("local", keep);
+  await a.m.openSession("local", doomed);
+  const b = await manager("b");
+  await b.m.connect("local");
+
+  held.add("a");
+  drop();
+  await until(
+    () => of(a.events, "host-status").some((e) => e.state === "reconnecting"),
+    "the loss",
+  );
+  await until(() => of(b.events, "host-status").at(-1)?.state === "connected", "b to be back");
+  await b.m.deleteSession("local", doomed);
+  held.delete("a");
+  await until(() => of(a.events, "host-status").at(-1)?.state === "connected", "a to reconnect");
+
+  await until(() => of(a.events, "sessions").at(-1)?.sessions.length === 1, "the list to follow");
+  expect(first(of(a.events, "sessions").slice(-1)).sessions.map((s) => s.sessionId)).toEqual([
+    keep,
+  ]);
+  // The renderer is told, so it can drop the view and the dialogs of the session.
+  expect(of(a.events, "session-gone")).toEqual([
+    { type: "session-gone", hostId: "local", sessionId: doomed },
+  ]);
+  await expect(a.m.openSession("local", doomed)).rejects.toThrow();
+  // The session that is still there goes on being watched.
+  const seen = of(a.events, "update").length;
+  await a.m.prompt("local", keep, "still here");
+  await until(() => of(a.events, "update").length > seen, "the healthy session to go on");
 });
 
 test("every host is connected, one that cannot be reached does not hold up the others, and why is kept for a renderer that asks later", async () => {

@@ -42,6 +42,7 @@ import {
   INVALID_PARAMS,
   logUnavailable,
   queueFull,
+  RESOURCE_NOT_FOUND,
   RpcError,
   sessionBusy,
   sessionNotFound,
@@ -242,6 +243,8 @@ export class Daemon {
    */
   #session(sessionId: string): Promise<Session> {
     const loaded = this.#sessions.get(sessionId);
+    // A session being deleted is already gone to everyone who asks.
+    if (loaded?.closed) return Promise.reject(sessionNotFound(sessionId));
     if (loaded !== undefined) return Promise.resolve(loaded);
     const loading = this.#loading.get(sessionId);
     if (loading !== undefined) return loading;
@@ -812,6 +815,27 @@ export class Daemon {
     };
   }
 
+  /**
+   * A session whose history cannot be read, as the list shows it: what the index knows, with no
+   * `cycle/lastSeq` (that comes from the log) and no unread mark, and the marker.
+   */
+  #unreadableRow(sessionId: string, entry: SessionEntry) {
+    return {
+      sessionId,
+      cwd: entry.cwd,
+      updatedAt: entry.createdAt,
+      _meta: {
+        [META.archived]: entry.archived === true,
+        [META.agent]: entry.agent,
+        [META.state]: "stopped",
+        [META.historyFailed]: true,
+        ...(entry.config !== undefined ? { [META.config]: entry.config } : {}),
+        ...(entry.usage !== undefined ? { [META.usage]: entry.usage } : {}),
+        ...(entry.title !== undefined ? { title: entry.title } : {}),
+      },
+    };
+  }
+
   /** The app a client talks to: this connection's view of the daemon. */
   #facing(holder: { value?: ClientConn }) {
     const me = (): ClientConn => {
@@ -953,8 +977,19 @@ export class Daemon {
 
     app.onRequest(methods.agent.session.list, async () => {
       const rows = [];
-      for (const [sessionId, entry] of this.#index.list())
-        rows.push(await this.#row(sessionId, entry));
+      for (const [sessionId, entry] of this.#index.list()) {
+        try {
+          rows.push(await this.#row(sessionId, entry));
+        } catch (error) {
+          // Deleted while the list was being read.
+          if (error instanceof RpcError && error.code === RESOURCE_NOT_FOUND) continue;
+          // One session whose history cannot be read is that session's problem, not the list's: it
+          // is listed, marked, and says so when it is opened. Anything else is the list's.
+          if (!(error instanceof RpcError) || error.code !== CycleErrorCode.LogUnavailable)
+            throw error;
+          rows.push(this.#unreadableRow(sessionId, entry));
+        }
+      }
       return { sessions: rows } as never;
     });
 
@@ -1092,17 +1127,37 @@ export class Daemon {
     });
 
     app.onRequest(methods.agent.session.delete, async ({ params }) => {
-      const session = await this.#session(params.sessionId);
+      let session: Session;
+      try {
+        session = await this.#session(params.sessionId);
+      } catch (error) {
+        // A session whose history cannot be read can still be deleted: it is the way out of it.
+        if (!(error instanceof RpcError) || error.code !== CycleErrorCode.LogUnavailable)
+          throw error;
+        try {
+          await this.#index.delete(params.sessionId);
+          await this.#store.remove(params.sessionId);
+        } finally {
+          this.#changed();
+        }
+        return {} as never;
+      }
       if (session.status() === "running" || session.status() === "requires_action")
         throw sessionBusy(session.id);
       session.closed = true;
       session.link?.kill();
       for (const attachment of session.attachments) attachment.detach();
-      await session.log.close();
-      this.#sessions.delete(session.id);
-      await this.#store.remove(session.id);
-      await this.#index.delete(session.id);
-      this.#changed();
+      try {
+        // The index first, and the session out of the table at once: from then on nobody can load
+        // it again or get hold of it (a list that was being read, a client that was reconnecting),
+        // so none comes back from the dead while its log is being removed.
+        await this.#index.delete(session.id);
+        this.#sessions.delete(session.id);
+        await session.log.close();
+        await this.#store.remove(session.id);
+      } finally {
+        this.#changed();
+      }
       return {} as never;
     });
 

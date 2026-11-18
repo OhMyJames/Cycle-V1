@@ -166,6 +166,9 @@ export class AppStore {
       case "focus-session":
         void this.focusSession(event.hostId, event.sessionId);
         return;
+      case "session-gone":
+        this.#forgetSession(event.hostId, event.sessionId);
+        return;
       case "update":
         this.#onSessionEvent(viewKey(event.hostId, event.sessionId), event);
         return;
@@ -371,16 +374,26 @@ export class AppStore {
     if (hostId === undefined) return;
     await this.#attempt(async () => {
       await this.#bridge.deleteSession(hostId, sessionId);
-      this.drafts.forget(viewKey(hostId, sessionId));
-      this.#set((s) => {
-        const { [viewKey(hostId, sessionId)]: _gone, ...views } = s.views;
-        return {
-          views,
-          selectedSession: s.selectedSession === sessionId ? undefined : s.selectedSession,
-        };
-      });
+      this.#forgetSession(hostId, sessionId);
     });
   };
+
+  /** A session that no longer exists: its view, its draft and its place as the selected one go. */
+  #forgetSession(hostId: string, sessionId: string): void {
+    const key = viewKey(hostId, sessionId);
+    this.drafts.forget(key);
+    this.#held.delete(key);
+    this.#set((s) => {
+      const { [key]: _gone, ...views } = s.views;
+      return {
+        views,
+        selectedSession:
+          s.selectedHost === hostId && s.selectedSession === sessionId
+            ? undefined
+            : s.selectedSession,
+      };
+    });
+  }
 
   answerPermission = async (key: string, optionId: string | "cancelled"): Promise<void> => {
     await this.#attempt(() => this.#bridge.answerPermission(key, optionId));
