@@ -332,6 +332,9 @@ export function App() {
             </div>
             {view !== undefined ? (
               <Composer
+                key={`composer:${viewKey(view.hostId, view.sessionId)}`}
+                drafts={store.drafts}
+                draftKey={viewKey(view.hostId, view.sessionId)}
                 canAttach={
                   agents.find((a) => a.id === session?.agent)?.promptCapabilities?.image != null
                 }
