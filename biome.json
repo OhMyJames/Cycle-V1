@@ -1,7 +1,14 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
   "files": {
-    "includes": ["**", "!**/node_modules", "!**/dist", "!bun.lock"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!bun.lock",
+      "!**/.claude/skills",
+      "!**/skills-lock.json"
+    ]
   },
   "formatter": {
     "indentStyle": "space",
