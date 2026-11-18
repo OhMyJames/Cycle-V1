@@ -2,8 +2,18 @@ import { afterEach, expect, test } from "bun:test";
 import type { SessionUpdate } from "@cycle/acp";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import {
+  $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  KEY_ARROW_DOWN_COMMAND,
+  KEY_ARROW_UP_COMMAND,
+  KEY_ENTER_COMMAND,
+  type LexicalEditor,
+} from "lexical";
 import type { PermissionRequest, SessionSnapshot } from "../../src/api.ts";
 import { codeTheme } from "../../src/code-theme.ts";
+import { markdownOf } from "../../src/composer-markdown.ts";
 import { applyUpdate, emptyConversation } from "../../src/model/index.ts";
 import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
@@ -16,6 +26,37 @@ afterEach(() => {
 });
 
 const u = (update: object) => update as SessionUpdate;
+
+// The message box is a Lexical editor. happy-dom has no real selection or input events for it, so the tests act on the
+// editor the way its own commands do (a key is a command; text is inserted at the end); real typing is the Electron smoke test's.
+const editorOf = (box: HTMLElement): LexicalEditor => {
+  const editor = (box as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
+  if (editor === undefined) throw new Error("the message box has no editor");
+  return editor;
+};
+const write = (box: HTMLElement, words: string) =>
+  act(() => {
+    editorOf(box).update(
+      () => {
+        $getRoot().selectEnd();
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertRawText(words);
+      },
+      { discrete: true },
+    );
+  });
+const boxText = (box: HTMLElement): string => markdownOf(editorOf(box));
+const KEYS = {
+  Enter: KEY_ENTER_COMMAND,
+  ArrowUp: KEY_ARROW_UP_COMMAND,
+  ArrowDown: KEY_ARROW_DOWN_COMMAND,
+} as const;
+const press = (box: HTMLElement, key: keyof typeof KEYS, init: KeyboardEventInit = {}) =>
+  act(() => {
+    editorOf(box).dispatchCommand(KEYS[key], new KeyboardEvent("keydown", { key, ...init }));
+  });
+const ready = (box: HTMLElement) =>
+  waitFor(() => expect(box.getAttribute("contenteditable")).toBe("true"));
 
 const mount = async (
   options: {
@@ -74,18 +115,20 @@ test("lists the host's sessions, and shows the conversation of the one chosen", 
 test("Enter sends what was typed, Shift+Enter makes a new line, and the box empties", async () => {
   const { user, named } = await mount();
   await openFirstSession(user);
-  const box = (await screen.findByRole("textbox", { name: "Message" })) as HTMLTextAreaElement;
-  await waitFor(() => expect(box.disabled).toBe(false));
-  await user.type(box, "first line{Shift>}{Enter}{/Shift}second line");
-  expect(box.value).toBe("first line\nsecond line");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "first line");
+  await press(box, "Enter", { shiftKey: true });
+  await write(box, "second line");
+  expect(boxText(box)).toBe("first line\nsecond line");
   expect(named("prompt")).toHaveLength(0);
-  await user.keyboard("{Enter}");
+  await press(box, "Enter");
   await waitFor(() =>
     expect(named("prompt")).toEqual([
       ["prompt", "local", "s1", [{ type: "text", text: "first line\nsecond line" }]],
     ]),
   );
-  expect(box.value).toBe("");
+  expect(boxText(box)).toBe("");
 });
 
 test("while the agent works there is Stop, and a message typed is queued, not refused", async () => {
@@ -103,7 +146,7 @@ test("while the agent works there is Stop, and a message typed is queued, not re
   expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
   const queue = screen.getByRole("button", { name: "Queue" }) as HTMLButtonElement;
   expect(queue.disabled).toBe(true);
-  await user.type(screen.getByRole("textbox", { name: "Message" }), "next");
+  await write(screen.getByRole("textbox", { name: "Message" }), "next");
   await user.click(queue);
   await waitFor(() =>
     expect(named("prompt")).toEqual([["prompt", "local", "s1", [{ type: "text", text: "next" }]]]),
@@ -193,8 +236,9 @@ test("shows what went wrong, and lets it be dismissed", async () => {
   });
   await openFirstSession(user);
   const box = await screen.findByRole("textbox", { name: "Message" });
-  await waitFor(() => expect((box as HTMLTextAreaElement).disabled).toBe(false));
-  await user.type(box, "hi{Enter}");
+  await ready(box);
+  await write(box, "hi");
+  await press(box, "Enter");
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("The session is working");
   await user.click(within(alert).getByRole("button", { name: "Dismiss" }));
@@ -338,8 +382,9 @@ test("images can be attached when the agent takes them, and go with the message 
   });
   await user.upload(picker, png);
   expect(await screen.findByRole("button", { name: "Remove shot.png" })).toBeTruthy();
-  await user.type(await screen.findByRole("textbox", { name: "Message" }), "what is this");
-  await user.keyboard("{Enter}");
+  const message = await screen.findByRole("textbox", { name: "Message" });
+  await write(message, "what is this");
+  await press(message, "Enter");
   await waitFor(() => expect(named("prompt")).toHaveLength(1));
   expect(named("prompt")[0]).toEqual([
     "prompt",
@@ -530,14 +575,14 @@ test("what is queued is listed, and Edit takes it back into the box", async () =
     return [{ type: "text", text: "the second one" }];
   };
   await openFirstSession(user);
-  const box = (await screen.findByRole("textbox", { name: "Message" })) as HTMLTextAreaElement;
+  const box = await screen.findByRole("textbox", { name: "Message" });
   emit(queueUpdate(1, [waiting("q1", "the second one")]));
   const list = await screen.findByRole("list", { name: "Queued messages" });
   expect(list.textContent).toContain("the second one");
   await user.click(
     within(list).getByRole("button", { name: /Edit queued message: the second one/ }),
   );
-  await waitFor(() => expect(box.value).toBe("the second one"));
+  await waitFor(() => expect(boxText(box)).toBe("the second one"));
   emit(queueUpdate(2, []));
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
   expect(taken).toEqual(["q1"]);
@@ -547,34 +592,30 @@ test("what is queued is listed, and Edit takes it back into the box", async () =
 test("what the daemon hands back after a stop is in the box, with no error", async () => {
   const { user, emit, store } = await mount();
   await openFirstSession(user);
-  const box = (await screen.findByRole("textbox", { name: "Message" })) as HTMLTextAreaElement;
-  await user.type(box, "and this");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "and this");
   emit(
     queueUpdate(1, [], {
       returned: [waiting("q1", "one"), waiting("q2", "two")],
       reason: "cancelled",
     }),
   );
-  await waitFor(() => expect(box.value).toBe("one\n\ntwo\n\nand this"));
+  await waitFor(() => expect(boxText(box)).toBe("one\n\ntwo\n\nand this"));
   expect(store.getState().error).toBeUndefined();
 });
 
 test("each session has its own box, and a draft survives going to another session and back", async () => {
   const { user, store } = await mount();
   await openFirstSession(user);
-  const box = (await screen.findByRole("textbox", { name: "Message" })) as HTMLTextAreaElement;
-  await user.type(box, "unfinished");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "unfinished");
   await act(() => store.selectSession("s2"));
-  await waitFor(() =>
-    expect((screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).value).toBe(
-      "",
-    ),
-  );
+  await waitFor(() => expect(boxText(screen.getByRole("textbox", { name: "Message" }))).toBe(""));
   await act(() => store.selectSession("s1"));
   await waitFor(() =>
-    expect((screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).value).toBe(
-      "unfinished",
-    ),
+    expect(boxText(screen.getByRole("textbox", { name: "Message" }))).toBe("unfinished"),
   );
 });
 
@@ -597,20 +638,19 @@ test("Up in an empty box recalls what was sent, Down goes back, and typing is no
       ),
   });
   await openFirstSession(user);
-  const box = (await screen.findByRole("textbox", { name: "Message" })) as HTMLTextAreaElement;
-  await waitFor(() => expect(box.disabled).toBe(false));
-  await user.click(box);
-  await user.keyboard("{ArrowUp}");
-  expect(box.value).toBe("second");
-  await user.keyboard("{ArrowUp}");
-  expect(box.value).toBe("first");
-  await user.keyboard("{ArrowDown}");
-  expect(box.value).toBe("second");
-  await user.keyboard("{ArrowDown}");
-  expect(box.value).toBe("");
-  await user.type(box, "typing");
-  await user.keyboard("{ArrowUp}");
-  expect(box.value).toBe("typing");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await press(box, "ArrowUp");
+  expect(boxText(box)).toBe("second");
+  await press(box, "ArrowUp");
+  expect(boxText(box)).toBe("first");
+  await press(box, "ArrowDown");
+  expect(boxText(box)).toBe("second");
+  await press(box, "ArrowDown");
+  expect(boxText(box)).toBe("");
+  await write(box, "typing");
+  await press(box, "ArrowUp");
+  expect(boxText(box)).toBe("typing");
 });
 
 test("a message that could not be sent is back in the box", async () => {
@@ -619,9 +659,10 @@ test("a message that could not be sent is back in the box", async () => {
     throw new Error("The agent is not available");
   };
   await openFirstSession(user);
-  const box = (await screen.findByRole("textbox", { name: "Message" })) as HTMLTextAreaElement;
-  await waitFor(() => expect(box.disabled).toBe(false));
-  await user.type(box, "do it{Enter}");
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "do it");
+  await press(box, "Enter");
   await screen.findByRole("alert");
-  await waitFor(() => expect(box.value).toBe("do it"));
+  await waitFor(() => expect(boxText(box)).toBe("do it"));
 });

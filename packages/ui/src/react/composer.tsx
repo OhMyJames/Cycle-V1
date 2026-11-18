@@ -1,13 +1,5 @@
 import { Button } from "@ui-sdk/react/button";
-import { Textarea } from "@ui-sdk/react/textarea";
-import {
-  type ClipboardEvent,
-  type KeyboardEvent,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   ATTACHMENT_LIMITS,
   type AttachmentProblem,
@@ -20,6 +12,7 @@ import { NOT_RECALLING, type Recall, recall, sentTexts } from "../draft.ts";
 import { type QueuedPrompt, textOf } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
 import { AttachIcon, CloseIcon } from "./icons.tsx";
+import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 
 export type ComposerProps = {
@@ -64,6 +57,7 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
   const [dropping, setDropping] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
+  const input = useRef<InputHandle | null>(null);
   // While the agent works, a message is queued: it goes when the turn ends well (docs/protocol.md §8).
   const canSend = enabled && (text.trim() !== "" || attachments.length > 0);
 
@@ -135,51 +129,26 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
 
   const edit = async (queueId: string) => {
     if ((await store.dequeue(queueId)) !== undefined) {
-      root.current?.querySelector("textarea")?.focus();
+      input.current?.focus();
     }
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter sends; Shift+Enter is a new line; Enter that confirms an IME composition is not a send.
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-      event.preventDefault();
+  /** The keys the box asks about first. Enter sends (a new line is Shift+Enter); the arrows walk through what was sent. */
+  const onKey = (key: InputKey, event: KeyboardEvent): boolean => {
+    if (key === "enter") {
       void send();
-      return;
+      return true;
     }
-    if (
-      (event.key !== "ArrowUp" && event.key !== "ArrowDown") ||
-      event.shiftKey ||
-      event.altKey ||
-      event.ctrlKey ||
-      event.metaKey ||
-      event.nativeEvent.isComposing
-    ) {
-      return;
-    }
-    // Up and down walk through what was sent when the caret has nowhere to go: the first line going up, the last going down.
-    const box = event.currentTarget;
-    const before = box.value.slice(0, box.selectionStart);
-    const after = box.value.slice(box.selectionEnd);
-    const up = event.key === "ArrowUp";
-    if (up ? before.includes("\n") : after.includes("\n")) return;
-    const found = recall(
-      sentTexts(conversation?.items ?? []),
-      recalled.current,
-      box.value,
-      up ? "up" : "down",
-    );
-    if (found === undefined) return;
-    event.preventDefault();
+    if (key !== "up" && key !== "down") return false;
+    if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+    // They are the caret's unless it has nowhere to go: the first block going up, the last going down.
+    const caret = input.current?.caret();
+    if (caret === undefined || (key === "up" ? !caret.first : !caret.last)) return false;
+    const found = recall(sentTexts(conversation?.items ?? []), recalled.current, text, key);
+    if (found === undefined) return false;
     recalled.current = found.state;
     store.drafts.setText(sessionKey, found.text);
-  };
-
-  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const images = imagesOf(event.clipboardData.files);
-    if (!canAttach || images.length === 0) return;
-    // A pasted picture is attached; pasted text goes into the box as it always did.
-    event.preventDefault();
-    void attach(images);
+    return true;
   };
 
   // Dropping files: listeners on the element itself (a drag is not something a keyboard does, so it is not a handler of the markup).
@@ -293,26 +262,27 @@ export function Composer({ sessionKey, enabled, canAttach = false }: ComposerPro
             />
           </>
         ) : null}
-        <Textarea
-          autoResize
-          aria-label={t("composer.message")}
-          placeholder={
-            enabled
-              ? working
-                ? t("composer.placeholder.working")
-                : t("composer.placeholder.idle")
-              : t("composer.placeholder.none")
-          }
-          disabled={!enabled}
-          value={text}
-          onChange={(event) => {
-            const next = event.currentTarget.value;
-            if (next !== recalled.current.shown) recalled.current = NOT_RECALLING;
-            store.drafts.setText(sessionKey, next);
-          }}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-        />
+        <div data-slot="composer-field">
+          <MarkdownInput
+            value={text}
+            onChange={(markdown) => {
+              if (markdown !== recalled.current.shown) recalled.current = NOT_RECALLING;
+              store.drafts.setText(sessionKey, markdown);
+            }}
+            disabled={!enabled}
+            label={t("composer.message")}
+            placeholder={
+              enabled
+                ? working
+                  ? t("composer.placeholder.working")
+                  : t("composer.placeholder.idle")
+                : t("composer.placeholder.none")
+            }
+            onKey={onKey}
+            onPasteFiles={(files) => void attach(files)}
+            handle={input}
+          />
+        </div>
         {working ? (
           <Button data-variant="outline" onClick={() => void store.cancel()}>
             {t("composer.stop")}

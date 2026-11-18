@@ -145,7 +145,11 @@ export function App() {
           layout.isCollapsed("sidebar") ? layout.expand("sidebar") : layout.collapse("sidebar"),
         );
       else if (key === "l")
-        run(() => document.querySelector<HTMLElement>('[data-slot="composer"] textarea')?.focus());
+        run(() =>
+          document
+            .querySelector<HTMLElement>('[data-slot="composer"] [data-slot="composer-input"]')
+            ?.focus(),
+        );
       else if (key === "." && working) run(() => void store.cancel());
       else if (
         key === "Enter" &&
