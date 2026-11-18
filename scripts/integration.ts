@@ -11,11 +11,12 @@
 //   bun run test:integration --plan --files a/b.ts c.md      the same for a list of paths
 // Options: --strict (a suite that was skipped, or ran no test, fails: for a machine that is meant to have
 // Electron, xvfb and sshd), --summary <file> (a markdown table of the result: CI's step summary),
-// --github-output <file> (what a workflow's later steps need to know about the plan).
+// --github-output <file> (what a workflow's later steps need to know about the plan), --record <file> (a JSON
+// record of the run: commit, machine, and each suite's result and time; integration-trend.ts compares them).
 // The list of suites, and the rules that choose among them, are in integration-plan.ts.
 // A change that cannot be compared (no such ref, no git) runs every suite.
 
-import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -30,8 +31,11 @@ import {
   suites,
   workspaceGraph,
 } from "./integration-plan.ts";
+import { buildRecord, junitTimes, type TestTime } from "./integration-record.ts";
 
 const root = new URL("..", import.meta.url).pathname;
+const withoutGit = (env: Record<string, string | undefined>) =>
+  Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith("GIT_")));
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -42,7 +46,7 @@ const option = (name: string): string | undefined => {
 const filesAt = args.indexOf("--files");
 const files = filesAt === -1 ? undefined : args.slice(filesAt + 1);
 const base = option("--changed");
-const named = new Set(["--changed", "--summary", "--github-output"]);
+const named = new Set(["--changed", "--summary", "--github-output", "--record"]);
 const only = args.find(
   (a, i) => !a.startsWith("--") && !named.has(args[i - 1] ?? "") && (filesAt === -1 || i < filesAt),
 );
@@ -59,7 +63,7 @@ const changedFiles = (): string[] | string => {
   const diff = Bun.spawnSync(["git", ...diffArgs(base)], {
     cwd: root,
     // A pre-commit hook has GIT_DIR in its environment; a git here must find this checkout, not the hook's.
-    env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+    env: withoutGit(process.env),
   });
   if (diff.exitCode !== 0)
     return `git diff ${base}...HEAD failed: ${diff.stderr.toString().trim().split("\n")[0]}`;
@@ -78,7 +82,7 @@ const selection = (): Plan | undefined => {
 };
 
 // An option that needs a value, with none, is a mistake to say, not a reason to run something else.
-for (const name of ["--changed", "--summary", "--github-output"]) {
+for (const name of ["--changed", "--summary", "--github-output", "--record"]) {
   const value = option(name);
   if (args.includes(name) && (value === undefined || value.startsWith("--"))) {
     console.error(`${name} needs a value`);
@@ -117,6 +121,8 @@ if (flag("--plan")) process.exit(0);
 
 const strict = flag("--strict");
 const summaryFile = option("--summary");
+const recordFile = option("--record");
+const slowest: Record<string, TestTime[]> = {};
 
 // Every temporary directory a suite makes is under this run's own: a process that a killed suite leaves
 // behind has it in its command line, so it is found by that and by nothing else. Another checkout's run, or
@@ -202,6 +208,23 @@ const finish = () => {
       .join("\n")}`,
   );
   if (summaryFile !== undefined) appendFileSync(summaryFile, `${markdown(table)}\n`);
+  if (recordFile !== undefined) {
+    const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
+      cwd: root,
+      env: withoutGit(process.env),
+    });
+    const record = buildRecord({
+      rows: table,
+      limits: Object.fromEntries(suites.map((s) => [s.name, s.seconds])),
+      slowest,
+      scope: chosen.run.length === suites.length ? "all" : "selected",
+      strict,
+      commit: head.exitCode === 0 ? head.stdout.toString().trim() : undefined,
+      env: process.env,
+      now: new Date(),
+    });
+    writeFileSync(recordFile, `${JSON.stringify(record, null, 2)}\n`);
+  }
   process.exit(failed ? 1 : 0);
 };
 
@@ -225,11 +248,16 @@ if (chosen.run.some((s) => s.name === "smoke")) {
 for (const suite of chosen.run) {
   const started = Date.now();
   console.log(`\n== ${suite.name} (limit ${suite.seconds}s)`);
+  // The junit file is where each test's own time is: bun's summary has only the whole.
+  const junit = join(scratch, `${suite.name}.xml`);
   const { code, timedOut, output } = await run(
-    ["bun", "test", `./${suite.file}`],
+    ["bun", "test", `./${suite.file}`, "--reporter=junit", `--reporter-outfile=${junit}`],
     suite.cwd,
     suite.seconds,
   );
+  try {
+    slowest[suite.name] = junitTimes(readFileSync(junit, "utf8"));
+  } catch {}
   const result = outcome({ suite, code, timedOut, output, strict });
   rows.push({
     name: suite.name,
