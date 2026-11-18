@@ -9,6 +9,10 @@ type Script = {
 
 export type Turn = {
   prompt: string;
+  /** The blocks of the prompt, as the agent got them. */
+  blocks: unknown[];
+  /** Asks the user for a form (`elicitation/create`); the answer is whatever the daemon says. */
+  elicit: () => Promise<unknown>;
   say: (update: object) => Promise<void>;
   ask: () => Promise<unknown>;
   /** Resolves when a cancel has come in. */
@@ -19,11 +23,15 @@ export type Turn = {
  * An ACP v2 agent in this process, which does what a test tells it to. It records how it was
  * called, and can be made to crash.
  */
-export const fakeAgent = (script: Script = {}) => {
+export const fakeAgent = (
+  script: Script = {},
+  options: { promptCapabilities?: Record<string, unknown> } = {},
+) => {
   const log = {
     news: [] as Record<string, unknown>[],
     resumes: [] as Record<string, unknown>[],
     prompts: [] as string[],
+    blocks: [] as unknown[][],
     cancels: 0,
     launches: 0,
     configs: [] as Record<string, unknown>[],
@@ -71,6 +79,7 @@ export const fakeAgent = (script: Script = {}) => {
         const sessionId = params.sessionId;
         const text = params.prompt.map((b) => (b.type === "text" ? b.text : "")).join("");
         log.prompts.push(text);
+        log.blocks.push(params.prompt as unknown[]);
         const messageId = randomUUID();
         const say = (update: object) =>
           client.notify(methods.client.session.update, {
@@ -78,6 +87,13 @@ export const fakeAgent = (script: Script = {}) => {
             update: update as SessionUpdate,
           });
         const cancelled = new Promise<void>((resolve) => cancelResolvers.push(resolve));
+        const elicit = () =>
+          client.request(methods.client.elicitation.create, {
+            sessionId,
+            mode: "form",
+            message: "Which one?",
+            requestedSchema: { type: "object", properties: { pick: { type: "string" } } },
+          } as never);
         const ask = () =>
           client.request(methods.client.session.requestPermission, {
             sessionId,
@@ -90,8 +106,16 @@ export const fakeAgent = (script: Script = {}) => {
         void (async () => {
           await say({ sessionUpdate: "user_message", messageId, content: params.prompt });
           await say({ sessionUpdate: "state_update", state: "running" });
-          if (script.onPrompt) await script.onPrompt({ prompt: text, say, ask, cancelled });
-          else {
+          if (script.onPrompt) {
+            await script.onPrompt({
+              prompt: text,
+              blocks: params.prompt,
+              say,
+              ask,
+              elicit,
+              cancelled,
+            });
+          } else {
             await say({
               sessionUpdate: "agent_message_chunk",
               messageId: "a1",
@@ -109,6 +133,9 @@ export const fakeAgent = (script: Script = {}) => {
     id: "fake",
     name: "Fake",
     configSchema: { type: "object", properties: { mode: { type: "string" } } },
+    ...(options.promptCapabilities !== undefined
+      ? { promptCapabilities: options.promptCapabilities }
+      : {}),
     launch: async () => {
       log.launches++;
       return { target: build() };

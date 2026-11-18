@@ -15,11 +15,16 @@ export type Seen = { update: SessionUpdate; seq: number | undefined };
 /** A client of the daemon, in this process, that writes down everything it is sent. */
 export const connectClient = async (
   daemon: Daemon,
-  options: { onPermission?: (params: unknown) => "allow" | "deny" | "cancel" | "never" } = {},
+  options: {
+    onPermission?: (params: unknown) => "allow" | "deny" | "cancel" | "never";
+    /** Declares that this client can answer forms, and how it does. */
+    onElicitation?: (params: unknown) => Record<string, unknown> | "never";
+  } = {},
 ) => {
   let agent: ClientContext | undefined;
   const seen: Seen[] = [];
   const permissions: unknown[] = [];
+  const elicitations: unknown[] = [];
   const resolved: unknown[] = [];
   let listChanged = 0;
   let defaultsChanged = 0;
@@ -52,6 +57,12 @@ export const connectClient = async (
         listChanged++;
       },
     )
+    .onRequest(methods.client.elicitation.create, async ({ params }) => {
+      elicitations.push(params);
+      const answer = options.onElicitation?.(params) ?? { action: "decline" };
+      if (answer === "never") return new Promise<never>(() => {});
+      return answer as never;
+    })
     .onRequest(methods.client.session.requestPermission, async ({ params }) => {
       permissions.push(params);
       const answer = options.onPermission?.(params) ?? "allow";
@@ -66,12 +77,14 @@ export const connectClient = async (
   const init = await api.request(methods.agent.initialize, {
     protocolVersion: 2,
     info: { name: "test", version: "0" },
+    ...(options.onElicitation !== undefined ? { capabilities: { elicitation: { form: {} } } } : {}),
   } as never);
   return {
     agent: api,
     init,
     seen,
     permissions,
+    elicitations,
     resolved,
     listChanged: () => listChanged,
     defaultsChanged: () => defaultsChanged,

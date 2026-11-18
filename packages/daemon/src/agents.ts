@@ -1,4 +1,5 @@
 import type { AgentApp, Stream } from "@cycle/acp";
+import type { PromptCapabilities } from "@cycle/protocol";
 
 /** Where an agent is reached: a stream to a process, or an app in this process (tests). */
 export type AgentTarget = { target: Stream | AgentApp; kill?: () => void };
@@ -13,6 +14,8 @@ export type AgentDefinition = {
   name: string;
   /** JSON Schema of what can be configured, for a client to draw a form from. */
   configSchema: Record<string, unknown>;
+  /** What the agent takes in a prompt beyond text and links (ACP `PromptCapabilities`). None when absent. */
+  promptCapabilities?: PromptCapabilities;
   available?: () => boolean | Promise<boolean>;
   launch: () => Promise<AgentTarget>;
 };

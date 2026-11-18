@@ -14,6 +14,7 @@ import {
   agentsList,
   CYCLE_PROTOCOL_VERSION,
   CycleErrorCode,
+  checkPrompt,
   META,
   NOTIFICATIONS,
   ReplayFromSeqSchema,
@@ -51,6 +52,7 @@ export type DaemonOptions = {
 
 const SESSION_UPDATE = methods.client.session.update;
 const REQUEST_PERMISSION = methods.client.session.requestPermission;
+const ELICITATION = methods.client.elicitation.create;
 
 const stringConfig = (value: unknown): Record<string, string> => {
   const config: Record<string, string> = {};
@@ -115,6 +117,7 @@ export class Daemon {
       id: `c${++this.#counter}`,
       notify: (method, params) => client.notify(method as never, params as never),
       request: (method, params) => client.request(method as never, params as never),
+      elicitation: false,
     };
     holder.value = conn;
     this.#conns.add(conn);
@@ -139,6 +142,21 @@ export class Daemon {
           attachment.detach();
           session.attachments.delete(attachment);
         }
+      }
+      this.#abandonForms(session);
+    }
+  }
+
+  /**
+   * A form is asked only while some attached client can answer it. When the last one goes the
+   * agent is told so, as it is when none is attached to begin with, instead of waiting for a client
+   * that may never come back (decision 0011).
+   */
+  #abandonForms(session: Session): void {
+    if ([...session.attachments].some((attachment) => attachment.conn.elicitation)) return;
+    for (const pending of [...session.pending.values()]) {
+      if (pending.method === ELICITATION) {
+        this.#settle(session, pending, { action: "cancel", _meta: { [META.noClient]: true } });
       }
     }
   }
@@ -176,6 +194,7 @@ export class Daemon {
     const link = await AgentLink.connect(definition, {
       update: (update) => this.#onUpdate(session, update),
       permission: (params) => this.#onPermission(session, params),
+      elicitation: (params) => this.#onElicitation(session, params),
       closed: () => this.#onAgentClosed(session, link),
     });
     session.link = link;
@@ -189,9 +208,14 @@ export class Daemon {
       }
       session.resuming = true;
       try {
+        // What the session was made with goes again: the agent does not keep it across a restart.
+        const { additionalDirectories, mcpServers, systemPrompt } = session.entry;
         await link.agent.request(methods.agent.session.resume, {
           sessionId: session.entry.agentSessionId,
           cwd: session.entry.cwd,
+          ...(additionalDirectories !== undefined ? { additionalDirectories } : {}),
+          ...(mcpServers !== undefined ? { mcpServers } : {}),
+          ...(systemPrompt !== undefined ? { systemPrompt } : {}),
         } as never);
       } catch (error) {
         throw new RpcError(CycleErrorCode.ResumeFailed, "The agent could not resume the session", {
@@ -242,6 +266,7 @@ export class Daemon {
         session.agentState = state.state;
       }
     }
+    if (!this.#learn(session, update)) return;
     // Called in the order the updates arrive, so seq follows the agent's order.
     void session.log.append({ kind: "update", data: update }).then(
       () => this.#changed(),
@@ -249,7 +274,58 @@ export class Daemon {
     );
   }
 
-  async #onPermission(session: Session, params: Record<string, unknown>): Promise<unknown> {
+  /** What an update tells the daemon about the session, beyond what it tells the client. */
+  /** Returns false for an update that must not reach the log: an agent title the user has overruled. */
+  #learn(session: Session, update: SessionUpdate): boolean {
+    const u = update as {
+      sessionUpdate: string;
+      title?: string | null;
+      configOptions?: { configId?: string; currentValue?: unknown }[];
+    };
+    if (u.sessionUpdate === "config_option_update" && Array.isArray(u.configOptions)) {
+      // The agent changed a setting itself (a plan approved, say): on record, so a restart keeps it.
+      const config = { ...(session.entry.config ?? {}) };
+      for (const option of u.configOptions) {
+        if (typeof option.configId === "string" && typeof option.currentValue === "string") {
+          config[option.configId] = option.currentValue;
+        }
+      }
+      this.#remember(session, { config });
+    } else if (u.sessionUpdate === "session_info_update") {
+      // The user's own name for a session wins over the agent's: a title that is not marked as the
+      // agent's is the user's, which includes every title written before agents named sessions.
+      const { title, titleFromAgent } = session.entry;
+      if (
+        typeof u.title === "string" &&
+        u.title !== "" &&
+        (title === undefined || titleFromAgent === true)
+      ) {
+        this.#remember(session, { title: u.title, titleFromAgent: true });
+      } else if (typeof u.title === "string") {
+        // The user named it: clients are not told a different name, here or in a replay.
+        return false;
+      }
+    }
+    return true;
+  }
+
+  #remember(session: Session, patch: Partial<SessionEntry>): void {
+    session.entry = { ...session.entry, ...patch };
+    // A session that is still being made is not in the index yet; it is put there with this entry.
+    if (this.#index.get(session.id) === undefined) return;
+    void this.#index.update(session.id, patch).then(
+      () => this.#changed(),
+      () => undefined,
+    );
+  }
+
+  /** Puts a request to the clients, waits for the answer, and writes the request to the log. */
+  async #ask(
+    session: Session,
+    method: string,
+    params: Record<string, unknown>,
+    how: { cancelled: unknown; answer: (response: unknown) => unknown },
+  ): Promise<unknown> {
     const requestId = session.nextRequestId();
     // The id is in _meta so a client can match `_cycle/request_resolved` to the dialog it is showing.
     const meta = (params._meta ?? {}) as Record<string, unknown>;
@@ -264,6 +340,9 @@ export class Daemon {
     });
     const pending: Pending = {
       requestId,
+      method,
+      cancelled: how.cancelled,
+      answer: how.answer,
       params: clientParams,
       settled: false,
       asked: new Set(),
@@ -273,21 +352,42 @@ export class Daemon {
     // Delivery is by the log: attached clients get it as the record is written.
     await session.log.append({
       kind: "request",
-      data: { requestId, method: REQUEST_PERMISSION, params: clientParams },
+      data: { requestId, method, params: clientParams },
     });
     // A request written while nobody is attached waits here until a client attaches.
-    return { outcome: await outcome };
+    return outcome;
+  }
+
+  async #onPermission(session: Session, params: Record<string, unknown>): Promise<unknown> {
+    const outcome = await this.#ask(session, REQUEST_PERMISSION, params, {
+      cancelled: { outcome: "cancelled" },
+      answer: (response) => (response as { outcome: unknown }).outcome,
+    });
+    return { outcome };
+  }
+
+  /**
+   * The agent asks for a form (docs/protocol.md §9, decision 0011). Only a client that said it can
+   * answer one is asked, and if none is attached the agent is told so at once instead of waiting:
+   * a question is not worth holding a turn for, and a client without the screen would never answer.
+   */
+  async #onElicitation(session: Session, params: Record<string, unknown>): Promise<unknown> {
+    const capable = [...session.attachments].some((attachment) => attachment.conn.elicitation);
+    if (!capable) return { action: "cancel", _meta: { [META.noClient]: true } };
+    return this.#ask(session, ELICITATION, params, {
+      cancelled: { action: "cancel" },
+      answer: (response) => response,
+    });
   }
 
   /** Asks one client, once. The first answer from any client settles it. */
   #offer(session: Session, pending: Pending, attachment: Attachment): void {
     if (pending.settled || pending.asked.has(attachment)) return;
+    if (pending.method === ELICITATION && !attachment.conn.elicitation) return;
     pending.asked.add(attachment);
     attachment.conn
-      .request(REQUEST_PERMISSION, pending.params)
-      .then((answer) =>
-        this.#settle(session, pending, (answer as { outcome: unknown }).outcome, attachment),
-      )
+      .request(pending.method, pending.params)
+      .then((answer) => this.#settle(session, pending, pending.answer(answer), attachment))
       .catch(() => pending.asked.delete(attachment));
   }
 
@@ -320,13 +420,13 @@ export class Daemon {
       pending.settled = true;
       session.pending.delete(pending.requestId);
       void session.log.append({ kind: "aborted", data: { requestId: pending.requestId } });
-      pending.resolve({ outcome: "cancelled" });
+      pending.resolve(pending.cancelled);
       for (const attachment of pending.asked) {
         void attachment.conn
           .notify(NOTIFICATIONS.requestResolved, {
             sessionId: session.id,
             requestId: pending.requestId,
-            outcome: { outcome: "cancelled" },
+            outcome: pending.cancelled,
           })
           .catch(() => {});
       }
@@ -394,6 +494,8 @@ export class Daemon {
       const requested = (params._meta as Record<string, unknown> | null | undefined)?.[
         META.protocolVersion
       ];
+      // Whether this client can answer a form: only then is it asked one (decision 0011).
+      me().elicitation = params.capabilities?.elicitation?.form != null;
       if (
         typeof requested === "string" &&
         requested.split(".")[0] !== CYCLE_PROTOCOL_VERSION.split(".")[0]
@@ -427,24 +529,31 @@ export class Daemon {
       if (agentId === undefined)
         throw new RpcError(CycleErrorCode.AgentUnavailable, "No agent is configured");
       this.#definition(agentId);
-      // The directory is a path on THIS machine (the daemon's), not the client's. Say so up front: otherwise
-      // the agent fails to start with an error that blames the binary.
-      if (
-        !(await stat(params.cwd).then(
-          (s) => s.isDirectory(),
-          () => false,
-        ))
-      )
-        throw new RpcError(
-          INVALID_PARAMS,
-          `The working directory ${params.cwd} does not exist on the machine the daemon runs on`,
-        );
+      // The directories are paths on THIS machine (the daemon's), not the client's. Say so up front.
+      for (const directory of [params.cwd, ...(params.additionalDirectories ?? [])]) {
+        if (
+          !(await stat(directory).then(
+            (s) => s.isDirectory(),
+            () => false,
+          ))
+        )
+          throw new RpcError(
+            INVALID_PARAMS,
+            `The ${directory === params.cwd ? "working directory" : "directory"} ${directory} does not exist on the machine the daemon runs on`,
+          );
+      }
       const id = randomUUID();
       const entry: SessionEntry = {
         agent: agentId,
         agentSessionId: id,
         cwd: params.cwd,
         createdAt: new Date().toISOString(),
+        // Kept to send again each time the agent starts. Not in the log: that goes to every client.
+        ...(params.additionalDirectories?.length
+          ? { additionalDirectories: params.additionalDirectories }
+          : {}),
+        ...(params.mcpServers?.length ? { mcpServers: params.mcpServers } : {}),
+        ...(params.systemPrompt != null ? { systemPrompt: params.systemPrompt } : {}),
       };
       const log = await this.#store.open(id);
       const session = new Session(id, entry, log);
@@ -455,11 +564,12 @@ export class Daemon {
         });
         const { created } = await this.#startAgent(session, "new", {
           cwd: params.cwd,
+          additionalDirectories: params.additionalDirectories,
           mcpServers: params.mcpServers,
           systemPrompt: params.systemPrompt,
         });
         const answer = created as { sessionId: string; configOptions?: unknown[] };
-        session.entry = { ...entry, agentSessionId: answer.sessionId };
+        session.entry = { ...session.entry, agentSessionId: answer.sessionId };
         // The agent may have taken our id or kept its own; either way the pair is on record.
         await this.#index.put(id, session.entry);
         this.#sessions.set(id, session);
@@ -556,6 +666,16 @@ export class Daemon {
 
     app.onRequest(methods.agent.session.prompt, async ({ params }) => {
       const session = await this.#session(params.sessionId);
+      // Refused whole, before anything is started or written: a block is never dropped (decision 0010).
+      const problem = checkPrompt(
+        params.prompt,
+        this.#definition(session.entry.agent).promptCapabilities,
+      );
+      if (problem !== undefined)
+        throw new RpcError(INVALID_PARAMS, `The prompt cannot be sent: ${problem.reason}`, {
+          sessionId: session.id,
+          ...problem,
+        });
       if (session.status() !== "idle" && session.status() !== "stopped")
         throw sessionBusy(session.id);
       // Marked at once: the agent's own "running" comes later, and a second prompt must not slip in.
@@ -578,7 +698,7 @@ export class Daemon {
       if (session === undefined) return;
       // ACP: every pending permission request is answered "cancelled" when a turn is cancelled.
       for (const pending of [...session.pending.values()])
-        this.#settle(session, pending, { outcome: "cancelled" });
+        this.#settle(session, pending, pending.cancelled);
       await session.link?.agent
         .notify(methods.agent.session.cancel, { sessionId: session.entry.agentSessionId } as never)
         .catch(() => undefined);
@@ -639,6 +759,9 @@ export class Daemon {
           name: a.name,
           available: (await a.available?.()) ?? true,
           configSchema: a.configSchema,
+          ...(a.promptCapabilities !== undefined
+            ? { promptCapabilities: a.promptCapabilities }
+            : {}),
         })),
       ),
     }));
@@ -688,7 +811,9 @@ export class Daemon {
       })(params),
     );
     cycle(sessionUnarchive, (params) => change(async () => ({ archived: false }))(params));
-    cycle(sessionSetTitle, (params) => change(async () => ({ title: params.title }))(params));
+    cycle(sessionSetTitle, (params) =>
+      change(async () => ({ title: params.title, titleFromAgent: false }))(params),
+    );
 
     return app;
   }

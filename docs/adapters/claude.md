@@ -37,14 +37,27 @@
 
 ## 未做(显式列出,不要悄悄补)
 
-- `config_option_update` 通知:配置变更只在 `set_config_option` 的响应里返回,没有主动通知。
 - `session/list`、`session/delete`:daemon 管理 session 列表和历史。
-- 图片和资源类型的 prompt 内容:只取文本块。
-- 子 agent 输出、`compaction`、`available_commands_update`、标题。
-- MCP 服务器、系统提示、`additionalDirectories`:`session/new` 的这些参数目前被忽略。
+- 音频;URL 模式的 elicitation(MCP 服务器的网页授权);`override` 模式的系统提示;SSE 的 MCP 服务器。这些都明确拒绝(`-32602`)或回绝,不静默忽略。
+- 子 agent 输出(`subagent_update`)。
+- 压缩的摘要内容:`compaction_update` 只报开始、完成、失败,不带摘要。
+- 没有进程时的命令列表:`available_commands_update` 在 session 的 Claude 进程启动后(第一个 prompt)才有,之前没有。
 - `bypassPermissions` 模式:有意不提供。
-- `elicitation`、`terminal`。
+- `terminal`。
 - 凭证注入和真实模型的验证(需要登录或密钥,见下)。
+
+## 这一轮加的(2026-11-18)
+
+| 能力                                                  | 做法                                                                                                                                                                                                         | 验证                                                                                                                                                                     |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 附件                                                  | initialize 声明 `image`、`embeddedContext`;`image` → image 块,文本 `resource` → `<file uri="…">` 文字块,PDF `resource` → document 块,`resource_link` → `[name](uri)`;别的块整个 prompt 拒绝,在 turn 开始之前 | 单元测试;真实 Claude 二进制 + 模拟 API:图片(真实的 1×1 PNG;**假的 PNG 会被 Claude 进程丢掉,换成一句文字**)、PDF、文本文件都到了模型的请求里                              |
+| `additionalDirectories`、`mcpServers`、`systemPrompt` | 存在 session 状态里,每次起进程都带上(包括空闲释放后和 `session/resume`);MCP 用 `mcpServersDelivery: "initialize"`,密钥不在命令行;系统提示只支持 `append`(preset 加 append)                                   | 单元测试(含空闲释放后仍在);真实二进制:stdio MCP 服务器起来了,它的 env 到了(工具名里带着 env),追加的系统提示和附加目录都进了请求                                          |
+| 模型                                                  | `model` 是 select(`default`、`sonnet`、`opus`、`haiku`),`default` 让 Claude 自己选                                                                                                                           | 单元测试                                                                                                                                                                 |
+| 配置回报                                              | Claude 自己改了权限模式(`system/status` 的 `permissionMode`),发 `config_option_update`,并记住,下次进程按它起                                                                                                 | 单元测试(假的 status 消息);**真实模型:计划模式下批准 `ExitPlanMode` 后,收到 `config_option_update`,mode 变回 default**                                                   |
+| 命令                                                  | 进程起来后 `supportedCommands()`,以及 `commands_changed`,发 `available_commands_update`                                                                                                                      | 单元测试;真实二进制:有命令列表                                                                                                                                           |
+| 压缩                                                  | `status: compacting` 到结束,发 `compaction_update`(`in_progress`、`completed`、`failed`)                                                                                                                     | 单元测试;**真实模型:`/compact` 发出 `in_progress` 和 `completed`**                                                                                                       |
+| 标题                                                  | 每个 turn 结束后用 SDK 的 `getSessionInfo` 取标题,和第一个 prompt 不同才发 `session_info_update`;只从给 Claude 的那个 `CLAUDE_CONFIG_DIR` 读,没有就不找(不碰 `~/.claude`)                                    | 单元测试(注入 `sessionInfo`);**真实模型:两个 turn 之后收到 `session_info_update`("Login form email validation");模拟 API 下没有标题,因为标题是 Claude 自己用模型生成的** |
+| elicitation                                           | `AskUserQuestion` → 表单(单选 `oneOf`、多选 `array`),答案写回工具的 `answers`;MCP 的 elicitation(form 模式)→ 表单;URL 模式拒绝。daemon 回 `cycle/noClient` 时,`AskUserQuestion` 退回权限请求,MCP 的按拒绝    | 单元测试;真实二进制 + 模拟 API:有能力的客户端收到表单,答案(luxon)进了给模型的工具结果;没有能力的客户端收到的是原来的权限卡                                               |
 
 ## 验证结果
 

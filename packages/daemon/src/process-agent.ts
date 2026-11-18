@@ -1,10 +1,13 @@
 import { ndJsonStream } from "@cycle/acp";
+import type { PromptCapabilities } from "@cycle/protocol";
 import type { AgentDefinition } from "./agents.ts";
 
 export type ProcessAgentOptions = {
   id: string;
   name: string;
   configSchema?: Record<string, unknown>;
+  /** What the agent takes in a prompt beyond text and links; see `AgentDefinition`. */
+  promptCapabilities?: PromptCapabilities;
   command: string[];
   /**
    * The child's whole environment. Nothing is inherited from the daemon: the daemon's own variables
@@ -21,6 +24,9 @@ export const processAgent = (options: ProcessAgentOptions): AgentDefinition => (
   id: options.id,
   name: options.name,
   configSchema: options.configSchema ?? { type: "object", properties: {} },
+  ...(options.promptCapabilities !== undefined
+    ? { promptCapabilities: options.promptCapabilities }
+    : {}),
   ...(options.available !== undefined ? { available: options.available } : {}),
   launch: async () => {
     const proc = Bun.spawn(options.command, {

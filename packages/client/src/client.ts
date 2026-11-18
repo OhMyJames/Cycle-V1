@@ -13,7 +13,23 @@ export type ConnectionState = "connecting" | "connected" | "reconnecting" | "clo
 /** What the daemon asks of the user. Resolve with the chosen option, or `cancelled`. */
 export type PermissionAnswer = { outcome: "selected"; optionId: string } | { outcome: "cancelled" };
 
+/** What a user answered to a form: ACP's `elicitation/create` response. */
+export type ElicitationAnswer =
+  | { action: "accept"; content: Record<string, unknown> }
+  | { action: "decline" }
+  | { action: "cancel" };
+
 export type ClientEvents = {
+  /**
+   * The agent asks the user for structured input. Having this says the client can show a form:
+   * the daemon asks no form of a client that does not (docs/protocol.md §9). `resolved` closes it
+   * when someone else answers first.
+   */
+  elicitation?: (
+    sessionId: string,
+    request: Record<string, unknown>,
+    requestId: string | undefined,
+  ) => Promise<ElicitationAnswer>;
   /** An update of a session, once each: a replay after a reconnect never repeats one. */
   update?: (sessionId: string, update: SessionUpdate, seq: number | undefined) => void;
   /** The agent wants permission. If this is missing, the request is answered "cancelled". */
@@ -234,6 +250,17 @@ export class CycleClient {
       .onNotification(methods.client.session.update, ({ params }) => {
         this.#onUpdate(params.sessionId, params.update, seqOf(params._meta));
       })
+      .onRequest(methods.client.elicitation.create, async ({ params }) => {
+        const handler = this.#events.elicitation;
+        const sessionId = (params as { sessionId?: string }).sessionId;
+        const id = (params._meta as Record<string, unknown> | null | undefined)?.[META.requestId];
+        if (handler === undefined || sessionId === undefined) return { action: "cancel" } as never;
+        return (await handler(
+          sessionId,
+          params as unknown as Record<string, unknown>,
+          typeof id === "string" ? id : undefined,
+        )) as never;
+      })
       .onRequest(methods.client.session.requestPermission, async ({ params }) => {
         const handler = this.#events.permission;
         const id = (params._meta as Record<string, unknown> | null | undefined)?.[META.requestId];
@@ -266,7 +293,7 @@ export class CycleClient {
       const answer = await connection.agent.request(methods.agent.initialize, {
         protocolVersion: 2,
         info: { name: this.#options.name ?? "cycle-client", version: "0.0.0" },
-        capabilities: {},
+        capabilities: this.#events.elicitation !== undefined ? { elicitation: { form: {} } } : {},
         _meta: { [META.protocolVersion]: CYCLE_PROTOCOL_VERSION },
       } as never);
       const info = (answer as { info?: { version?: unknown } }).info;

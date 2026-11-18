@@ -10,4 +10,8 @@
 - [0004 v1 鉴权](0004-auth.md):已接受(仅 SSH 和 socket 权限)
 - [0005 以 ACP v2 为蓝本,L1 自己定义类型](0005-acp-v2.md):已接受(方案 C)
 - [0006 只管理 Cycle 自己的 session](0006-own-sessions.md):已接受
+- [0007 每个 session 一个常驻的 Claude 进程](0007-resident-claude-process.md):已接受(空闲时释放)
+- [0008 发布:不用打包器,签名加公证](0008-release-without-a-packager.md):已接受
 - [0009 应用自己更新自己](0009-self-update.md):已接受(自己写,不用 Squirrel)
+- [0010 附件以 ACP 内容块内联发送](0010-attachments-inline.md):已接受(有大小上限;落盘方案推迟)
+- [0011 agent 向用户提问(elicitation)](0011-elicitation.md):已接受(只发给声明了能力的客户端,没有就回退)

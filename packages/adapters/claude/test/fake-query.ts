@@ -44,8 +44,14 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
   const calls: Call[] = [];
   /** Every user message pushed, in order. */
   const prompts: string[] = [];
+  /** The same, as the SDK was given them: a string, or content blocks. */
+  const contents: unknown[] = [];
   const state = {
+    /** What `supportedCommands()` answers. */
+    commands: [] as { name: string; description: string; argumentHint: string }[],
     interrupts: 0,
+    /** How long `setPermissionMode` takes, as a process that is busy takes. */
+    setterDelayMs: 0,
     permissionModes: [] as string[],
     models: [] as (string | undefined)[],
     /** Make `setPermissionMode` and `setModel` throw, as they do on a process that is gone. */
@@ -94,6 +100,7 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
         }
         const text = textOfInput(pushed.value);
         prompts.push(text);
+        contents.push((pushed.value.message as { content: unknown }).content);
         if (calls.at(-1)?.options !== options) calls.push({ prompt: text, options });
         const interrupted = new Promise<"interrupted">((resolve) => {
           interrupt = () => resolve("interrupted");
@@ -122,14 +129,16 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
         if (!state.ignoreInterrupt) interrupt();
       },
       setPermissionMode: async (mode: string) => {
+        if (state.setterDelayMs > 0) await new Promise((r) => setTimeout(r, state.setterDelayMs));
         if (state.failSetters) throw new Error("the process is gone");
         state.permissionModes.push(mode);
       },
+      supportedCommands: async () => state.commands,
       setModel: async (model?: string) => {
         if (state.failSetters) throw new Error("the process is gone");
         state.models.push(model);
       },
     }) as unknown as Query;
   };
-  return { calls, prompts, run, state };
+  return { calls, prompts, contents, run, state };
 };

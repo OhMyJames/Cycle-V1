@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { cycleMethod } from "./method.ts";
+import { PromptCapabilitiesSchema } from "./prompt.ts";
 
 const SessionId = z.string();
 
@@ -11,6 +12,8 @@ export const AgentInfoSchema = z.object({
   name: z.string(),
   available: z.boolean(),
   configSchema: z.record(z.string(), z.unknown()),
+  /** What the agent takes in a prompt beyond text and links (decision 0010). Absent: nothing more. */
+  promptCapabilities: PromptCapabilitiesSchema.optional(),
 });
 export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 

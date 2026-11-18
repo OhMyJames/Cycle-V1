@@ -9,6 +9,18 @@ export const SessionEntrySchema = z.object({
   agentSessionId: z.string(),
   cwd: z.string(),
   title: z.string().optional(),
+  /**
+   * True when `title` came from the agent, and so may be replaced by a newer one from it. A title
+   * without this is the user's (it is all there was before agents named sessions), and stays.
+   */
+  titleFromAgent: z.boolean().optional(),
+  /**
+   * What the session was created with beyond its directory, sent to the agent every time it starts.
+   * Servers can carry secrets (env, headers): they are here, in the 0600 index, and nowhere else.
+   */
+  additionalDirectories: z.array(z.string()).optional(),
+  mcpServers: z.array(z.unknown()).optional(),
+  systemPrompt: z.unknown().optional(),
   archived: z.boolean().optional(),
   /** What was asked of the agent with `session/set_config_option`, applied again when it is restarted. */
   config: z.record(z.string(), z.string()).optional(),
@@ -101,7 +113,8 @@ export class SessionIndex {
     await mkdir(dirname(this.#path), { recursive: true });
     const temporary = `${this.#path}.${process.pid}.tmp`;
     const body = { version: 1, sessions: Object.fromEntries(this.#sessions) };
-    await writeFile(temporary, `${JSON.stringify(body, null, 2)}\n`);
+    // 0600: the index can hold what an MCP server is given to sign in with.
+    await writeFile(temporary, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600 });
     await rename(temporary, this.#path);
   }
 }

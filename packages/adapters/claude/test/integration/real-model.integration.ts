@@ -52,6 +52,8 @@ const last = (updates: SessionUpdate[]) =>
     | { stopReason: string; error?: unknown }
     | undefined;
 
+/** Ids for the tests below: UUIDs, which is all the SDK takes as a session id. */
+const NEWID = (n: number) => `a000000${n}-aaaa-4bbb-8ccc-dddddddddddd`;
 const ID = (n: number) => `1000000${n}-aaaa-4bbb-8ccc-dddddddddddd`;
 
 test.skipIf(!enabled)(
@@ -308,4 +310,286 @@ test.skipIf(!enabled)(
     }
   },
   150_000,
+);
+
+// ---- what was added with attachments, MCP, questions and titles (2026-11-18) ----
+
+/** A solid-colour PNG, built here so there is no file to trust. */
+const solidPng = (size: number, [r, g, b]: [number, number, number]): string => {
+  const { deflateSync } = require("node:zlib") as typeof import("node:zlib");
+  const crc = (buffer: Uint8Array) => {
+    let c = ~0;
+    for (const byte of buffer) {
+      c ^= byte;
+      for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1;
+    }
+    return ~c >>> 0;
+  };
+  const chunk = (type: string, data: Uint8Array) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const out = Buffer.alloc(12 + data.length);
+    out.writeUInt32BE(data.length, 0);
+    body.copy(out, 4);
+    out.writeUInt32BE(crc(body), 8 + data.length);
+    return out;
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
+  header[8] = 8;
+  header[9] = 2;
+  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array(size).fill([r, g, b]).flat())]);
+  const raw = Buffer.concat(Array(size).fill(row));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]).toString("base64");
+};
+
+const withModel = async <T>(
+  extra: Partial<Parameters<typeof withAdapter>[0]>,
+  body: Parameters<typeof withAdapter<T>>[1],
+) => {
+  const config = await tempConfigDir();
+  try {
+    return await withAdapter({ configDir: config.dir, env: claudeEnv(config.dir), ...extra }, body);
+  } finally {
+    await config.dispose();
+  }
+};
+
+const setModel = (agent: { request: (m: never, p: never) => Promise<unknown> }, id: string) =>
+  agent.request(
+    methods.agent.session.setConfigOption as never,
+    {
+      sessionId: id,
+      configId: "model",
+      type: "id",
+      value: model,
+    } as never,
+  );
+
+test.skipIf(!enabled)(
+  "a real model sees an image that was attached",
+  async () => {
+    await withModel({}, async ({ agent, updates, idle }) => {
+      await agent.request(methods.agent.session.new, {
+        cwd,
+        _meta: { "cycle/sessionId": NEWID(0) },
+      });
+      await setModel(agent, NEWID(0));
+      const done = idle();
+      await agent.request(methods.agent.session.prompt, {
+        sessionId: NEWID(0),
+        prompt: [
+          { type: "text", text: "What single colour fills this image? Answer with one word." },
+          { type: "image", data: solidPng(64, [220, 20, 20]), mimeType: "image/png" },
+        ],
+      } as never);
+      await done;
+      console.log(
+        "image: stop",
+        JSON.stringify(last(updates)),
+        "said:",
+        agentText(updates).slice(0, 120),
+      );
+      expect(last(updates)?.stopReason).toBe("end_turn");
+      expect(agentText(updates).toLowerCase()).toContain("red");
+    });
+  },
+  120_000,
+);
+
+test.skipIf(!enabled)(
+  "a real model uses a tool of an MCP server it was given, and the server got its env",
+  async () => {
+    const server = new URL("./mcp-server.ts", import.meta.url).pathname;
+    await withModel(
+      { onPermission: () => "allow" },
+      async ({ agent, updates, idle, permissions }) => {
+        await agent.request(methods.agent.session.new, {
+          cwd,
+          _meta: { "cycle/sessionId": NEWID(1) },
+          mcpServers: [
+            {
+              name: "files",
+              type: "stdio",
+              command: process.execPath,
+              args: [server],
+              env: [{ name: "TOKEN", value: "banana" }],
+            },
+          ],
+        } as never);
+        await setModel(agent, NEWID(1));
+        const done = idle();
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: NEWID(1),
+          prompt: say(
+            "Call the tool whose name starts with token_ from the files MCP server (it takes no arguments), then tell me exactly the text it returned and the part of the tool name after token_.",
+          ),
+        });
+        await done;
+        const said = agentText(updates);
+        console.log(
+          "mcp: permissions",
+          JSON.stringify(permissions.map((p) => (p as { title?: string }).title)),
+          "said:",
+          said.slice(0, 200),
+        );
+        expect(said).toContain("7731");
+        expect(said.toLowerCase()).toContain("banana");
+      },
+    );
+  },
+  120_000,
+);
+
+test.skipIf(!enabled)(
+  "a real model asks a question as a form, and uses the answer",
+  async () => {
+    await withModel(
+      {
+        onElicitation: () => ({ action: "accept", content: { q0: "blue" } }),
+        onPermission: () => "allow",
+      },
+      async ({ agent, updates, idle, elicitations, permissions }) => {
+        await agent.request(methods.agent.session.new, {
+          cwd,
+          _meta: { "cycle/sessionId": NEWID(2) },
+        });
+        await setModel(agent, NEWID(2));
+        const done = idle();
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: NEWID(2),
+          prompt: say(
+            "Use the AskUserQuestion tool to ask me which colour I prefer, with exactly two options: red and blue. Then tell me which colour I chose, in one sentence.",
+          ),
+        });
+        await done;
+        console.log(
+          "ask: forms",
+          elicitations.length,
+          "permissions",
+          permissions.length,
+          "said:",
+          agentText(updates).slice(0, 200),
+        );
+        console.log("ask: form was", JSON.stringify(elicitations[0]).slice(0, 400));
+        expect(elicitations.length).toBeGreaterThan(0);
+        expect(agentText(updates).toLowerCase()).toContain("blue");
+      },
+    );
+  },
+  120_000,
+);
+
+test.skipIf(!enabled)(
+  "does a real session get a title from Claude? (a report: the answer is what we wanted to know)",
+  async () => {
+    await withModel({}, async ({ agent, updates, idle }) => {
+      await agent.request(methods.agent.session.new, {
+        cwd,
+        _meta: { "cycle/sessionId": NEWID(3) },
+      });
+      await setModel(agent, NEWID(3));
+      for (const text of [
+        "I want to refactor the login form in our React app so it validates the email address before submitting. Where should I start?",
+        "Thanks. And how should I test that?",
+      ]) {
+        const done = idle();
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: NEWID(3),
+          prompt: say(text),
+        });
+        await done;
+        for (let waited = 0; waited < 20_000; waited += 500) {
+          if (updates.some((u) => u.sessionUpdate === "session_info_update")) break;
+          await Bun.sleep(500);
+        }
+      }
+      const titles = updates.filter((u) => u.sessionUpdate === "session_info_update");
+      console.log("title: updates", JSON.stringify(titles));
+      console.log("update kinds", JSON.stringify(kinds(updates)));
+    });
+  },
+  180_000,
+);
+
+test.skipIf(!enabled)(
+  "a plan that is approved changes the mode, and the client is told (a report)",
+  async () => {
+    await withModel(
+      { onPermission: () => "allow" },
+      async ({ agent, updates, idle, permissions }) => {
+        await agent.request(methods.agent.session.new, {
+          cwd,
+          _meta: { "cycle/sessionId": NEWID(4) },
+        });
+        await setModel(agent, NEWID(4));
+        await agent.request(methods.agent.session.setConfigOption, {
+          sessionId: NEWID(4),
+          configId: "mode",
+          type: "id",
+          value: "plan",
+        } as never);
+        const done = idle();
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: NEWID(4),
+          prompt: say(
+            "Make a two-step plan for adding a README.md to this folder, then present it for approval with the plan tool.",
+          ),
+        });
+        await done;
+        console.log(
+          "plan: permissions",
+          JSON.stringify(permissions.map((p) => (p as { title?: string }).title)),
+        );
+        console.log(
+          "plan: config updates",
+          JSON.stringify(
+            updates
+              .filter((u) => u.sessionUpdate === "config_option_update")
+              .map((u) =>
+                (
+                  u as unknown as { configOptions: { configId: string; currentValue: string }[] }
+                ).configOptions.map((o) => `${o.configId}=${o.currentValue}`),
+              ),
+          ),
+        );
+        console.log("plan: ended", JSON.stringify(last(updates)));
+      },
+    );
+  },
+  180_000,
+);
+
+test.skipIf(!enabled)(
+  "a compaction is announced (a report)",
+  async () => {
+    await withModel({}, async ({ agent, updates, idle }) => {
+      await agent.request(methods.agent.session.new, {
+        cwd,
+        _meta: { "cycle/sessionId": NEWID(5) },
+      });
+      await setModel(agent, NEWID(5));
+      for (const text of ["Say OK.", "/compact"]) {
+        const done = idle();
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: NEWID(5),
+          prompt: say(text),
+        });
+        await done;
+      }
+      await Bun.sleep(500);
+      console.log(
+        "compact: updates",
+        JSON.stringify(updates.filter((u) => u.sessionUpdate === "compaction_update")),
+      );
+      console.log("compact: kinds", JSON.stringify(kinds(updates)));
+      console.log("compact: ended", JSON.stringify(last(updates)), agentText(updates).slice(-160));
+    });
+  },
+  180_000,
 );
