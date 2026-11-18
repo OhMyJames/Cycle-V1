@@ -108,6 +108,18 @@ const CODE = [
   "```",
 ].join("\n");
 
+/** 240 turns: about 1200 blocks. */
+const LONG: SessionUpdate[] = Array.from({ length: 240 }, (_, n) => [
+  you(`u${n}`, `Question ${n + 1}: what does step ${n + 1} do?`),
+  ...tool(`r${n}`, "Read", "completed", { file_path: `src/step-${n + 1}.ts` }),
+  ...tool(`b${n}`, "Bash", "completed", { command: `bun test step-${n + 1}` }),
+  say(
+    `m${n}`,
+    `Step ${n + 1} reads its input, checks it, and passes it on. ${"It keeps no state between calls. ".repeat(6)}`,
+  ),
+  idle({ stopReason: "end_turn" }),
+]).flat();
+
 export const conversation: SessionUpdate[] = [
   you("u1", "Why does the remote session fail, and fix it."),
   u({
@@ -221,6 +233,69 @@ export const scenarios: Record<string, Scenario> = {
       ...tool("c1", "Read", "completed", { file_path: "deploy/staging.json" }),
       ...tool("c2", "Bash", "in_progress", { command: "bun run deploy --profile staging" }),
     ],
+  },
+  long: {
+    title:
+      "A long conversation (240 turns): only the end is drawn; scrolling to the top adds earlier blocks without moving what is being read",
+    sessions: [session("s1", { title: "A very long session" })],
+    history: LONG,
+    after: async (root) => {
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const el = root.querySelector<HTMLElement>('[data-slot="conversation"]');
+      if (el === null) throw new Error("no conversation");
+      const blocks = () => el.querySelectorAll('[data-slot="block"]').length;
+      const first = blocks();
+      // 240 turns have about 1200 blocks; only the last page is drawn.
+      if (first > 80) console.error(`long: ${first} blocks drawn, expected about 60`);
+      // Scroll to the top: earlier blocks are added, and the block that was being read stays where it was.
+      const reading = el.querySelectorAll('[data-slot="block"]')[3] as HTMLElement;
+      const offset = () => reading.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      el.scrollTop = 2000;
+      await wait(250);
+      const was = el.scrollTop;
+      const before = offset();
+      el.scrollTop = 100;
+      await wait(500);
+      const grown = blocks();
+      if (grown <= first) console.error(`long: scrolling up added nothing (${first} -> ${grown})`);
+      // The reading block moved only by what the scroll itself moved, not by the blocks added above it.
+      const moved = Math.abs(offset() - (before - (100 - was)));
+      if (moved > 4) console.error(`long: the block being read jumped by ${moved}px`);
+      el.scrollTop = el.scrollHeight;
+      await wait(250);
+    },
+  },
+  "long-back": {
+    title:
+      "Going back to a long session finds the reader where they were (scrolled up, with earlier blocks drawn)",
+    sessions: [
+      session("s1", { title: "A very long session", lastSeq: 2 }),
+      session("s2", { title: "Another one", lastSeq: 1 }),
+    ],
+    history: LONG,
+    after: async (root) => {
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const log = () => root.querySelector<HTMLElement>('[data-slot="conversation"]');
+      const el = log();
+      if (el === null) throw new Error("no conversation");
+      el.scrollTop = 2000;
+      await wait(300);
+      const where = el.scrollTop;
+      const drawn = el.querySelectorAll('[data-slot="block"]').length;
+      const options = Array.from(root.querySelectorAll<HTMLElement>('[role="option"]'));
+      if (options.length < 2) console.error(`long-back: ${options.length} sessions in the list`);
+      options.find((o) => o.textContent?.includes("Another one"))?.click();
+      await wait(400);
+      options.find((o) => o.textContent?.includes("A very long session"))?.click();
+      await wait(500);
+      const back = log();
+      if (back === null) throw new Error("no conversation after going back");
+      const now = back.scrollTop;
+      const redrawn = back.querySelectorAll('[data-slot="block"]').length;
+      if (Math.abs(now - where) > 4)
+        console.error(`long-back: was at ${where}, came back to ${now}`);
+      if (redrawn < drawn) console.error(`long-back: ${drawn} blocks were drawn, ${redrawn} after`);
+    },
   },
   "turn-stopped": {
     title: "A turn that was stopped, a turn that ran out of length, a turn the agent declined",

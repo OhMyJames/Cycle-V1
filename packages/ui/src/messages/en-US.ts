@@ -41,6 +41,7 @@ export const enUS = {
   "conversation.label": "Conversation",
   "conversation.loading": "Loading the conversation…",
   "conversation.empty": "Nothing here yet. Say something below.",
+  "conversation.earlier": "Show earlier",
   "thought.label": "Thinking",
   "plan.label": "Plan",
   "tool.unnamed": "Tool",

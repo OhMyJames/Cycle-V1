@@ -617,6 +617,8 @@ html[data-platform="darwin"]
 
 /* Conversation */
 [data-slot="conversation"] {
+  /* Earlier blocks are added above the reader and the view is moved by hand (conversation.tsx), so the browser must not. */
+  overflow-anchor: none;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -803,6 +805,19 @@ html[data-platform="darwin"]
   white-space: nowrap;
   font-family: var(--ui-font-mono);
   font-size: var(--cycle-text-meta);
+}
+
+[data-slot="earlier"] {
+  align-self: center;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  font-size: var(--cycle-text-meta);
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="earlier"]:hover {
+  background: var(--ui-muted);
 }
 
 /* Each block is a column of its own, so a message can sit to the end; a turn begins with more space than blocks have. */

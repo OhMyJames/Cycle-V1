@@ -145,3 +145,25 @@ test("thinking is hidden until asked for, and the line at the end still says the
   await waitFor(() => expect(log.textContent).toContain("weighing the options"));
   expect(thinking.get()).toBe(true);
 });
+
+test("a long conversation draws its end, and the button brings the earlier blocks", async () => {
+  const turns = Array.from({ length: 70 }, (_, n) => [
+    you(`question ${n}`),
+    u({
+      sessionUpdate: "agent_message",
+      messageId: `m${n}`,
+      content: [{ type: "text", text: `answer ${n}` }],
+    }),
+    state({ state: "idle", stopReason: "end_turn" }),
+  ]).flat();
+  const { user, log } = await open(...turns);
+  await waitFor(() => expect(log.textContent).toContain("answer 69"));
+  // 140 blocks; the last 60 are drawn: the first question is not.
+  expect(log.textContent).not.toContain("question 0");
+  await user.click(screen.getByRole("button", { name: "Show earlier" }));
+  await waitFor(() => expect(log.textContent).toContain("question 40"));
+  await user.click(screen.getByRole("button", { name: "Show earlier" }));
+  await waitFor(() => expect(log.textContent).toContain("question 0"));
+  // Everything is drawn: there is nothing earlier.
+  expect(screen.queryByRole("button", { name: "Show earlier" })).toBeNull();
+});

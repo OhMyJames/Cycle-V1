@@ -282,6 +282,7 @@ export function App() {
             {view !== undefined ? (
               <ConversationView
                 key={viewKey(view.hostId, view.sessionId)}
+                sessionKey={viewKey(view.hostId, view.sessionId)}
                 conversation={view.conversation}
                 loading={view.loading}
               />
