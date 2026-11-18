@@ -25,7 +25,7 @@ import {
 import type { z } from "zod";
 import { AgentLink } from "./agent-link.ts";
 import type { AgentDefinition } from "./agents.ts";
-import { defaultsPath, indexPath, sessionsDir } from "./data-dir.ts";
+import { blobsDir, defaultsPath, indexPath, sessionsDir } from "./data-dir.ts";
 import { AgentDefaults } from "./defaults-file.ts";
 import {
   INVALID_PARAMS,
@@ -35,6 +35,7 @@ import {
   UNSUPPORTED_VERSION,
 } from "./errors.ts";
 import { type SessionEntry, SessionIndex } from "./index-file.ts";
+import { BlobLogStore } from "./log/blobs.ts";
 import { JsonlLogStore } from "./log/jsonl.ts";
 import { attach } from "./log/replay.ts";
 import type { LogRecord, LogStore } from "./log/types.ts";
@@ -82,7 +83,12 @@ export class Daemon {
   private constructor(options: DaemonOptions, index: SessionIndex, defaults: AgentDefaults) {
     this.#version = options.version ?? "dev";
     this.#agents = new Map(options.agents.map((a) => [a.id, a]));
-    this.#store = options.store ?? new JsonlLogStore({ dir: sessionsDir(options.dataDir) });
+    this.#store =
+      options.store ??
+      new BlobLogStore(
+        new JsonlLogStore({ dir: sessionsDir(options.dataDir) }),
+        blobsDir(options.dataDir),
+      );
     this.#index = index;
     this.#defaults = defaults;
   }
