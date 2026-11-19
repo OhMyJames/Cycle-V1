@@ -27,9 +27,9 @@ daemon 把 Claude 的 `CLAUDE_CONFIG_DIR` 和 `HOME` 设为 `$CYCLE_HOME/claude`
 ## Consequences
 
 - 用户对每个新文件夹多一次确认;之后同一文件夹和其子文件夹不再问。
-- Claude 进程自己也会改 `.claude.json`,和适配同时写时可能丢一方的改动;适配只在值不同时写,降低了概率,没有消除。Claude 有没有对这个文件加锁、用不用别的键来判断信任(比如向上找父目录),没有验证;日志里提示的就是 `projects[路径].hasTrustDialogAccepted`。
-- 不信任 `/work/x` 而信任 `/work` 时,Cycle 会给 `/work/x` 写 `false`,但 Claude 若向上找父目录,可能仍按 `/work` 信任它。没有验证。
-- 正在工作的 session 要等 agent 进程下次启动才用上新决定。
+- Claude 进程自己也会改 `.claude.json`,和适配同时写时可能丢一方的改动;适配只在值不同时写,而且每次起 Claude 进程都按 daemon 的决定再写一次,所以丢了的改动在下一次启动时补回,但在那之前可能按旧值运行。Claude 有没有对这个文件加锁,没有验证。
+- 不信任 `/work/x` 而信任 `/work` 时,Cycle 给 `/work/x` 写 `false`。2026-11-19 在 SDK 0.3.327 自带的 Claude 上验证:`projects` 里父目录是 `true`、子目录明确是 `false` 时,子目录的 `headersHelper` 不运行,明确的决定优先。
+- 改了决定后,正在工作或正在启动的 session 的 agent 进程要等它空闲(turn 结束、后台子 agent 结束)才结束;在那之前它按旧决定运行。agent 进程被结束时日志里多一条 `agent_exited` 的 meta 记录(不发给客户端)。
 - `claude mcp add --scope local` 加的 MCP 存在用户级 `.claude.json` 里,在 `~/.claude` 里加的,Cycle 看不到;要跟着项目走,写在 `.mcp.json` 里。
 
 ## Related

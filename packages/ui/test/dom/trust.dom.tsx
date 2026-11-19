@@ -97,3 +97,18 @@ test("the workspace menu trusts the shown folder after saying what that allows, 
   await waitFor(() => expect(named("setTrust")).toHaveLength(2));
   expect(named("setTrust")[1]?.[3]).toBe(false);
 });
+
+test("an answer that cannot be kept says why, starts nothing, and can be given again", async () => {
+  const { user, named, bridge } = await mount(null);
+  const working = bridge.setTrust;
+  bridge.setTrust = async () => {
+    throw new Error("disk full");
+  };
+  const dialog = await startIn(user, "/srv/app");
+  await user.click(await within(dialog).findByRole("button", { name: "Trust and start" }));
+  expect((await within(dialog).findByRole("alert")).textContent).toContain("disk full");
+  expect(named("createSession")).toHaveLength(0);
+  bridge.setTrust = working;
+  await user.click(within(dialog).getByRole("button", { name: "Trust and start" }));
+  await waitFor(() => expect(named("createSession")).toHaveLength(1));
+});

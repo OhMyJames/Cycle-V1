@@ -306,17 +306,41 @@ export class Daemon {
   }
 
   /**
-   * A decision changed: the agents of idle sessions in that folder are stopped, so the next prompt
-   * starts them again with it. A session that is working keeps its agent until that next starts.
+   * A decision changed: every agent in that folder was started with the old one, and would write it
+   * back each time it starts a process. Each is stopped as soon as it has nothing to do (now, for an
+   * idle one), so the next prompt starts it again with the new decision.
    */
   async #applyTrust(folder: string): Promise<void> {
-    for (const session of this.#sessions.values()) {
-      if (session.link === undefined || session.starting !== undefined) continue;
-      if (session.status() !== "idle" || session.queue.length > 0) continue;
-      if (session.backgroundCount() > 0) continue;
-      const real = await realFolder(session.entry.cwd).catch(() => undefined);
-      if (real !== undefined && within(real, folder)) session.link.kill();
+    const running = [...this.#sessions.values()].filter(
+      (s) => s.link !== undefined || s.starting !== undefined,
+    );
+    const reals = new Map<string, string | undefined>();
+    await Promise.all(
+      [...new Set(running.map((s) => s.entry.cwd))].map(async (cwd) => {
+        reals.set(cwd, await realFolder(cwd).catch(() => undefined));
+      }),
+    );
+    for (const session of running) {
+      const real = reals.get(session.entry.cwd);
+      if (real === undefined || !within(real, folder)) continue;
+      session.trustStale = true;
+      this.#restartIfStale(session);
     }
+  }
+
+  /** Stops an agent started with a trust decision that has changed since, once it has nothing to do. */
+  #restartIfStale(session: Session): void {
+    if (!session.trustStale) return;
+    if (session.link === undefined && session.starting === undefined) {
+      // No agent: the next one is started with the decision as it is then.
+      session.trustStale = false;
+      return;
+    }
+    if (session.link === undefined || session.starting !== undefined) return;
+    if (session.status() !== "idle" || session.queue.length > 0) return;
+    if (session.backgroundCount() > 0) return;
+    session.trustStale = false;
+    session.link.kill();
   }
 
   /** Starts the agent for a session and has it create or resume it. */
@@ -439,6 +463,13 @@ export class Daemon {
       else
         void this.#returnQueue(session, ended.stopReason === "cancelled" ? "cancelled" : "error");
     }
+    // A turn that ended with nothing behind it: an agent started with an old trust decision can go now.
+    if (
+      ended.sessionUpdate === "state_update" &&
+      ended.state === "idle" &&
+      typeof ended.stopReason === "string"
+    )
+      this.#restartIfStale(session);
   }
 
   // ---- the queue (docs/protocol.md §8) ----
@@ -653,7 +684,10 @@ export class Daemon {
         if (update.state === "idle") session.turnEnded = session.agentState === "idle";
       }
     } else if (update.sessionUpdate === "subagent_update") {
-      if (session.noteSubagent(update)) this.#changed();
+      if (session.noteSubagent(update)) {
+        this.#changed();
+        this.#restartIfStale(session);
+      }
     }
   }
 

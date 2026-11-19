@@ -135,6 +135,8 @@ export function NewSessionDialog({
   const [browsing, setBrowsing] = useState(false);
   // The real path of a folder nobody has decided on: whether to trust it takes the place of the form until answered or left.
   const [asking, setAsking] = useState<string | null>(null);
+  // Why the answer about the folder could not be kept: nothing is started then, and the question stays.
+  const [trustFailed, setTrustFailed] = useState<string | null>(null);
   // The agent that was picked, and for which environment: another environment has other agents, so the pick does not carry over.
   const [picked, setPicked] = useState<{ environmentId: string; agentId: string } | null>(null);
   const [config, setConfig] = useState<Record<string, string>>({});
@@ -154,6 +156,7 @@ export function NewSessionDialog({
     setChosenEnvironment(startEnvironment.current ?? null);
     setBrowsing(false);
     setAsking(null);
+    setTrustFailed(null);
     setCwd(startCwd.current ?? "");
   }, [open]);
 
@@ -200,7 +203,15 @@ export function NewSessionDialog({
     if (environmentId === undefined || agent === undefined || cwd.trim() === "") return;
     setBusy(true);
     try {
-      if (trusted !== undefined && asking !== null) await setTrust(environmentId, asking, trusted);
+      if (trusted !== undefined && asking !== null) {
+        setTrustFailed(null);
+        try {
+          await setTrust(environmentId, asking, trusted);
+        } catch (error) {
+          setTrustFailed(error instanceof Error ? error.message : String(error));
+          return;
+        }
+      }
       await onCreate(environmentId, { cwd: cwd.trim(), agent: agent.id, config });
       onOpenChange(false);
     } finally {
@@ -235,8 +246,20 @@ export function NewSessionDialog({
               {t("trust.description", { environment: environment?.name ?? "" })}
             </DialogDescription>
             <code data-slot="decision-path">{asking}</code>
+            {trustFailed !== null ? (
+              <p data-slot="hint" role="alert">
+                {t("trust.failed", { reason: trustFailed })}
+              </p>
+            ) : null}
             <div data-slot="row">
-              <Button data-variant="ghost" disabled={busy} onClick={() => setAsking(null)}>
+              <Button
+                data-variant="ghost"
+                disabled={busy}
+                onClick={() => {
+                  setAsking(null);
+                  setTrustFailed(null);
+                }}
+              >
                 {t("trust.back")}
               </Button>
               <Button data-variant="outline" disabled={busy} onClick={() => void start(false)}>

@@ -34,9 +34,12 @@ export const realFolder = async (path: string): Promise<string> => {
   try {
     real = await realpath(path);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      throw new RpcError(RESOURCE_NOT_FOUND, "No such folder", { path });
-    throw new RpcError(INVALID_PARAMS, "That is not a folder", { path, reason: "not_a_folder" });
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") throw new RpcError(RESOURCE_NOT_FOUND, "No such folder", { path });
+    // A path through a file (/etc/hosts/x) leads to no folder; anything else cannot be looked at (as folders/list says).
+    if (code === "ENOTDIR")
+      throw new RpcError(INVALID_PARAMS, "That is not a folder", { path, reason: "not_a_folder" });
+    throw new RpcError(INVALID_PARAMS, "The folder cannot be read", { path, reason: "unreadable" });
   }
   const isFolder = await stat(real).then(
     (s) => s.isDirectory(),

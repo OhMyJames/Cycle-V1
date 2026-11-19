@@ -143,3 +143,45 @@ test("a new decision stops the agents of idle sessions in that folder, and the n
     true,
   );
 });
+
+test("a session working when the decision changes keeps its agent until the turn ends, then is started again with it", async () => {
+  await mkdir(join(work, "busy"));
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { c, fake } = await start(fakeAgent({ onPrompt: () => held }));
+  const { sessionId } = await c.agent.request(methods.agent.session.new, {
+    cwd: join(work, "busy"),
+  });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: join(work, "busy") });
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("long") });
+  await set(c, join(work, "busy"), true);
+  // Still working: its agent is not stopped under it.
+  expect(fake.log.launches).toBe(1);
+  release();
+  await until(() => c.ended() >= 1, "the turn");
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("again") });
+  await until(() => c.ended() >= 2, "the next turn");
+  expect(fake.log.launches).toBe(2);
+  expect((fake.log.resumes.at(-1)?._meta ?? {}) as Record<string, unknown>).toHaveProperty(
+    "cycle/trusted",
+    true,
+  );
+});
+
+test("a folder that cannot be looked into is unreadable, not 'not a folder'", async () => {
+  if (process.getuid?.() === 0) return; // root reads everything
+  const { chmod } = await import("node:fs/promises");
+  await mkdir(join(work, "locked", "inner"), { recursive: true });
+  await chmod(join(work, "locked"), 0o000);
+  const { c } = await start();
+  try {
+    await expect(read(c, join(work, "locked", "inner"))).rejects.toMatchObject({
+      code: -32602,
+      data: { reason: "unreadable" },
+    });
+  } finally {
+    await chmod(join(work, "locked"), 0o700);
+  }
+});

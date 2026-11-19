@@ -163,6 +163,7 @@ export const enUS = {
   "trust.confirm": "Trust folder",
   "trust.trust": "Trust this folder",
   "trust.untrust": "Stop trusting this folder",
+  "trust.failed": "The answer could not be kept, so nothing was started: {reason}",
   "common.cancel": "Cancel",
 
   // The workspace switcher: a workspace is a folder on one environment

@@ -317,9 +317,9 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 - **管到子文件夹**:一个文件夹的决定适用于它下面的所有文件夹,**离得最近的决定生效**(信任 `/work`、不信任 `/work/x`,则 `/work/x/y` 不信任)。
 - `_cycle/trust/read`,参数 `{path}`,响应 `{path, trusted, from}`:`path` 是真实路径;`trusted` 是 `true`、`false`,没有决定时为 `null`;`from` 是这个决定记在哪个文件夹上(`path` 自己或它的上级),没有决定时为 `null`。
 - `_cycle/trust/set`,参数 `{path, trusted}`(`trusted` 是布尔),记在 `path` 的真实路径上,响应同 `read`。
-- `path` 必须是绝对路径,否则 `-32602`;不存在,`-32002`;不是文件夹,`-32602`,`data.reason` 是 `not_a_folder`。
+- `path` 必须是绝对路径,否则 `-32602`;不存在,`-32002`;不是文件夹或看不了,`-32602`,`data.reason` 是 `not_a_folder` 或 `unreadable`(和 `_cycle/folders/list` 一致)。
 - **交给 agent**(L2):daemon 每次启动 agent(`session/new`,以及恢复时的 `session/resume`)都按 session 的 `cwd` 查一次,有决定就在 `_meta["cycle/trusted"]` 里带上 `true` 或 `false`,没有决定就不带。没有决定时 agent 保持它自己原有的状态,不改。Claude 适配的做法见 [docs/adapters/claude.md](adapters/claude.md)。
-- **对已有 session 何时生效**:决定在 agent 进程启动时交给它。`_cycle/trust/set` 之后,daemon 结束这个文件夹(含子文件夹)里**空闲**的 session 的 agent 进程(没有在跑的 turn、没有等待回答的请求、没有后台子 agent),下一条 prompt 会以新的决定恢复它;正在工作的 session 在它的 agent 进程下次启动时生效。
+- **对已有 session 何时生效**:决定在 agent 进程启动时交给它,agent 之后每次起自己的子进程都按它来。所以 `_cycle/trust/set` 之后,daemon 结束这个文件夹(含子文件夹)里每个 session 的 agent 进程:空闲的(没有在跑的 turn、没有排队的 prompt、没有等待回答的请求、没有后台子 agent)立即结束;正在工作或正在启动的,等它下一次这样空闲时结束(turn 结束、最后一个后台子 agent 结束)。下一条 prompt 以新的决定恢复它。
 - **客户端**:新建 session 时,`cwd` 没有决定就先问用户(信任并开始、不信任也开始、取消),答案用 `_cycle/trust/set` 记下;不要默认替用户信任。workspace 的菜单里可以改这个决定。
 - 能力 `trust` 为 `true` 才有这两个方法。旧 daemon 没有:客户端不问,也不显示。
 

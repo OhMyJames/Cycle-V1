@@ -74,6 +74,11 @@ export class Session {
   historyError: string | undefined;
   /** Set when the daemon lets the session go (deleted, or the daemon stops): a log closed then is not a failed one. */
   closed = false;
+  /**
+   * The folder's trust decision changed after this session's agent was started (or while it was
+   * starting): it is stopped when it next has nothing to do, so the next start carries the new one.
+   */
+  trustStale = false;
   /** Set while an agent process is being started, so two prompts do not start two. */
   starting: Promise<AgentLink> | undefined;
 
