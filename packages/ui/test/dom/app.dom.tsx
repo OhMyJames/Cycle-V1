@@ -1205,6 +1205,25 @@ test("a mention taken back from the queue is a mention again", async () => {
   expect(store.drafts.get("local:s1").mentions.map((m) => m.uri)).toEqual(["file:///work/a.ts"]);
 });
 
+test("a PDF taken back from the queue is shown, can be removed, and goes out again with the message", async () => {
+  const { user, bridge, emit, named } = await mount();
+  const pdf = {
+    type: "resource" as const,
+    resource: { uri: "file:///work/spec.pdf", mimeType: "application/pdf", blob: "AAAA" },
+  };
+  bridge.dequeue = async () => [{ type: "text", text: "read it" }, pdf];
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  emit(queueUpdate(1, [waiting("q1", "read it")]));
+  await user.click(await screen.findByRole("button", { name: /Edit queued message/ }));
+  await waitFor(() => expect(boxText(box)).toBe("read it"));
+  expect(screen.getByRole("button", { name: "Remove spec.pdf" })).toBeTruthy();
+  await press(box, "Enter");
+  await waitFor(() => expect(named("prompt")).toHaveLength(1));
+  expect(named("prompt")[0]?.[3]).toEqual([{ type: "text", text: "read it" }, pdf]);
+});
+
 test("a daemon that does not queue is not sent a message while the agent works, and says why", async () => {
   const { user, emit, named } = await mount({
     capabilities: { queue: false, files: false, folders: true },

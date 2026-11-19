@@ -109,7 +109,7 @@ export function Composer({
   const working = activity !== "idle";
   const queue = useAppState((s) => s.views[sessionKey]?.conversation.queue ?? NONE);
   const commands = useAppState((s) => s.views[sessionKey]?.conversation.commands ?? NONE);
-  const { text, attachments } = draft;
+  const { text, attachments, kept } = draft;
   // A daemon that has not said it queues is asked nothing it would refuse: a message waits for the turn to end.
   const capabilities = useAppState((s) => s.status[environmentId]?.capabilities);
   const canQueue = capabilities?.queue === true;
@@ -229,7 +229,7 @@ export function Composer({
     connected &&
     blocked === undefined &&
     (!working || canQueue) &&
-    (text.trim() !== "" || attachments.length > 0);
+    (text.trim() !== "" || attachments.length > 0 || kept.length > 0);
   const placeholder =
     told ??
     (!enabled
@@ -447,8 +447,20 @@ export function Composer({
         </div>
       ) : null}
       <div data-slot="composer-box">
-        {attachments.length > 0 ? (
+        {attachments.length > 0 || kept.length > 0 ? (
           <ul data-slot="attachments" aria-label={t("composer.attached")}>
+            {kept.map((k) => (
+              <li key={k.id} data-slot="attachment" data-kept="">
+                <span data-slot="attachment-name">{k.name}</span>
+                <button
+                  type="button"
+                  aria-label={t("composer.remove", { name: k.name })}
+                  onClick={() => store.drafts.removeKept(sessionKey, k.id)}
+                >
+                  <CloseIcon size={12} />
+                </button>
+              </li>
+            ))}
             {attachments.map((a) => (
               <li key={a.id} data-slot="attachment">
                 <img src={`data:${a.type};base64,${a.data}`} alt="" />

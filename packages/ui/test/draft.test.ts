@@ -12,6 +12,7 @@ import {
   returnedId,
   sentTexts,
 } from "../src/draft.ts";
+import type { Block } from "../src/model/index.ts";
 
 /** A storage that is only a map, and can be told to fail. */
 const memory = (fail = false) => {
@@ -58,6 +59,7 @@ test("the text outlasts a restart, and the images do not", () => {
     text: "half a thought",
     attachments: [],
     mentions: [],
+    kept: [],
   });
   // No base64 went into the storage.
   expect([...storage.items.values()].join("")).not.toContain("AAAA");
@@ -126,14 +128,16 @@ test("a prompt's blocks become a draft, and a draft becomes blocks, text first",
   ]);
   expect(back.text).toBe("look");
   expect(back.attachments.map((a) => a.type)).toEqual(["image/gif"]);
+  // The picture the box cannot show is not dropped: it is kept, and goes out as it was.
   expect(promptBlocks(back)).toEqual([
     { type: "text", text: "look" },
     { type: "image", data: "AAAA", mimeType: "image/gif" },
+    { type: "image", data: "AAAA", mimeType: "image/svg+xml" },
   ]);
   expect(
-    promptBlocks({ text: "  \n", attachments: [], mentions: [] } satisfies Draft),
+    promptBlocks({ text: "  \n", attachments: [], mentions: [], kept: [] } satisfies Draft),
   ).toBeUndefined();
-  expect(promptBlocks({ text: " ", attachments: [image], mentions: [] })).toEqual([
+  expect(promptBlocks({ text: " ", attachments: [image], mentions: [], kept: [] })).toEqual([
     { type: "image", data: "AAAA", mimeType: "image/png" },
   ]);
 });
@@ -204,6 +208,7 @@ test("a mention is the readable @path in the text, and a link beside it for the 
     text: "look at @src/main.ts and @docs/ please",
     attachments: [],
     mentions: [file("src/main.ts"), folder("docs")],
+    kept: [],
   };
   expect(promptBlocks(draft)).toEqual([
     { type: "text", text: "look at @src/main.ts and @docs/ please" },
@@ -227,6 +232,7 @@ test("a mention the words no longer say is not sent, and one picked twice is sen
     text: "only @a.ts remains",
     attachments: [],
     mentions: [file("a.ts"), file("b.ts"), file("a.ts")],
+    kept: [],
   };
   const links = (promptBlocks(draft) ?? []).filter((b) => b.type === "resource_link");
   expect(links.map((b) => (b as { name: string }).name)).toEqual(["a.ts"]);
@@ -238,7 +244,7 @@ test("a mention the words no longer say is not sent, and one picked twice is sen
 
 test("a mention is sent for the whole word the text says, not for a longer name it is the start of", () => {
   const sent = (text: string) =>
-    (promptBlocks({ text, attachments: [], mentions: [file("a.ts")] }) ?? []).filter(
+    (promptBlocks({ text, attachments: [], mentions: [file("a.ts")], kept: [] }) ?? []).filter(
       (b) => b.type === "resource_link",
     ).length;
   expect(sent("see @a.tsx")).toBe(0);
@@ -253,7 +259,7 @@ test("a mention is sent for the whole word the text says, not for a longer name 
 test("links share the block limit with the images: the words say it all when there is no room", () => {
   const mentions = Array.from({ length: 40 }, (_, i) => file(`f${i}.ts`));
   const text = mentions.map(mentionText).join(" ");
-  const blocks = promptBlocks({ text, attachments: [image], mentions }) ?? [];
+  const blocks = promptBlocks({ text, attachments: [image], mentions, kept: [] }) ?? [];
   expect(blocks).toHaveLength(32);
   expect(blocks[0]).toEqual({ type: "text", text });
 });
@@ -264,14 +270,48 @@ test("an address is made of the root and the path, each part kept apart from the
   expect(fileUri("/home/u", "lib", "folder")).toBe("file:///home/u/lib/");
 });
 
-test("a link that comes back is a mention again, and links that were not mentions are left out", () => {
+test("a link that comes back is a mention again", () => {
   const sent = promptBlocks({
     text: "see @src/main.ts",
     attachments: [],
     mentions: [file("src/main.ts")],
+    kept: [],
   });
   const back = draftOf(sent ?? []);
   expect(back.text).toBe("see @src/main.ts");
   expect(back.mentions).toEqual([file("src/main.ts")]);
   expect(draftOf([{ type: "resource_link", name: "x", uri: "file:///x" }]).mentions).toEqual([]);
+});
+
+test("blocks the box cannot edit come back whole: a PDF, a text file, a link that was not a mention", () => {
+  const sent: Block[] = [
+    { type: "text", text: "read these" },
+    { type: "resource", resource: { uri: "file:///work/notes.txt", text: "hello" } },
+    {
+      type: "resource",
+      resource: { uri: "file:///work/spec.pdf", mimeType: "application/pdf", blob: "AAAA" },
+    },
+    { type: "resource_link", name: "docs", uri: "https://docs.example/x" },
+  ];
+  const back = draftOf(sent);
+  expect(back.text).toBe("read these");
+  expect(back.kept.map((k) => k.name)).toEqual(["notes.txt", "spec.pdf", "docs"]);
+  expect(promptBlocks(back)).toEqual(sent as never);
+  // Through the store, with what was written since in front or behind, as for any hand-back.
+  const store = new DraftStore(undefined);
+  store.setText("k", "and");
+  store.restore("k", [sent]);
+  expect(store.get("k").kept).toHaveLength(3);
+  expect(promptBlocks(store.get("k"))).toEqual([
+    { type: "text", text: "read these\n\nand" },
+    ...(sent.slice(1) as never[]),
+  ]);
+  // A person can take one out, and then it is not sent.
+  const first = store.get("k").kept[0];
+  store.removeKept("k", first?.id ?? "");
+  expect(promptBlocks(store.get("k"))?.length).toBe(3);
+  // Nothing but a kept block is still something to send.
+  expect(promptBlocks({ text: "", attachments: [], mentions: [], kept: back.kept })).toHaveLength(
+    3,
+  );
 });
