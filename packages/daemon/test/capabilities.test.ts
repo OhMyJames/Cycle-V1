@@ -276,6 +276,41 @@ test("a saved setting the agent refuses on resume is not left on record as in fo
   expect((await sessionRow(c))["cycle/config"]).toEqual({ mode: "auto" });
 });
 
+test("a saved setting the agent no longer has is dropped from the record, with a notice that says so", async () => {
+  const fake = fakeAgent(
+    {},
+    {
+      configOptions: [modeOption("auto")],
+      // After the update the agent has other settings, and not "mode".
+      resumeConfigOptions: [{ ...modeOption("opus"), configId: "model" }],
+    },
+  );
+  const { daemon } = await start(fake);
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, {
+    cwd: "/tmp",
+    _meta: { "cycle/config": { mode: "plan" } },
+  });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+
+  fake.control.rejectConfig.add("mode");
+  fake.crash();
+  await Bun.sleep(30);
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("again") });
+
+  await until(
+    () =>
+      c.seen.some(
+        (s) =>
+          s.update.sessionUpdate === "notice" &&
+          String((s.update as { title?: unknown }).title).includes("no longer has"),
+      ),
+    "the conversation to say the setting is gone",
+  );
+  const config = (await sessionRow(c))["cycle/config"] as Record<string, string>;
+  expect(config.mode).toBeUndefined();
+});
+
 test("the setup survives a new daemon, and a session without one sends none", async () => {
   const first = await start();
   const c = await connectClient(first.daemon);
