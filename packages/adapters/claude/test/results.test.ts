@@ -518,6 +518,9 @@ test("a page fetched says its status and size; a search's hits are links, with t
             { title: "Test runner – Bun", url: "https://bun.sh/docs/cli/test" },
             { title: "", url: "https://example.com/bare" },
             { url: 3 },
+            // Seen with a real search: a page's markdown as its title, and the same page found twice.
+            { title: "> ## Documentation Index", url: "https://bun.com/docs/test.md" },
+            { title: "# Test runner", url: "https://bun.sh/docs/cli/test" },
           ],
         },
       ],
@@ -541,6 +544,14 @@ test("a page fetched says its status and size; a search's hits are links, with t
         type: "resource_link",
         uri: "https://example.com/bare",
         name: "https://example.com/bare",
+      },
+    },
+    {
+      type: "content",
+      content: {
+        type: "resource_link",
+        uri: "https://bun.com/docs/test.md",
+        name: "Documentation Index",
       },
     },
   ]);

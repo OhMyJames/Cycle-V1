@@ -30,6 +30,8 @@ export const toolKind = (name: string): ToolKind => {
     case "TodoWrite":
     case "TaskCreate":
     case "TaskUpdate":
+    // The SDK looking up which tools it has (seen with a real model): its own business, not the work.
+    case "ToolSearch":
       return "think";
     default:
       return "other";

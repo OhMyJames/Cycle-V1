@@ -366,19 +366,35 @@ const webFetch = (out: Json, text: Content[]): Result | undefined => {
 const webSearch = (out: Json): Result | undefined => {
   if (!Array.isArray(out.results)) return undefined;
   const content: Content[] = [];
+  // Several searches can find the same page: it is listed once.
+  const seen = new Set<string>();
   for (const result of out.results) {
     if (typeof result === "string") {
       if (result.trim() !== "")
         content.push({ type: "content", content: { type: "text", text: result } });
     } else if (isObject(result) && Array.isArray(result.content)) {
       for (const hit of result.content) {
-        if (!isObject(hit) || typeof hit.url !== "string") continue;
-        const name = typeof hit.title === "string" && hit.title !== "" ? hit.title : hit.url;
+        if (!isObject(hit) || typeof hit.url !== "string" || seen.has(hit.url)) continue;
+        seen.add(hit.url);
+        const name = titleOfHit(hit.title) ?? hit.url;
         content.push({ type: "content", content: { type: "resource_link", uri: hit.url, name } });
       }
     }
   }
   return content.length > 0 ? { content } : undefined;
+};
+
+/**
+ * A hit's title as a line: a real search gives titles like "> ## Documentation Index" or "# Test runner" (the page's
+ * markdown), so the marks at their start are not the title. None left: the address stands for it.
+ */
+const titleOfHit = (title: unknown): string | undefined => {
+  if (typeof title !== "string") return undefined;
+  const line = title
+    .replace(/^[\s>#*_-]+/, "")
+    .replace(/[\s#*_]+$/, "")
+    .trim();
+  return line === "" ? undefined : line;
 };
 
 /** A watcher started in the background: its text, and that it runs on. */

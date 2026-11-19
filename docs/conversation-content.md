@@ -84,5 +84,7 @@ Claude SDK 的类型只在适配器里;页面读的是 ACP 的字段(`name`、`k
   **失败的 Bash 没有结构化结果**,只有文字 `Exit code 2\n…`(适配器从文字取退出码,stdout 和 stderr 分不开);子 agent 结束前的
   `last_tool_name` 是 SDK 内部的 `SubagentHandback`(不再当成它用的工具);**这个会话里没有 Grep / Glob 工具**(ToolSearch 找不到),
   模型用 Bash 跑 grep,所以搜索计数在 Claude 会话里目前不会出现。
+  第 5 批(同日):WebFetch 的 `code`、`bytes` 如类型;WebSearch 的结果标题常是页面的 Markdown("> ## Documentation Index"、"# Test runner")
+  或只是域名,同一页会出现多次:适配器去掉标题开头的记号、按地址去重。模型找工具时先调 SDK 的 ToolSearch(结果为空),它的 kind 是 `think`,不成行。
   把适配器收到的 SDK 消息(脱敏)存成测试夹具。每个 PR 开始前抓它负责的工具。
 - **回放**:旧的 JSONL 没有结构化字段;新增的字段都是可缺的,缺了就是今天的样子。
