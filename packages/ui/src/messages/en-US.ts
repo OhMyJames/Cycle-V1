@@ -227,6 +227,18 @@ export const enUS = {
   // The menu at the foot of the sidebar: what belongs to the app, not to a session or an environment
   "app.settings": "App settings",
   "app.checkForUpdates": "Check for updates",
+  // A remote environment whose Cycle is too old for this app
+  "daemon.tooOld": "Cycle on {environment} is {version}, too old for this app.",
+  "daemon.update": "Update to {to}",
+  "daemon.updating": "Updating…",
+  "daemon.tryAgain": "Try again",
+  "daemon.failed":
+    "Could not update Cycle on {environment}: {error}. Run the command on that machine instead:",
+  "daemon.byHand": "Run this on {environment}",
+  "daemon.confirmTitle": "Update Cycle on {environment} to {to}?",
+  "daemon.confirmBody":
+    "Cycle on that machine is stopped and starts again as the new version. Sessions there that are working are interrupted.",
+  "daemon.confirm": "Update",
   "app.analyticsOff": "Turn off usage statistics",
   "app.analyticsOn": "Turn on usage statistics",
 

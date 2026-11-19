@@ -783,6 +783,11 @@ export class AppStore {
     void this.#bridge.track(name, props).catch(() => undefined);
   };
 
+  /** How it goes comes back in the environment's status. */
+  upgradeDaemon = async (environmentId: string): Promise<void> => {
+    await this.#attempt(() => this.#bridge.upgradeDaemon(environmentId));
+  };
+
   /** Main says how it goes through app-update events; an error it throws is shown as any other. */
   installUpdate = async (): Promise<void> => {
     await this.#attempt(() => this.#bridge.installUpdate());

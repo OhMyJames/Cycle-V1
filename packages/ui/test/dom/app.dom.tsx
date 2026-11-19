@@ -819,24 +819,48 @@ test("an update that is found is offered, asks before it restarts, and the foote
   expect(named("checkForUpdate")).toHaveLength(1);
 });
 
-test("a remote host whose daemon is older shows what to run on it, and a current one shows nothing", async () => {
+test("a daemon too old for the app says so in one line with a button, and updating asks first", async () => {
+  const { emit, user, named } = await mount();
+  expect(screen.queryByText(/too old for this app/)).toBeNull();
+  await emit({
+    type: "environment-status",
+    environmentId: "local",
+    state: "connected",
+    daemon: { version: "0.1.0", upgrade: { to: "0.3.0", command: "sh install.sh" } },
+  });
+  expect(screen.getByText(/Cycle on .* is 0\.1\.0, too old for this app/)).toBeTruthy();
+  // The command is not the first thing shown.
+  expect(screen.queryByText("sh install.sh")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Update to 0.3.0" }));
+  expect(named("upgradeDaemon")).toHaveLength(0);
+  const dialog = await screen.findByRole("alertdialog");
+  await user.click(within(dialog).getByRole("button", { name: "Update" }));
+  await waitFor(() => expect(named("upgradeDaemon")).toEqual([["upgradeDaemon", "local"]]));
+  await emit({
+    type: "environment-status",
+    environmentId: "local",
+    state: "connected",
+    daemon: { version: "0.3.0" },
+  });
+  expect(screen.queryByText(/too old for this app/)).toBeNull();
+});
+
+test("a daemon update that did not work says why and shows the command to run by hand", async () => {
   const { emit } = await mount();
-  expect(screen.queryByText(/older than this app/)).toBeNull();
   await emit({
     type: "environment-status",
     environmentId: "local",
     state: "connected",
-    daemon: { version: "0.1.0", upgrade: "curl -fsSLO https://example/x && sh install.sh" },
+    daemon: {
+      version: "0.1.0",
+      upgrade: { to: "0.3.0", command: "sh install.sh", error: "Permission denied (publickey)." },
+    },
   });
-  expect(screen.getByText(/Cycle on this environment is 0.1.0, older than this app/)).toBeTruthy();
-  expect(screen.getByText("curl -fsSLO https://example/x && sh install.sh")).toBeTruthy();
-  await emit({
-    type: "environment-status",
-    environmentId: "local",
-    state: "connected",
-    daemon: { version: "0.1.1" },
-  });
-  expect(screen.queryByText(/older than this app/)).toBeNull();
+  expect(
+    screen.getByText(/Could not update Cycle on .*Permission denied \(publickey\)\./),
+  ).toBeTruthy();
+  expect(screen.getByText("sh install.sh")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 });
 
 test("a host that cannot be reached says why, not only that it is not connected", async () => {

@@ -740,6 +740,11 @@ html[data-platform="darwin"]
   color: var(--ui-destructive);
 }
 
+/* The daemon's banner sits under the title and is one line; the command, when it is shown, wraps below. */
+[data-slot="banner"][data-kind="daemon"] {
+  flex-wrap: wrap;
+}
+
 [data-slot="command"] {
   display: block;
   padding: 0.25rem 0.5rem;
@@ -748,6 +753,10 @@ html[data-platform="darwin"]
   font-size: var(--cycle-text-meta);
   overflow-wrap: anywhere;
   user-select: all;
+}
+
+[data-slot="banner"][data-kind="daemon"] > [data-slot="command"] {
+  flex-basis: 100%;
 }
 
 /* The search palette. ui-sdk's Command is a small bordered box: here it fills the dialog, and the title is for screen readers. */

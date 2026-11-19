@@ -1,7 +1,8 @@
+import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isUiEvent } from "@cycle/analytics/events";
-import { commandChannel, sshChannel } from "@cycle/transport/client";
+import { commandChannel, sshChannel, sshCommand } from "@cycle/transport/client";
 import { createTranslator, enUS, SOURCE_LOCALE, type UpdateState } from "@cycle/ui";
 import {
   API_METHODS,
@@ -11,6 +12,7 @@ import {
   EVENT_CHANNEL,
 } from "@cycle/ui/api";
 import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from "electron";
+import { shellQuote } from "../shared/release.ts";
 import { type AnalyticsControl, offAnalytics } from "./analytics.ts";
 import { notifyAttention } from "./attention.ts";
 import { ConnectionManager } from "./manager.ts";
@@ -71,6 +73,39 @@ const channelFor = (options: AppOptions) => (environment: EnvironmentConfig) => 
   return sshChannel({ host: transport.host, command: transport.command ?? ["cycle", "proxy"] });
 };
 
+/** What went wrong in what ssh said: its last line, which is the cause (earlier lines are warnings and progress). */
+const lastLine = (stderr: string): string =>
+  stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !line.startsWith("Warning: Permanently added"))
+    .at(-1)
+    ?.slice(0, 300) ?? "";
+
+/** Runs `command` on the machine of a remote environment, over ssh called as the connection calls it. */
+const runOnHost = (environment: EnvironmentConfig, command: string): Promise<void> => {
+  if (environment.kind === "local")
+    return Promise.reject(new Error("This is not a remote environment."));
+  const [program, ...args] = sshCommand({
+    host: environment.transport.host,
+    args: ["-o", "ConnectTimeout=15"],
+    command: ["sh", "-c", shellQuote(command)],
+  });
+  return new Promise((done, fail) => {
+    execFile(
+      program ?? "ssh",
+      args,
+      { timeout: 180_000, encoding: "utf8", maxBuffer: 1 << 20 },
+      (error, _stdout, stderr) => {
+        if (error === null) return done();
+        // Said in words, never as the command line ssh was given.
+        if (error.killed === true) return fail(new Error("It took too long."));
+        fail(new Error(lastLine(stderr) || "ssh did not succeed."));
+      },
+    );
+  });
+};
+
 /**
  * Starts the app: the connections, the window, and the bridge between them. The page is not trusted
  * with anything it could use against the user: agent output reaches it, and agent output is the
@@ -92,6 +127,7 @@ export const startApp = async (options: AppOptions) => {
     ...(options.update !== undefined ? { appVersion: options.update.current.version } : {}),
     settings: fileSettings(join(app.getPath("userData"), "settings.json")),
     channelFor: channelFor(options),
+    runOnHost,
     emit,
     track: (name, props) => analytics.track(name, props),
     attention: notifyAttention({

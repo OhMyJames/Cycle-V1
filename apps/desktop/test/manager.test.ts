@@ -9,6 +9,7 @@ import { type AppEvent, applyUpdate, type EnvironmentConfig, emptyConversation }
 import { fakeAgent } from "../../../packages/daemon/test/fake-agent.ts";
 import { type AttentionNotice, ConnectionManager, type Tracker } from "../src/main/manager.ts";
 import { fileSettings, LOCAL_ENVIRONMENT } from "../src/main/settings.ts";
+import { MIN_DAEMON_VERSION } from "../src/shared/release.ts";
 
 let dir: string;
 let cleanup: (() => void | Promise<void>)[] = [];
@@ -53,6 +54,7 @@ const setup = async (fake = fakeAgent(), daemonVersion?: string) => {
     appVersion?: string,
     attention?: (notice: AttentionNotice) => void,
     track?: Tracker,
+    more: Partial<ConstructorParameters<typeof ConnectionManager>[0]> = {},
   ) => {
     const events: AppEvent[] = [];
     const m = new ConnectionManager({
@@ -68,6 +70,7 @@ const setup = async (fake = fakeAgent(), daemonVersion?: string) => {
       ...(appVersion !== undefined ? { appVersion } : {}),
       ...(attention !== undefined ? { attention } : {}),
       ...(track !== undefined ? { track } : {}),
+      ...more,
     });
     await m.init();
     cleanup.push(() => m.close());
@@ -413,28 +416,124 @@ const connectedStatus = (events: AppEvent[], environmentId: string) =>
       e.state === "connected",
   );
 
-test("a remote host whose daemon is older than the app is told so, with what to run on it", async () => {
+const lastStatus = (events: AppEvent[]) =>
+  events.findLast(
+    (e): e is Extract<AppEvent, { type: "environment-status" }> =>
+      e.type === "environment-status" && e.environmentId === "far",
+  );
+
+test("a remote host whose daemon is below the least the app works with is told so, with what to run on it", async () => {
   const { manager } = await setup(fakeAgent(), "0.1.0");
-  const { m, events } = await manager("app", "0.1.1");
+  const { m, events } = await manager("app", "9.9.9");
   await m.saveEnvironment(far);
   await m.connect("far");
   const daemon = connectedStatus(events, "far")?.daemon;
   expect(daemon?.version).toBe("0.1.0");
-  expect(daemon?.upgrade).toContain("releases/download/v0.1.1/cycle-linux-x64.tar.gz");
-  expect(daemon?.upgrade).toContain("sha256sum -c");
-  expect(daemon?.upgrade).toContain("install.sh");
+  expect(daemon?.upgrade?.to).toBe("9.9.9");
+  expect(daemon?.upgrade?.command).toContain("releases/download/v9.9.9/cycle-linux-x64.tar.gz");
+  expect(daemon?.upgrade?.command).toContain("sha256sum -c");
+  expect(daemon?.upgrade?.command).toContain("install.sh");
 });
 
-test("a daemon that is the same, newer, or a development build is not nagged about", async () => {
-  for (const version of ["0.1.1", "0.2.0", undefined]) {
+test("a daemon at or above the least, older than the app or not, or a development build, is not nagged about", async () => {
+  for (const version of [MIN_DAEMON_VERSION, "9.0.0", "9.9.9", undefined]) {
     const { manager } = await setup(fakeAgent(), version);
-    const { m, events } = await manager("app", "0.1.1");
+    const { m, events } = await manager("app", "9.9.9");
     await m.saveEnvironment(far);
     await m.connect("far");
     expect(connectedStatus(events, "far")?.daemon?.upgrade).toBeUndefined();
     await m.close();
     for (const clean of cleanup.splice(0).reverse()) await clean();
   }
+});
+
+test("updating a daemon runs its command on that host, says it is running, and is counted", async () => {
+  const { manager } = await setup(fakeAgent(), "0.1.0");
+  const ran: string[] = [];
+  const tracked: unknown[] = [];
+  const { m, events } = await manager(
+    "app",
+    "9.9.9",
+    undefined,
+    (name, props) => tracked.push([name, props]),
+    {
+      runOnHost: async (environment, command) => {
+        ran.push(`${environment.id}: ${command}`);
+        expect(lastStatus(events)?.daemon?.upgrade?.running).toBe(true);
+      },
+      settle: 10,
+    },
+  );
+  await m.saveEnvironment(far);
+  await m.connect("far");
+  await m.upgradeDaemon("far");
+  expect(ran).toHaveLength(1);
+  expect(ran[0]).toContain("far: cd ");
+  expect(tracked).toContainEqual(["daemon_upgraded", { ok: true }]);
+  // If the connection never drops, the wait ends and the button is back.
+  await until(() => lastStatus(events)?.daemon?.upgrade?.running === undefined, "the wait to end");
+});
+
+test("a second click while the update runs does not run it again", async () => {
+  const { manager } = await setup(fakeAgent(), "0.1.0");
+  let runs = 0;
+  let finish: () => void = () => {};
+  const { m } = await manager("app", "9.9.9", undefined, undefined, {
+    runOnHost: () => {
+      runs += 1;
+      return new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    },
+    settle: 10,
+  });
+  await m.saveEnvironment(far);
+  await m.connect("far");
+  const first = m.upgradeDaemon("far");
+  await m.upgradeDaemon("far");
+  expect(runs).toBe(1);
+  finish();
+  await first;
+});
+
+test("a daemon update that fails says why in the status and keeps the command", async () => {
+  const { manager } = await setup(fakeAgent(), "0.1.0");
+  const tracked: unknown[] = [];
+  const { m, events } = await manager(
+    "app",
+    "9.9.9",
+    undefined,
+    (name, props) => tracked.push([name, props]),
+    {
+      runOnHost: async () => {
+        throw new Error("Permission denied (publickey).");
+      },
+    },
+  );
+  await m.saveEnvironment(far);
+  await m.connect("far");
+  await m.upgradeDaemon("far");
+  const upgrade = lastStatus(events)?.daemon?.upgrade;
+  expect(upgrade?.error).toBe("Permission denied (publickey).");
+  expect(upgrade?.running).toBeUndefined();
+  expect(upgrade?.command).toContain("install.sh");
+  expect(tracked).toContainEqual(["daemon_upgraded", { ok: false }]);
+  // What was said is not what is reported: only that it did not work.
+  expect(JSON.stringify(tracked)).not.toContain("publickey");
+});
+
+test("nothing is run for a daemon that is not too old", async () => {
+  const { manager } = await setup(fakeAgent(), "9.9.9");
+  let runs = 0;
+  const { m } = await manager("app", "9.9.9", undefined, undefined, {
+    runOnHost: async () => {
+      runs += 1;
+    },
+  });
+  await m.saveEnvironment(far);
+  await m.connect("far");
+  await m.upgradeDaemon("far");
+  expect(runs).toBe(0);
 });
 
 test("the local host is not compared: the app carries it", async () => {

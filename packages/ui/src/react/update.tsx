@@ -70,20 +70,57 @@ export function UpdateBanner() {
   );
 }
 
-/** An environment whose daemon is older than this app: what to run on that machine. */
+/**
+ * An environment whose daemon is too old for this app: one line under the title, with a button that updates it over
+ * ssh. When that cannot be done the line says why and the command is there to run by hand.
+ */
 export function DaemonBanner({ environmentId }: { environmentId: string }) {
+  const store = useAppStore();
+  const { t } = useI18n();
   const daemon = useAppState((s) => s.status[environmentId]?.daemon);
-  if (daemon?.upgrade === undefined) return null;
+  const name = useAppState((s) => s.environments.find((e) => e.id === environmentId)?.name);
+  const [confirming, setConfirming] = useState(false);
+  const upgrade = daemon?.upgrade;
+  if (daemon === undefined || upgrade === undefined) return null;
+  const failed = upgrade.error !== undefined;
+  const environment = name ?? environmentId;
   return (
-    <div data-slot="banner" data-severity="warning" role="status">
-      <WarningIcon />
-      <div data-slot="stack">
-        <span>
-          Cycle on this environment is {daemon.version}, older than this app. To update it, run this
-          on the machine it runs on (what its sessions are doing is interrupted when it restarts):
-        </span>
-        <code data-slot="command">{daemon.upgrade}</code>
-      </div>
+    <div
+      data-slot="banner"
+      data-kind="daemon"
+      data-severity={failed ? "error" : "warning"}
+      role="status"
+    >
+      {failed ? <ErrorCircleIcon /> : <WarningIcon />}
+      <span data-slot="update-line">
+        {failed
+          ? t("daemon.failed", { environment, error: upgrade.error ?? "" })
+          : t("daemon.tooOld", { environment, version: daemon.version })}
+      </span>
+      <Button
+        data-variant="outline"
+        disabled={upgrade.running === true}
+        onClick={() => setConfirming(true)}
+      >
+        {upgrade.running === true
+          ? t("daemon.updating")
+          : failed
+            ? t("daemon.tryAgain")
+            : t("daemon.update", { to: upgrade.to })}
+      </Button>
+      {failed ? (
+        <code data-slot="command" title={t("daemon.byHand", { environment })}>
+          {upgrade.command}
+        </code>
+      ) : null}
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t("daemon.confirmTitle", { environment, to: upgrade.to })}
+        description={t("daemon.confirmBody", { environment })}
+        confirmLabel={t("daemon.confirm")}
+        onConfirm={() => store.upgradeDaemon(environmentId)}
+      />
     </div>
   );
 }

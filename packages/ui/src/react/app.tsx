@@ -395,9 +395,6 @@ export function App() {
           <main data-slot="main">
             <UpdateBanner />
             <AnalyticsNotice />
-            {selectedEnvironment !== undefined ? (
-              <DaemonBanner environmentId={selectedEnvironment} />
-            ) : null}
             {error !== undefined ? (
               <div data-slot="banner" data-severity="error" role="alert">
                 <ErrorCircleIcon />
@@ -426,6 +423,9 @@ export function App() {
                     "",
                 })}
               </div>
+            ) : null}
+            {(blank !== undefined || session === undefined) && selectedEnvironment !== undefined ? (
+              <DaemonBanner environmentId={selectedEnvironment} />
             ) : null}
             {blank !== undefined ? (
               <BlankConversationView
@@ -481,6 +481,9 @@ export function App() {
                   </Menu>
                 </div>
               </header>
+            ) : null}
+            {blank === undefined && session !== undefined ? (
+              <DaemonBanner environmentId={session.environmentId} />
             ) : null}
             {blank !== undefined ? null : view !== undefined ? (
               <ConversationView

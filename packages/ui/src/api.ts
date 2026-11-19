@@ -49,8 +49,17 @@ export type EnvironmentStatus = {
   /** What the daemon on the environment says it is. Not for the local one, which the app carries. */
   daemon?: {
     version: string;
-    /** Set when it is older than this app: what to run on that machine to update it. */
-    upgrade?: string;
+    /** Set when it is too old for this app (not merely older: docs/desktop.md). */
+    upgrade?: {
+      /** The version the update puts there: the one of this app. */
+      to: string;
+      /** What to run on that machine by hand, when `upgradeDaemon` cannot. */
+      command: string;
+      /** `upgradeDaemon` is running it. */
+      running?: boolean;
+      /** Why the last `upgradeDaemon` did not work. */
+      error?: string;
+    };
   };
 };
 
@@ -276,6 +285,11 @@ export type AppApi = {
   checkForUpdate(): Promise<UpdateState>;
   /** Downloads the update that was found, checks it, and restarts the app as the new version. */
   installUpdate(): Promise<void>;
+  /**
+   * Updates the daemon of a remote environment by running `daemon.upgrade.command` on it over ssh. What is wrong comes
+   * back in the environment's status (`daemon.upgrade.error`), not as a throw.
+   */
+  upgradeDaemon(environmentId: string): Promise<void>;
 
   /** Reports an event the page alone can see (docs/analytics.md). Never fails and says nothing when it is off. */
   track(event: string, props?: TrackProps): Promise<void>;
@@ -319,6 +333,7 @@ export const API_METHODS = [
   "updateState",
   "checkForUpdate",
   "installUpdate",
+  "upgradeDaemon",
   "track",
   "analytics",
   "setAnalytics",

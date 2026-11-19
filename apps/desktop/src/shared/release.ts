@@ -61,6 +61,22 @@ export const isNewer = (candidate: string, current: string): boolean => {
   return false;
 };
 
+/**
+ * The oldest daemon this app works with. A remote daemon below it is told to update; one at or above it is left alone,
+ * even when it is older than the app, because most releases change the page and not what the daemon does.
+ *
+ * Raise it in the release that needs a newer daemon: the app relies on something (a field, a method, a behaviour) that
+ * the older one does not have and that cannot be left off the way a `capabilities` flag can. A feature that can be left
+ * off asks for its flag instead and does not move this. See docs/desktop.md "远端 daemon 的升级".
+ */
+export const MIN_DAEMON_VERSION = "0.2.1";
+
+/** Whether a daemon of `version` is too old for the app. False when either is not a version (a development build). */
+export const daemonTooOld = (version: string): boolean => isNewer(MIN_DAEMON_VERSION, version);
+
+/** `text` as one word for a POSIX shell. */
+export const shellQuote = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'`;
+
 /** The Linux daemon's archive in a release: one platform, and its name does not carry the version. */
 export const DAEMON_ARCHIVE = "cycle-linux-x64.tar.gz";
 
