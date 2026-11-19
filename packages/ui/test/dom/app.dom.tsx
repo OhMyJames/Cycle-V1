@@ -392,6 +392,45 @@ test("a session's setting with nothing on record is not shown as today's default
   expect(trigger.textContent).not.toContain("Auto");
 });
 
+test("a setting the schema does not list is shown as it is, not as Not set", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.sessions = async () => [
+        { ...summary("s1"), config: { model: "claude-opus-4-5" } },
+      ];
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          configSchema: {
+            type: "object",
+            properties: {
+              model: { type: "string", title: "Model", oneOf: [{ const: "opus", title: "Opus" }] },
+            },
+          },
+        },
+      ];
+    },
+  });
+  await openFirstSession(user);
+  await screen.findByRole("button", { name: "Model: claude-opus-4-5" });
+  expect(screen.getByRole("button", { name: "Session settings" })).toBeTruthy();
+});
+
+test("an agent with nothing to set has no settings in the message box", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.agents = async () => [
+        { id: "fake", name: "Fake", available: true, configSchema: { type: "object" } },
+      ];
+    },
+  });
+  await openFirstSession(user);
+  await screen.findByRole("textbox", { name: "Message" });
+  expect(screen.queryByRole("button", { name: "Session settings" })).toBeNull();
+});
+
 test("the session's settings are at hand under the message box, and a choice there is sent", async () => {
   const { user, named } = await mount({
     configure: (script) => {

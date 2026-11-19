@@ -22,6 +22,7 @@ import { mentionQuery, mentionRow } from "../mention.ts";
 import type { Status } from "../model/conversation.ts";
 import { type QueuedPrompt, textOf } from "../model/index.ts";
 import { commandText, filterCommands, slashQuery } from "../slash.ts";
+import { propertiesOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
 import { AttachIcon, CloseIcon, SettingsIcon } from "./icons.tsx";
 import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
@@ -486,12 +487,15 @@ export function Composer({
           {settings !== undefined && onSetting !== undefined ? (
             <SettingChips settings={settings} disabled={!enabled || !connected} onSet={onSetting} />
           ) : null}
-          {settings !== undefined && onOpenSettings !== undefined ? (
+          {/* Every setting, also those that are text. Not there when the agent has none; open while the history loads. */}
+          {settings !== undefined &&
+          onOpenSettings !== undefined &&
+          propertiesOf(settings.schema).length > 0 ? (
             <Button
               data-variant="ghost"
               aria-label={t("session.settings")}
               title={t("session.settings")}
-              disabled={!enabled || !connected}
+              disabled={!connected}
               onClick={onOpenSettings}
             >
               <SettingsIcon />

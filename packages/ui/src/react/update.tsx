@@ -88,7 +88,6 @@ export function DaemonBanner({ environmentId }: { environmentId: string }) {
   );
 }
 
-/** In the sidebar: the running version, what the update is doing, and a way to ask now. */
 /**
  * The foot of the sidebar: which version this is, what the update is doing, and a menu of what belongs to the app (the
  * colours of code, a check for updates). One quiet row: these are used rarely and must not take room from the list.

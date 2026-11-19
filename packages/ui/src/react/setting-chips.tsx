@@ -9,7 +9,7 @@ import {
   MenuRadioItem,
   MenuTrigger,
 } from "@ui-sdk/react/menu";
-import { optionsOf, propertiesOf } from "./config-form.tsx";
+import { OptionLabel, optionsOf, propertiesOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
 import { ChevronDownIcon } from "./icons.tsx";
 
@@ -35,7 +35,11 @@ export function SettingChips({
     if (options === undefined || options.length === 0) return null;
     const title = property.title ?? key;
     const current = settings.value[key];
-    const label = options.find((o) => o.value === current)?.label ?? t("config.notSet");
+    // A value the schema does not list (a model named in full, say) is still what the session runs on: it is shown as it is.
+    const label =
+      current === undefined
+        ? t("config.notSet")
+        : (options.find((o) => o.value === current)?.label ?? current);
     const name = t("composer.setting", { setting: title, value: label });
     return (
       <Menu key={key}>
@@ -61,17 +65,7 @@ export function SettingChips({
             {options.map((o) => (
               <MenuRadioItem key={o.value} value={o.value} closeOnSelect>
                 <MenuItemIndicator />
-                <span data-slot="option">
-                  <span data-slot="option-name">
-                    {o.label}
-                    {o.recommended ? (
-                      <span data-slot="option-tag">{t("config.recommended")}</span>
-                    ) : null}
-                  </span>
-                  {o.description ? (
-                    <span data-slot="option-description">{o.description}</span>
-                  ) : null}
-                </span>
+                <OptionLabel option={o} />
               </MenuRadioItem>
             ))}
           </MenuRadioGroup>

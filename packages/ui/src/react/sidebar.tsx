@@ -168,7 +168,7 @@ export function Sidebar(props: SidebarProps) {
           {t(props.showArchived ? "sessions.hideArchived" : "sessions.showArchived")}
         </button>
       </div>
-      <div data-slot="sidebar-footer">{props.children}</div>
+      {props.children != null ? <div data-slot="sidebar-footer">{props.children}</div> : null}
     </nav>
   );
 }

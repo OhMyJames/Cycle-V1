@@ -123,7 +123,9 @@ app
             const el = document.activeElement;
             if (!el || el === document.body) return { on: "nothing" };
             // The message box draws its ring round the whole box, not on the text inside it.
-            const s = getComputedStyle(el.closest('[data-slot="composer-box"]') ?? el);
+            const s = getComputedStyle(
+              el.matches('[data-slot="composer-input"]') ? el.closest('[data-slot="composer-box"]') ?? el : el,
+            );
             const label = el.getAttribute("aria-label") || (el.textContent || "").trim().slice(0, 30);
             return {
               on: el.tagName.toLowerCase() + (el.getAttribute("role") ? "[" + el.getAttribute("role") + "]" : "") + " " + label,

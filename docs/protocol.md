@@ -370,7 +370,7 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 
 session 里 ACP 的 `configOptions` 用 ACP 自己的字段表达同样的东西:`SessionConfigSelectOption` 的 `name`、`description`,推荐项同样在它的 `_meta` 里带 `cycle/recommended`。agent 两边给的名字和说明应当一致。
 
-每个 agent 还有 `promptCapabilities`(ACP 的 `PromptCapabilities`:`image`、`embeddedContext`,缺省都是没有),客户端据此决定是否提供附件入口,daemon 据此校验 prompt(§8)。Claude 的 `model` 是一个枚举(`default`、`sonnet`、`opus`、`haiku`),`mode` 是权限模式,取值就是 Claude Agent SDK 的 `PermissionMode`:`default`、`acceptEdits`、`plan`、`auto`、`dontAsk`、`bypassPermissions`,新 session 默认且推荐 `auto`,各自的名字和说明见 L3 文档。
+每个 agent 还有 `promptCapabilities`(ACP 的 `PromptCapabilities`:`image`、`embeddedContext`,缺省都是没有),客户端据此决定是否提供附件入口,daemon 据此校验 prompt(§8)。Claude 的 `model` 用 `oneOf` 给出取值和名字(`default` 叫 "Default model",以及 `sonnet`、`opus`、`haiku`;值不变,0.2.7 之前是只有值的 `enum`,客户端两种都认),`mode` 是权限模式,取值就是 Claude Agent SDK 的 `PermissionMode`:`default`、`acceptEdits`、`plan`、`auto`、`dontAsk`、`bypassPermissions`,新 session 默认且推荐 `auto`,各自的名字和说明见 L3 文档。
 
 agent 自己改了配置(例如 Claude 在 plan 模式里被批准后切回常规模式),通过 `config_option_update` 回报;daemon 把变化写进索引的 `config`,恢复时才不会把它改回去。
 

@@ -340,7 +340,10 @@ svg[data-slot="dot"] {
   height: 100%;
   padding: var(--cycle-gap) var(--cycle-gap) 0.5rem;
   background: var(--cycle-surface-sidebar);
-  overflow: hidden;
+  /* Normally only the list scrolls. When what is fixed (several environments away, a short window) leaves the list less
+     than its floor, the whole sidebar scrolls, so nothing is cut off and the footer can still be reached. */
+  overflow-x: hidden;
+  overflow-y: auto;
   min-width: 0;
 }
 
@@ -385,8 +388,11 @@ svg[data-slot="dot"] {
 /* The list and what belongs to it scroll; the bar above and the footer below stay put. The rows' focus ring is drawn
    inside them, so nothing here clips it. */
 [data-slot="sidebar-scroll"] {
-  flex: 1;
-  min-height: 0;
+  /* The rows' screen-reader text is positioned: held here, it scrolls with the list instead of stretching the sidebar. */
+  position: relative;
+  flex: 1 0 auto;
+  height: 0;
+  min-height: 10rem;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;

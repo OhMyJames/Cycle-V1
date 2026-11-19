@@ -46,7 +46,7 @@ const bridgeFor = (scenario: Scenario) => {
             type: "string",
             title: "Model",
             oneOf: [
-              { const: "default", title: "Default" },
+              { const: "default", title: "Default model" },
               { const: "sonnet", title: "Sonnet" },
               { const: "opus", title: "Opus" },
             ],

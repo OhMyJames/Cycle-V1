@@ -25,7 +25,7 @@ type Property = {
   default?: string;
 };
 
-type Option = {
+export type Option = {
   value: string;
   label: string;
   description?: string | undefined;
@@ -55,6 +55,20 @@ export const propertiesOf = (schema: Record<string, unknown>): [string, Property
   const properties = (schema.properties ?? {}) as Record<string, Property>;
   return Object.entries(properties).filter(([, p]) => p.type === undefined || p.type === "string");
 };
+
+/** How a choice is drawn wherever it is offered: its name, a mark if it is the one suggested, and what it does. */
+export function OptionLabel({ option }: { option: Option }) {
+  const { t } = useI18n();
+  return (
+    <span data-slot="option">
+      <span data-slot="option-name">
+        {option.label}
+        {option.recommended ? <span data-slot="option-tag">{t("config.recommended")}</span> : null}
+      </span>
+      {option.description ? <span data-slot="option-description">{option.description}</span> : null}
+    </span>
+  );
+}
 
 export type ConfigFormProps = {
   schema: Record<string, unknown>;
@@ -97,17 +111,7 @@ export function ConfigForm({ schema, value, onChange, defaults = true }: ConfigF
                 <SelectContent>
                   {options.map((o) => (
                     <SelectItem key={o.value} value={o.value} label={o.label}>
-                      <span data-slot="option">
-                        <span data-slot="option-name">
-                          {o.label}
-                          {o.recommended ? (
-                            <span data-slot="option-tag">{t("config.recommended")}</span>
-                          ) : null}
-                        </span>
-                        {o.description ? (
-                          <span data-slot="option-description">{o.description}</span>
-                        ) : null}
-                      </span>
+                      <OptionLabel option={o} />
                     </SelectItem>
                   ))}
                 </SelectContent>
