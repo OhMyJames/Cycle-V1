@@ -623,7 +623,18 @@ export class Daemon {
   }
 
   async #send(session: Session, prompt: unknown[]): Promise<unknown> {
+    const stopsBefore = session.startingCancels;
     const link = await this.#ensureAgent(session);
+    if (session.startingCancels !== stopsBefore) {
+      // Stopped while the agent was starting: there is no turn to stop yet, so the prompt is not given.
+      // The turn ends as a cancelled one, which clients and the queue see like any other.
+      this.#onUpdate(session, {
+        sessionUpdate: "state_update",
+        state: "idle",
+        stopReason: "cancelled",
+      } as SessionUpdate);
+      return { messageId: randomUUID() };
+    }
     return link.agent.request(methods.agent.session.prompt, {
       sessionId: session.entry.agentSessionId,
       prompt,
@@ -1349,6 +1360,8 @@ export class Daemon {
         this.#settle(session, pending, pending.cancelled);
       // A stop means the person wants to change direction: what waits goes back to the input box.
       this.#returnQueue(session, "cancelled");
+      // The agent is still starting: it has no turn to stop, so what is about to be given to it is held back.
+      if (session.starting !== undefined) session.startingCancels++;
       await session.link?.agent
         .notify(methods.agent.session.cancel, { sessionId: session.entry.agentSessionId } as never)
         .catch(() => undefined);
