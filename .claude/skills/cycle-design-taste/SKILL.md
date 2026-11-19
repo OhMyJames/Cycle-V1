@@ -28,14 +28,14 @@ Cycle 是一个人每天开几个小时的工具:盯着 agent 干活、批准它
 
 这十条压过其余所有内容。
 
-1. **只用第 1–2 层的令牌与材质。** 只引用 `DESIGN.md` 的 `--cycle-*` 和重映射后的 `--ui-*`(门禁检查 `DESIGN.md` 与 `app.css` 的 `--cycle-*` 一致:增删令牌必须两边同步)。容器必须归属 `DESIGN.md` §2.4 的六种预设材质之一;输入控件的边用 `--cycle-input-border`(≥ 3:1),不用 `--cycle-border-default`(只有 1.24:1,仅做分隔)。圆角五档同心,间距取 `4px` 倍数。不写散落十六进制色、不加新色相、不加渐变/毛玻璃/发光装饰。全部用 `light-dark()` 跟随系统深浅色。
-2. **一个排版与尺度系统。** 根字号 16px,只使用 `DESIGN.md` §2.1 的四档字阶(`meta`/`ui`/`body`/`title`)和三档字重(`--cycle-weight`/500/600);一种无衬线字体栈,等宽只用于代码、命令、路径、id、系统错误原话。不新增字号、不新增圆角值、不新增间距值。
-3. **复用第 3 层组件与第 4 层范式,样式写在 `app.css`。** 优先复用 `ui-sdk` 原语加 `DESIGN.md` 第 3 层约定的变体(`solid`/`destructive`/`outline`/`ghost`/`round`/`queue`)及 `Banner`/`ConfirmDialog` 等基础件,不自行重复造一套弹窗或通知条。我们自己的组件不用 Tailwind 工具类、不用行内样式(Tailwind 只服务 Streamdown)。ui-sdk 的 `Collapsible`、`Command` 等会覆盖 `data-slot`,给它们写样式用 `data-kind` 或 `data-palette`。
+1. **只用第 1–2 层的令牌与材质。** 只引用 `DESIGN.md` 的 `--cycle-*` 和重映射后的 `--ui-*`(门禁检查 `DESIGN.md` 与 `app.css` 的 `--cycle-*` 一致:增删令牌必须两边同步)。容器必须归属 `DESIGN.md` §2.4 的预设材质之一(卡片/浮层/主输入框统一叠 `--cycle-edge-hardware` 硬件微高光);输入控件的边用 `--cycle-input-border`(≥ 3:1),不用 `--cycle-border-default`(仅做轻分隔)。圆角六档圆润同心,间距取 `4px` 倍数。不写散落十六进制色、不加新色相、不加冗余渐变/大面积毛玻璃/霓虹发光装饰。全部用 `light-dark()` 跟随系统深浅色。
+2. **一个排版与尺度系统。** 根字号 16px,只使用 `DESIGN.md` §2.1 的四档字阶(`meta`/`ui`/`body`/`title`)和三档字重(`--cycle-weight`/500/600);使用本地打包的 Rare UI 三字体(`Open Runde` 展示与交互触点、`Inter Variable` 正文与密集信息、`Geist Mono Variable` 代码/命令/路径/id/系统错误原话),零外网请求。不新增字号、不新增圆角值、不新增间距值。
+3. **复用第 3 层组件与第 4 层范式,样式写在 `app.css`。** 优先复用 `ui-sdk` 原语加 `DESIGN.md` 第 3 层约定的变体(`solid`/`destructive`/`outline`/`ghost`/`round`/`queue`)及 `Banner`/`ConfirmDialog` 等基础件,不自行重复造一套弹窗或通知条。常规业务组件样式收口在 `app.css`,不写行内样式;Tailwind `@theme inline` 语义类服务 Streamdown 与按规范接入的 Rare UI 兼容组件。ui-sdk 的 `Collapsible`、`Command` 等会覆盖 `data-slot`,给它们写样式用 `data-kind` 或 `data-palette`。
 4. **状态要齐。** 每块界面都要覆盖:空、加载、出错、断线、内容很长、数量很多(`references/states.md`)。出错时写清三件事:发生了什么、等宽可选的系统原话、下一步行动按钮;空状态必须给出出口(如就地的 `New session` 或排查引导),不能只丢一句话。
 5. **文案平实与 i18n。** 按钮是动词加对象("Allow once"、"Delete session");不用感叹号、表情、空话、破折号;统一用 `environment`(不用 `host`)。源语言是 `en-US`,界面文字进 `packages/ui/src/messages/en-US.ts`,组件用 `t("key")`(`references/copy.md`)。
 6. **动效只为说明变化。** 三档时长:状态 `100ms`、展开 `160ms`、出现 `200ms`(`--cycle-motion-*`),只动 `transform` 和 `opacity`,曲线 `--cycle-ease`,不弹跳;流式文字不让布局跳;`prefers-reduced-motion` 下全部静止(`references/motion.md`)。
 7. **图标一套。** 用 iconmcp 线性图标(16 单位网格,集中放在 `packages/ui/src/react/icons.tsx`),`currentColor`,不画仿品;仅图标的按钮必须有 `aria-label` 和提示(`references/icons.md`)。
-8. **键盘、IME 与表单规范。** 每个动作都能不用鼠标完成;焦点环统一 `2px solid var(--cycle-accent)`(禁用 ui-sdk 默认 `--ui-ring`)。处理 Enter 必须调用 `@ui-sdk/core` 的 `isComposing(event)` 防止中文输入法误发。表单弹窗必须用 `<form>` 支持回车提交并自动聚焦首项;破坏性确认主按钮必须用 `destructive` 变体且默认焦点落 `Cancel`。
+8. **键盘、IME 与表单规范。** 每个动作都能不用鼠标完成;焦点环统一 `1.5px solid var(--cycle-focus-ring)`(输入控件贴边叠 `--cycle-focus-halo`,禁用 ui-sdk 默认 `--ui-ring`)。处理 Enter 必须调用 `@ui-sdk/core` 的 `isComposing(event)` 防止中文输入法误发。表单弹窗必须用 `<form>` 支持回车提交并自动聚焦首项;破坏性确认主按钮必须用 `destructive` 变体且默认焦点落 `Cancel`。
 9. **对齐、截断与权重决策(见 `DESIGN.md` 第 5 层)。** 主工作区同一视图至多一个 `solid` 主动作;不可逆删除用 `destructive`。长标题/名称末尾淡出(`--cycle-fade-end`),长路径优先保留尾部信息,代码块/表格独立横向滚动。设置控件保留轻量交互线索,危险模式(如免确认)明确警示。
 10. **不信任内容,也不假装有内容。** agent 输出不可信(`docs/desktop.md`),渲染必须走安全清洗路径(禁用原始 HTML 与外链图片加载);不放假头像、假数据、占位统计或营销话术。
 
@@ -50,7 +50,7 @@ Cycle 是一个人每天开几个小时的工具:盯着 agent 干活、批准它
 ## 清单
 
 - 所有颜色与材质来自 `DESIGN.md` 第 1–2 层令牌;深浅色都看过。
-- 没有新增散落字号、圆角、间距、行内样式或非 Streamdown 的 Tailwind 类。
+- 没有新增散落字号、圆角、间距、行内样式或未走 `@theme inline` 语义令牌的 Tailwind 裸色值类。
 - 复用了第 3 层变体与第 4 层范式(表单回车/首项聚焦、破坏性 `destructive` 确认、空状态出口、折叠恢复入口)。
 - 六种状态(空、加载、出错、断线、长内容、多内容)齐全且布局不溢出。
 - 按钮为"动词加对象",术语一致(`environment`),`scan-copy.mjs` 与 i18n 棘轮通过。
