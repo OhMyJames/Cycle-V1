@@ -238,15 +238,13 @@ const stateUpdate = (c: Conversation, update: Fields): Conversation => {
   const reason = update.stopReason;
   // An idle with no stopReason is a snapshot of the state, not the end of a turn: apply it, count nothing.
   if (typeof reason !== "string") return { ...c, status: "idle" };
-  let items = c.items;
-  if (reason === "cancelled" || reason === "error") {
-    // Work that was still going when the turn stopped will not finish.
-    items = items.map((item) =>
-      item.kind === "tool" && item.status !== undefined && !FINAL.has(item.status)
-        ? { ...item, status: "cancelled" }
-        : item,
-    );
-  }
+  // Work that was still going when the turn ended will not finish, however the turn ended: the agent
+  // says so for a call it left (it ends it as cancelled), and a record made before it did is read the same.
+  const items = c.items.map((item) =>
+    item.kind === "tool" && item.status !== undefined && !FINAL.has(item.status)
+      ? { ...item, status: "cancelled" }
+      : item,
+  );
   const stop: StopReason = { stopReason: reason };
   if (update.error !== undefined) stop.error = update.error as StopReason["error"];
   return { ...c, items, status: "idle", turns: c.turns + 1, stops: [...c.stops, stop] };

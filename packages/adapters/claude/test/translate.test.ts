@@ -253,3 +253,103 @@ test("TaskCreate and TaskUpdate keep one plan across turns", () => {
   } as unknown as SDKMessage;
   expect(entries(later.feed(failed))).toBeUndefined();
 });
+
+test("a sub-agent's text, tool calls and tool results are not the session's: nothing is sent for them", () => {
+  const translator = new TurnTranslator();
+  const sub = "toolu_agent";
+  const updates = [
+    {
+      type: "stream_event",
+      parent_tool_use_id: sub,
+      event: { type: "message_start", message: { id: "msg_sub" } },
+    },
+    {
+      type: "stream_event",
+      parent_tool_use_id: sub,
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "Now icons, kit/page" },
+      },
+    },
+    {
+      type: "stream_event",
+      parent_tool_use_id: sub,
+      event: {
+        type: "content_block_start",
+        index: 1,
+        content_block: { type: "tool_use", id: "toolu_sub_bash", name: "Bash" },
+      },
+    },
+    {
+      type: "assistant",
+      parent_tool_use_id: sub,
+      message: {
+        id: "msg_sub",
+        content: [
+          { type: "text", text: "Now icons, kit/page" },
+          { type: "tool_use", id: "toolu_sub_bash", name: "Bash", input: { command: "sed" } },
+          { type: "tool_use", id: "toolu_sub_todo", name: "TodoWrite", input: { todos: [] } },
+        ],
+      },
+    },
+    {
+      type: "user",
+      parent_tool_use_id: sub,
+      message: { content: [{ type: "tool_result", tool_use_id: "toolu_sub_bash", content: "x" }] },
+    },
+  ].flatMap((m) => translator.feed(m as unknown as SDKMessage));
+  expect(updates).toEqual([]);
+  // Nothing of it is left to end with the turn either.
+  expect(translator.unfinished()).toEqual([]);
+});
+
+test("a sub-agent's stream does not take over the main thread's message in the middle of it", () => {
+  const translator = new TurnTranslator();
+  const event = (event: object, parent: string | null = null) =>
+    ({ type: "stream_event", parent_tool_use_id: parent, event }) as unknown as SDKMessage;
+  translator.feed(event({ type: "message_start", message: { id: "msg_main" } }));
+  translator.feed(event({ type: "message_start", message: { id: "msg_sub" } }, "toolu_agent"));
+  const updates = translator.feed(
+    event({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hi" } }),
+  );
+  expect(updates).toEqual([
+    {
+      sessionUpdate: "agent_message_chunk",
+      messageId: "msg_main",
+      content: { type: "text", text: "hi" },
+    },
+  ] as never);
+});
+
+test("a tool call that started and got no result ends with the turn, as cancelled; one that finished does not", () => {
+  const translator = new TurnTranslator();
+  const use = (id: string) =>
+    ({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { id: `m_${id}`, content: [{ type: "tool_use", id, name: "Bash", input: {} }] },
+    }) as unknown as SDKMessage;
+  translator.feed({
+    type: "stream_event",
+    parent_tool_use_id: null,
+    event: {
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "tool_use", id: "toolu_streamed", name: "Bash" },
+    },
+  } as unknown as SDKMessage);
+  translator.feed(use("toolu_done"));
+  translator.feed(use("toolu_left"));
+  translator.feed({
+    type: "user",
+    parent_tool_use_id: null,
+    message: { content: [{ type: "tool_result", tool_use_id: "toolu_done", content: "ok" }] },
+  } as unknown as SDKMessage);
+  expect(translator.unfinished()).toEqual([
+    { sessionUpdate: "tool_call_update", toolCallId: "toolu_streamed", status: "cancelled" },
+    { sessionUpdate: "tool_call_update", toolCallId: "toolu_left", status: "cancelled" },
+  ] as never);
+  // Said once.
+  expect(translator.unfinished()).toEqual([]);
+});

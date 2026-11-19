@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { client, methods, type SessionUpdate } from "@cycle/acp";
 import { type AdapterConfig, createAgent } from "../src/index.ts";
 import { fakeQuery, textTurn } from "./fake-query.ts";
@@ -772,4 +773,86 @@ test("a result that does not say what it took ends the turn, and the process goe
   });
   expect(fake.calls).toHaveLength(2);
   expect(fake.prompts).toEqual(["work", "again"]);
+});
+
+test("a background sub-agent's own talk and calls stay out of the session, and a call the turn left ends with it", async () => {
+  const sub = "toolu_agent";
+  const fake = fakeQuery(
+    () =>
+      [
+        { type: "system", subtype: "init", session_id: ID },
+        {
+          type: "assistant",
+          parent_tool_use_id: null,
+          message: {
+            id: "m1",
+            content: [
+              { type: "tool_use", id: sub, name: "Agent", input: { run_in_background: true } },
+              { type: "tool_use", id: "toolu_left", name: "Bash", input: { command: "ls" } },
+            ],
+          },
+        },
+        {
+          type: "user",
+          parent_tool_use_id: null,
+          message: { content: [{ type: "tool_result", tool_use_id: sub, content: "launched" }] },
+        },
+        {
+          type: "stream_event",
+          parent_tool_use_id: sub,
+          event: { type: "message_start", message: { id: "msg_sub" } },
+        },
+        {
+          type: "stream_event",
+          parent_tool_use_id: sub,
+          event: {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: "Now icons" },
+          },
+        },
+        {
+          type: "assistant",
+          parent_tool_use_id: sub,
+          message: {
+            id: "msg_sub",
+            content: [
+              { type: "tool_use", id: "toolu_sub", name: "Bash", input: { command: "sed" } },
+            ],
+          },
+        },
+        { type: "result", subtype: "success", stop_reason: "end_turn", session_id: ID },
+      ] as unknown as SDKMessage[],
+  );
+  await connect(fake.run, async ({ agent, updates, waitForIdle }) => {
+    await agent.request(methods.agent.session.new, {
+      cwd: "/work",
+      _meta: { "cycle/sessionId": ID },
+    });
+    const idle = waitForIdle();
+    await agent.request(methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "go" }],
+    });
+    await idle;
+    const calls = updates.filter((u) => u.sessionUpdate === "tool_call_update") as unknown as {
+      toolCallId: string;
+      status: string;
+    }[];
+    expect(calls.some((c) => c.toolCallId === "toolu_sub")).toBe(false);
+    expect(kinds(updates)).not.toContain("agent_message_chunk");
+    expect(calls.map((c) => [c.toolCallId, c.status])).toEqual([
+      [sub, "in_progress"],
+      ["toolu_left", "in_progress"],
+      [sub, "completed"],
+      ["toolu_left", "cancelled"],
+    ]);
+    // Each ends before the turn does.
+    const end = updates.findIndex((u) => (u as { state?: string }).state === "idle");
+    const ended = updates.flatMap((u, i) =>
+      (u as { status?: string }).status === "cancelled" ? [i] : [],
+    );
+    expect(ended.length).toBe(1);
+    expect(ended.every((i) => i < end)).toBe(true);
+  });
 });
