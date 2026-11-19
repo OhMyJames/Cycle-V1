@@ -274,3 +274,112 @@ test("a card with a call the turn left is not finished, not done", async () => {
   expect(card.textContent).toContain("not finished");
   expect(card.closest('[data-kind="work"]')?.getAttribute("data-status")).toBe("pending");
 });
+
+const finished = (id: string, name: string, rawInput: object, result: object) => [
+  ...tool(id, name, "in_progress", rawInput),
+  u({ sessionUpdate: "tool_call_update", toolCallId: id, status: "completed", ...result }),
+];
+
+test("an edit's line counts its own lines and opens to them, not to the strings it was given", async () => {
+  const { user, log } = await open(
+    you("u1"),
+    ...finished(
+      "e",
+      "Edit",
+      { file_path: "src/a.ts", old_string: "OLD-INPUT", new_string: "NEW-INPUT" },
+      {
+        content: [
+          {
+            type: "diff",
+            changes: [{ operation: "modify", path: "/r/src/a.ts" }],
+            patch: {
+              format: "git_patch",
+              text: "--- a\n+++ b\n@@ -7,2 +7,3 @@\n keep\n-gone\n+here\n+also\n",
+            },
+          },
+        ],
+        rawOutput: { type: "update", additions: 2, deletions: 1 },
+      },
+    ),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const row = await screen.findByRole("button", { name: /Edited/ });
+  expect(row.textContent).toContain("+2");
+  expect(row.textContent).toContain("−1");
+  // In words for a screen reader, not only in colour and signs.
+  expect(row.textContent).toContain("2 lines added, 1 removed");
+  await user.click(row);
+  const diff = log.querySelector('[data-slot="tool-diff"]');
+  expect(
+    [...(diff?.querySelectorAll("[data-line]") ?? [])].map((l) => l.getAttribute("data-line")),
+  ).toEqual(["context", "del", "add", "add"]);
+  expect(diff?.textContent).toContain("here");
+  expect(log.textContent).not.toContain("OLD-INPUT");
+});
+
+test("a new file is Created; a read says its lines; a search what it found; a picture read is shown", async () => {
+  const { user, log } = await open(
+    you("u1"),
+    ...finished(
+      "w",
+      "Write",
+      { file_path: "README.md", content: "…" },
+      {
+        content: [
+          { type: "diff", changes: [{ operation: "add", path: "/r/README.md" }], patch: null },
+        ],
+        rawOutput: { type: "create", additions: 3, deletions: 0 },
+      },
+    ),
+    u({
+      sessionUpdate: "agent_message",
+      messageId: "m1",
+      content: [{ type: "text", text: "next" }],
+    }),
+    ...finished(
+      "r",
+      "Read",
+      { file_path: "a.ts" },
+      { rawOutput: { type: "text", startLine: 20, numLines: 40, totalLines: 212 } },
+    ),
+    u({
+      sessionUpdate: "agent_message",
+      messageId: "m2",
+      content: [{ type: "text", text: "next" }],
+    }),
+    ...finished(
+      "g",
+      "Grep",
+      { pattern: "PORT" },
+      { rawOutput: { mode: "count", numFiles: 2, numMatches: 5 } },
+    ),
+    u({
+      sessionUpdate: "agent_message",
+      messageId: "m3",
+      content: [{ type: "text", text: "next" }],
+    }),
+    ...finished(
+      "p",
+      "Read",
+      { file_path: "a.png" },
+      {
+        content: [
+          {
+            type: "content",
+            content: { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
+          },
+        ],
+      },
+    ),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const created = await screen.findByRole("button", { name: /Created/ });
+  await user.click(created);
+  expect(log.textContent).toContain("The change is too large to show here.");
+  expect(log.textContent).toContain("lines 20–59 of 212");
+  expect(log.textContent).toContain("5 matches in 2 files");
+  await user.click(screen.getByRole("button", { name: /a\.png/ }));
+  await waitFor(() => expect(log.querySelector('[data-kind="tool"] img')).toBeTruthy());
+  // Neither input is shown again: the new file's is the file, the read's says only the path the line shows.
+  expect(log.querySelector('[data-slot="tool-input"]')).toBeNull();
+});

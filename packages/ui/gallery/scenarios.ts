@@ -88,6 +88,21 @@ const tool = (id: string, name: string, status: string, rawInput: object) => [
   u({ sessionUpdate: "tool_call_update", toolCallId: id, name, status: "pending" }),
   u({ sessionUpdate: "tool_call_update", toolCallId: id, status, rawInput }),
 ];
+/** A finished call with the result an agent sent for it: its content, rawOutput and locations. */
+const done = (id: string, name: string, rawInput: object, result: object) => [
+  u({ sessionUpdate: "tool_call_update", toolCallId: id, name, status: "pending" }),
+  u({ sessionUpdate: "tool_call_update", toolCallId: id, status: "in_progress", rawInput }),
+  u({ sessionUpdate: "tool_call_update", toolCallId: id, status: "completed", ...result }),
+];
+const text = (t: string) => [{ type: "content", content: { type: "text", text: t } }];
+const diff = (path: string, created: boolean, hunks: string) => ({
+  type: "diff",
+  changes: [{ operation: created ? "add" : "modify", path }],
+  patch: {
+    format: "git_patch",
+    text: `diff --git a/${path} b/${path}\n${created ? "--- /dev/null" : `--- a/${path}`}\n+++ b/${path}\n${hunks}`,
+  },
+});
 const idle = (extra: object = {}) => u({ sessionUpdate: "state_update", state: "idle", ...extra });
 const running = () => u({ sessionUpdate: "state_update", state: "running" });
 
@@ -286,6 +301,106 @@ export const scenarios: Record<string, Scenario> = {
         description: "Deploy to staging",
       }),
     ],
+  },
+  files: {
+    title:
+      "File tools with what they amount to: an edit's own lines (+2 −1), a new file, the lines a read read, a picture read, what searches found",
+    sessions: [session("s1", { title: "Tidy the daemon's config" })],
+    history: [
+      you("u1", "Make the port configurable and add a README for it."),
+      ...done(
+        "f1",
+        "Read",
+        { file_path: "packages/daemon/src/config.ts", offset: 20, limit: 40 },
+        {
+          content: text("    20\texport const PORT = 4100;\n    21\t"),
+          rawOutput: { type: "text", startLine: 20, numLines: 40, totalLines: 212 },
+        },
+      ),
+      say("m1", "The port is a constant. I'll read it from the environment instead."),
+      ...done(
+        "f2",
+        "Edit",
+        { file_path: "packages/daemon/src/config.ts", old_string: "…", new_string: "…" },
+        {
+          content: [
+            diff(
+              "packages/daemon/src/config.ts",
+              false,
+              '@@ -19,4 +19,5 @@\n import { env } from "./env.ts";\n \n-export const PORT = 4100;\n+export const PORT = Number(env.CYCLE_PORT ?? 4100);\n+export const HOST = "127.0.0.1";\n \n',
+            ),
+          ],
+          rawOutput: { type: "update", additions: 2, deletions: 1 },
+        },
+      ),
+      say("m2", "Now the README."),
+      ...done(
+        "f3",
+        "Write",
+        { file_path: "packages/daemon/README.md", content: "…" },
+        {
+          content: [
+            diff(
+              "packages/daemon/README.md",
+              true,
+              "@@ -0,0 +1,3 @@\n+# Daemon\n+\n+Set `CYCLE_PORT` to change the port (default 4100).\n",
+            ),
+          ],
+          rawOutput: { type: "create", additions: 3, deletions: 0 },
+        },
+      ),
+      say("m3", "And where else the port is used:"),
+      ...done(
+        "f4",
+        "Grep",
+        { pattern: "PORT", output_mode: "count" },
+        {
+          content: text("src/config.ts:2\nsrc/serve.ts:3"),
+          rawOutput: { mode: "count", numFiles: 2, numMatches: 5 },
+        },
+      ),
+      say("m4", "The diagram the README should show:"),
+      ...done(
+        "f5",
+        "Glob",
+        { pattern: "docs/**/*.png" },
+        {
+          content: text("docs/daemon.png"),
+          rawOutput: { numFiles: 1, truncated: false },
+        },
+      ),
+      say("m6", "Here it is."),
+      ...done(
+        "f6",
+        "Read",
+        { file_path: "docs/daemon.png" },
+        {
+          content: [
+            {
+              type: "content",
+              content: { type: "image", data: SAMPLE_PNG, mimeType: "image/png" },
+            },
+          ],
+          rawOutput: { type: "image", bytes: 2048 },
+        },
+      ),
+      say("m5", "Done: the port comes from `CYCLE_PORT`, and the README says so."),
+      idle({ stopReason: "end_turn" }),
+    ],
+    after: async (root) => {
+      for (const id of ["config.ts", "README.md", "daemon.png"]) {
+        const row = [...root.querySelectorAll<HTMLElement>('[data-kind="tool"] > button')].find(
+          (b) =>
+            b.textContent?.includes(id) && (id !== "config.ts" || b.textContent.includes("Edited")),
+        );
+        row?.click();
+      }
+      (document.activeElement as HTMLElement | null)?.blur();
+      await frames(4);
+      const list = conversationOf(root);
+      list.scrollTop = list.scrollHeight;
+      await frames(4);
+    },
   },
   long: {
     title:
