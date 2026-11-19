@@ -45,3 +45,15 @@ test("an archived session says nothing", () => {
   expect(attentionOf(row("running"), row("idle", { archived: true }))).toBeUndefined();
   expect(attentionOf(row("idle"), row("requires_action", { archived: true }))).toBeUndefined();
 });
+
+test("a turn too short for any list to see it running is still told, by the session turning unread", () => {
+  const seen = row("idle", { unread: false });
+  expect(attentionOf(seen, row("idle", { unread: true }))).toBe("finished");
+  // Already unread, or a daemon that does not say: nothing new.
+  expect(attentionOf(row("idle", { unread: true }), row("idle", { unread: true }))).toBeUndefined();
+  expect(attentionOf(row("idle"), row("idle"))).toBeUndefined();
+  // Read: nothing to tell.
+  expect(
+    attentionOf(row("idle", { unread: true }), row("idle", { unread: false })),
+  ).toBeUndefined();
+});

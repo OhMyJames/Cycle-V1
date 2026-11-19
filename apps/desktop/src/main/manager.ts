@@ -358,10 +358,16 @@ export class ConnectionManager
       this.#environments.find((h) => h.id === environmentId)?.name ?? environmentId;
     for (const session of sessions) {
       // A session enters the list with its first message (docs/protocol.md §6), already at work: after the first list,
-      // one that appears is taken to have been idle, so that one already waiting on the person is told.
+      // one that appears is taken to have been idle, so that one already waiting on the person is told; or, if a turn of
+      // it has ended unseen, to have been running, so that one that has finished by the time it is read is told too.
       const was =
         before.get(session.sessionId) ??
-        (first ? undefined : { ...session, state: "idle" as const });
+        (first
+          ? undefined
+          : {
+              ...session,
+              state: session.unread === true ? ("running" as const) : ("idle" as const),
+            });
       const kind = attentionOf(was, session);
       if (kind === undefined || (afterOutage && kind !== "needs-you")) continue;
       try {
@@ -375,8 +381,8 @@ export class ConnectionManager
   async createSession(environmentId: string, params: NewSession): Promise<string> {
     const connection = this.#connection(environmentId);
     const sessionId = await connection.client.newSession(params);
+    // Not in the list until its first message (docs/protocol.md §6): the daemon announces it then, and it is read again.
     connection.made.set(sessionId, params.cwd);
-    await this.#refreshSessions(environmentId, connection);
     return sessionId;
   }
 

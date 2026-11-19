@@ -875,10 +875,11 @@ export class Daemon {
    * A session's row in the list, or undefined for one the person has not yet written to: a new session is a blank
    * conversation in the client until its first message, and only then is it in the list (docs/protocol.md §6).
    */
-  async #row(sessionId: string, entry: SessionEntry) {
+  async #row(sessionId: string, entry: SessionEntry, onlyPrompted: boolean) {
     const session = await this.#session(sessionId);
     // One whose history has failed is listed whatever it holds: the list is where it is deleted from.
-    if (session.historyError === undefined && !(await this.#prompted(session))) return undefined;
+    if (onlyPrompted && session.historyError === undefined && !(await this.#prompted(session)))
+      return undefined;
     const background = session.backgroundCount();
     return {
       sessionId,
@@ -905,7 +906,8 @@ export class Daemon {
    */
   async #prompted(session: Session): Promise<boolean> {
     if (session.entry.prompted !== undefined) return session.entry.prompted;
-    const records = await session.log.read();
+    // As stored: an image is not read back from its blob to find out whether there is a message.
+    const records = await session.log.read(undefined, { stored: true });
     const prompted = records.some(isUserMessage);
     // A message written while the log was being read has set it already.
     if (session.entry.prompted === undefined) this.#remember(session, { prompted }, false);
@@ -1092,11 +1094,15 @@ export class Daemon {
       }
     });
 
-    app.onRequest(methods.agent.session.list, async () => {
+    app.onRequest(methods.agent.session.list, async ({ params }) => {
+      // Only a client that asks leaves out the sessions nothing has been said in: an older one opens a session it has
+      // just made by finding it in the list (docs/protocol.md §6).
+      const said =
+        (params?._meta as Record<string, unknown> | null | undefined)?.[META.onlyPrompted] === true;
       const rows = [];
       for (const [sessionId, entry] of this.#index.list()) {
         try {
-          const row = await this.#row(sessionId, entry);
+          const row = await this.#row(sessionId, entry, said);
           if (row !== undefined) rows.push(row);
         } catch (error) {
           // Deleted while the list was being read.
@@ -1177,6 +1183,9 @@ export class Daemon {
           ...problem,
         });
       this.#returnStale(session);
+      // Taken: from now on the session is in the list (docs/protocol.md §6), whatever the agent makes of it. Not left to
+      // the agent's echo of the message, which an agent that fails, or never echoes, would not send. Announced below.
+      if (session.entry.prompted !== true) this.#remember(session, { prompted: true }, false);
       const busy = () => session.status() !== "idle" && session.status() !== "stopped";
       const steer = (params._meta as Record<string, unknown> | null | undefined)?.[META.steer];
       if (busy() && steer === true) {

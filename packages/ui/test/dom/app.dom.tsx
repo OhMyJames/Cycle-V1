@@ -1258,3 +1258,15 @@ test("while the first message makes the session it is shown, nothing can be chan
   expect(where.disabled).toBe(false);
   expect(named("prompt")).toEqual([]);
 });
+
+test("asking for a new session while one is blank keeps it as it is", async () => {
+  const { user } = await mount();
+  await user.click(await screen.findByRole("button", { name: "New session" }));
+  const folder = (await screen.findByRole("textbox", { name: "Folder" })) as HTMLInputElement;
+  await user.clear(folder);
+  await user.type(folder, "/new/project");
+  await user.click(screen.getByRole("button", { name: "New session" }));
+  expect((screen.getByRole("textbox", { name: "Folder" }) as HTMLInputElement).value).toBe(
+    "/new/project",
+  );
+});

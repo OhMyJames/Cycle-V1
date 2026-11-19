@@ -186,7 +186,8 @@ class BlobSessionLog implements SessionLog {
     return data === record.data ? record : { ...record, data };
   }
 
-  async read(range?: ReadRange): Promise<LogRecord[]> {
+  async read(range?: ReadRange, options?: { stored?: boolean }): Promise<LogRecord[]> {
+    if (options?.stored === true) return this.#inner.read(range);
     return Promise.all((await this.#inner.read(range)).map((record) => this.#restore(record)));
   }
 

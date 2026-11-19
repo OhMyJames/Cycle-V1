@@ -30,7 +30,7 @@ import {
   sessionList,
   workspacesOf,
 } from "../sessions.ts";
-import { viewKey } from "../store/index.ts";
+import { BLANK_KEY, viewKey } from "../store/index.ts";
 import { thinking } from "../thinking.ts";
 import { BlankConversationView } from "./blank.tsx";
 import { Composer } from "./composer.tsx";
@@ -164,7 +164,7 @@ export function App() {
   );
   // A blank conversation is open in place of a session: the sidebar shows its folder, if it has sessions there.
   const openKey =
-    session !== undefined ? sessionKey(session) : blank !== undefined ? "blank" : undefined;
+    session !== undefined ? sessionKey(session) : blank !== undefined ? BLANK_KEY : undefined;
   const current = currentWorkspace(workspaces, {
     chosen: chosen !== undefined && chosen.on === openKey ? chosen.workspace : undefined,
     open: session ?? blank,
@@ -180,6 +180,8 @@ export function App() {
    * shown, else on the environment that is open, else on the first that is connected.
    */
   const newSession = () => {
+    // One is open already: it stays as it is, with what was chosen and written on it.
+    if (blank !== undefined) return store.openBlank({ environmentId: blank.environmentId });
     const environmentId =
       startOn?.environmentId ??
       (connected ? selectedEnvironment : undefined) ??

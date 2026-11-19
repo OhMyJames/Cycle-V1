@@ -42,6 +42,8 @@ export const META = {
   noClient: "cycle/noClient",
   /** On the answer to a `session/prompt` that was queued, not sent: the agent was still working. */
   queued: "cycle/queued",
+  /** On `session/list`: leave out the sessions nothing has been said in yet (docs/protocol.md §6). */
+  onlyPrompted: "cycle/onlyPrompted",
   /**
    * On a `session/prompt` (client to daemon, and daemon to agent): put it into the turn that is
    * running instead of queueing it (docs/protocol.md §8). Ignored when the session is not busy.

@@ -134,9 +134,9 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 ### 列表
 
-`session/list` 只返回 Cycle 自己创建的、**已经收到过用户消息**的 session(决策 0006)。新建 session 在客户端是一个空白对话,首条消息发出时才 `session/new` 加 `session/prompt`(`.agents/notes/2026-11-19-session-starts-at-first-message.md`);所以一个 session 从日志里写入第一条 `user_message` 起才出现在列表里,此时 daemon 发 `_cycle/session_list_changed`。还没有用户消息的 session 不列出,但仍然存在:可以 `session/resume`、`session/prompt`、删除。daemon 不会自动删除它们。历史不可用的 session(`cycle/historyFailed`,写不进去或读不了)照旧列出,好让人能删除它。
+`session/list` 只返回 Cycle 自己创建的 session(决策 0006)。请求的 `_meta["cycle/onlyPrompted"]` 为 `true` 时,只返回**已经收到过用户消息**的:新建 session 在客户端是一个空白对话,首条消息发出时才 `session/new` 加 `session/prompt`(`.agents/notes/2026-11-19-session-starts-at-first-message.md`),所以一个 session 从 daemon **接下**它的第一条 prompt 起才出现在这样的列表里(通过了内容检查,不论之后是直接发给 agent、排队,还是 agent 起不来而失败),此时 daemon 发 `_cycle/session_list_changed`。不带这个标记的请求(旧客户端:它们靠在列表里找到刚建的 session 来打开它)照旧列出全部。还没有用户消息的 session 仍然存在:可以 `session/resume`、`session/prompt`、删除。daemon 不会自动删除它们。历史不可用的 session(`cycle/historyFailed`,写不进去或读不了)照旧列出,好让人能删除它。
 
-daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有它,daemon 在列表时读一次该 session 的日志补上,之后不再读。
+daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有它,daemon 在列表时读一次该 session 的日志(按存储的样子,不读回图片),有 `user_message` 就算,补上之后不再读。
 
 列表里每一项带 ACP 的 `SessionInfo` 字段,其中 `updatedAt`(ISO 8601)是 session 最后一条非 `meta` 记录的 `ts`;还没有这类记录时是创建时间。列表按它排序和按日分组。再在 `_meta` 里加:
 

@@ -164,8 +164,14 @@ export class CycleClient {
     await this.#request("_cycle/agent_defaults/set", { agent, config });
   }
 
+  /**
+   * The sessions, without those nothing has been said in yet: a new session is a blank conversation until its first
+   * message (docs/protocol.md §6). An older daemon lists them all.
+   */
   async listSessions(): Promise<SessionRow[]> {
-    const answer = (await this.#request(methods.agent.session.list, {})) as {
+    const answer = (await this.#request(methods.agent.session.list, {
+      _meta: { [META.onlyPrompted]: true },
+    })) as {
       sessions: SessionRow[];
     };
     return answer.sessions;

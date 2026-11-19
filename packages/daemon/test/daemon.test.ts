@@ -31,6 +31,9 @@ const stateOf = (row: { _meta?: unknown } | undefined): unknown =>
 
 const text = (value: string) => [{ type: "text" as const, text: value }];
 
+/** What a client that asks for it is listed: only the sessions something has been said in (docs/protocol.md §6). */
+const SAID = { _meta: { "cycle/onlyPrompted": true } } as never;
+
 test("creates a session, runs a prompt, and the client sees the history with seq", async () => {
   const { daemon, fake } = await start();
   const c = await connectClient(daemon);
@@ -289,7 +292,7 @@ test("lists only Cycle's sessions, and renames, archives and deletes", async () 
   const c = await connectClient(daemon);
   const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
   // Nothing said in it yet: it is not in the list (docs/protocol.md §6).
-  let listed = await c.agent.request(methods.agent.session.list, {});
+  let listed = await c.agent.request(methods.agent.session.list, SAID);
   expect(listed.sessions).toEqual([]);
   await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
   await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
@@ -318,12 +321,16 @@ test("a session is in the list from the person's first message, and is announced
   const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
   // A blank conversation that has become a session, with nothing said yet: not listed, but it can be opened.
   await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
-  expect((await c.agent.request(methods.agent.session.list, {})).sessions).toEqual([]);
+  expect((await c.agent.request(methods.agent.session.list, SAID)).sessions).toEqual([]);
+  // A client that does not ask (an older one, which opens what it made by finding it in the list) still sees it.
+  expect(
+    (await c.agent.request(methods.agent.session.list, {})).sessions.map((s) => s.sessionId),
+  ).toEqual([sessionId]);
   const before = c.listChanged();
   await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
   await until(() => c.listChanged() > before, "the first message to be announced");
   await until(() => c.ended() >= 1, "the turn to end");
-  const listed = await c.agent.request(methods.agent.session.list, {});
+  const listed = await c.agent.request(methods.agent.session.list, SAID);
   expect(listed.sessions.map((s) => s.sessionId)).toEqual([sessionId]);
   // Kept across a restart, from the index.
   await daemon.close();
@@ -331,7 +338,37 @@ test("a session is in the list from the person's first message, and is announced
   const again = await start();
   const d = await connectClient(again.daemon);
   expect(
-    (await d.agent.request(methods.agent.session.list, {})).sessions.map((s) => s.sessionId),
+    (await d.agent.request(methods.agent.session.list, SAID)).sessions.map((s) => s.sessionId),
+  ).toEqual([sessionId]);
+});
+
+test("a first message the daemon takes puts the session in the list, even if the agent never gets it", async () => {
+  const fake = fakeAgent();
+  const { daemon } = await start(fake);
+  const c = await connectClient(daemon);
+  const sessionId = await startedSession(c);
+  const announced = c.listChanged();
+  fake.crash();
+  fake.control.failLaunch = true;
+  await until(() => c.listChanged() > announced, "the exit to be announced");
+  await expect(
+    c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") }),
+  ).rejects.toBeDefined();
+  // It is there to be seen and deleted, with what happened to its first message.
+  expect(
+    (await c.agent.request(methods.agent.session.list, SAID)).sessions.map((s) => s.sessionId),
+  ).toEqual([sessionId]);
+  // A prompt refused before it is taken (one the agent cannot hold) does not.
+  fake.control.failLaunch = false;
+  const other = await startedSession(c);
+  await expect(
+    c.agent.request(methods.agent.session.prompt, {
+      sessionId: other,
+      prompt: [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }] as never,
+    }),
+  ).rejects.toMatchObject({ code: -32602 });
+  expect(
+    (await c.agent.request(methods.agent.session.list, SAID)).sessions.map((s) => s.sessionId),
   ).toEqual([sessionId]);
 });
 
@@ -356,7 +393,7 @@ test("an index written before it said whether anything was said is read from the
   const second = await start();
   const d = await connectClient(second.daemon);
   expect(
-    (await d.agent.request(methods.agent.session.list, {})).sessions.map((s) => s.sessionId),
+    (await d.agent.request(methods.agent.session.list, SAID)).sessions.map((s) => s.sessionId),
   ).toEqual([spoken]);
   await second.daemon.close();
   open = [];

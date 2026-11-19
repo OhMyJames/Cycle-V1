@@ -536,6 +536,26 @@ test("the first list a manager reads is not a change, even when a session in it 
   expect(notices).toEqual([]);
 });
 
+test("a session made elsewhere is reported when it finishes, even if it is first listed done", async () => {
+  const { manager } = await setup();
+  const notices: AttentionNotice[] = [];
+  const watcher = await manager("watcher", undefined, (n) => notices.push(n));
+  await watcher.m.connect("local");
+  expect(await watcher.m.sessions("local")).toEqual([]);
+  // Another client starts a session: its first turn may well be over by the time this one reads the list.
+  const maker = await manager("maker");
+  await maker.m.connect("local");
+  const id = await maker.m.createSession("local", { cwd: "/tmp" });
+  await maker.m.prompt("local", id, "hi");
+  await until(
+    () => notices.some((n) => n.kind === "finished" && n.session.sessionId === id),
+    "the finished session to be reported",
+  );
+  expect(notices.filter((n) => n.session.sessionId === id).map((n) => n.kind)).toEqual([
+    "finished",
+  ]);
+});
+
 test("a hook that fails does not stop the list from being read, and a manager without one says nothing", async () => {
   const { manager } = await setup(
     fakeAgent({

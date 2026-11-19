@@ -11,7 +11,7 @@ Basis: 用户 2026-11-19 的要求:新建应打开一个 blank conversation 页�
 ## Decision
 
 - **客户端**:新建打开一个空白对话(blank conversation),只存在客户端:环境、目录、agent、配置。配置项来自 `_cycle/agents/list` 的 `configSchema` 加 agent 默认值,不需要像 old-cycle 那样为预览单独开一个 agent 连接。首条消息发送时依次调 `session/new` 和 `session/prompt`;`session/new` 失败,消息回到空白对话的输入框;`session/prompt` 失败,打开已建好的 session,消息回到它的输入框。
-- **daemon**:`session/list` 只列出收到过用户消息的 session。索引里的 `prompted` 在日志第一次写入 `user_message` 时置为 true,并发 `_cycle/session_list_changed`;没有这个字段的旧条目在列表时读一次日志补上。没列出的 session 仍可 `session/resume`、`session/prompt`、删除。历史不可用(写不进去或读不了)的 session 照旧列出(否则没法删除它)。
+- **daemon**:`session/list` 带 `_meta["cycle/onlyPrompted"]` 时只列出收到过用户消息的 session;新客户端总是带,旧客户端不带、照旧看到全部。索引里的 `prompted` 在 daemon 接下第一条 prompt 时置为 true(不等 agent 回显 `user_message`:agent 起不来或不回显时,session 也要能被看到和删除),并发 `_cycle/session_list_changed`;没有这个字段的旧条目在列表时读一次日志补上。没列出的 session 仍可 `session/resume`、`session/prompt`、删除。历史不可用(写不进去或读不了)的 session 照旧列出(否则没法删除它)。
 - **@ 提及**:`_cycle/files/search` 可以用 `{cwd}` 代替 `{sessionId}`,能力 `filesInFolder` 声明;规则和按 session 搜一样,只在 `cwd` 内。
 
 ## Alternatives considered
@@ -25,7 +25,8 @@ Basis: 用户 2026-11-19 的要求:新建应打开一个 blank conversation 页�
 
 - 首条消息要等 agent 启动(几秒),期间消息先显示在空白对话里,输入框不可用。
 - `session/new` 成功到 `user_message` 写入之间,session 不在列表里;两步之间失败留下的空 session 不显示,但留在磁盘上。
-- 旧客户端(弹窗直接建 session)连新 daemon:建好的 session 在发出第一条消息前不在 sidebar 里,但仍能打开和使用。新客户端连旧 daemon:没有 `filesInFolder` 时空白对话不提供 @ 搜索;旧 daemon 的列表仍显示空 session。
+- 旧客户端(弹窗直接建 session)连新 daemon:它不带标记,列表照旧,它靠在列表里找到刚建的 session 来打开它(代码评审发现:若一律隐藏,旧客户端打不开自己建的 session)。新客户端连旧 daemon:没有 `filesInFolder` 时空白对话不提供 @ 搜索;旧 daemon 的列表仍显示空 session。
+- session 从发出第一条消息起才进列表,出现时往往已经在跑,甚至已经跑完。桌面端的通知因此改了两处:第一次之后新出现的 session 按"之前空闲(有未读则之前在跑)"比较;一直空闲、却变成未读的,也算"做完了"(很短的 turn 可能没有一次列表看到它在跑)。
 - 斜杠命令来自 agent 启动后的 `available_commands_update`,空白对话上没有。
 
 ## Related

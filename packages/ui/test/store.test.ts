@@ -536,3 +536,40 @@ test("a session gone on another host does not close the one that is open here", 
   expect(store.getState().selectedSession).toBe("s1");
   expect(store.getState().views[viewKey("local", "s1")]).toBeDefined();
 });
+
+test("a blank conversation follows the agent's defaults when they change, under what was chosen on it", async () => {
+  const script = fakeBridge({ connected: true });
+  let defaults: Record<string, string> = { mode: "plan", model: "sonnet" };
+  script.bridge.agentDefaults = async () => defaults;
+  const { store } = await opened(script);
+  store.openBlank({ environmentId: "local", cwd: "/work" });
+  await Bun.sleep(1);
+  store.changeBlank({ setting: { key: "model", value: "opus" } });
+  defaults = { mode: "default", model: "haiku" };
+  script.emit({ type: "agent-defaults", environmentId: "local", agent: "fake" });
+  await Bun.sleep(1);
+  expect(store.getState().blank?.config).toEqual({ mode: "default", model: "opus" });
+});
+
+test("a first message that could not go after the person left is kept in the blank conversation's box", async () => {
+  const script = fakeBridge({ connected: true });
+  let made: (id: string) => void = () => {};
+  script.bridge.createSession = () =>
+    new Promise((resolve) => {
+      made = resolve;
+    });
+  script.bridge.prompt = async () => {
+    throw new Error("The agent cannot start");
+  };
+  const { store } = await opened(script);
+  store.openBlank({ environmentId: "local", cwd: "/work" });
+  await Bun.sleep(1);
+  store.drafts.setText(BLANK_KEY, "hi");
+  const sending = store.send();
+  await store.selectSession("local", "s1");
+  made("s2");
+  await sending;
+  expect(store.getState().selectedSession).toBe("s1");
+  expect(store.drafts.get(BLANK_KEY).text).toBe("hi");
+  expect(store.drafts.get(viewKey("local", "s2")).text).toBe("");
+});

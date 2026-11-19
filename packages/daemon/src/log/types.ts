@@ -35,7 +35,8 @@ export interface SessionLog {
   /** The `ts` of the last record that is not a `meta` one, or undefined if there is none. */
   updatedAt(): string | undefined;
   append(record: NewRecord): Promise<LogRecord>;
-  read(range?: ReadRange): Promise<LogRecord[]>;
+  /** `stored`: the records as they are kept, with what was moved out of them (images) left as references. */
+  read(range?: ReadRange, options?: { stored?: boolean }): Promise<LogRecord[]>;
   /** Called, in seq order, after each record is written. Returns what stops the calls. */
   subscribe(listener: (record: LogRecord) => void): () => void;
   close(): Promise<void>;

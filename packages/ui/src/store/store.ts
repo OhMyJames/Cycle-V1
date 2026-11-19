@@ -38,6 +38,8 @@ export type BlankConversation = {
   agent: string | undefined;
   /** What the session starts with: the agent's defaults, then what was chosen here. Undefined until they are read. */
   config: Record<string, string> | undefined;
+  /** The settings the person chose here: they stay over the agent's defaults when those are read again. */
+  chosen?: Record<string, string>;
   /** The agent's defaults could not be read: it does not start from a form that may not be what the person set. */
   unreadable?: true;
   /** The first message, on its way: the session is being made. Nothing here can change meanwhile. */
@@ -188,6 +190,9 @@ export class AppStore {
             [event.environmentId]: (s.defaultsRevision[event.environmentId] ?? 0) + 1,
           },
         }));
+        // A blank conversation starts from the defaults as they are now, under what was chosen on it.
+        if (this.#state.blank?.environmentId === event.environmentId)
+          void this.#readBlankDefaults(true);
         return;
       case "app-update":
         this.#set({ update: event.state });
@@ -367,12 +372,22 @@ export class AppStore {
     }
     if (change.cwd !== undefined) next.cwd = change.cwd;
     if (change.agent !== undefined && change.agent !== next.agent) {
+      // Another agent has other settings: what was chosen for this one is not for it.
       next = { ...next, agent: change.agent, config: undefined };
       delete next.unreadable;
+      delete next.chosen;
     }
-    if (change.setting !== undefined && next.config !== undefined)
-      next.config = { ...next.config, [change.setting.key]: change.setting.value };
-    if (change.config !== undefined && next.config !== undefined) next.config = change.config;
+    if (change.setting !== undefined && next.config !== undefined) {
+      const { key, value } = change.setting;
+      next.config = { ...next.config, [key]: value };
+      next.chosen = { ...next.chosen, [key]: value };
+    }
+    if (change.config !== undefined && next.config !== undefined) {
+      const before = next.config;
+      const changed = Object.entries(change.config).filter(([key, value]) => before[key] !== value);
+      next.config = change.config;
+      next.chosen = { ...next.chosen, ...Object.fromEntries(changed) };
+    }
     this.#set({ blank: next, selectedEnvironment: next.environmentId });
     if (next.config === undefined && next.unreadable === undefined) void this.#readBlankDefaults();
   };
@@ -386,15 +401,14 @@ export class AppStore {
     void this.#readBlankDefaults();
   };
 
-  /** Leaves the blank conversation. What was written in it stays for the next one. */
-  closeBlank = (): void => {
-    if (this.#state.blank !== undefined) this.#set({ blank: undefined });
-  };
-
-  /** Reads the defaults of the agent the blank conversation starts, on its environment: what its session starts with. */
-  async #readBlankDefaults(): Promise<void> {
+  /**
+   * Reads the defaults of the agent the blank conversation starts, on its environment: what its session starts with,
+   * under what was chosen on it. `again`: they have changed, and are read even though there are some already.
+   */
+  async #readBlankDefaults(again = false): Promise<void> {
     const blank = this.#state.blank;
-    if (blank === undefined || blank.config !== undefined) return;
+    if (blank === undefined || blank.starting !== undefined) return;
+    if (blank.config !== undefined && !again) return;
     const agent = this.blankAgent(blank);
     if (agent === undefined) return;
     let config: Record<string, string> | undefined;
@@ -403,14 +417,22 @@ export class AppStore {
     } catch {
       config = undefined;
     }
-    // Only for the conversation and agent it was read for: another may be open by now.
+    // Only for the conversation and agent it was read for: another may be open by now, or it may be starting.
     const now = this.#state.blank;
-    if (now === undefined || now.environmentId !== blank.environmentId || now.config !== undefined)
+    if (
+      now === undefined ||
+      now.environmentId !== blank.environmentId ||
+      now.starting !== undefined
+    )
       return;
+    if (now.config !== undefined && !again) return;
     if (this.blankAgent(now)?.id !== agent.id) return;
-    this.#set({
-      blank: config === undefined ? { ...now, unreadable: true } : { ...now, config },
-    });
+    if (config === undefined) {
+      // A read again that fails leaves what was read before.
+      if (now.config === undefined) this.#set({ blank: { ...now, unreadable: true } });
+      return;
+    }
+    this.#set({ blank: { ...now, config: { ...config, ...now.chosen } } });
   }
 
   /**
@@ -450,9 +472,13 @@ export class AppStore {
       await this.#bridge.prompt(environmentId, sessionId, content);
       return true;
     });
-    if (sent !== true) this.drafts.restore(viewKey(environmentId, sessionId), [content]);
-    // The person may have gone elsewhere meanwhile: the session is there to be found, and nothing is taken from them.
-    if (this.#state.blank !== starting) return;
+    const stayed = this.#state.blank === starting;
+    // What could not go comes back where the person can find it: the session's box if they are still here (it opens),
+    // else the blank conversation's, since a session nothing was said in is not in the list.
+    if (sent !== true)
+      this.drafts.restore(stayed ? viewKey(environmentId, sessionId) : BLANK_KEY, [content]);
+    // The person may have gone elsewhere meanwhile: nothing is taken from them.
+    if (!stayed) return;
     this.#set({ blank: undefined });
     await this.selectSession(environmentId, sessionId);
   }

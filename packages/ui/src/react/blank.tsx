@@ -87,7 +87,6 @@ export function BlankConversationView({
     const chosen = await store.chooseDirectory();
     if (chosen !== undefined) store.changeBlank({ cwd: chosen });
   };
-  // Why it cannot be sent yet; empty while what it starts with is still being read, which says nothing of its own.
   // Why it cannot be sent yet, said above the box (once: the box itself keeps its usual words). Empty while what it starts
   // with is still being read, which says nothing of its own.
   const blocked = starting

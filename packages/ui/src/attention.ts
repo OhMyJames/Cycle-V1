@@ -25,7 +25,11 @@ export const attentionOf = (
   if (before === undefined || after.archived) return undefined;
   if (after.state === "requires_action")
     return before.state === "requires_action" ? undefined : "needs-you";
-  if (!going(before.state)) return undefined;
+  // A turn so short that no list caught it running: still idle, but a turn has ended since (docs/protocol.md §6, unread).
+  if (!going(before.state))
+    return after.state === "idle" && before.unread === false && after.unread === true
+      ? "finished"
+      : undefined;
   if (after.state === "idle") return "finished";
   if (after.state === "stopped") return "stopped";
   return undefined;
