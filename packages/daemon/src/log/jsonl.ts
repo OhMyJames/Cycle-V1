@@ -151,7 +151,7 @@ export class JsonlLogStore implements LogStore {
     );
   }
 
-  async open(sessionId: string): Promise<SessionLog> {
+  async open(sessionId: string, mode: "create" | "existing" = "create"): Promise<SessionLog> {
     const path = this.#path(sessionId);
     if (this.#open.has(sessionId)) throw logUnavailable(sessionId, "the log is already open");
     // Taken before anything is awaited: two opens at once cannot both get the file.
@@ -159,9 +159,15 @@ export class JsonlLogStore implements LogStore {
     let text: string;
     let records: LogRecord[];
     try {
-      await mkdir(this.#dir, { recursive: true });
-      // Make sure the file exists, then read what is there.
-      await (await open(path, "a")).close();
+      if (mode === "create") {
+        await mkdir(this.#dir, { recursive: true });
+        // A new session: make sure the file exists, then read what is there.
+        await (await open(path, "a")).close();
+      } else if (!(await this.exists(sessionId))) {
+        // The index knows this session but its log is gone. Making an empty one would hide the loss
+        // and number the next record from 1; the session is reported as unreadable instead.
+        throw logUnavailable(sessionId, "the history file is missing");
+      }
       text = await Bun.file(path).text();
       const parsed = parseLog(sessionId, text);
       records = parsed.records;

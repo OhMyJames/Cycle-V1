@@ -233,9 +233,9 @@ export class BlobLogStore implements LogStore {
     return join(this.#dir, sessionId);
   }
 
-  async open(sessionId: string): Promise<SessionLog> {
+  async open(sessionId: string, mode?: "create" | "existing"): Promise<SessionLog> {
     return new BlobSessionLog(
-      await this.#inner.open(sessionId),
+      await this.#inner.open(sessionId, mode),
       this.#sessionDir(sessionId),
       this.#recent,
     );
