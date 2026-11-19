@@ -14,6 +14,9 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "catalog:",
     "@cycle/analytics": "workspace:*",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource/open-runde": "^5.3.0",
     "@lexical/code": "0.53.0",
     "@lexical/history": "0.53.0",
     "@lexical/link": "0.53.0",

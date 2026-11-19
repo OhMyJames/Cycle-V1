@@ -8,25 +8,157 @@
 @import "streamdown/styles.css";
 @source "../../node_modules/streamdown/dist/*.js";
 
-/* Streamdown is written for shadcn's colour names (text-muted-foreground, bg-sidebar, ...), which
-   Tailwind only knows if they are defined. Here they are ui-sdk's tokens, so a change of theme
-   there changes the markdown too. Without this those classes are not generated and it is drawn bare. */
+/* Streamdown and Rare UI / shadcn-compatible components expect Tailwind semantic tokens
+   (bg-card, text-muted-foreground, bg-primary, font-runde, ...). Mapping them here ensures
+   all third-party and future Rare UI components automatically follow Cycle's light/dark theme. */
 @theme inline {
   --color-background: var(--ui-background);
   --color-foreground: var(--ui-foreground);
-  --color-muted: var(--ui-muted);
-  --color-muted-foreground: var(--ui-muted-foreground);
-  --color-border: var(--ui-border);
-  --color-input: var(--ui-input);
-  --color-ring: var(--ui-ring);
-  --color-primary: var(--ui-primary);
-  --color-primary-foreground: var(--ui-primary-foreground);
+  --color-card: var(--cycle-surface-raised);
+  --color-card-foreground: var(--cycle-ink);
+  --color-popover: var(--cycle-surface-raised);
+  --color-popover-foreground: var(--cycle-ink);
+  --color-primary: var(--cycle-accent);
+  --color-primary-foreground: var(--cycle-accent-foreground);
+  --color-secondary: var(--cycle-surface-message);
+  --color-secondary-foreground: var(--cycle-ink);
+  --color-muted: var(--cycle-surface-message);
+  --color-muted-foreground: var(--cycle-ink-muted);
+  --color-accent: var(--cycle-surface-hover);
+  --color-accent-foreground: var(--cycle-ink);
   --color-destructive: var(--ui-destructive);
+  --color-destructive-foreground: light-dark(#ffffff, #0a0a0a);
+  --color-border: var(--cycle-border-default);
+  --color-input: var(--cycle-input-border);
+  --color-ring: var(--cycle-focus-ring);
   --color-sidebar: var(--cycle-surface-sidebar);
+  --color-sidebar-foreground: var(--cycle-ink);
+  --color-sidebar-primary: var(--cycle-accent);
+  --color-sidebar-primary-foreground: var(--cycle-accent-foreground);
+  --color-sidebar-accent: var(--cycle-surface-selected);
+  --color-sidebar-accent-foreground: var(--cycle-ink);
+  --color-sidebar-border: var(--cycle-border-subtle);
+  --color-sidebar-ring: var(--cycle-focus-ring);
+
+  --font-sans: var(--ui-font-sans);
+  --font-runde: var(--cycle-font-display);
+  --font-display: var(--cycle-font-display);
+  --font-mono: var(--ui-font-mono);
+
+  --radius-sm: var(--cycle-radius-sm);
+  --radius-md: var(--ui-radius);
+  --radius-lg: var(--cycle-radius-card);
+  --radius-xl: var(--cycle-radius-message);
+  --radius-2xl: var(--cycle-radius-composer);
+}
+
+/* Self-hosted Rare UI open-source font trio (SIL OFL-1.1), staged locally beside the stylesheet
+   by build-css.ts so Electron runs 100% offline under strict CSP (`font-src 'self' data:`).
+   Open Runde uses explicit weight ranges so --cycle-weight: 420 maps cleanly to Regular (400). */
+@font-face {
+  font-family: "Open Runde";
+  font-style: normal;
+  font-weight: 1 449;
+  font-display: swap;
+  src: url("./fonts/open-runde-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Open Runde";
+  font-style: normal;
+  font-weight: 450 549;
+  font-display: swap;
+  src: url("./fonts/open-runde-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Open Runde";
+  font-style: normal;
+  font-weight: 550 649;
+  font-display: swap;
+  src: url("./fonts/open-runde-latin-600-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Open Runde";
+  font-style: normal;
+  font-weight: 650 1000;
+  font-display: swap;
+  src: url("./fonts/open-runde-latin-700-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/inter-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/inter-latin-ext-wght-italic.woff2") format("woff2-variations");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/inter-latin-wght-italic.woff2") format("woff2-variations");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/geist-mono-symbols2-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+2000-2001, U+2004-2008, U+200A, U+23B8-23BD, U+2500-259F;
+}
+@font-face {
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/geist-mono-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/geist-mono-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 /* PingFang has fixed weights, so a weight of 420 would pick Medium and set all Chinese bold. These faces give it
-   Light below 350, Regular below 450, Medium below 550 and Semibold above; SF is variable and takes 420 as it is. */
+   Light below 350, Regular below 450, Medium below 550 and Semibold above; Inter Variable takes 420 as it is. */
 @font-face {
   font-family: "Cycle PingFang";
   src: local("PingFangSC-Light"), local("PingFang SC Light");
@@ -49,37 +181,46 @@
 }
 
 /* DESIGN.md is the source of what these are and why. Components use the --cycle-* names; ui-sdk's own
-   tokens are remapped here, once, so its controls take the same accent, radius and focus. */
+   tokens are remapped here, once, so its controls take the same accent, radius, fonts and focus. */
 :root {
   --cycle-gap: 0.75rem;
   --cycle-gap-turn: 2rem;
 
-  /* Surfaces, warm grays. Workspace is the conversation; sidebar the window around it; raised is what lies
-     over them (menus, dialogs, the permission card); message the user's bubble and every sunken fill. */
-  --cycle-surface-workspace: light-dark(#fcfcfb, #161615);
-  --cycle-surface-sidebar: light-dark(#f7f7f5, #121211);
-  --cycle-surface-raised: light-dark(#ffffff, #1c1b1a);
-  --cycle-surface-message: light-dark(#f2f1ee, #262523);
-  --cycle-surface-hover: light-dark(#f0efec, #2a2927);
-  --cycle-surface-selected: light-dark(#e8e7e3, #33312e);
-  --cycle-border-subtle: light-dark(#efeeeb, #2a2927);
-  --cycle-border-default: light-dark(#e5e4e0, #34322f);
+  /* Surfaces: Rare UI / Apple hardware pure neutrals. Workspace is the crisp conversation ground;
+     sidebar sits recessed; raised elevates cards, menus, dialogs and the composer with a subtle
+     specular top edge; message holds user bubbles and sunken fills. */
+  --cycle-surface-workspace: light-dark(#ffffff, #0a0a0a);
+  --cycle-surface-sidebar: light-dark(#f5f5f7, #050505);
+  --cycle-surface-raised: light-dark(#ffffff, #141414);
+  --cycle-surface-message: light-dark(#f2f2f4, #1b1b1c);
+  --cycle-surface-hover: light-dark(#ececef, #222224);
+  --cycle-surface-selected: light-dark(#e4e4e8, #2b2b2e);
+  --cycle-border-subtle: light-dark(#ededf0, #1f1f22);
+  --cycle-border-default: light-dark(#e2e2e6, #2c2c30);
 
-  /* Ink: four steps, each a different level. Muted holds 4.5:1 on every surface above, selected included. */
-  --cycle-ink: light-dark(#1c1b1a, #f2f1ee);
-  --cycle-ink-secondary: light-dark(#4f4c48, #c4c1bb);
-  --cycle-ink-muted: light-dark(#6a6660, #9d9992);
-  --cycle-ink-disabled: light-dark(#8b8780, #787570);
+  /* Ink: four pure neutral steps. Muted holds >= 4.5:1 on every surface above, selected included. */
+  --cycle-ink: light-dark(#141414, #f5f5f7);
+  --cycle-ink-secondary: light-dark(#454549, #c7c7cc);
+  --cycle-ink-muted: light-dark(#636369, #98989f);
+  --cycle-ink-disabled: light-dark(#8a8a92, #6e6e75);
 
-  /* Colour: one accent for what can be acted on and what is happening; two more for states. */
-  --cycle-accent: light-dark(oklch(0.511 0.262 277), oklch(0.68 0.19 277));
-  --cycle-accent-foreground: light-dark(oklch(1 0 0), oklch(0.145 0 0));
-  --cycle-attention: light-dark(oklch(0.52 0.13 65), oklch(0.8 0.15 80));
-  --cycle-success: light-dark(oklch(0.48 0.12 150), oklch(0.76 0.16 150));
-  --cycle-input-border: color-mix(in oklch, var(--ui-muted-foreground) 80%, var(--ui-background));
+  /* Colour: Rare UI international safety orange (#fc4c01 dark, contrast-calibrated #c93b00 light)
+     for primary actions and active state; Apple HIG amber-gold, emerald and calm coral-crimson for status. */
+  --cycle-accent: light-dark(#c93b00, #fc4c01);
+  --cycle-accent-foreground: #ffffff;
+  --cycle-attention: light-dark(#8a5a00, #f5b82e);
+  --cycle-success: light-dark(#1a7f37, #30d158);
+  --cycle-input-border: light-dark(#8b8b93, #63636a);
+  --cycle-focus-ring: light-dark(#6b6b75, #8e8e98);
+  --cycle-focus-halo: 0 0 0 3px light-dark(rgb(0 0 0 / 7%), rgb(255 255 255 / 9%));
 
-  /* Type: four sizes, each with its line (12/18, 13/20, 14/22, 16/24). ui is ui-sdk's own (13px), so its controls
-     and ours agree. Regular is 420 on a light ground and 400 on a dark one, where light text reads heavier. */
+  /* Type: four disciplined sizes (12/18, 13/20, 14/22, 16/22.4) paired with the Rare UI font trio.
+     Open Runde gives brand touchpoints, titles and buttons a rounded, approachable voice; Inter
+     keeps long prose crisp; Geist Mono anchors code, commands and paths. */
+  --cycle-font-display:
+    "Open Runde", "Inter Variable", "Cycle PingFang", "PingFang SC", -apple-system,
+    BlinkMacSystemFont, system-ui, sans-serif;
+  --cycle-tracking-display: -0.015em;
   --cycle-text-meta: 0.75rem;
   --cycle-text-ui: var(--ui-font-size, 0.8125rem);
   --cycle-text-body: 0.875rem;
@@ -87,20 +228,34 @@
   --cycle-leading-meta: 1.5;
   --cycle-leading-ui: 1.54;
   --cycle-leading-body: 1.57;
-  --cycle-leading-title: 1.5;
+  --cycle-leading-title: 1.4;
   --cycle-weight: 420;
 
-  /* Radii echo the icons and nest: inner radius is outer radius less padding (a 12 menu with 4 of padding holds
-     8 rows). The control's is --ui-radius. */
-  --cycle-radius-sm: 4px;
-  --cycle-radius-card: 12px;
-  --cycle-radius-message: 16px;
-  --cycle-radius-composer: 20px;
+  /* Concentric rounded radii: inner = outer - padding.
+     24 composer - 14 pad = 10 controls; 16 popover - 6 pad = 10 menu rows. */
+  --cycle-radius-sm: 6px;
+  --cycle-radius-card: 16px;
+  --cycle-radius-message: 20px;
+  --cycle-radius-composer: 24px;
+  --cycle-radius-pill: 9999px;
 
-  /* Only what floats has a shadow. */
-  --cycle-shadow-popover: 0 4px 12px rgb(0 0 0 / 8%), 0 1px 3px rgb(0 0 0 / 6%);
-  --cycle-shadow-dialog: 0 16px 40px rgb(0 0 0 / 16%), 0 2px 8px rgb(0 0 0 / 8%);
-  --cycle-scrim: light-dark(rgb(0 0 0 / 10%), rgb(0 0 0 / 40%));
+  /* Hardware specular rim & layered elevation (inspired by Rare UI's .border-apple).
+     Uses light-dark() inside shadow colors so forced color-scheme previews stay accurate too. */
+  --cycle-edge-hardware:
+    inset 0 0 0 1px light-dark(rgb(0 0 0 / 3%), rgb(255 255 255 / 7%)),
+    inset 0 1px 0 0 light-dark(rgb(255 255 255 / 92%), rgb(255 255 255 / 12%)),
+    inset 0 -1px 0 0 light-dark(transparent, rgb(0 0 0 / 40%));
+  --cycle-edge-accent: inset 0 1px 0 0 rgb(255 255 255 / 28%), inset 0 -1px 0 0 rgb(0 0 0 / 16%);
+  --cycle-shadow-composer:
+    0 4px 16px -4px light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 60%)),
+    0 1px 3px light-dark(rgb(0 0 0 / 4%), rgb(0 0 0 / 45%));
+  --cycle-shadow-popover:
+    0 8px 24px -4px light-dark(rgb(0 0 0 / 9%), rgb(0 0 0 / 65%)),
+    0 2px 6px -1px light-dark(rgb(0 0 0 / 5%), rgb(0 0 0 / 45%));
+  --cycle-shadow-dialog:
+    0 22px 54px -12px light-dark(rgb(0 0 0 / 15%), rgb(0 0 0 / 78%)),
+    0 4px 14px -2px light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 55%));
+  --cycle-scrim: light-dark(rgb(0 0 0 / 12%), rgb(0 0 0 / 55%));
 
   /* Text too long for its line fades out at the end instead of ending in "…" (old-cycle's rule): the box is full width and
      the last 1.5rem of it fade, so a short line, which never reaches there, is not touched. */
@@ -119,40 +274,142 @@
   --ui-muted: var(--cycle-surface-message);
   --ui-muted-foreground: var(--cycle-ink-muted);
   --ui-border: var(--cycle-border-default);
+  --ui-input: var(--cycle-input-border);
   --ui-shadow: var(--cycle-shadow-popover);
   --ui-overlay: var(--cycle-scrim);
   --ui-primary: var(--cycle-accent);
   --ui-primary-foreground: var(--cycle-accent-foreground);
-  --ui-ring-border: var(--cycle-accent);
-  --ui-radius: 8px;
+  --ui-destructive: light-dark(#c4343b, #e87872);
+  --ui-ring-border: var(--cycle-focus-ring);
+  --ui-radius: 10px;
   /* PingFang for Chinese comes through "Cycle PingFang" (the faces above), so 420 does not set it bold. */
   --ui-font-sans:
-    -apple-system, BlinkMacSystemFont, "Cycle PingFang", "PingFang SC", system-ui, "Segoe UI",
-    sans-serif;
-  --ui-font-mono: ui-monospace, "SF Mono", Menlo, "Cycle PingFang", "PingFang SC", monospace;
+    "Inter Variable", "Cycle PingFang", "PingFang SC", -apple-system, BlinkMacSystemFont, system-ui,
+    "Segoe UI", sans-serif;
+  --ui-font-mono:
+    "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, "Cycle PingFang", "PingFang SC",
+    monospace;
 
   font-family: var(--ui-font-sans);
   font-weight: var(--cycle-weight);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   /* ui-sdk sizes in rem: at 14px the root made its 13px controls 11px. */
   font-size: 16px;
 }
 
-/* The theme follows the system. What light-dark() cannot hold (a shadow, a weight) changes here. */
+/* The theme follows the system. What light-dark() cannot hold (font weight) changes here. */
 @media (prefers-color-scheme: dark) {
   :root {
     --cycle-weight: 400;
-    --cycle-shadow-popover: 0 4px 12px rgb(0 0 0 / 40%), 0 1px 3px rgb(0 0 0 / 30%);
-    --cycle-shadow-dialog: 0 16px 40px rgb(0 0 0 / 50%), 0 2px 8px rgb(0 0 0 / 30%);
   }
 }
 
-/* A focus ring that can be seen: ui-sdk's is a pale 4px halo (1.3:1 on white). */
+/* Reset Inter stylistic sets on monospace code so Geist Mono uses its native glyphs. */
+code,
+pre,
+[data-slot="session-where"],
+[data-slot="connector-where"],
+[data-slot="tool-summary"],
+[data-slot="tool-diff"] {
+  font-feature-settings: normal;
+}
+
+/* Rare UI-compatible utility class for hardware specular rim (layered so Tailwind shadow-* can compose). */
+@layer utilities {
+  .border-apple {
+    box-shadow: var(--cycle-edge-hardware);
+  }
+}
+
+::selection {
+  background: color-mix(in oklab, var(--cycle-accent) 22%, transparent);
+}
+
+/* Refined neutral silver-graphite focus ring: >= 4:1 contrast across all surfaces without competing
+   with safety-orange CTAs or creating harsh wireframe boxes. Inputs pull the ring flush with a soft halo. */
 :where([data-slot]):focus-visible,
 a:focus-visible,
 button:focus-visible,
 summary:focus-visible {
-  outline: 2px solid var(--cycle-accent);
-  outline-offset: 2px;
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: 1px;
+}
+
+:is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]):not(
+  [data-invalid]
+):focus-visible {
+  border-color: var(--cycle-focus-ring);
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: -1px;
+  box-shadow: var(--cycle-focus-halo);
+}
+
+:is(
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="select-trigger"]
+)[data-invalid]:focus-visible {
+  border-color: var(--ui-destructive);
+  outline: 1.5px solid var(--ui-destructive);
+  outline-offset: -1px;
+}
+
+/* Buttons & interactive triggers carry Open Runde for tactile, approachable warmth and crisp hardware edges. */
+:is(
+  [data-slot="button"],
+  [data-slot="menu-trigger"],
+  [data-slot="select-trigger"],
+  [data-slot="dialog-close"],
+  [data-slot="alert-dialog-close"]
+) {
+  font-family: var(--cycle-font-display);
+  transition:
+    background-color var(--cycle-motion-state) var(--cycle-ease),
+    color var(--cycle-motion-state) var(--cycle-ease),
+    border-color var(--cycle-motion-state) var(--cycle-ease);
+}
+
+:is(
+  [data-slot="button"],
+  [data-slot="menu-trigger"]:not([data-slot="menu-content"] *),
+  [data-slot="dialog-close"],
+  [data-slot="alert-dialog-close"]
+):not(
+  [data-variant="ghost"],
+  [data-variant="solid"],
+  [data-variant="destructive"],
+  [data-kind="queue"]
+) {
+  border-color: var(--cycle-input-border);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware);
+}
+
+:is(
+  [data-slot="button"],
+  [data-slot="menu-trigger"]:not([data-slot="menu-content"] *),
+  [data-slot="dialog-close"],
+  [data-slot="alert-dialog-close"]
+):not(
+  [data-variant="ghost"],
+  [data-variant="solid"],
+  [data-variant="destructive"],
+  [data-kind="queue"]
+):hover:not([data-disabled]) {
+  background: var(--cycle-surface-hover);
+}
+
+:is([data-slot="button"], [data-slot="menu-trigger"])[data-variant="solid"] {
+  font-weight: 600;
+  box-shadow: var(--cycle-edge-accent);
+}
+
+:is([data-slot="button"], [data-slot="menu-trigger"])[data-variant="solid"]:hover:not(
+  [data-disabled]
+) {
+  background: color-mix(in oklab, var(--cycle-accent) 90%, #000000);
 }
 
 /* ui-sdk draws every button with an edge and only knows "solid" and "destructive". "ghost" is ours: no edge and no
@@ -161,6 +418,7 @@ summary:focus-visible {
 :is([data-slot="button"], [data-slot="menu-trigger"])[data-variant="ghost"] {
   border-color: transparent;
   background: transparent;
+  box-shadow: none;
   color: var(--cycle-ink-secondary);
 }
 
@@ -377,13 +635,14 @@ svg[data-slot="dot"] {
   animation: cycle-spin 0.9s linear infinite;
 }
 
-/* What floats: a 1px edge, a shadow, and the raised surface. Corners nest: a menu of 12 with 4 of padding holds rows of 8,
-   and a dialog is 16. */
+/* What floats: a 1px edge, hardware specular sheen, a shadow, and the raised surface.
+   Corners nest: a menu of 16 with 6 of padding holds rows of 10, and a dialog is 20. */
 :is([data-slot="menu-content"], [data-slot="select-content"]) {
+  padding: 0.375rem;
   border: 1px solid var(--ui-border);
   border-radius: var(--cycle-radius-card);
   background: var(--cycle-surface-raised);
-  box-shadow: var(--cycle-shadow-popover);
+  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-popover);
   transition:
     opacity var(--cycle-motion-enter) var(--cycle-ease),
     transform var(--cycle-motion-enter) var(--cycle-ease);
@@ -393,10 +652,15 @@ svg[data-slot="dot"] {
   border: 1px solid var(--ui-border);
   border-radius: var(--cycle-radius-message);
   background: var(--cycle-surface-raised);
-  box-shadow: var(--cycle-shadow-dialog);
+  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-dialog);
   transition:
     opacity var(--cycle-motion-enter) var(--cycle-ease),
     transform var(--cycle-motion-enter) var(--cycle-ease);
+}
+
+:is([data-slot="dialog-title"], [data-slot="alert-dialog-title"]) {
+  font-family: var(--cycle-font-display);
+  letter-spacing: var(--cycle-tracking-display);
 }
 
 :is(
@@ -614,18 +878,27 @@ svg[data-slot="dot"] {
   border-color: transparent;
   background: transparent;
   color: var(--cycle-ink-secondary);
+  transition:
+    background-color var(--cycle-motion-state) var(--cycle-ease),
+    color var(--cycle-motion-state) var(--cycle-ease);
 }
 
-/* The list scrolls and clips: a ring drawn outside a row would be cut off, so it is drawn inside. */
+/* Keyboard focus on an unselected list row gets a >= 3:1 focus ring inside; the selected row already has its filled pill and stays borderless. */
 [data-slot="sidebar"] [role="option"]:focus-visible {
-  outline-offset: -2px;
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: -1.5px;
+}
+
+[data-slot="sidebar"] [role="option"][aria-selected="true"]:focus-visible {
+  outline: none;
 }
 
 [data-slot="sidebar"] [role="option"]:hover {
   background: var(--cycle-surface-hover);
+  color: var(--cycle-ink);
 }
 
-/* Selected: a filled row, as in a native source list. No edge and no bar, so it is not mistaken for the focus ring. */
+/* Selected: a quiet native source-list pill, completely borderless so it stays calm beside the conversation. */
 [data-slot="sidebar"] [role="option"][aria-selected="true"] {
   color: var(--cycle-ink);
   background: var(--cycle-surface-selected);
@@ -643,6 +916,7 @@ svg[data-slot="dot"] {
 
 [data-slot="listbox-group-label"] {
   padding: 0.25rem 0.5rem 0.125rem;
+  font-family: var(--cycle-font-display);
   font-size: var(--cycle-text-meta);
   font-weight: 600;
   color: var(--ui-muted-foreground);
@@ -686,7 +960,9 @@ svg[data-slot="dot"] {
   max-width: 100%;
   padding-inline: 0.5rem;
   color: var(--cycle-ink);
+  font-family: var(--cycle-font-display);
   font-weight: 600;
+  letter-spacing: var(--cycle-tracking-display);
 }
 
 [data-kind="workspace-switcher"] > svg {
@@ -996,8 +1272,10 @@ html[data-platform="darwin"]
   min-width: 0;
   margin: 0;
   overflow: hidden;
+  font-family: var(--cycle-font-display);
   font-size: var(--cycle-text-ui);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: var(--cycle-tracking-display);
   line-height: var(--cycle-leading-ui);
 }
 
@@ -1049,7 +1327,11 @@ html[data-platform="darwin"]
 [data-slot="empty-title"] {
   margin: 0;
   color: var(--ui-foreground);
-  font-weight: 500;
+  font-family: var(--cycle-font-display);
+  font-size: var(--cycle-text-title);
+  font-weight: 600;
+  letter-spacing: var(--cycle-tracking-display);
+  line-height: var(--cycle-leading-title);
 }
 
 /* A path a decision is about (folder trust) is read like a reason: whole, wrapped, selectable. */
@@ -1087,7 +1369,8 @@ html[data-platform="darwin"]
   background: var(--ui-muted);
   border: 1px solid var(--cycle-border-default);
   border-radius: var(--cycle-radius-message);
-  padding: 0.4375rem 0.75rem;
+  box-shadow: var(--cycle-edge-hardware);
+  padding: 0.5rem 0.875rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -1098,8 +1381,8 @@ html[data-platform="darwin"]
 }
 
 /* Markdown from the agent. Streamdown draws a code block as a box holding a box, and a table as a toolbar over a box
-   holding a box. Here each is one card (12, the default edge): the language and Copy in a quiet head, the code under it.
-   Its own data-streamdown names are stable; its Tailwind classes are below ours, so these win. */
+   holding a box. Here each is one hardware-rimmed card (16, the default edge): the language and Copy in a quiet head,
+   the code under it. Its own data-streamdown names are stable; its Tailwind classes are below ours, so these win. */
 [data-slot="message"] [data-streamdown="code-block"] {
   position: relative;
   gap: 0;
@@ -1109,6 +1392,7 @@ html[data-platform="darwin"]
   border: 1px solid var(--cycle-border-default);
   border-radius: var(--cycle-radius-card);
   background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware);
 }
 
 [data-slot="message"] [data-streamdown="code-block-header"] {
@@ -1186,6 +1470,7 @@ html[data-platform="darwin"]
   border: 1px solid var(--cycle-border-default);
   border-radius: var(--cycle-radius-card);
   background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware);
 }
 
 [data-slot="message"] :is([data-streamdown="table-header-cell"], [data-streamdown="table-cell"]) {
@@ -1452,15 +1737,22 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 
 [data-slot="earlier"] {
   align-self: center;
-  padding: 0.25rem 0.75rem;
+  padding: 0.25rem 0.875rem;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: var(--cycle-radius-pill);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware);
+  font-family: var(--cycle-font-display);
   font-size: var(--cycle-text-meta);
   color: var(--ui-muted-foreground);
+  transition:
+    background-color var(--cycle-motion-state) var(--cycle-ease),
+    color var(--cycle-motion-state) var(--cycle-ease);
 }
 
 [data-slot="earlier"]:hover {
-  background: var(--ui-muted);
+  background: var(--cycle-surface-hover);
+  color: var(--cycle-ink);
 }
 
 /* Each block is a column of its own, so a message can sit to the end; a turn begins with more space than blocks have. */
@@ -1850,18 +2142,20 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   border-top: 3px solid var(--cycle-attention);
   border-radius: var(--cycle-radius-card);
   background: var(--cycle-surface-raised);
-  box-shadow: var(--cycle-shadow-popover);
-  padding: 0.75rem;
+  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-popover);
+  padding: 0.875rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.625rem;
 }
 
 [data-slot="permission-title"] {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  font-family: var(--cycle-font-display);
   font-weight: 600;
+  letter-spacing: var(--cycle-tracking-display);
 }
 
 [data-slot="permission-title"] > svg {
@@ -1887,10 +2181,20 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   flex-wrap: wrap;
 }
 
-[data-slot="permission-actions"] kbd {
-  font: inherit;
+[data-slot="permission-actions"] [data-variant="solid"] kbd {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.125rem;
+  padding: 0 0.375rem;
+  border: 0;
+  border-radius: var(--cycle-radius-sm);
+  background: light-dark(rgb(0 0 0 / 18%), rgb(0 0 0 / 22%));
+  color: #ffffff;
+  font-family: var(--ui-font-sans);
   font-size: var(--cycle-text-meta);
-  opacity: 0.85;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
 }
 
 [data-kind="permission-dismiss"] {
@@ -2055,23 +2359,25 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   padding: 0.5rem var(--cycle-column-pad) var(--cycle-gap);
 }
 
-/* One box holds what is being written: the images, the text, and under it the controls that act on it. Corners nest:
-   20 with 12 of padding holds controls of 8. */
+/* One box holds what is being written: the images, the text, and under it the controls that act on it.
+   Corners nest concentrically: 24 outer with 14 padding holds controls of 10 and capsule pills. */
 [data-slot="composer-box"] {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding: var(--cycle-gap);
-  padding-bottom: 0.5rem;
+  padding: 0.875rem 0.875rem 0.625rem;
   border: 1px solid var(--cycle-input-border);
   border-radius: var(--cycle-radius-composer);
   background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-composer);
 }
 
-/* The text is what has the focus, but the ring goes round the whole box: that is what the eye takes for the input. */
+/* The text is what has the focus, but the seamless ring and soft halo wrap the whole composer box. */
 [data-slot="composer-box"]:has([data-slot="composer-input"]:focus-visible) {
-  outline: 2px solid var(--cycle-accent);
-  outline-offset: 2px;
+  border-color: var(--cycle-focus-ring);
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: -1px;
+  box-shadow: var(--cycle-focus-halo), var(--cycle-edge-hardware), var(--cycle-shadow-composer);
 }
 
 [data-slot="composer"][data-dropping] [data-slot="composer-box"] {
@@ -2100,16 +2406,17 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   width: 2rem;
   height: 2rem;
   padding: 0;
-  border-radius: 50%;
+  border-radius: var(--cycle-radius-pill);
 }
 
-/* Queue while the agent works: words, on a quiet fill, because it is not the next step the way Send is. */
+/* Queue while the agent works: words, on a quiet pill fill, because it is not the next step the way Send is. */
 [data-kind="queue"] {
   height: 2rem;
-  padding-inline: 0.75rem;
+  padding-inline: 0.875rem;
   border-color: transparent;
+  border-radius: var(--cycle-radius-pill);
   background: var(--cycle-surface-hover);
-  font-weight: var(--cycle-weight);
+  font-weight: 500;
 }
 
 [data-kind="queue"]:hover:not([data-disabled]) {
@@ -2170,13 +2477,14 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   text-align: center;
 }
 
-/* A setting at hand: quiet ghost button with a subtle chevron cue; high-risk modes warn in attention colour. */
+/* A setting at hand: quiet ghost pill with a subtle chevron cue; high-risk modes warn in attention colour. */
 [data-kind="setting-chip"] {
   min-width: 0;
   max-width: 12rem;
   gap: 0.25rem;
-  padding-inline: 0.5rem;
-  font-weight: var(--cycle-weight);
+  padding-inline: 0.625rem;
+  border-radius: var(--cycle-radius-pill);
+  font-weight: 500;
 }
 
 [data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"][data-unset] {
@@ -2359,17 +2667,17 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 [data-slot="picker"] {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 0.25rem);
+  bottom: calc(100% + 0.375rem);
   left: 0;
   z-index: 1;
   max-height: 14rem;
   margin: 0;
-  padding: 0.25rem;
+  padding: 0.375rem;
   overflow-y: auto;
   border: 1px solid var(--ui-border);
   border-radius: var(--cycle-radius-card);
   background: var(--cycle-surface-raised);
-  box-shadow: var(--cycle-shadow-popover);
+  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-popover);
   list-style: none;
 }
 
@@ -2449,11 +2757,12 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   gap: 0.5rem;
 }
 
-/* Says, not shouts: the same quiet text as the description, set apart by its border. */
+/* Says, not shouts: the same quiet text as the description, set apart by its capsule border. */
 [data-slot="option-tag"] {
-  padding: 0 0.375rem;
+  padding: 0 0.4375rem;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: var(--cycle-radius-pill);
+  font-family: var(--cycle-font-display);
   font-size: var(--cycle-text-meta);
   color: var(--ui-muted-foreground);
 }
@@ -2494,6 +2803,8 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 [data-slot="blank-lead"] {
   padding: 0 var(--cycle-column-pad) 0.5rem;
   color: var(--ui-muted-foreground);
+  font-family: var(--cycle-font-display);
+  letter-spacing: var(--cycle-tracking-display);
 }
 
 [data-slot="blank-lead"] p {
@@ -2572,6 +2883,8 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   list-style: none;
   border: 1px solid var(--cycle-border-default);
   border-radius: var(--cycle-radius-card);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware);
 }
 
 [data-slot="connector"] {

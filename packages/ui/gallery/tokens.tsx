@@ -17,9 +17,11 @@ const COLORS = [
   "ring-border",
   "overlay",
   "cycle-accent",
+  "cycle-accent-foreground",
   "cycle-attention",
   "cycle-success",
   "cycle-input-border",
+  "cycle-focus-ring",
   "cycle-surface-workspace",
   "cycle-surface-sidebar",
   "cycle-surface-raised",
@@ -33,31 +35,63 @@ const COLORS = [
   "cycle-ink-muted",
   "cycle-ink-disabled",
 ];
-const SIZES = [0.8, 0.85, 0.9, 1, 1.1];
+
+const RADII = [
+  ["sm", "--cycle-radius-sm"],
+  ["ui", "--ui-radius"],
+  ["card", "--cycle-radius-card"],
+  ["message", "--cycle-radius-message"],
+  ["composer", "--cycle-radius-composer"],
+  ["pill", "--cycle-radius-pill"],
+] as const;
 
 export function drawTokens(root: HTMLElement) {
   const style = getComputedStyle(document.documentElement);
   const name = (n: string) => (n.startsWith("cycle-") ? `--${n}` : `--ui-${n}`);
   const value = (n: string) => style.getPropertyValue(name(n)).trim();
+  const raw = (cssVar: string) => style.getPropertyValue(cssVar).trim();
   createRoot(root).render(
     <div
       style={{
         padding: "1.5rem",
         display: "flex",
         flexDirection: "column",
-        gap: "1.5rem",
-        maxWidth: 900,
+        gap: "1.75rem",
+        maxWidth: 960,
       }}
     >
       <section>
-        <h2>Colour</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+        <h2
+          style={{
+            fontFamily: "var(--cycle-font-display)",
+            letterSpacing: "var(--cycle-tracking-display)",
+            margin: "0 0 0.75rem",
+          }}
+        >
+          Colour
+        </h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
           {COLORS.map((c) => (
-            <div key={c} style={{ border: "1px solid var(--ui-border)" }}>
+            <div
+              key={c}
+              style={{
+                border: "1px solid var(--cycle-border-default)",
+                borderRadius: "var(--ui-radius)",
+                overflow: "hidden",
+                background: "var(--cycle-surface-raised)",
+                boxShadow: "var(--cycle-edge-hardware)",
+              }}
+            >
               <div style={{ height: 40, background: `var(${name(c)})` }} />
-              <div style={{ padding: 6, fontSize: "0.8em" }}>
-                <div>{name(c)}</div>
-                <div style={{ color: "var(--ui-muted-foreground)", wordBreak: "break-all" }}>
+              <div style={{ padding: "6px 8px", fontSize: "var(--cycle-text-meta)" }}>
+                <div style={{ fontWeight: 500 }}>{name(c)}</div>
+                <div
+                  style={{
+                    color: "var(--ui-muted-foreground)",
+                    fontFamily: "var(--ui-font-mono)",
+                    wordBreak: "break-all",
+                  }}
+                >
                   {value(c)}
                 </div>
               </div>
@@ -65,54 +99,111 @@ export function drawTokens(root: HTMLElement) {
           ))}
         </div>
       </section>
-      <section>
-        <h2>Type</h2>
-        {SIZES.map((s) => (
-          <div key={s} style={{ fontSize: `${s}em` }}>
-            {s}em: The agent is working on the build.
-          </div>
-        ))}
-        <code style={{ fontFamily: "var(--ui-font-mono)" }}>
-          mono: bun run check --quick /path/to/file.ts
+      <section style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <h2
+          style={{
+            fontFamily: "var(--cycle-font-display)",
+            letterSpacing: "var(--cycle-tracking-display)",
+            margin: "0 0 0.5rem",
+          }}
+        >
+          Typography (Open Runde / Inter / Geist Mono)
+        </h2>
+        <div
+          style={{
+            fontFamily: "var(--cycle-font-display)",
+            fontSize: "var(--cycle-text-title)",
+            fontWeight: 600,
+            letterSpacing: "var(--cycle-tracking-display)",
+          }}
+        >
+          Display (Open Runde 16px / 600): Quiet precision for agentic development.
+        </div>
+        <div
+          style={{ fontSize: "var(--cycle-text-body)", lineHeight: "var(--cycle-leading-body)" }}
+        >
+          Body (Inter 14px): The agent is reviewing the build and verifying every test before
+          commit.
+        </div>
+        <div style={{ fontSize: "var(--cycle-text-ui)", lineHeight: "var(--cycle-leading-ui)" }}>
+          UI (Inter 13px): Fix the remote session · 中文混排 PingFang 字重测试
+        </div>
+        <div
+          style={{
+            fontSize: "var(--cycle-text-meta)",
+            color: "var(--ui-muted-foreground)",
+          }}
+        >
+          Meta (12px muted): 21% context · Updated 2m ago · Waiting for you
+        </div>
+        <code style={{ fontFamily: "var(--ui-font-mono)", alignSelf: "flex-start" }}>
+          Mono (Geist Mono): bun run check --changed origin/main /packages/ui/src/styles/app.css
         </code>
-        <div style={{ color: "var(--ui-muted-foreground)" }}>muted: waiting for you</div>
-        <div style={{ color: "var(--ui-destructive)" }}>destructive: Connection refused</div>
-      </section>
-      <section>
-        <h2>Spacing and radius</h2>
-        <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
-          {[1, 2, 3, 4, 6, 8].map((n) => (
-            <div
-              key={n}
-              style={{
-                width: `calc(var(--ui-spacing) * ${n})`,
-                height: `calc(var(--ui-spacing) * ${n})`,
-                background: "var(--ui-primary)",
-              }}
-              title={String(n)}
-            />
-          ))}
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              border: "1px solid var(--ui-border)",
-              borderRadius: "var(--ui-radius)",
-            }}
-          >
-            radius {value("radius")}
-          </div>
+        <div style={{ color: "var(--cycle-accent)", fontWeight: 500 }}>
+          accent: Ready to send (#c93b00 / #fc4c01)
+        </div>
+        <div style={{ color: "var(--cycle-attention)", fontWeight: 500 }}>
+          attention: Waiting for your approval
+        </div>
+        <div style={{ color: "var(--cycle-success)", fontWeight: 500 }}>
+          success: Connected to local daemon
+        </div>
+        <div style={{ color: "var(--ui-destructive)", fontWeight: 500 }}>
+          destructive: Connection refused
         </div>
       </section>
       <section>
-        <h2>Controls (ui-sdk, as used)</h2>
+        <h2
+          style={{
+            fontFamily: "var(--cycle-font-display)",
+            letterSpacing: "var(--cycle-tracking-display)",
+            margin: "0 0 0.75rem",
+          }}
+        >
+          Concentric radii & hardware surface
+        </h2>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          {RADII.map(([label, cssVar]) => (
+            <div
+              key={label}
+              style={{
+                minWidth: 88,
+                height: 64,
+                padding: "0 12px",
+                display: "grid",
+                placeItems: "center",
+                border: "1px solid var(--cycle-border-default)",
+                borderRadius: `var(${cssVar})`,
+                background: "var(--cycle-surface-raised)",
+                boxShadow: "var(--cycle-edge-hardware)",
+                fontFamily: "var(--cycle-font-display)",
+                fontSize: "var(--cycle-text-meta)",
+              }}
+            >
+              <span>
+                {label} · {raw(cssVar)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section>
+        <h2
+          style={{
+            fontFamily: "var(--cycle-font-display)",
+            letterSpacing: "var(--cycle-tracking-display)",
+            margin: "0 0 0.75rem",
+          }}
+        >
+          Controls (ui-sdk, Cycle v2)
+        </h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <Button data-variant="solid">Solid</Button>
+          <Button data-variant="solid">Allow once</Button>
           <Button data-variant="outline">Outline</Button>
           <Button data-variant="ghost">Ghost</Button>
           <Button data-variant="destructive">Delete session</Button>
           <Button disabled>Disabled</Button>
-          <Input aria-label="Name" placeholder="Name" style={{ width: 200 }} />
+          <Input aria-label="Name" placeholder="Workspace path" style={{ width: 220 }} />
         </div>
       </section>
     </div>,
