@@ -719,6 +719,8 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           const turn = session.turn;
           if (turn === undefined || turn.done) continue;
           for (const update of turn.translator.feed(message)) {
+            // The turn can end while this waits (a cancel that ran out of time): nothing more is its.
+            if (turn.done) break;
             await notify(client, session.id, update);
           }
           if (message.type === "result") {

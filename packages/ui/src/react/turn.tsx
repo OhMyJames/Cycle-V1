@@ -28,7 +28,7 @@ export function Notice({ severity, title }: { severity: string; title: string })
  */
 export function WorkBlock({ tools, live }: { tools: readonly ToolItem[]; live: boolean }) {
   const only = tools[0];
-  if (tools.length === 1 && only !== undefined) return <ToolCard tool={only} live={live} />;
+  if (tools.length === 1 && only !== undefined) return <ToolCard tool={only} />;
   return <WorkCard tools={tools} live={live} />;
 }
 
@@ -42,13 +42,13 @@ function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }
     activityCounts(tools).map(({ activity, count }) => t(`work.summary.${activity}`, { count })),
   );
   const summary = pieces.charAt(0).toLocaleUpperCase(locale) + pieces.slice(1);
-  // What is going on now comes first; a call that never ended (the turn did not wait for it) is not "done".
+  // What is going on now comes first; a call that never ended (the turn stopped, or did not wait for it) is not "done".
   const mark =
     going !== undefined
       ? "in_progress"
       : failed > 0
         ? "failed"
-        : tools.some(isLive)
+        : tools.some((tool) => isLive(tool) || tool.status === "cancelled")
           ? "pending"
           : "completed";
   return (
@@ -79,7 +79,7 @@ function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }
       </CollapsibleTrigger>
       <CollapsiblePanel>
         {tools.map((tool) => (
-          <ToolCard key={tool.id} tool={tool} live={live} />
+          <ToolCard key={tool.id} tool={tool} />
         ))}
       </CollapsiblePanel>
     </Collapsible>

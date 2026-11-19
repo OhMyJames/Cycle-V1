@@ -183,9 +183,8 @@ export class TurnTranslator {
     return this.plan.toUpdate();
   }
 
+  /** The main thread's only: a sub-agent's calls have a context of their own, and `feed` drops them. */
   #noteUsage(message: SDKMessage): void {
-    // A sub-agent's calls have a context of their own; the session's is the main thread's.
-    if ((message as { parent_tool_use_id?: string | null }).parent_tool_use_id) return;
     const usage = (message as { message?: { usage?: Record<string, unknown> } }).message?.usage;
     if (usage === undefined) return;
     const n = (key: string) => (typeof usage[key] === "number" ? (usage[key] as number) : 0);

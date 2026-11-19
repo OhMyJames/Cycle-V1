@@ -847,11 +847,12 @@ test("a background sub-agent's own talk and calls stay out of the session, and a
       [sub, "completed"],
       ["toolu_left", "cancelled"],
     ]);
-    // It ends before the turn does.
-    const ended = updates.findIndex(
-      (u) => (u as { toolCallId?: string; status?: string }).status === "cancelled",
-    );
+    // Each ends before the turn does.
     const end = updates.findIndex((u) => (u as { state?: string }).state === "idle");
-    expect(ended).toBe(end - 1);
+    const ended = updates.flatMap((u, i) =>
+      (u as { status?: string }).status === "cancelled" ? [i] : [],
+    );
+    expect(ended.length).toBe(1);
+    expect(ended.every((i) => i < end)).toBe(true);
   });
 });

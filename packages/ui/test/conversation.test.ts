@@ -168,7 +168,7 @@ test("a snapshot applied twice changes nothing", () => {
   expect(twice).toEqual(once);
 });
 
-test("a turn that is cancelled or fails ends the tools that were still going", () => {
+test("a turn that ends, however it ends, ends the tools that were still going", () => {
   const start = reduce([
     u({ sessionUpdate: "tool_call_update", toolCallId: "a", name: "Bash", status: "in_progress" }),
     u({ sessionUpdate: "tool_call_update", toolCallId: "b", name: "Read", status: "completed" }),
@@ -176,8 +176,12 @@ test("a turn that is cancelled or fails ends the tools that were still going", (
   const cancelled = applyUpdate(start, idle({ stopReason: "cancelled" }));
   expect(tool(cancelled, "a").status).toBe("cancelled");
   expect(tool(cancelled, "b").status).toBe("completed");
+  // A record from before the agent ended what it left: the call is not shown going for ever (CYCL-46).
   const ended = applyUpdate(start, idle({ stopReason: "end_turn" }));
-  expect(tool(ended, "a").status).toBe("in_progress");
+  expect(tool(ended, "a").status).toBe("cancelled");
+  expect(tool(ended, "b").status).toBe("completed");
+  // A snapshot of the state is not the end of a turn.
+  expect(tool(applyUpdate(start, idle({})), "a").status).toBe("in_progress");
   const failed = applyUpdate(
     start,
     idle({ stopReason: "error", error: { code: -32012, message: "The agent exited" } }),
