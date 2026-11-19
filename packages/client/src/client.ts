@@ -474,12 +474,16 @@ export class CycleClient {
     const wasAttached = entry.replayed;
     entry.replayed = true;
     if (wasAttached) {
-      this.#events.resumed?.(
-        sessionId,
-        Array.isArray(waiting)
-          ? waiting.filter((id): id is string => typeof id === "string")
-          : undefined,
-      );
+      // A list that is not all ids is not read: closing a card on a half-read list would lose one still waited on.
+      const ids =
+        Array.isArray(waiting) && waiting.every((id) => typeof id === "string")
+          ? (waiting as string[])
+          : undefined;
+      try {
+        this.#events.resumed?.(sessionId, ids);
+      } catch {
+        // The consumer's bookkeeping failing is not the attach failing: the daemon took the resume.
+      }
     }
   }
 

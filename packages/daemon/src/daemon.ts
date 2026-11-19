@@ -1385,7 +1385,11 @@ export class Daemon {
       // Which they are, so a client that had one before can tell it is not among them: answered elsewhere.
       return {
         configOptions: [],
-        _meta: { [META.pending]: [...session.pending.keys()] },
+        _meta: {
+          [META.pending]: [...session.pending.values()]
+            .filter((pending) => pending.asked.has(attachment))
+            .map((pending) => pending.requestId),
+        },
       } as never;
     });
 
