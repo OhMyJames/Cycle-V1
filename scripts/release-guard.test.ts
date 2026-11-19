@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { onMain } from "./release-guard.ts";
+import { onMain, patchStep } from "./release-guard.ts";
 
 let dir: string;
 beforeEach(async () => {
@@ -118,4 +118,16 @@ test("the release workflow asks the guard of a tag, with the whole history, befo
   expect(guard).toBeLessThan(check.indexOf("bun install"));
   // What publishes waits for it.
   expect(workflow.match(/needs: check/g)?.length).toBe(2);
+});
+
+test("a release only moves the third number of the newest release", () => {
+  const tags = ["v0.2.9", "v0.3.0", "v0.2.10"];
+  expect(patchStep("v0.3.1", tags).ok).toBe(true);
+  expect(patchStep("v0.3.12", tags).ok).toBe(true);
+  expect(patchStep("v0.4.0", tags)).toMatchObject({ ok: false });
+  expect(patchStep("v1.0.0", tags)).toMatchObject({ ok: false });
+  expect(patchStep("v0.3.0", ["v0.3.0", "v0.3.1"])).toMatchObject({ ok: false });
+  expect(patchStep("v0.3", tags)).toMatchObject({ ok: false });
+  // The tag being released is not its own predecessor.
+  expect(patchStep("v0.3.1", [...tags, "v0.3.1"]).ok).toBe(true);
 });

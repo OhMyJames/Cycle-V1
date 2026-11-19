@@ -53,6 +53,10 @@ jobs:
       - name: The tag is the app's version
         if: github.ref_type == 'tag'
         run: test "$GITHUB_REF_NAME" = "v$(jq -r .version apps/desktop/package.json)"
+      # The owner's rule: a release moves only the third number of the newest release.
+      - name: The tag only moves the patch number
+        if: github.ref_type == 'tag'
+        run: bun scripts/release-guard.ts --step "$GITHUB_REF_NAME"
       - run: bun run check
 
   daemon-linux:
