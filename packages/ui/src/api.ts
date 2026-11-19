@@ -94,9 +94,15 @@ export type AgentInfo = {
   /** JSON Schema of the agent's settings. The UI draws a form from it. */
   configSchema: Record<string, unknown>;
   /** What the agent takes in a prompt beyond text (ACP `PromptCapabilities`). Absent from a daemon that does not say. */
-  promptCapabilities?: { image?: object | null | undefined } | undefined;
+  promptCapabilities?:
+    | {
+        image?: object | null | undefined;
+        audio?: object | null | undefined;
+        embeddedContext?: object | null | undefined;
+      }
+    | undefined;
   /** It can take a message into the turn that is running (docs/protocol.md §8). Absent: it cannot. */
-  steer?: boolean;
+  steer?: boolean | undefined;
 };
 
 /** What a message to an agent is made of: text, and images as ACP carries them (base64). */
