@@ -28,7 +28,16 @@ export type Turn = {
  */
 export const fakeAgent = (
   script: Script = {},
-  options: { promptCapabilities?: Record<string, unknown> } = {},
+  options: {
+    promptCapabilities?: Record<string, unknown>;
+    /**
+     * What `session/new` answers with: the settings a new session starts with. A change answers
+     * with the same set, the changed one's `currentValue` replaced.
+     */
+    configOptions?: { configId: string; currentValue: string }[];
+    /** What `session/resume` answers with: the settings a resumed session is in. */
+    resumeConfigOptions?: { configId: string; currentValue: string }[];
+  } = {},
 ) => {
   const log = {
     news: [] as Record<string, unknown>[],
@@ -60,7 +69,7 @@ export const fakeAgent = (
         const proposed = (params._meta as Record<string, unknown> | null)?.["cycle/sessionId"];
         const id = typeof proposed === "string" ? proposed : randomUUID();
         sessions.add(id);
-        return { sessionId: id, configOptions: [] };
+        return { sessionId: id, configOptions: (options.configOptions ?? []) as never };
       })
       .onRequest(methods.agent.session.resume, async ({ params, client }) => {
         log.resumes.push(params as unknown as Record<string, unknown>);
@@ -70,11 +79,18 @@ export const fakeAgent = (
           sessionId: params.sessionId,
           update: { sessionUpdate: "state_update", state: "idle" } as SessionUpdate,
         });
-        return {};
+        return options.resumeConfigOptions
+          ? { configOptions: options.resumeConfigOptions as never }
+          : {};
       })
       .onRequest(methods.agent.session.setConfigOption, ({ params }) => {
         log.configs.push(params as unknown as Record<string, unknown>);
-        return { configOptions: [] };
+        const value = (params as { value?: unknown }).value;
+        return {
+          configOptions: (options.configOptions ?? []).map((o) =>
+            o.configId === params.configId ? { ...o, currentValue: value } : o,
+          ) as never,
+        };
       })
       .onNotification(methods.agent.session.cancel, () => {
         log.cancels++;

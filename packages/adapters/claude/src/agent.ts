@@ -72,8 +72,56 @@ const MODELS = [
 /** What this agent takes in a prompt beyond text and links (decision 0010). */
 export const CLAUDE_PROMPT_CAPABILITIES = { image: {}, embeddedContext: {} } as const;
 
-const PERMISSION_MODES = ["default", "acceptEdits", "plan"] as const;
-type PermissionMode = (typeof PERMISSION_MODES)[number];
+/**
+ * Every permission mode the SDK has, with what a person needs to choose one, the suggested one first. The values are the
+ * SDK's own and are what is stored, so they are never renamed; only `name` and `description` are
+ * ours. The daemon's `configSchema` is built from this list too, so the two always agree. The
+ * suggested one carries `META.recommended` of `@cycle/protocol` in its `_meta`.
+ */
+export const CLAUDE_PERMISSION_MODES = [
+  {
+    value: "auto",
+    name: "Auto",
+    description:
+      "A model reviews each action and allows or denies it, and asks you when it cannot tell. Not every account has it.",
+    _meta: { "cycle/recommended": true },
+  },
+  {
+    value: "default",
+    name: "Ask before acting",
+    description:
+      "Asks you before Claude edits a file or runs a command. Reading is allowed without asking.",
+  },
+  {
+    value: "acceptEdits",
+    name: "Accept edits",
+    description:
+      "Edits to files in the working folder are allowed without asking. Commands still ask.",
+  },
+  {
+    value: "plan",
+    name: "Plan mode",
+    description:
+      "Claude reads and writes a plan but changes nothing. It starts work only after you approve the plan.",
+  },
+  {
+    value: "dontAsk",
+    name: "Don't ask",
+    description:
+      "Never asks. Any edit or command that settings have not already allowed is denied, so without allow rules Claude can only read.",
+  },
+  {
+    value: "bypassPermissions",
+    name: "Bypass permissions",
+    description:
+      "Every edit and command runs without asking. Use only where Claude can do no harm, such as a sandbox.",
+  },
+] as const;
+
+type PermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number]["value"];
+/** What a new session starts in, and what is offered as the one to use. */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "auto";
+const PERMISSION_MODES: readonly string[] = CLAUDE_PERMISSION_MODES.map((m) => m.value);
 
 type FormResponse = {
   action: string;
@@ -163,11 +211,7 @@ const configOptions = (session: SessionState): SessionConfigOption[] =>
       name: "Permission mode",
       type: "select",
       currentValue: session.mode,
-      options: [
-        { value: "default", name: "Ask before editing or running" },
-        { value: "acceptEdits", name: "Accept file edits" },
-        { value: "plan", name: "Plan only" },
-      ],
+      options: CLAUDE_PERMISSION_MODES.map((m) => ({ ...m })),
     },
   ] as SessionConfigOption[];
 
@@ -528,6 +572,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       // model call for each summary, so it is asked for only when the configuration says to.
       ...(config.progressSummaries === true ? { agentProgressSummaries: true } : {}),
       permissionMode: session.mode,
+      // The SDK's guard against starting in bypassPermissions by accident. Here the mode is only
+      // ever the one a person chose, and without this a switch to it mid-session would be refused
+      // and cost the process. The flag allows the mode; it does not turn it on.
+      allowDangerouslySkipPermissions: true,
       ...(session.model !== undefined ? { model: session.model } : {}),
       ...(config.claudeExecutable !== undefined
         ? { pathToClaudeCodeExecutable: config.claudeExecutable }
@@ -744,7 +792,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         started: false,
         subagents: new Subagents(),
         commandsKey: undefined,
-        mode: "default",
+        mode: DEFAULT_PERMISSION_MODE,
         model: undefined,
         turn: undefined,
         live: undefined,
@@ -796,6 +844,8 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           started,
           subagents: new Subagents(),
           commandsKey: undefined,
+          // Not the default for new sessions: a session with no mode on record was made before
+          // that default was auto, and ran asking first. Resuming it must not loosen that.
           mode: "default",
           model: undefined,
           turn: undefined,

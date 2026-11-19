@@ -43,7 +43,38 @@ const bridgeFor = (scenario: Scenario) => {
         type: "object",
         properties: {
           model: { type: "string", enum: ["default", "sonnet", "opus"] },
-          mode: { type: "string", enum: ["default", "plan", "acceptEdits"] },
+          mode: {
+            type: "string",
+            title: "Permission mode",
+            oneOf: [
+              {
+                const: "auto",
+                title: "Auto",
+                description:
+                  "A model reviews each action and allows or denies it, and asks you when it cannot tell. Not every account has it.",
+                _meta: { "cycle/recommended": true },
+              },
+              {
+                const: "default",
+                title: "Ask before acting",
+                description:
+                  "Asks you before Claude edits a file or runs a command. Reading is allowed without asking.",
+              },
+              {
+                const: "plan",
+                title: "Plan mode",
+                description:
+                  "Claude reads and writes a plan but changes nothing. It starts work only after you approve the plan.",
+              },
+              {
+                const: "bypassPermissions",
+                title: "Bypass permissions",
+                description:
+                  "Every edit and command runs without asking. Use only where Claude can do no harm, such as a sandbox.",
+              },
+            ],
+            default: "auto",
+          },
         },
       },
     },

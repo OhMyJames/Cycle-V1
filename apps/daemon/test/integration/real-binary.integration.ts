@@ -77,7 +77,8 @@ test.skipIf(!enabled)(
     try {
       await client.start();
       expect((await run("status")).code).toBe(0);
-      const sessionId = await client.newSession({ cwd, config: { model } });
+      // The mode that asks first: new sessions start in auto, where nothing may be asked.
+      const sessionId = await client.newSession({ cwd, config: { model, mode: "default" } });
       await client.watch(sessionId, cwd);
       await client.prompt(sessionId, [
         {

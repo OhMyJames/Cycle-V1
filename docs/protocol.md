@@ -348,7 +348,29 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 
 `configSchema` 是 JSON Schema,客户端用它渲染配置界面,不需要认识具体 agent。候选配置项(Claude):模型、权限模式、思考强度、MCP 服务、环境变量白名单、系统提示。具体字段在 L3 文档里定义。
 
-每个 agent 还有 `promptCapabilities`(ACP 的 `PromptCapabilities`:`image`、`embeddedContext`,缺省都是没有),客户端据此决定是否提供附件入口,daemon 据此校验 prompt(§8)。Claude 的 `model` 是一个枚举(`default`、`sonnet`、`opus`、`haiku`),`mode` 是权限模式。
+可选值有两种写法。只有值:`enum`。值要带给人看的名字和说明:用 JSON Schema 的 `oneOf`,每项是 `{const, title, description?}`,`const` 是值(发给 agent、存进配置的就是它),`title` 是显示名,`description` 说明选了会怎样。agent 建议用的那一项带 `_meta: {"cycle/recommended": true}`,客户端在它旁边标"推荐";`default` 只说明不设时取哪个值，不代表推荐，两者可以不同。客户端两种都要认:`oneOf` 显示 `title`,并显示 `description`(选项列表里,以及当前选中的那一项);只有 `enum` 时显示值本身。同一个属性不要两种都写。
+
+```json
+{
+  "type": "string",
+  "title": "Permission mode",
+  "oneOf": [
+    {
+      "const": "auto",
+      "title": "Auto",
+      "description": "…",
+      "_meta": { "cycle/recommended": true }
+    },
+    { "const": "default", "title": "Ask before acting", "description": "…" },
+    { "const": "plan", "title": "Plan mode", "description": "…" }
+  ],
+  "default": "auto"
+}
+```
+
+session 里 ACP 的 `configOptions` 用 ACP 自己的字段表达同样的东西:`SessionConfigSelectOption` 的 `name`、`description`,推荐项同样在它的 `_meta` 里带 `cycle/recommended`。agent 两边给的名字和说明应当一致。
+
+每个 agent 还有 `promptCapabilities`(ACP 的 `PromptCapabilities`:`image`、`embeddedContext`,缺省都是没有),客户端据此决定是否提供附件入口,daemon 据此校验 prompt(§8)。Claude 的 `model` 是一个枚举(`default`、`sonnet`、`opus`、`haiku`),`mode` 是权限模式,取值就是 Claude Agent SDK 的 `PermissionMode`:`default`、`acceptEdits`、`plan`、`auto`、`dontAsk`、`bypassPermissions`,新 session 默认且推荐 `auto`,各自的名字和说明见 L3 文档。
 
 agent 自己改了配置(例如 Claude 在 plan 模式里被批准后切回常规模式),通过 `config_option_update` 回报;daemon 把变化写进索引的 `config`,恢复时才不会把它改回去。
 
@@ -359,7 +381,7 @@ agent 自己改了配置(例如 Claude 在 plan 模式里被批准后切回常�
 - `_cycle/agent_defaults/read`:参数 `{agent}`,返回该 agent 当前的默认配置。
 - `_cycle/agent_defaults/set`:参数 `{agent, config}`,daemon 按 `configSchema` 校验后保存,并发 `_cycle/agent_defaults_changed` 通知。
 
-新建 session 时,`cycle/config` 覆盖默认配置。
+新建 session 时,`cycle/config` 覆盖默认配置。daemon 把 agent 在 `session/new` 应答里报的各项当前值(`configOptions` 的 `currentValue`)也写进 session 的配置记录，再用设置的值覆盖:恢复时整份重发，所以 agent 以后改了新 session 的默认值，已有的 session 不跟着变。`session/new` 的应答里的 `configOptions` 是设置之后的值。恢复时,`session/resume` 应答里有而记录里没有的项(在记录初始值之前建的 session)按应答补记。客户端显示一个已有 session 的配置时,没有记录的项显示为"未设置",不套用 `configSchema` 的 `default`:那是给新 session 的。
 
 ### session 级配置
 

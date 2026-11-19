@@ -1,6 +1,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { CLAUDE_PROMPT_CAPABILITIES } from "@cycle/adapter-claude";
+import {
+  CLAUDE_PERMISSION_MODES,
+  CLAUDE_PROMPT_CAPABILITIES,
+  DEFAULT_PERMISSION_MODE,
+} from "@cycle/adapter-claude";
 import { type AgentDefinition, processAgent } from "@cycle/daemon";
 import type { Config } from "./config.ts";
 import { claudeExecutable, selfCommand } from "./self.ts";
@@ -11,8 +15,13 @@ export const CLAUDE_CONFIG_SCHEMA = {
     mode: {
       type: "string",
       title: "Permission mode",
-      enum: ["default", "acceptEdits", "plan"],
-      default: "default",
+      oneOf: CLAUDE_PERMISSION_MODES.map((m) => ({
+        const: m.value,
+        title: m.name,
+        description: m.description,
+        ...("_meta" in m ? { _meta: m._meta } : {}),
+      })),
+      default: DEFAULT_PERMISSION_MODE,
     },
     model: {
       type: "string",

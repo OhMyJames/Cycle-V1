@@ -152,12 +152,14 @@ const main = async () => {
       `[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'New session' && !b.disabled)`,
     );
     out({ step: "connected" });
-    if (real) {
-      // The cheapest model, set the way the "Agent defaults" dialog sets it.
-      await run(
-        `window.cycle.setAgentDefaults("local", "claude", { model: ${JSON.stringify(env.SMOKE_MODEL ?? "haiku")} })`,
-      );
-    }
+    // Set the way the "Agent defaults" dialog sets them. The mode that asks first: what follows
+    // answers a permission, and new sessions start in auto, where the action may not be asked about.
+    // With a real model, the cheapest one.
+    const defaults = {
+      mode: "default",
+      ...(real ? { model: env.SMOKE_MODEL ?? "haiku" } : {}),
+    };
+    await run(`window.cycle.setAgentDefaults("local", "claude", ${JSON.stringify(defaults)})`);
 
     // A new session, started by clicking and typing.
     await click(byText("button", "New session"));

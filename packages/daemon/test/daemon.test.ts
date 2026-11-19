@@ -364,6 +364,33 @@ test("a default for a setting the agent does not have is refused, and defaults s
   });
 });
 
+test("what a new session starts with is on record, under what it was asked for", async () => {
+  // Recorded so that a resume sends it again: a later change to the agent's own default does not
+  // change a session that already exists.
+  const startsWith = (value: string) => ({
+    configId: "mode",
+    name: "Mode",
+    type: "select",
+    currentValue: value,
+    options: [{ value, name: value }],
+  });
+  const fake = fakeAgent({}, { configOptions: [startsWith("auto")] });
+  const { daemon } = await start(fake);
+  const c = await connectClient(daemon);
+  await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.new, {
+    cwd: "/tmp",
+    _meta: { "cycle/config": { mode: "plan" } },
+  });
+  const listed = await c.agent.request(methods.agent.session.list, {});
+  const configs = listed.sessions.map(
+    (s) => ((s._meta ?? {}) as Record<string, unknown>)["cycle/config"],
+  );
+  expect(configs).toHaveLength(2);
+  expect(configs).toContainEqual({ mode: "auto" });
+  expect(configs).toContainEqual({ mode: "plan" });
+});
+
 test("a session's own settings are in the list, and a change is announced", async () => {
   const { daemon } = await start();
   const c = await connectClient(daemon);

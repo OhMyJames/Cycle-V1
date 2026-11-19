@@ -130,6 +130,13 @@ test.skipIf(!enabled)(
               type: "id",
               value: model,
             } as never);
+            // The mode that asks first: new sessions start in auto, where this may not be asked about.
+            await agent.request(methods.agent.session.setConfigOption, {
+              sessionId: id,
+              configId: "mode",
+              type: "id",
+              value: "default",
+            } as never);
             const done = idle();
             await agent.request(methods.agent.session.prompt, {
               sessionId: id,
