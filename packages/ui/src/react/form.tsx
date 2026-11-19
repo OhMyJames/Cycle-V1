@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 import type { FormAnswer, PermissionRequest } from "../api.ts";
 import { type Option, OptionLabel, optionsOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
+import { CheckIcon } from "./icons.tsx";
 
 /** One field of an agent's form, as this card can draw it. A schema is the agent's word: anything else is left out. */
 type Base = { key: string; title: string; question?: string; required: boolean };
@@ -209,7 +210,11 @@ function FieldView({
       onChange(list.includes(option) ? list.filter((v) => v !== option) : [...list, option]);
     };
     return (
-      <fieldset data-slot="form-field" data-kind={field.kind}>
+      <fieldset
+        data-slot="form-field"
+        data-kind={field.kind}
+        aria-describedby={heading !== null ? `${id}-q` : undefined}
+      >
         <legend data-slot="form-title">
           {field.title}
           {field.required ? <span data-slot="form-required">{t("form.required")}</span> : null}
@@ -228,7 +233,9 @@ function FieldView({
                 onClick={() => toggle(option.value)}
                 onChange={() => {}}
               />
-              <span data-slot="form-mark" data-several={several || undefined} aria-hidden="true" />
+              <span data-slot="form-mark" data-several={several || undefined} aria-hidden="true">
+                {several ? <CheckIcon size={12} /> : null}
+              </span>
               <OptionLabel option={option} />
             </label>
           ))}
@@ -247,7 +254,9 @@ function FieldView({
             disabled={disabled}
             onChange={(event) => onChange(event.currentTarget.checked)}
           />
-          <span data-slot="form-mark" data-several aria-hidden="true" />
+          <span data-slot="form-mark" data-several aria-hidden="true">
+            <CheckIcon size={12} />
+          </span>
           <span data-slot="option-name">{field.title}</span>
         </label>
         {heading}

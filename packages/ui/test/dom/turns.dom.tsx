@@ -452,7 +452,7 @@ test("a command opens to itself and its output apart from its errors; a long out
     state({ state: "idle", stopReason: "end_turn" }),
   );
   const row = await screen.findByRole("button", { name: /Build everything/ });
-  expect(row.textContent).toContain("ran past 2m, now in the background");
+  expect(row.textContent).toContain("ran past 2 min, now in the background");
   await user.click(row);
   // The command as a command, not a field of JSON: everything its input says is said.
   expect(log.querySelector('[data-slot="tool-input"]')).toBeNull();

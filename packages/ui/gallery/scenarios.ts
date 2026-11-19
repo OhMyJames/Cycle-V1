@@ -441,6 +441,10 @@ export const scenarios: Record<string, Scenario> = {
     ],
     after: async (root) => {
       root.querySelector<HTMLInputElement>('[data-slot="form-option"] input')?.click();
+      root
+        .querySelector<HTMLInputElement>('[data-slot="form-option"] input[type="checkbox"]')
+        ?.click();
+      (document.activeElement as HTMLElement | null)?.blur();
       await frames(2);
     },
   },

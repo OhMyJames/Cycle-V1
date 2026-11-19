@@ -1,5 +1,6 @@
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
 import { useEffect, useRef, useState } from "react";
+import type { Translator } from "../i18n.ts";
 import type { Block, DiffLine, ToolFacts, ToolItem } from "../model/index.ts";
 import { activityOf, isLive, streamsOf, toolFacts } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
@@ -258,7 +259,8 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
 
 /** The numbers after a call's summary: what an edit changed, which lines a read read, what a search found. */
 function Facts({ facts }: { facts: ToolFacts }) {
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const { edit, read, search } = facts;
   if (edit !== undefined) {
     const label = t("tool.facts.diff", { added: edit.additions, removed: edit.deletions });
@@ -295,7 +297,7 @@ function Facts({ facts }: { facts: ToolFacts }) {
     const text = interrupted
       ? t("tool.facts.interrupted")
       : timedOutMs !== undefined
-        ? t("tool.facts.timedOut", { duration: durationOf(timedOutMs) })
+        ? t("tool.facts.timedOut", { duration: durationOf(i18n, timedOutMs) })
         : background
           ? t("tool.facts.background")
           : undefined;
@@ -363,19 +365,32 @@ export function DiffView({ lines }: { lines: DiffLine[] }) {
 
 const SIGNS: Record<DiffLine["kind"], string> = { add: "+", del: "−", context: "", hunk: "⋯" };
 
-/** A time limit as people say it: "45s", "2m", "1m 30s". */
-const durationOf = (ms: number): string => {
+/**
+ * A length of time as people say it, each part a unit `Intl` writes in the person's language: "45 sec", "2 min",
+ * "1 min, 30 sec".
+ */
+const durationOf = (
+  { number, locale }: Pick<Translator, "number" | "locale">,
+  ms: number,
+): string => {
   const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
+  const unit = (value: number, of: "minute" | "second") =>
+    number(value, { style: "unit", unit: of, unitDisplay: "short" });
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
-  return rest === 0 ? `${minutes}m` : `${minutes}m ${rest}s`;
+  if (minutes === 0) return unit(seconds, "second");
+  const parts =
+    rest === 0 ? [unit(minutes, "minute")] : [unit(minutes, "minute"), unit(rest, "second")];
+  return new Intl.ListFormat(locale, { style: "narrow", type: "unit" }).format(parts);
 };
 
 /** An output too long to draw keeps its end, where a command says how it went; what is left out is counted. */
 const clipStart = (t: (key: string, params?: Record<string, number>) => string, text: string) =>
   text.length > MAX_SHOWN
-    ? `${t("tool.earlierCharacters", { count: text.length - MAX_SHOWN })}\n${text.slice(-MAX_SHOWN)}`
+    ? [
+        t("tool.earlierCharacters", { count: text.length - MAX_SHOWN }),
+        text.slice(-MAX_SHOWN),
+      ].join("\n")
     : text;
 
 /** How many lines of a long output are shown before it is opened whole: its end, where a command says how it went. */
@@ -389,7 +404,8 @@ function Copyable({ kind, text }: { kind: "command" | "output" | "stderr"; text:
   const { t } = useI18n();
   const store = useAppStore();
   const [whole, setWhole] = useState(false);
-  const [copied, setCopied] = useState(false);
+  // What the button says after a press: copied, or why not.
+  const [copied, setCopied] = useState<"done" | "failed" | undefined>(undefined);
   const lines = kind === "command" ? [] : text.split("\n");
   const hidden = whole ? 0 : Math.max(0, lines.length - TAIL_LINES);
   const shown = hidden > 0 ? lines.slice(hidden).join("\n") : text;
@@ -405,14 +421,18 @@ function Copyable({ kind, text }: { kind: "command" | "output" | "stderr"; text:
           title={label}
           onClick={() => {
             void store.copyText(text).then((done) => {
-              if (!done) return;
-              store.track("tool_copied", { part: kind === "command" ? "command" : "output" });
-              setCopied(true);
+              setCopied(done ? "done" : "failed");
+              if (done)
+                store.track("tool_copied", { part: kind === "command" ? "command" : "output" });
             });
           }}
-          onBlur={() => setCopied(false)}
+          onBlur={() => setCopied(undefined)}
         >
-          {copied ? t("tool.copied") : t("tool.copy")}
+          {copied === "done"
+            ? t("tool.copied")
+            : copied === "failed"
+              ? t("tool.copyFailed")
+              : t("tool.copy")}
         </button>
       </div>
       {hidden > 0 ? (
@@ -439,7 +459,8 @@ function Copyable({ kind, text }: { kind: "command" | "output" | "stderr"; text:
  * doing) while it runs, and how much it did when it is done.
  */
 function SubagentFacts({ subagent }: { subagent: NonNullable<ToolItem["subagent"]> }) {
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const parts: string[] = [];
   if (subagent.state === "running") {
     if (subagent.background) parts.push(t("tool.facts.background"));
@@ -452,7 +473,7 @@ function SubagentFacts({ subagent }: { subagent: NonNullable<ToolItem["subagent"
       parts.push(t("subagent.steps", { count: subagent.usage.toolUses }));
     }
     if (subagent.usage !== undefined && subagent.usage.durationMs > 0) {
-      parts.push(durationOf(subagent.usage.durationMs));
+      parts.push(durationOf(i18n, subagent.usage.durationMs));
     }
   }
   const text = parts.join(" · ");

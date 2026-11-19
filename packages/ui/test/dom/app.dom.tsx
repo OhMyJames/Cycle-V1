@@ -345,7 +345,7 @@ test("an agent's questions are a form: a choice, several choices, an answer of o
   await user.click(within(card).getByRole("checkbox", { name: /macOS/ }));
   const [, second] = within(card).getAllByPlaceholderText("Your own answer");
   await user.type(second as HTMLElement, "FreeBSD");
-  await user.click(within(card).getByText("Answer"));
+  await user.click(within(card).getByText("Send answers"));
   expect(named("answerForm")).toEqual([
     [
       "answerForm",
@@ -355,7 +355,7 @@ test("an agent's questions are a form: a choice, several choices, an answer of o
   ]);
   // Not a permission: it is never answered as one.
   expect(named("answerPermission")).toEqual([]);
-  await user.click(within(card).getByText("Skip"));
+  await user.click(within(card).getByText("Skip questions"));
   expect(named("answerForm").at(-1)).toEqual(["answerForm", "local:s1:f1", { action: "decline" }]);
 });
 
@@ -378,7 +378,7 @@ test("a form's required field must be filled before it is answered; one the app 
   });
   const card = await screen.findByLabelText("Name it");
   const answer = within(card)
-    .getByText<HTMLButtonElement>("Answer")
+    .getByText<HTMLButtonElement>("Send answers")
     .closest("button") as HTMLButtonElement;
   expect(card.textContent).toContain("required");
   expect(answer.disabled).toBe(true);
@@ -395,9 +395,9 @@ test("a form's required field must be filled before it is answered; one the app 
   });
   const odd = await screen.findByLabelText("Odd");
   expect(odd.textContent).toContain("can't show");
-  expect((within(odd).getByText("Answer").closest("button") as HTMLButtonElement).disabled).toBe(
-    true,
-  );
+  expect(
+    (within(odd).getByText("Send answers").closest("button") as HTMLButtonElement).disabled,
+  ).toBe(true);
 });
 
 test("shows what went wrong, and lets it be dismissed", async () => {
