@@ -86,6 +86,13 @@ export type DaemonOptions = {
   store?: LogStore;
   /** What this build is, told to every client that connects. Default `dev`: not a release. */
   version?: string;
+  /**
+   * How many sessions may have an agent running that has not been given a prompt yet. Past it, a new session
+   * lets go of the oldest such agent: the next prompt starts one again. For an agent that is started when its
+   * session is made (decision 0014), where each session has a process of its own and no agent can see the others.
+   * No limit when it is not given.
+   */
+  maxAheadAgents?: number;
   /** For tests: replaces the connectors kept in `$CYCLE_HOME/connectors/` (docs/protocol.md §14). */
   connectors?: ConnectorService;
 };
@@ -177,6 +184,7 @@ export class Daemon {
   readonly #defaults: AgentDefaults;
   readonly #trust: FolderTrust;
   readonly #connectors: ConnectorService;
+  readonly #maxAhead: number | undefined;
   readonly #sessions = new Map<string, Session>();
   /** Sessions being loaded, so a second request for one waits for the first load. */
   readonly #loading = new Map<string, Promise<Session>>();
@@ -192,6 +200,7 @@ export class Daemon {
     connectors: ConnectorService,
   ) {
     this.#version = options.version ?? "dev";
+    this.#maxAhead = options.maxAheadAgents;
     this.#agents = new Map(options.agents.map((a) => [a.id, a]));
     this.#store =
       options.store ??
@@ -371,6 +380,26 @@ export class Daemon {
       if (real === undefined || !within(real, folder)) continue;
       session.trustStale = true;
       this.#restartIfStale(session);
+    }
+  }
+
+  /**
+   * An agent started for a session that has had no prompt holds a process for nothing yet. Past `maxAheadAgents` of
+   * them, the oldest is let go (the session `keep` is the newest, and stays): its next prompt starts one again.
+   */
+  #letGoOfOldestAhead(keep: Session): void {
+    const limit = this.#maxAhead;
+    if (limit === undefined) return;
+    const ahead = [...this.#sessions.values()].filter(
+      (s) =>
+        s.link !== undefined &&
+        s.starting === undefined &&
+        s.entry.prompted !== true &&
+        s.status() === "idle" &&
+        s.queue.length === 0,
+    );
+    for (const old of ahead.slice(0, Math.max(0, ahead.length - limit))) {
+      if (old !== keep) old.link?.kill();
     }
   }
 
@@ -1300,6 +1329,7 @@ export class Daemon {
           await this.#index.update(id, { config: recorded });
         }
         this.#changed();
+        this.#letGoOfOldestAhead(session);
         return { sessionId: id, configOptions: options } as never;
       } catch (error) {
         session.closed = true;

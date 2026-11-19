@@ -13,6 +13,7 @@ export const serve = async (paths: Paths, log: (line: string) => void = () => {}
     dataDir: paths.dataDir,
     agents: agentsFor(config, paths.dataDir),
     version: VERSION,
+    ...(config.claude.warmStart ? { maxAheadAgents: config.claude.maxWarm } : {}),
   });
   let clients = 0;
   const server = await listenUnix({
