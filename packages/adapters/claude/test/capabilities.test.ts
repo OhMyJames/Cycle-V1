@@ -1218,3 +1218,29 @@ test("a sub-agent's own talk between turns does not start a turn", async () => {
     expect(updates.slice(before)).toEqual([]);
   });
 });
+
+test("a turn Claude began by itself can be cancelled, and the next prompt is answered", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m1", "first"));
+  await connect(
+    fake.run,
+    async ({ agent, idle, updates }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "start it" }]);
+      const before = updates.length;
+      // It begins a message and goes quiet: the turn is running, with no result to come.
+      fake.state.say(textTurn(ID, "m2", "working").slice(0, 3));
+      const start = Date.now();
+      while (!updates.slice(before).some((u) => (u as { state?: string }).state === "running")) {
+        if (Date.now() - start > 2_000) throw new Error("the turn never began");
+        await Bun.sleep(5);
+      }
+      const ended = idle();
+      await agent.notify(methods.agent.session.cancel, { sessionId: ID });
+      await ended;
+      expect(updates.at(-1)).toMatchObject({ state: "idle", stopReason: "cancelled" });
+      await prompt(agent, idle, [{ type: "text", text: "again" }]);
+    },
+    {},
+    { cancelGraceMs: 50 },
+  );
+});
