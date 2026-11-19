@@ -874,39 +874,6 @@ html[data-platform="darwin"]
   color: var(--ui-destructive);
 }
 
-/* A blank conversation: where its session will run, under its title. A fieldset, so that it is one named group and is
-   disabled whole while the session is being made. */
-[data-slot="blank-where"] {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--cycle-gap);
-  margin: 0;
-  min-width: 0;
-  padding: var(--cycle-gap);
-  border: 0;
-  border-bottom: 1px solid var(--ui-border);
-}
-
-[data-slot="blank-where"] [data-kind="blank-folder"] {
-  flex: 1 1 18rem;
-  min-width: 0;
-}
-
-[data-slot="blank-where"] [data-kind="blank-folder"] [data-slot="row"] {
-  flex-wrap: nowrap;
-}
-
-[data-slot="blank-where"] [data-kind="blank-folder"] input {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--ui-font-mono);
-}
-
-[data-slot="blank-where"] [data-kind="blank-folder"] button {
-  flex: none;
-}
-
 [data-slot="empty"],
 [data-slot="loading"] {
   display: grid;
@@ -1643,4 +1610,37 @@ html[data-platform="darwin"]
 [data-slot="option-description"] {
   font-size: var(--cycle-text-meta);
   color: var(--ui-muted-foreground);
+}
+
+/* A blank conversation: where its session will run, under its title. A fieldset, so that it is one named group and is
+   disabled whole while the session is being made. */
+[data-slot="blank-where"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--cycle-gap);
+  margin: 0;
+  min-width: 0;
+  padding: var(--cycle-gap);
+  border: 0;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+[data-slot="blank-where"] [data-kind="blank-folder"] {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+[data-slot="blank-where"] [data-kind="blank-folder"] [data-slot="row"] {
+  flex-wrap: nowrap;
+}
+
+[data-slot="blank-where"] [data-kind="blank-folder"] input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--ui-font-mono);
+}
+
+[data-slot="blank-where"] [data-kind="blank-folder"] button {
+  flex: none;
 }

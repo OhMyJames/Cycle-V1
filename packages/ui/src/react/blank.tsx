@@ -171,15 +171,13 @@ export function BlankConversationView({
         ) : null}
       </fieldset>
       {shown !== undefined ? (
-        <>
-          <ConversationView
-            sessionKey={BLANK_KEY}
-            follow={follow}
-            conversation={shown}
-            loading={false}
-            awaitingApproval={false}
-          />
-        </>
+        <ConversationView
+          sessionKey={BLANK_KEY}
+          follow={follow}
+          conversation={shown}
+          loading={false}
+          awaitingApproval={false}
+        />
       ) : (
         <div data-slot="empty">
           {connected && agent === undefined && status?.state === "connected" ? (

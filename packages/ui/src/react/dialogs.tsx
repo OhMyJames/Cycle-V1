@@ -24,10 +24,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@ui-sdk/react/select";
-import { useEffect, useRef, useState } from "react";
-import type { AgentInfo, EnvironmentConfig, EnvironmentStatus, FolderListing } from "../api.ts";
+import { useEffect, useState } from "react";
+import type { AgentInfo, EnvironmentConfig } from "../api.ts";
 import { ConfigForm } from "./config-form.tsx";
-import { FolderBrowser } from "./folder-browser.tsx";
 import { useI18n } from "./i18n.tsx";
 
 type OpenProps = { open: boolean; onOpenChange: (open: boolean) => void };
