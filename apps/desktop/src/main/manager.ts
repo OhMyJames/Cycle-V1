@@ -254,6 +254,8 @@ export class ConnectionManager
       // The list changes once it is kept: a save that fails leaves things as they were.
       await this.#options.settings.save(next);
       this.#environments = next;
+      // What it was refused for belongs to the host it was: a changed environment has not been tried yet.
+      this.#lastIncompatible.delete(checked.id);
       this.#options.emit({ type: "environments", environments: this.#environments });
     });
     this.#track("environment_saved", { transport: "ssh" });

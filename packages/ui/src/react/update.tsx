@@ -91,7 +91,7 @@ export function DaemonBanner({ environmentId }: { environmentId: string }) {
       requested: incompatible.requested,
     };
     return (
-      <div data-slot="banner" data-kind="incompatible" data-severity="error" role="status">
+      <div data-slot="banner" data-kind="incompatible" data-severity="error" role="alert">
         <ErrorCircleIcon />
         <span data-slot="update-line">
           {t(

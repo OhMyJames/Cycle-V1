@@ -576,18 +576,21 @@ export class CycleClient {
           unknown
         >) ?? {};
     } catch (error) {
-      // The daemon answered, and said it speaks another protocol: that is the reason, whole.
+      // The daemon answered, and said what protocol it does speak: that is the reason, whole. A refusal that names
+      // none (ACP's own, of the integer version) is not about Cycle's protocol, and is told as any other.
       if ((error as { code?: unknown } | null)?.code === UNSUPPORTED_VERSION) {
-        channel.close();
         const data = (error as { data?: { supported?: unknown } }).data;
         const supported = Array.isArray(data?.supported)
           ? data.supported.filter((v): v is string => typeof v === "string")
           : [];
-        throw new ProtocolMismatchError(
-          supported,
-          this.#options.protocolVersion ?? CYCLE_PROTOCOL_VERSION,
-          { cause: error },
-        );
+        if (supported.length > 0) {
+          channel.close();
+          throw new ProtocolMismatchError(
+            supported,
+            this.#options.protocolVersion ?? CYCLE_PROTOCOL_VERSION,
+            { cause: error },
+          );
+        }
       }
       // Whatever the far side said is the reason; the protocol's own error is only that it hung up.
       await new Promise((resolve) => setTimeout(resolve, 100));
