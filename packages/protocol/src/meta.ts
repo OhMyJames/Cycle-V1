@@ -12,6 +12,8 @@ export const META = {
   agent: "cycle/agent",
   /** In `session/new`: the initial configuration, checked against the agent's `configSchema`. */
   config: "cycle/config",
+  /** On a choice an agent offers (an ACP select option, a `configSchema` `oneOf` entry): true on the one it suggests. */
+  recommended: "cycle/recommended",
   /** In `session/new`: the id the daemon proposes for the agent's own session. */
   sessionId: "cycle/sessionId",
   /** In a `session/list` row. */

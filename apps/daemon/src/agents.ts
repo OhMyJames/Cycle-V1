@@ -4,7 +4,6 @@ import {
   CLAUDE_PERMISSION_MODES,
   CLAUDE_PROMPT_CAPABILITIES,
   DEFAULT_PERMISSION_MODE,
-  RECOMMENDED,
 } from "@cycle/adapter-claude";
 import { type AgentDefinition, processAgent } from "@cycle/daemon";
 import type { Config } from "./config.ts";
@@ -20,7 +19,7 @@ export const CLAUDE_CONFIG_SCHEMA = {
         const: m.value,
         title: m.name,
         description: m.description,
-        ...(m.value === DEFAULT_PERMISSION_MODE ? { _meta: { [RECOMMENDED]: true } } : {}),
+        ...("_meta" in m ? { _meta: m._meta } : {}),
       })),
       default: DEFAULT_PERMISSION_MODE,
     },

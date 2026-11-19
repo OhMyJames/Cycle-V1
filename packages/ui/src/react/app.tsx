@@ -86,6 +86,7 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
         <ConfigForm
           schema={agent.configSchema}
           value={session.config ?? {}}
+          defaults={false}
           onChange={(next) => {
             // One setting at a time: the form hands back the whole set, and only what changed is sent.
             const before = session.config ?? {};

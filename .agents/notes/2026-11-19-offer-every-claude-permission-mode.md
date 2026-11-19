@@ -13,7 +13,7 @@ Claude Agent SDK 有六种权限模式(`default`、`acceptEdits`、`plan`、`aut
 - 六种全部提供,包括 `bypassPermissions`。这是用户明确的决定;之前"有意不提供"没有留下理由。
 - 值保持 SDK 原名,不改名。用户提议把 `default` 改叫 `alwaysAsk`,没有采纳:值会存进 agent 默认配置和 session 索引,改名要做映射和迁移;而且 `default` 并不是"总是问",读文件不问,settings 里允许过的也不问。改的是显示名:"Ask before acting"。
 - 新 session 默认 `auto`,并标为推荐:选项的 `_meta["cycle/recommended"]`(ACP 的 `configOptions` 和 `configSchema` 的 `oneOf` 两边都有),列表里排第一。推荐和 `default` 分开表达:`default` 只说明不设时取哪个值。
-- 恢复一个没有记下 mode 的 session 时，适配器仍按 `default`。这类 session 是在 auto 成为默认之前建的，当时就是先问再做，恢复不能悄悄放宽成由模型判断。daemon 从这次起会把 `session/new` 应答里各项的当前值也记进 session 的配置，所以以后恢复的 session 按记下的值走，不受 agent 默认值变化的影响。
+- 恢复一个没有记下 mode 的 session 时，适配器仍按 `default`。这类 session 是在 auto 成为默认之前建的，当时就是先问再做，恢复不能悄悄放宽成由模型判断。daemon 从这次起会把 `session/new` 应答里各项的当前值也记进 session 的配置，所以以后恢复的 session 按记下的值走，不受 agent 默认值变化的影响。更早的 session 在第一次恢复时，按 agent 的 resume 应答补记;在那之前，界面的 Session settings 显示 "Not set",不套用新 session 的默认值(code review 发现那里会把这些 session 显示成 Auto)。
 - 名字和说明只写一处(`CLAUDE_PERMISSION_MODES`),ACP 的 `configOptions`(`name`、`description` 是 ACP 自带的字段)和 daemon 的 `configSchema` 都从它生成。
 - `configSchema` 的可选值可以写成 JSON Schema 的 `oneOf: [{const, title, description}]`(写进 `docs/protocol.md` §10),客户端显示 `title`,并显示选项和当前值的 `description`;原来的纯 `enum` 仍然支持。
 - 起进程时总是传 `allowDangerouslySkipPermissions: true`。这个标志只是允许进入该模式,不会打开它。只在模式是 bypass 时才传的话,运行中切到 bypass 会被 SDK 拒绝,进程就会被释放(决策 0007)。

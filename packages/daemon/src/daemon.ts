@@ -303,10 +303,11 @@ export class Daemon {
         return { link, created };
       }
       session.resuming = true;
+      let resumed: unknown;
       try {
         // What the session was made with goes again: the agent does not keep it across a restart.
         const { additionalDirectories, mcpServers, systemPrompt } = session.entry;
-        await link.agent.request(methods.agent.session.resume, {
+        resumed = await link.agent.request(methods.agent.session.resume, {
           sessionId: session.entry.agentSessionId,
           cwd: session.entry.cwd,
           ...(additionalDirectories !== undefined ? { additionalDirectories } : {}),
@@ -322,6 +323,17 @@ export class Daemon {
         });
       } finally {
         session.resuming = false;
+      }
+      // A setting not on record (a session older than the record of what it started with) is
+      // whatever the agent resumed it in: on record from now, so a client can show it.
+      const resumedWith = currentValues(
+        (resumed as { configOptions?: unknown } | undefined)?.configOptions,
+      );
+      const missing = Object.fromEntries(
+        Object.entries(resumedWith).filter(([key]) => !(key in (session.entry.config ?? {}))),
+      );
+      if (Object.keys(missing).length > 0) {
+        this.#remember(session, { config: { ...missing, ...(session.entry.config ?? {}) } });
       }
       for (const [configId, value] of Object.entries(session.entry.config ?? {})) {
         await link.agent
@@ -981,14 +993,21 @@ export class Daemon {
         this.#sessions.set(id, session);
         // What the user set as the agent's defaults, then what they asked of this one.
         const config = { ...this.#defaults.get(agentId), ...stringConfig(meta[META.config]) };
+        // What the agent says its settings are now: each change answers with the whole set.
+        let options = answer.configOptions ?? [];
         for (const [configId, value] of Object.entries(config)) {
           try {
-            await session.link?.agent.request(methods.agent.session.setConfigOption, {
-              sessionId: session.entry.agentSessionId,
-              configId,
-              type: "id",
-              value,
-            } as never);
+            const changed = await session.link?.agent.request(
+              methods.agent.session.setConfigOption,
+              {
+                sessionId: session.entry.agentSessionId,
+                configId,
+                type: "id",
+                value,
+              } as never,
+            );
+            const latest = (changed as { configOptions?: unknown[] } | undefined)?.configOptions;
+            if (Array.isArray(latest) && latest.length > 0) options = latest;
           } catch (error) {
             throw new RpcError(
               CycleErrorCode.InvalidConfig,
@@ -1001,14 +1020,19 @@ export class Daemon {
           }
         }
         // On record with what the agent started in, not only what was set: a resume sends it again,
-        // so a session keeps its mode even if the agent's default for new ones changes.
-        const recorded = { ...currentValues(answer.configOptions), ...config };
+        // so a session keeps its mode even if the agent's default for new ones changes. What the
+        // agent reported meanwhile (a mode it fell back to) is newer than its first answer.
+        const recorded = {
+          ...currentValues(options),
+          ...(session.entry.config ?? {}),
+          ...config,
+        };
         if (Object.keys(recorded).length > 0) {
           session.entry = { ...session.entry, config: recorded };
           await this.#index.update(id, { config: recorded });
         }
         this.#changed();
-        return { sessionId: id, configOptions: answer.configOptions ?? [] } as never;
+        return { sessionId: id, configOptions: options } as never;
       } catch (error) {
         session.closed = true;
         session.link?.kill();

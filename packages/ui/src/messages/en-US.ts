@@ -183,6 +183,8 @@ export const enUS = {
 
   // A setting the agent offers: the choice it suggests
   "config.recommended": "Recommended",
+  // A session's setting the daemon has no record of yet: not today's default, which it may not have
+  "config.notSet": "Not set",
 
   // The code colours choice
   "codeTheme.label": "Code colours",

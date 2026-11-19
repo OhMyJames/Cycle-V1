@@ -356,6 +356,41 @@ test("a choice the agent names and describes shows its name and what it does, an
   expect(named("createSession")[0]?.[2]).toMatchObject({ config: { mode: "default" } });
 });
 
+test("a session's setting with nothing on record is not shown as today's default", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          configSchema: {
+            type: "object",
+            properties: {
+              mode: {
+                type: "string",
+                title: "Permission mode",
+                oneOf: [
+                  { const: "auto", title: "Auto" },
+                  { const: "default", title: "Ask before acting" },
+                ],
+                default: "auto",
+              },
+            },
+          },
+        },
+      ];
+    },
+  });
+  await openFirstSession(user);
+  await user.click(await screen.findByRole("button", { name: "Settings" }));
+  const dialog = await screen.findByRole("dialog");
+  const trigger = within(dialog).getByRole("combobox", { name: "Permission mode" });
+  // An older session may run in another mode than new ones start in: say nothing rather than guess.
+  expect(trigger.textContent).toContain("Not set");
+  expect(trigger.textContent).not.toContain("Auto");
+});
+
 test("deleting a session asks first", async () => {
   const { user, named } = await mount();
   await openFirstSession(user);

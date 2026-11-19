@@ -204,6 +204,45 @@ test("directories, MCP servers and system prompt are sent to the agent, kept, an
   });
 });
 
+const modeOption = (value: string) => ({
+  configId: "mode",
+  name: "Mode",
+  type: "select",
+  currentValue: value,
+  options: [{ value, name: value }],
+});
+
+test("session/new answers with the settings after what was asked for is applied", async () => {
+  const { daemon } = await start(fakeAgent({}, { configOptions: [modeOption("auto")] }));
+  const c = await connectClient(daemon);
+  const created = await c.agent.request(methods.agent.session.new, {
+    cwd: "/tmp",
+    _meta: { "cycle/config": { mode: "plan" } },
+  });
+  expect(created.configOptions).toMatchObject([{ configId: "mode", currentValue: "plan" }]);
+});
+
+test("a setting not on record is recorded as the agent resumed it", async () => {
+  // A session made before the daemon recorded what sessions start with: nothing on record.
+  const fake = fakeAgent({}, { resumeConfigOptions: [modeOption("default")] });
+  const { daemon } = await start(fake);
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  expect((await sessionRow(c))["cycle/config"]).toBeUndefined();
+  fake.crash();
+  await Bun.sleep(30);
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("again") });
+  await until(() => fake.log.resumes.length === 1, "the agent to be resumed");
+  // The record is written behind the resume: look a few times, for no more than a second.
+  let config: unknown;
+  for (let i = 0; i < 50; i++) {
+    config = (await sessionRow(c))["cycle/config"];
+    if (config !== undefined) break;
+    await Bun.sleep(20);
+  }
+  expect(config).toEqual({ mode: "default" });
+});
+
 test("the setup survives a new daemon, and a session without one sends none", async () => {
   const first = await start();
   const c = await connectClient(first.daemon);

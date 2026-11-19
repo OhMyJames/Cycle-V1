@@ -75,7 +75,8 @@ export const CLAUDE_PROMPT_CAPABILITIES = { image: {}, embeddedContext: {} } as 
 /**
  * Every permission mode the SDK has, with what a person needs to choose one, the suggested one first. The values are the
  * SDK's own and are what is stored, so they are never renamed; only `name` and `description` are
- * ours. The daemon's `configSchema` is built from this list too, so the two always agree.
+ * ours. The daemon's `configSchema` is built from this list too, so the two always agree. The
+ * suggested one carries `META.recommended` of `@cycle/protocol` in its `_meta`.
  */
 export const CLAUDE_PERMISSION_MODES = [
   {
@@ -83,6 +84,7 @@ export const CLAUDE_PERMISSION_MODES = [
     name: "Auto",
     description:
       "A model reviews each action and allows or denies it, and asks you when it cannot tell. Not every account has it.",
+    _meta: { "cycle/recommended": true },
   },
   {
     value: "default",
@@ -105,7 +107,8 @@ export const CLAUDE_PERMISSION_MODES = [
   {
     value: "dontAsk",
     name: "Don't ask",
-    description: "Never asks. Anything not already allowed in settings is denied.",
+    description:
+      "Never asks. Any edit or command that settings have not already allowed is denied, so without allow rules Claude can only read.",
   },
   {
     value: "bypassPermissions",
@@ -118,8 +121,6 @@ export const CLAUDE_PERMISSION_MODES = [
 type PermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number]["value"];
 /** What a new session starts in, and what is offered as the one to use. */
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "auto";
-/** Marks the suggested choice, in an option's `_meta` (docs/protocol.md §10). */
-export const RECOMMENDED = "cycle/recommended";
 const PERMISSION_MODES: readonly string[] = CLAUDE_PERMISSION_MODES.map((m) => m.value);
 
 type FormResponse = {
@@ -210,10 +211,7 @@ const configOptions = (session: SessionState): SessionConfigOption[] =>
       name: "Permission mode",
       type: "select",
       currentValue: session.mode,
-      options: CLAUDE_PERMISSION_MODES.map((m) => ({
-        ...m,
-        ...(m.value === DEFAULT_PERMISSION_MODE ? { _meta: { [RECOMMENDED]: true } } : {}),
-      })),
+      options: CLAUDE_PERMISSION_MODES.map((m) => ({ ...m })),
     },
   ] as SessionConfigOption[];
 

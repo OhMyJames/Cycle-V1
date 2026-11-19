@@ -39,14 +39,14 @@
 
 取值是 SDK `PermissionMode` 的原值,不改名(存进配置和索引的就是它);给人看的名字和说明只在 `CLAUDE_PERMISSION_MODES`(`packages/adapters/claude/src/agent.ts`)里写一次,ACP 的 `configOptions` 和 daemon 的 `configSchema`(`oneOf`)都从它生成。
 
-| 值                  | 名字               | 说明(界面上显示的英文原文)                                                                                       |
-| ------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `auto`(默认、推荐)  | Auto               | A model reviews each action and allows or denies it, and asks you when it cannot tell. Not every account has it. |
-| `default`           | Ask before acting  | Asks you before Claude edits a file or runs a command. Reading is allowed without asking.                        |
-| `acceptEdits`       | Accept edits       | Edits to files in the working folder are allowed without asking. Commands still ask.                             |
-| `plan`              | Plan mode          | Claude reads and writes a plan but changes nothing. It starts work only after you approve the plan.              |
-| `dontAsk`           | Don't ask          | Never asks. Anything not already allowed in settings is denied.                                                  |
-| `bypassPermissions` | Bypass permissions | Every edit and command runs without asking. Use only where Claude can do no harm, such as a sandbox.             |
+| 值                  | 名字               | 说明(界面上显示的英文原文)                                                                                                     |
+| ------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `auto`(默认、推荐)  | Auto               | A model reviews each action and allows or denies it, and asks you when it cannot tell. Not every account has it.               |
+| `default`           | Ask before acting  | Asks you before Claude edits a file or runs a command. Reading is allowed without asking.                                      |
+| `acceptEdits`       | Accept edits       | Edits to files in the working folder are allowed without asking. Commands still ask.                                           |
+| `plan`              | Plan mode          | Claude reads and writes a plan but changes nothing. It starts work only after you approve the plan.                            |
+| `dontAsk`           | Don't ask          | Never asks. Any edit or command that settings have not already allowed is denied, so without allow rules Claude can only read. |
+| `bypassPermissions` | Bypass permissions | Every edit and command runs without asking. Use only where Claude can do no harm, such as a sandbox.                           |
 
 新 session 从 `auto` 起(`DEFAULT_PERMISSION_MODE`),它的选项带 `_meta["cycle/recommended"]`,列表里排第一。恢复一个没有记下 mode 的 session 时仍按 `default`:那是 auto 成为默认之前建的，当时就是先问再做，恢复不能把它放宽。daemon 从这次起会把新 session 的初始值记下(见协议 §10),所以以后的 session 恢复时按记下的值。
 

@@ -32,7 +32,7 @@ type Option = {
   recommended?: boolean;
 };
 
-/** Marks the choice the agent suggests, in a choice's `_meta` (docs/protocol.md §10). */
+/** Marks the choice the agent suggests, in a choice's `_meta`. Mirrors `META.recommended` of `@cycle/protocol`, which the page may not import. */
 const RECOMMENDED = "cycle/recommended";
 
 /** A property's values, with a name and a line on each when the schema gives them (`oneOf`). */
@@ -60,9 +60,14 @@ export type ConfigFormProps = {
   schema: Record<string, unknown>;
   value: Record<string, string>;
   onChange: (value: Record<string, string>) => void;
+  /**
+   * Whether a setting with no value shows the schema's `default`. True for what a new session will
+   * get; false for a session that exists, whose unknown setting is not necessarily today's default.
+   */
+  defaults?: boolean;
 };
 
-export function ConfigForm({ schema, value, onChange }: ConfigFormProps) {
+export function ConfigForm({ schema, value, onChange, defaults = true }: ConfigFormProps) {
   const { t } = useI18n();
   const set = (key: string, next: string | null) => {
     const { [key]: _old, ...rest } = value;
@@ -74,7 +79,7 @@ export function ConfigForm({ schema, value, onChange }: ConfigFormProps) {
     <div data-slot="config-form">
       {properties.map(([key, property]) => {
         const options = optionsOf(property);
-        const current = value[key] ?? property.default ?? null;
+        const current = value[key] ?? (defaults ? property.default : undefined) ?? null;
         const chosen = options?.find((o) => o.value === current)?.description;
         return (
           <Field key={key} name={key}>
@@ -83,6 +88,7 @@ export function ConfigForm({ schema, value, onChange }: ConfigFormProps) {
               <Select
                 items={options.map((o) => ({ value: o.value, label: o.label }))}
                 value={current}
+                placeholder={t("config.notSet")}
                 onValueChange={(next) => set(key, next as string | null)}
               >
                 <SelectTrigger>
