@@ -6,7 +6,7 @@ import { activityOf, isLive, streamsOf, toolFacts } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
 import { ChevronRightIcon, CloseIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
-import { Markdown } from "./markdown.tsx";
+import { isSafeLink, Markdown } from "./markdown.tsx";
 import { useAppStore } from "./store-context.tsx";
 
 /**
@@ -46,8 +46,30 @@ const clip = (text: string): string =>
 export const toolSummary = (tool: ToolItem): string => {
   const key = summaryKey(tool);
   if (key !== undefined) return String((tool.rawInput as Record<string, unknown>)[key]);
-  return questionsOf(tool)[0] ?? "";
+  return questionsOf(tool)[0] ?? firstShortText(tool) ?? "";
 };
+
+/**
+ * For a tool this page knows nothing of (an MCP tool, a new built-in one): the first short line of text in its input
+ * ("Fix the login bug" of an issue to create). A long text, a list or an object says too much for a line.
+ */
+const firstShortText = (tool: ToolItem): string | undefined => {
+  const input = tool.rawInput;
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined;
+  for (const value of Object.values(input)) {
+    if (typeof value !== "string") continue;
+    const line = value.trim();
+    if (line !== "" && line.length <= SHORT_TEXT && !line.includes("\n")) return line;
+  }
+  return undefined;
+};
+
+/** The longest input text that is still a line's summary. */
+const SHORT_TEXT = 120;
+
+/** What a call is called for people: its title when the agent gave one ("linear · create_issue"), else its name. */
+export const toolName = (t: (key: string) => string, tool: ToolItem): string =>
+  tool.title ?? tool.name ?? t("tool.unnamed");
 
 /** The questions a call put to the person (Claude's AskUserQuestion), when its input has them. */
 const questionsOf = (tool: ToolItem): string[] => {
@@ -139,7 +161,7 @@ export const toolVerb = (
     return t(`tool.verb.ask.${going ? "live" : "done"}`);
   if (activity === "other" && planOf(tool) !== undefined)
     return t(`tool.verb.plan.${going ? "live" : "done"}`);
-  if (activity === "other") return tool.name ?? t("tool.unnamed");
+  if (activity === "other") return toolName(t, tool);
   return t(`tool.verb.${activity}.${going ? "live" : "done"}`);
 };
 
@@ -198,7 +220,7 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
       : undefined;
   // The tooltip names the tool, and holds the whole sentence when the line cuts it.
   const tip =
-    description !== undefined ? [tool.name, description].filter(Boolean).join(": ") : tool.name;
+    description !== undefined ? [toolName(t, tool), description].join(": ") : toolName(t, tool);
   const summaryTip = summary || undefined;
   return (
     // A failure is what the person came to read: it starts open.
@@ -207,7 +229,7 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
         <Lead mark={working ? "going" : failed ? "failed" : "other"} />{" "}
         {/* Which tool it was is for a screen reader and the tooltip of the line; the words say what it did. With a
             description, that is the line (what it is for), and what it ran follows it, muted; else the verb in its tense. */}
-        <span data-slot="visually-hidden">{tool.name ?? t("tool.unnamed")}</span>{" "}
+        <span data-slot="visually-hidden">{toolName(t, tool)}</span>{" "}
         <span data-slot="tool-verb" data-prose={description !== undefined || undefined} title={tip}>
           {description ?? toolVerb(t, tool, going, facts)}
         </span>{" "}
@@ -247,6 +269,7 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
         ) : null}
         {output !== "" ? <Copyable kind="output" text={output} /> : null}
         {streams.err !== "" ? <Copyable kind="stderr" text={streams.err} /> : null}
+        {facts.links.length > 0 ? <LinkList links={facts.links} /> : null}
         {facts.images.map((image) => (
           <ImageBlockView key={image.key} block={image.block} from="agent" />
         ))}
@@ -315,6 +338,18 @@ function Facts({ facts }: { facts: ToolFacts }) {
         ? t("tool.facts.rangeOf", { start: read.start, end, total: read.total })
         : t("tool.facts.range", { start: read.start, end });
     return <span data-slot="tool-facts">{text}</span>;
+  }
+  if (facts.fetch !== undefined) {
+    const { status, bytes } = facts.fetch;
+    const text =
+      bytes !== undefined
+        ? t("tool.facts.fetched", { status: String(status), size: sizeOf(i18n, bytes) })
+        : t("tool.facts.status", { status: String(status) });
+    return (
+      <span data-slot="tool-facts" data-tone={status >= 400 ? "danger" : undefined}>
+        {text}
+      </span>
+    );
   }
   if (search !== undefined) {
     const files = search.more
@@ -483,3 +518,60 @@ function SubagentFacts({ subagent }: { subagent: NonNullable<ToolItem["subagent"
     </span>
   );
 }
+
+/** A size in bytes as people read it: "820 byte", "1.5 kB", "120 kB", "1.4 MB", in the person's language. */
+const sizeOf = ({ number }: Pick<Translator, "number">, bytes: number): string => {
+  if (bytes < 1000) return number(bytes, { style: "unit", unit: "byte", unitDisplay: "short" });
+  if (bytes < 1_000_000)
+    return number(bytes / 1000, {
+      style: "unit",
+      unit: "kilobyte",
+      unitDisplay: "short",
+      // A tenth where it is a fair part of the whole: 1.5 kB, but 120 kB.
+      maximumFractionDigits: bytes < 10_000 ? 1 : 0,
+    });
+  return number(bytes / 1_000_000, {
+    style: "unit",
+    unit: "megabyte",
+    unitDisplay: "short",
+    maximumFractionDigits: 1,
+  });
+};
+
+/**
+ * Addresses a call gave back (a web search's hits): the title as a link, and its site beside it, so where it goes is
+ * seen before it is opened. Only web addresses are links; the system browser opens them (main), the page never loads
+ * one. Anything else is shown as text.
+ */
+function LinkList({ links }: { links: ToolFacts["links"] }) {
+  return (
+    <ul data-slot="tool-links">
+      {links.map((link) => {
+        const safe = isSafeLink(link.uri);
+        const site = siteOf(link.uri);
+        return (
+          <li key={link.key}>
+            {safe ? (
+              <a href={link.uri} target="_blank" rel="noopener noreferrer" title={link.uri}>
+                {link.name}
+              </a>
+            ) : (
+              <span data-slot="unsafe-link">{link.name}</span>
+            )}
+            {site !== undefined ? <span data-slot="tool-link-site">{site}</span> : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** The site of an address ("bun.sh"), or nothing when it is not one. */
+const siteOf = (uri: string): string | undefined => {
+  try {
+    const host = new URL(uri).hostname;
+    return host === "" ? undefined : host.replace(/^www\./, "");
+  } catch {
+    return undefined;
+  }
+};

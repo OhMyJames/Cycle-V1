@@ -155,5 +155,8 @@ export const ToolResultSchema = z.union([
       exitCode: count.optional(),
     }),
   }),
+  z.object({
+    fetch: z.object({ status: z.number().int().min(100).max(599), bytes: count.optional() }),
+  }),
 ]);
 export type ToolResult = z.infer<typeof ToolResultSchema>;

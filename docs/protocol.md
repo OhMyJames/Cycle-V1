@@ -373,7 +373,11 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 - `{edit: {additions, deletions, created?, staged?}}`:增删的行数;`created` 为 `true` 是新建的文件;`staged` 为 `true` 是改动被留下等人审、文件没变。
 - `{read: {startLine, numLines, totalLines?}}`:从第几行起读了几行,文件共几行。
 - `{search: {files, matches?, lines?, more?}}`:找到几个文件,按匹配数或行数计时带上那个数;`more` 为 `true` 是可能还有(被截断、超时、到了上限)。
+- `{fetch: {status, bytes?}}`:取一个网页:HTTP 状态码和取到的字节数。
 - `{run: {interrupted?, timedOutMs?, background?, exitCode?}}`:命令没有照常跑完时怎么了:被中断;超过时限(毫秒)后转到后台;在后台运行(自己要求的、被转过去的);失败时的退出码。照常跑完是 `{run: {}}`。
+
+网页搜索的结果是 ACP 自己的 `resource_link` 内容项(`uri` 和标题 `name`,不带页面内容),模型在结果之间写的话是文字项,按出现的顺序。
+MCP 工具的 `title` 是给人看的名字("server · tool"),由 agent 写,客户端不解析工具名。
 
 命令的输出和错误分开:`content` 里第一项是标准输出,标准错误(不为空时)是另一项,这一项的 `_meta["cycle/stream"]` 为 `"stderr"`。
 

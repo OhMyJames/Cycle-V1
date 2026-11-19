@@ -380,6 +380,76 @@ export const scenarios: Record<string, Scenario> = {
       await frames(4);
     },
   },
+  web: {
+    title:
+      "The web and MCP: a search's hits as links with their sites, a fetch that failed (404), an MCP tool by its title and the first short line of its input, and a tool nothing knows",
+    sessions: [session("s1", { title: "Check the docs" })],
+    history: [
+      you("u1", "How do I run one test file with Bun? Then file an issue to update our docs."),
+      ...done(
+        "w1",
+        "WebSearch",
+        { query: "bun test run a single file" },
+        {
+          content: [
+            { type: "content", content: { type: "text", text: "Three results look relevant." } },
+            ...[
+              ["Test runner – Bun docs", "https://bun.sh/docs/cli/test"],
+              ["Writing tests | Bun Docs", "https://www.bun.sh/docs/test/writing"],
+              [
+                "How to run a single test file with bun test? A long question title that wraps onto a second line in a narrow window",
+                "https://stackoverflow.com/questions/77000000/bun-test-single-file",
+              ],
+            ].map(([name, uri]) => ({
+              type: "content",
+              content: { type: "resource_link", uri, name },
+            })),
+          ],
+        },
+      ),
+      say("m1", "The docs say to pass the file's path. Let me check the old page we link to."),
+      ...done(
+        "w2",
+        "WebFetch",
+        { url: "https://bun.sh/docs/old-test-page", prompt: "What does it say about one file?" },
+        {
+          content: [{ type: "content", content: { type: "text", text: "Page not found." } }],
+          _meta: { "cycle/toolResult": { fetch: { status: 404, bytes: 1534 } } },
+        },
+      ),
+      say("m2", "That page is gone. Filing the issue."),
+      u({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "w3",
+        name: "mcp__linear__create_issue",
+        title: "linear · create_issue",
+        status: "completed",
+        rawInput: {
+          title: "Update the test docs link",
+          team: "CYCL",
+          description: "The link in…\nlong",
+        },
+        content: [{ type: "content", content: { type: "text", text: "Created CYCL-52" } }],
+      }),
+      ...done(
+        "w4",
+        "CronList",
+        {},
+        { content: [{ type: "content", content: { type: "text", text: "No jobs." } }] },
+      ),
+      say("m3", "Done: `bun test path/to/file.test.ts`, and CYCL-52 tracks the docs."),
+      idle({ stopReason: "end_turn" }),
+    ],
+    after: async (root) => {
+      const row = [...root.querySelectorAll<HTMLElement>('[data-kind="tool"] > button')].find((b) =>
+        b.textContent?.includes("bun test run a single file"),
+      );
+      row?.click();
+      root.querySelector<HTMLElement>('[data-kind="work"] > button')?.click();
+      (document.activeElement as HTMLElement | null)?.blur();
+      await frames(4);
+    },
+  },
   ask: {
     title:
       "The agent asks: a question with choices and an answer of one's own, as a form above the input box",

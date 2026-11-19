@@ -19,11 +19,11 @@ export const toolKind = (name: string): ToolKind => {
       return "edit";
     case "Grep":
     case "Glob":
+    case "WebSearch":
       return "search";
     case "Bash":
       return "execute";
     case "WebFetch":
-    case "WebSearch":
       return "fetch";
     // Changing the plan: the plan says it (docs/conversation-content.md), a client need not draw a row per call.
     // Reading it (TaskGet, TaskList) changes nothing the plan shows, so it stays a call of its own.
@@ -34,6 +34,15 @@ export const toolKind = (name: string): ToolKind => {
     default:
       return "other";
   }
+};
+
+/**
+ * A tool's title for people, where its name is not one: an MCP tool's `mcp__<server>__<tool>` is "server · tool".
+ * Claude's naming is known here, so no client has to parse it.
+ */
+export const titleOf = (name: string): { title?: string } => {
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
+  return mcp !== null ? { title: `${mcp[1]} · ${mcp[2]}` } : {};
 };
 
 type Block = { type?: string; [key: string]: unknown };
@@ -114,6 +123,7 @@ export class TurnTranslator {
             toolCallId: String(block.id),
             name,
             kind: toolKind(name),
+            ...titleOf(name),
             status: "pending",
           } as SessionUpdate,
         ];
@@ -147,6 +157,7 @@ export class TurnTranslator {
           toolCallId: String(block.id),
           name,
           kind: toolKind(name),
+          ...titleOf(name),
           status: "in_progress",
           rawInput: block.input,
           ...(where !== undefined ? { locations: [where] } : {}),
@@ -267,7 +278,7 @@ export class TurnTranslator {
         content: read?.content ?? contentOf(block.content),
         ...(raw !== undefined ? { rawOutput: raw } : {}),
         ...(read?.locations !== undefined ? { locations: read.locations } : {}),
-        ...(read !== undefined ? { _meta: { [TOOL_RESULT_META]: read.meta } } : {}),
+        ...(read?.meta !== undefined ? { _meta: { [TOOL_RESULT_META]: read.meta } } : {}),
       } as SessionUpdate);
     }
     return updates;
