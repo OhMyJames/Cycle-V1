@@ -226,7 +226,11 @@ const main = async () => {
       ),
     });
     await press("Enter");
-    await sleep(1500);
+    // Sent: the box is emptied. (This was a fixed wait of 1.5 s, then a look at the page for the log.)
+    await waitFor(
+      "the message to leave the box",
+      `document.querySelector('[data-slot="composer"] [data-slot="composer-input"]').textContent === ""`,
+    );
     out({ step: "after-enter", body: await run("document.body.innerText.slice(0, 700)") });
     await waitFor("the answer", has(hello), 60_000);
     await waitFor(

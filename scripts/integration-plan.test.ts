@@ -353,6 +353,15 @@ describe("the command line", () => {
     }
   });
 
+  test("--files stops at the next option, so that options and a name may come after the paths", () => {
+    const out = cli("--plan", "--files", "docs/a.md", "--strict", "smoke");
+    const text = out.stdout.toString();
+    expect(out.exitCode).toBe(0);
+    expect(text).toContain("docs/a.md: a document");
+    expect(text).not.toContain("every suite");
+    expect(text).toContain("skip  smoke: not selected: no changed file reaches it");
+  });
+
   test("a name no suite has is refused", () => {
     expect(cli("--plan", "nothing-like-it").exitCode).toBe(2);
   });

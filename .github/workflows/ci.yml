@@ -7,7 +7,10 @@
 #               them). Starts real processes (Claude, a daemon, Electron under xvfb): serial, a deadline per
 #               suite, about 1.5 GB at its peak. It needs no secrets: the model is a mock, and nothing here
 #               may read an API key from the environment. --strict: a suite that skipped itself because the
-#               runner lacks Electron, xvfb or sshd is a failure here, not an "ok".
+#               runner lacks Electron, xvfb or sshd is a failure here, not an "ok". Every run leaves a record of
+#               its commit, machine and each suite's result and time (the integration-timing artifact); the
+#               nightly and manual runs also compare it with the earlier ones in the step summary. That
+#               comparison only describes: it does not fail a run, and nothing here blocks a pull request on time.
 name: ci
 
 on:
@@ -47,6 +50,10 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      # To list and download the earlier runs' timing records.
+      actions: read
     env:
       # A pull request: what it changed against its base. Anything else: no change given, so all of them.
       CHANGED: ${{ github.event_name == 'pull_request' && format('--changed origin/{0}', github.base_ref) || '' }}
@@ -80,8 +87,32 @@ jobs:
       # bun does not run Electron's postinstall, which is what downloads the binary.
       - run: bun node_modules/.bun/electron@*/node_modules/electron/install.js
         if: steps.plan.outputs.machine == 'true'
-      - run: bun run test:integration $CHANGED --strict --summary "$GITHUB_STEP_SUMMARY"
+      - run: bun run test:integration $CHANGED --strict --summary "$GITHUB_STEP_SUMMARY" --record "$RUNNER_TEMP/integration-timing.json"
         if: steps.plan.outputs.any == 'true'
+      # The earlier records: the newest 30 still kept that were made by a run of this repository's main branch (the nightly run
+      # and manual runs of it), not by a pull request: a pull request's code is not yet main's, and a fork's could write anything.
+      # This run's is compared with those from the same kind of machine.
+      # Describes, never fails: a missing record or a download that did not work leaves a line, not a red run.
+      - name: Timing against the earlier runs
+        if: always() && github.event_name != 'pull_request' && steps.plan.outputs.any == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p history
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=integration-timing&per_page=30" --jq '.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main" and .workflow_run.head_repository_id == .workflow_run.repository_id) | .id'); do
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "history/$id.zip" && unzip -q -o "history/$id.zip" -d "history/$id" || true
+          done
+          bun scripts/integration-trend.ts "$RUNNER_TEMP/integration-timing.json" history >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.plan.outputs.any == 'true'
+        with:
+          name: integration-timing
+          # A re-run of the job in the same run would find the name taken.
+          overwrite: true
+          path: ${{ runner.temp }}/integration-timing.json
+          if-no-files-found: ignore
+          retention-days: ${{ github.event_name == 'pull_request' && 14 || 90 }}
       - name: Nothing to run
         if: steps.plan.outputs.any != 'true'
         run: echo "No integration suite is reached by this change; the plan is in the log of 'Which suites'." >> "$GITHUB_STEP_SUMMARY"
