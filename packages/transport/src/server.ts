@@ -1,5 +1,5 @@
 // The half of the transport a daemon uses. It runs under Bun (Bun.listen, Bun.connect).
-import { chmod, mkdir, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { ndJsonStream } from "@cycle/acp";
 import type { Channel } from "./channel.ts";
@@ -9,6 +9,14 @@ export class AlreadyRunningError extends Error {
   constructor(path: string) {
     super(`Something is already listening on ${path}`);
     this.name = "AlreadyRunningError";
+  }
+}
+
+/** The path is something that is not a socket: a file or folder of someone's, which is not Cycle's to remove. */
+export class NotASocketError extends Error {
+  constructor(path: string) {
+    super(`${path} exists and is not a socket, so it is left as it is; choose another --socket`);
+    this.name = "NotASocketError";
   }
 }
 
@@ -27,19 +35,30 @@ export const isListening = async (path: string): Promise<boolean> => {
 };
 
 /**
- * Listens on a unix socket. Only its owner can connect: the directory is 0700 and the socket 0600,
- * which is the whole of v1's access control (decision 0004). Refuses to start if another process is
- * already listening; a socket file left by one that died is removed.
+ * Listens on a unix socket. Only its owner can connect: the socket is 0600, and the directory 0700 when
+ * this made it (decision 0004). A directory that was already there is someone's, and keeps its
+ * permissions: the socket's own are what keep others out. Refuses to start if another process is
+ * already listening; a socket file left by one that died is removed, and anything else at the path
+ * is left alone and refused.
  */
 export const listenUnix = async (options: {
   path: string;
   onConnection: (channel: Channel) => void;
 }): Promise<{ close: () => void }> => {
   const { path } = options;
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await chmod(dirname(path), 0o700).catch(() => undefined);
-  if (await isListening(path)) throw new AlreadyRunningError(path);
-  await rm(path, { force: true });
+  const folder = dirname(path);
+  const existed = await lstat(folder).then(
+    () => true,
+    () => false,
+  );
+  await mkdir(folder, { recursive: true, mode: 0o700 });
+  if (!existed) await chmod(folder, 0o700).catch(() => undefined);
+  const found = await lstat(path).catch(() => undefined);
+  if (found !== undefined) {
+    if (!found.isSocket()) throw new NotASocketError(path);
+    if (await isListening(path)) throw new AlreadyRunningError(path);
+    await rm(path, { force: true });
+  }
   const server = Bun.listen<{ adapter: SocketAdapter }>({
     unix: path,
     socket: {

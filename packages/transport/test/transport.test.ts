@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type Channel, connectUnix, sshChannel } from "../src/client.ts";
-import { AlreadyRunningError, bridgeStdio, isListening, listenUnix } from "../src/server.ts";
+import {
+  AlreadyRunningError,
+  bridgeStdio,
+  isListening,
+  listenUnix,
+  NotASocketError,
+} from "../src/server.ts";
 import { fakeSsh, tempDir } from "./support.ts";
 
 let dir: string;
@@ -105,14 +112,52 @@ test("refuses to start where something is already listening", async () => {
   );
 });
 
+/** A socket file as a process that was killed leaves it: there, and nobody behind it. */
+const staleSocket = async (path: string): Promise<void> => {
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      "Bun.listen({unix: process.argv[1], socket:{data(){}}}); setInterval(()=>{},1000)",
+      path,
+    ],
+    { stdout: "ignore", stderr: "ignore" },
+  );
+  for (let waited = 0; !existsSync(path); waited += 10) {
+    if (waited > 5_000) throw new Error("the socket was never made");
+    await Bun.sleep(10);
+  }
+  child.kill("SIGKILL");
+  await child.exited;
+};
+
 test("takes over a socket file left behind by a process that died", async () => {
   const path = join(dir, "d.sock");
-  await writeFile(path, "");
+  await staleSocket(path);
+  expect(existsSync(path)).toBe(true);
   expect(await isListening(path)).toBe(false);
   await echo(path);
   const channel = await connectUnix(path);
   stops.push(channel.close);
   expect(await roundTrip(channel, { jsonrpc: "2.0", method: "_test/ping" })).toBeDefined();
+});
+
+test("a file that is not a socket is left as it is, and so are the permissions of a folder that was already there", async () => {
+  const shared = join(dir, "shared");
+  await mkdir(shared, { mode: 0o755 });
+  await chmod(shared, 0o755);
+  const path = join(shared, "notes.txt");
+  await writeFile(path, "mine");
+  await expect(listenUnix({ path, onConnection: () => {} })).rejects.toBeInstanceOf(
+    NotASocketError,
+  );
+  expect(await readFile(path, "utf8")).toBe("mine");
+  expect((await stat(shared)).mode & 0o777).toBe(0o755);
+  // A socket made in that folder is still its owner's alone.
+  const socket = join(shared, "d.sock");
+  await echo(socket);
+  expect((await stat(socket)).mode & 0o777).toBe(0o600);
+  expect((await stat(shared)).mode & 0o777).toBe(0o755);
 });
 
 test("the server's end of a hung-up connection ends", async () => {
