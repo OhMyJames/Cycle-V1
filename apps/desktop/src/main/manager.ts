@@ -6,7 +6,7 @@ import {
   settingOf,
   sizeOf,
 } from "@cycle/analytics/events";
-import { CycleClient, type PermissionAnswer } from "@cycle/client";
+import { CycleClient, type PermissionAnswer, ProtocolMismatchError } from "@cycle/client";
 import type { Channel } from "@cycle/transport/client";
 import {
   type AgentInfo,
@@ -46,6 +46,8 @@ export type ManagerOptions = {
   backoff?: { first: number; max: number };
   /** The version of this app: the one an update of a daemon puts there. Without it, nothing is said. */
   appVersion?: string;
+  /** The Cycle protocol version asked of a daemon. Default: this build's. Another is for tests. */
+  protocolVersion?: string;
   /**
    * Runs a shell command on the machine of a remote environment (over its ssh) and resolves when it succeeded; rejects
    * with what went wrong. Without it, a daemon cannot be updated from the app, only by hand.
@@ -168,6 +170,7 @@ export class ConnectionManager
   readonly #lastSessions = new Map<string, SessionSummary[]>();
   /** Why the last attempt to connect to an environment failed, for a renderer that asks after the event went by. */
   readonly #lastError = new Map<string, string>();
+  readonly #lastIncompatible = new Map<string, NonNullable<EnvironmentStatus["incompatible"]>>();
   /** The sign-in waiting for the browser: one at a time, a new one stops it. */
   #signIn: AbortController | undefined;
 
@@ -205,11 +208,13 @@ export class ConnectionManager
       environments: this.#environments,
       status: this.#environments.map((environment): EnvironmentStatus => {
         const error = this.#lastError.get(environment.id);
+        const incompatible = this.#lastIncompatible.get(environment.id);
         return (
           this.#connections.get(environment.id)?.status ?? {
             environmentId: environment.id,
             state: "closed",
             ...(error !== undefined ? { error } : {}),
+            ...(incompatible !== undefined ? { incompatible } : {}),
           }
         );
       }),
@@ -265,6 +270,7 @@ export class ConnectionManager
       await this.disconnect(environmentId);
       this.#lastSessions.delete(environmentId);
       this.#lastError.delete(environmentId);
+      this.#lastIncompatible.delete(environmentId);
       const next = this.#environments.filter((h) => h.id !== environmentId);
       await this.#options.settings.save(next);
       this.#environments = next;
@@ -294,6 +300,9 @@ export class ConnectionManager
     connection.client = new CycleClient({
       connect: this.#options.channelFor(environment),
       name: "cycle-desktop",
+      ...(this.#options.protocolVersion !== undefined
+        ? { protocolVersion: this.#options.protocolVersion }
+        : {}),
       ...(this.#options.backoff !== undefined ? { backoff: this.#options.backoff } : {}),
       events: {
         update: (sessionId, update) => this.#onUpdate(environmentId, connection, sessionId, update),
@@ -315,10 +324,12 @@ export class ConnectionManager
           // A connection that came back asks for the list again: it may have changed while away.
           const was = connection.status.state;
           if (state === was && error === undefined) return;
+          const incompatible = this.#incompatibleOf(error, environment);
           connection.status = {
             environmentId,
             state,
             ...(error !== undefined ? { error: messageOf(error) } : {}),
+            ...(incompatible !== undefined ? { incompatible } : {}),
             ...(state === "connected" ? this.#daemonOf(environment, connection.client) : {}),
             // What the daemon can do is known from the connection it said it on: a drop that comes back to the same
             // daemon does not take it away, or the box would stop queueing for as long as the line is down.
@@ -360,15 +371,20 @@ export class ConnectionManager
       if (this.#connections.get(environmentId) !== connection) throw error;
       this.#connections.delete(environmentId);
       this.#lastError.set(environmentId, messageOf(error));
+      const incompatible = this.#incompatibleOf(error, environment);
+      if (incompatible !== undefined) this.#lastIncompatible.set(environmentId, incompatible);
+      else this.#lastIncompatible.delete(environmentId);
       this.#options.emit({
         type: "environment-status",
         environmentId,
         state: "closed",
         error: messageOf(error),
+        ...(incompatible !== undefined ? { incompatible } : {}),
       });
       throw error;
     }
     this.#lastError.delete(environmentId);
+    this.#lastIncompatible.delete(environmentId);
     try {
       await this.#refreshSessions(environmentId, connection);
     } catch (error) {
@@ -386,6 +402,36 @@ export class ConnectionManager
       });
       throw error;
     }
+  }
+
+  /**
+   * Why a connection was refused when the daemon speaks another major version of the protocol, and which side has to
+   * change: the daemon when it is the older one (on a remote machine the command that updates it is given), the app
+   * when it is the newer. Undefined for any other failure: a network that is down is not a version problem.
+   */
+  #incompatibleOf(
+    error: unknown,
+    environment: EnvironmentConfig,
+  ): EnvironmentStatus["incompatible"] | undefined {
+    if (!(error instanceof ProtocolMismatchError)) return undefined;
+    const major = (version: string) => Number.parseInt(version.split(".")[0] ?? "", 10);
+    const theirs = Math.max(...error.supported.map(major));
+    const mine = major(error.requested);
+    const side =
+      Number.isNaN(theirs) || Number.isNaN(mine) || theirs === mine
+        ? "unknown"
+        : theirs < mine
+          ? "daemon"
+          : "app";
+    const { appVersion } = this.#options;
+    return {
+      with: side,
+      supported: error.supported,
+      requested: error.requested,
+      ...(side === "daemon" && environment.kind !== "local" && appVersion !== undefined
+        ? { command: daemonUpgradeCommand(appVersion) }
+        : {}),
+    };
   }
 
   /** What a connected remote environment's daemon is, and whether it is too old for this app to work with. */

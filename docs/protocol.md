@@ -36,7 +36,7 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 连接建立后,客户端必须先发 `initialize`(ACP v2 的方法),在响应之前不得发其他请求。
 
 - `protocolVersion`:ACP 的协议版本,整数,仅在不兼容变更时递增。
-- Cycle 自己的版本放在 `_meta["cycle/protocolVersion"]`,格式 `"主.次"`,本文描述的是 `"0.2"`(`0.1` 到 `0.2` 只加了字段和 `markRead`,见 §6)。主版本不同则 daemon 以 `-32022`(ACP 的 Unsupported protocol version)拒绝,并在 `data` 里列出自己支持的版本。次版本差异通过能力协商处理。
+- Cycle 自己的版本放在 `_meta["cycle/protocolVersion"]`,格式 `"主.次"`,本文描述的是 `"0.2"`(`0.1` 到 `0.2` 只加了字段和 `markRead`,见 §6)。主版本不同则 daemon 以 `-32022`(ACP 的 Unsupported protocol version)拒绝,并在 `data` 里列出自己支持的版本(`supported`)和收到的(`requested`)。客户端据此知道哪一边更旧、该升级哪一边,不要只当作普通的连接错误。次版本差异通过能力协商处理。
 - daemon 在 `initialize` 响应的 `_meta["cycle/capabilities"]` 中声明能力:
 
 ```json

@@ -189,6 +189,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
   - **按钮做什么**:确认后,应用用该环境同一个 ssh 主机(`BatchMode`,不交互)在远端运行 `daemonUpgradeCommand`(下载本版本的 tarball、校验、`install.sh`、`cycle stop`),`cycle stop` 让连接断开,重连时接上新的 daemon,已打开的会话原样保留。该机器上正在工作的会话会被中断,所以先确认。
   - **失败时**:那一行变成错误并附上同一条命令,让用户在那台机器上手动运行(远端连不上 GitHub、没有 `curl`/`sha256sum`、ssh 需要交互,都会走到这里)。第一版不做"应用下载再传过去"。
   - 限于 Linux x64。理由见 `.agents/notes/2026-11-19-daemon-minimum-version-and-upgrade-button.md`。
+  - **协议不兼容(与上面的最低版本不同)**:最低版本说的是"能不能用",而协议主版本不同时 daemon 在握手就以 `-32022` 拒绝,连接根本建立不起来(docs/protocol.md §3)。客户端把它保留成带 `supported`(daemon 说它支持的)和 `requested`(应用要的)的结构化错误,初次连接和重连都一样;重连时仍按退避继续试,换上兼容的 daemon 后自己连上。环境的状态里带 `incompatible`:`with` 说哪一边要改(daemon 的主版本低于应用的是 `daemon`,高于的是 `app`,比不出来是 `unknown`)。界面在那个环境下显示一行原因:`daemon` 时给出远端 Linux x64 上更新 daemon 的命令(本地 daemon 不给,它随应用更新);`app` 时只说要更新应用,**不**提示降级 daemon。普通的 ssh 或网络故障不带 `incompatible`,仍是连接错误和重连。连接成功后这行消失。目前两边的主版本都是 `0`,这条路径要等协议升主版本才会走到。
 - **签名后的更新**:更新里已有"签名团队必须和当前应用相同"的检查,但还没有在真实的 Developer ID 签名包上跑过(目前发布的包只有 ad hoc 签名,这一条检查被跳过)。
 - **会话内容的全文搜索**:⌘K 搜的是标题、文件夹、agent 和主机(跨已连接的主机)。对话内容的全文要在历史所在的 daemon 里做。
 - **图片的发送只对声明了能力的 agent 开放**:附加的控件(按钮、粘贴、拖放)只在 `_cycle/agents/list` 里这个 agent 的 `promptCapabilities.image` 存在时出现。带附件支持的 daemon(decision 0010)上的 Claude 声明了;更早的 daemon 不报告,界面上就没有附加入口,不会发出 daemon 不认的内容。主进程这一段有测试(`apps/desktop/test/manager.test.ts`):能力被报告,图片块原样送达 agent,没有声明的 agent 拒绝图片。
