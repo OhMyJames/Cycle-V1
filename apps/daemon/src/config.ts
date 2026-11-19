@@ -24,6 +24,8 @@ export const ConfigSchema = z.object({
        * before the first message (decision 0014). Costs about 230 MB per new session until it is idle.
        */
       warmStart: z.boolean().default(true),
+      /** How many sessions may hold a process that has had no prompt yet; past it the oldest is let go. */
+      maxWarm: z.number().int().min(1).default(3),
       /** Ask Claude for a model-written progress line for each sub-agent: a model call each. */
       progressSummaries: z.boolean().default(true),
     })
@@ -31,6 +33,7 @@ export const ConfigSchema = z.object({
       allowEnv: ["PATH", "LANG", "LC_ALL", "TERM"],
       env: {},
       warmStart: true,
+      maxWarm: 3,
       progressSummaries: true,
     }),
 });

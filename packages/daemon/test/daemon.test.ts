@@ -224,6 +224,34 @@ test("a resume says which requests the daemon still waits on, and none once they
   expect(await waiting(await connectClient(daemon))).toEqual([]);
 });
 
+test("with a limit on agents started ahead of a prompt, a new session lets go of the oldest, which starts again with its prompt", async () => {
+  const fake = fakeAgent();
+  const daemon = await Daemon.start({
+    dataDir: dir,
+    agents: [fake.definition],
+    maxAheadAgents: 2,
+  });
+  open.push(daemon);
+  const c = await connectClient(daemon);
+  const ids: string[] = [];
+  for (let n = 0; n < 4; n++) {
+    ids.push((await c.agent.request(methods.agent.session.new, { cwd: "/tmp" })).sessionId);
+  }
+  expect(fake.log.launches).toBe(4);
+  await Bun.sleep(50);
+  // Each of the four has its own agent, none of which can see the others: the daemon keeps two of them.
+  for (const sessionId of ids) {
+    await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+    await c.agent.request(methods.agent.session.prompt, {
+      sessionId,
+      prompt: text(`hi ${sessionId}`),
+    });
+  }
+  await until(() => fake.log.prompts.length === 4, "every prompt to reach an agent");
+  // The two that were let go were started again for theirs; the two kept were not.
+  expect(fake.log.launches).toBe(6);
+});
+
 test("a cancel answers pending requests as cancelled and reaches the agent", async () => {
   const outcomes: unknown[] = [];
   const { daemon, fake } = await start(
