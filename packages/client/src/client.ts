@@ -608,6 +608,10 @@ export class CycleClient {
             this.#events.gone?.(sessionId);
           }
         }
+        // What the daemon asked again along with each answer (a request still waiting) came before that
+        // answer on the line, and is handled by now but for the turns of the event loop its handler takes:
+        // the host is not said to be back before they have run, so a request not asked again is known to be gone.
+        await new Promise((resolve) => setTimeout(resolve, 0));
         if (this.#closing) return;
         this.#setState("connected");
         return;
