@@ -416,7 +416,8 @@ export class CycleClient {
   }
 
   async archive(sessionId: string, archived = true): Promise<void> {
-    await this.#call(archived ? sessionArchive : sessionUnarchive, { sessionId });
+    if (archived) await this.#call(sessionArchive, { sessionId });
+    else await this.#call(sessionUnarchive, { sessionId });
   }
 
   /** Removes a session's history for good. The caller asks the user first. */
