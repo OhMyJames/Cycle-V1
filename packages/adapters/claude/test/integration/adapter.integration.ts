@@ -87,6 +87,13 @@ test("a tool call asks permission through ACP, and the answer decides", async ()
         { mockUrl: mock.url, configDir: config.dir, onPermission: () => answer },
         async ({ agent, updates, permissions, idle }) => {
           await agent.request(methods.agent.session.new, { cwd, _meta: { "cycle/sessionId": id } });
+          // The mode that asks first: new sessions start in auto, where this may not be asked about.
+          await agent.request(methods.agent.session.setConfigOption, {
+            sessionId: id,
+            configId: "mode",
+            type: "id",
+            value: "default",
+          } as never);
           const done = idle();
           await agent.request(methods.agent.session.prompt, {
             sessionId: id,

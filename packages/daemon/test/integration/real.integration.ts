@@ -62,7 +62,8 @@ test.skipIf(!enabled)(
       const c = await connectClient(first, { onPermission: () => "allow" });
       const { sessionId } = await c.agent.request(methods.agent.session.new, {
         cwd,
-        _meta: { "cycle/config": { model } },
+        // The mode that asks first: new sessions start in auto, where nothing may be asked.
+        _meta: { "cycle/config": { model, mode: "default" } },
       });
       await c.agent.request(methods.agent.session.resume, { sessionId, cwd });
 
