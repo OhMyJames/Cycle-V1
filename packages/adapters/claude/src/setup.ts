@@ -1,11 +1,14 @@
 import type { McpServerConfig, Options } from "@anthropic-ai/claude-agent-sdk";
 import { type McpServer, RequestError, type SystemPrompt } from "@cycle/acp";
+import { trustOf } from "./trust.ts";
 
 /** What a session is started with beyond its directory (ACP `session/new` and `session/resume`). */
 export type SessionSetup = {
   additionalDirectories: string[];
   mcpServers: Record<string, McpServerConfig>;
   systemPrompt: Options["systemPrompt"];
+  /** Whether the folder may run its own configuration's commands; absent when nobody has decided. */
+  trusted?: boolean;
 };
 
 export const NO_SETUP: SessionSetup = {
@@ -79,7 +82,9 @@ export const setupOf = (params: {
   additionalDirectories?: readonly string[] | null;
   mcpServers?: readonly McpServer[] | null;
   systemPrompt?: SystemPrompt | null;
+  _meta?: unknown;
 }): SessionSetup => {
+  const trusted = trustOf(params._meta);
   const directories = [...(params.additionalDirectories ?? [])];
   for (const directory of directories) {
     if (!absolute(directory)) invalid("A directory must be an absolute path", { directory });
@@ -88,5 +93,6 @@ export const setupOf = (params: {
     additionalDirectories: directories,
     mcpServers: mcpServersOf(params.mcpServers),
     systemPrompt: systemPromptOf(params.systemPrompt),
+    ...(trusted !== undefined ? { trusted } : {}),
   };
 };

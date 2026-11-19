@@ -71,6 +71,7 @@ type Environment = {
 - 打开的会话有 `cycle/unread` 时,窗口在前台,就告诉 daemon 已读(`markRead`;main 用它自己最近读到的那一行的 `lastSeq`,不会超出日志;不支持的 daemon 不会被问,失败也不弹错误条)。
 - 断线的 host:会话灰显、tooltip 说明原因,不算在标记里,侧栏里有它的状态、原因和"Retry"。
 - 新建 session:默认在当前 workspace 的 host 和目录;可以选 host(只列已连接的);"Browse…"只对本机有。Agent defaults 按 host 分别设置。
+- **文件夹信任**(protocol.md §8 "信任文件夹"):点 Start 时,目录还没有决定(它和它的上级都没有),对话框先换成一步 "Trust this folder?":说明信任之后项目自己的设置能在这个环境里运行命令(hooks、`.mcp.json` 里的服务器和 helper),下面是目录的真实路径;按钮是 Back、Start without trusting、Trust and start。两个 Start 都先记下决定,再新建。已经有决定的目录不问。daemon 不支持(没有 `trust` 能力)时不问。侧栏 switcher 旁的 "…" 菜单第一项是当前 workspace 的 "Trust this folder"(先确认,说明同上)或 "Stop trusting this folder"(直接生效);环境未连接或 daemon 不支持时没有这一项。
 
 设置文件 `settings.json` 是 `{ "environments": [{ id, name, kind: "local" | "remote", transport?: { type: "ssh", host, command? } }] }`。旧格式 `{ "hosts": [{ id, name, kind: "ssh", host, command? }] }` 读作 remote 加 ssh transport,id 不变(会话和草稿都按 id 认);只有保存时才写新格式;这个版本读不懂的条目(更新的版本写的)不显示,但保存时原样写回。
 
@@ -89,7 +90,7 @@ type Environment = {
 - **Switcher** 是一个菜单,列出所有 workspace,按环境分组(本地在前;多于一个环境时才显示分组标题,标题带连接状态),组内按 `updatedAt` 倒序。只有一个环境时,没有按环境分组的标题(没有可选的东西)。
 - Switcher 上有一个方块数字徽章,数**其他 workspace**(所有环境)里最紧急的那一类;完整的计数写进 aria-label。
 - 搜索跨所有 workspace 和环境,结果按 workspace 分组。
-- 版式(DESIGN.md 第 21 节):顶部是 switcher、New session、Search;只有中间的会话列表滚动;底部一行是版本和 App settings 菜单(代码配色、检查更新)。
+- 版式(DESIGN.md 第 21 节):顶部是 New session、Search,其下是 switcher(它是下面会话列表的标题);只有中间的会话列表滚动;底部一行是版本和 App settings 菜单(代码配色、检查更新)。
 
 当前 workspace 里的会话分组:**Needs you**(`requires_action`)、**Running**(`running`,以及有后台子 agent 的)、然后 Today / Yesterday / Earlier,按本地日界线分,用 `updatedAt`。每个 workspace 默认显示 20 条,"Show N more";有状态的和当前打开的永远显示。
 

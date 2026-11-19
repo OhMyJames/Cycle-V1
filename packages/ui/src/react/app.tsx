@@ -61,7 +61,8 @@ type Panel =
   | "rename"
   | "delete"
   | "settings"
-  | "search";
+  | "search"
+  | "trust";
 
 function SessionSettings({ onClose }: { onClose: () => void }) {
   const store = useAppStore();
@@ -189,6 +190,37 @@ export function App() {
       ? current
       : undefined;
   const elsewhere = useMemo(() => elsewhereOf(workspaces, current), [workspaces, current]);
+  // Whether the shown workspace's folder is trusted, when its daemon can say. Read again as a dialog closes: it may have been decided there.
+  const trustEnvironment =
+    current !== undefined &&
+    status[current.environmentId]?.state === "connected" &&
+    status[current.environmentId]?.capabilities?.trust === true
+      ? current.environmentId
+      : undefined;
+  const trustCwd = trustEnvironment !== undefined ? current?.cwd : undefined;
+  const [trust, setTrust] = useState<{ key: string; trusted: boolean | null } | undefined>();
+  const [trustRevision, setTrustRevision] = useState(0);
+  const trustKey =
+    trustEnvironment !== undefined && trustCwd !== undefined
+      ? `${trustEnvironment}\u0000${trustCwd}\u0000${trustRevision}\u0000${panel === "none"}`
+      : undefined;
+  useEffect(() => {
+    if (trustKey === undefined || trustEnvironment === undefined || trustCwd === undefined) return;
+    let live = true;
+    store.readTrust(trustEnvironment, trustCwd).then(
+      (read) => {
+        if (live) setTrust({ key: trustKey, trusted: read.trusted });
+      },
+      // Not offered when it cannot be read (the folder is gone): there is nothing to decide on.
+      () => {
+        if (live) setTrust(undefined);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [store, trustKey, trustEnvironment, trustCwd]);
+  const shownTrust = trust !== undefined && trust.key === trustKey ? trust.trusted : undefined;
   const day = useDay();
   const list = useMemo(
     () =>
@@ -317,6 +349,14 @@ export function App() {
             onAgentDefaults={(id) => {
               setDefaultsEnvironment(id);
               setPanel("defaults");
+            }}
+            trust={shownTrust}
+            onTrust={(trusted) => {
+              if (trusted) setPanel("trust");
+              else if (trustEnvironment !== undefined && trustCwd !== undefined)
+                void store
+                  .changeTrust(trustEnvironment, trustCwd, false)
+                  .then(() => setTrustRevision((n) => n + 1));
             }}
           >
             <UpdateFooter />
@@ -501,8 +541,27 @@ export function App() {
         chooseDirectory={store.chooseDirectory}
         listFolders={store.listFolders}
         status={status}
+        readTrust={store.readTrust}
+        setTrust={store.setTrust}
         onCreate={store.createSession}
       />
+      {trustEnvironment !== undefined && trustCwd !== undefined ? (
+        <ConfirmDialog
+          open={panel === "trust"}
+          onOpenChange={(open) => !open && close()}
+          title={t("trust.title")}
+          description={t("trust.description", {
+            environment: environments.find((h) => h.id === trustEnvironment)?.name ?? "",
+          })}
+          detail={trustCwd}
+          confirmLabel={t("trust.confirm")}
+          onConfirm={() =>
+            store
+              .changeTrust(trustEnvironment, trustCwd, true)
+              .then(() => setTrustRevision((n) => n + 1))
+          }
+        />
+      ) : null}
       <EnvironmentDialog
         open={panel === "add-environment"}
         onOpenChange={(open) => !open && close()}

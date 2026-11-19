@@ -25,7 +25,13 @@ import {
   SelectValue,
 } from "@ui-sdk/react/select";
 import { useEffect, useRef, useState } from "react";
-import type { AgentInfo, EnvironmentConfig, EnvironmentStatus, FolderListing } from "../api.ts";
+import type {
+  AgentInfo,
+  AppApi,
+  EnvironmentConfig,
+  EnvironmentStatus,
+  FolderListing,
+} from "../api.ts";
 import { ConfigForm } from "./config-form.tsx";
 import { FolderBrowser } from "./folder-browser.tsx";
 import { useI18n } from "./i18n.tsx";
@@ -37,11 +43,14 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
+  detail,
   confirmLabel,
   onConfirm,
 }: OpenProps & {
   title: string;
   description: string;
+  /** A path or name the decision is about, shown whole under the description. */
+  detail?: string;
   confirmLabel: string;
   onConfirm: () => void | Promise<void>;
 }) {
@@ -52,6 +61,7 @@ export function ConfirmDialog({
         <div data-slot="stack">
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
+          {detail !== undefined ? <code data-slot="decision-path">{detail}</code> : null}
         </div>
         <div data-slot="row">
           <AlertDialogClose>Cancel</AlertDialogClose>
@@ -82,6 +92,9 @@ export type NewSessionProps = OpenProps & {
   listFolders: (environmentId: string, path?: string, hidden?: boolean) => Promise<FolderListing>;
   /** How each environment stands, and what its daemon can do. */
   status: Record<string, EnvironmentStatus>;
+  /** Folder trust on an environment's machine (docs/protocol.md §8 "信任文件夹"): asked before a session starts in a folder nobody has decided on. */
+  readTrust: AppApi["readTrust"];
+  setTrust: AppApi["setTrust"];
   onCreate: (
     environmentId: string,
     params: {
@@ -103,6 +116,8 @@ export function NewSessionDialog({
   chooseDirectory,
   listFolders,
   status,
+  readTrust,
+  setTrust,
   onCreate,
 }: NewSessionProps) {
   const { t } = useI18n();
@@ -118,6 +133,8 @@ export function NewSessionDialog({
   const [cwd, setCwd] = useState("");
   // Choosing the folder on another environment's machine takes the place of the form until it is chosen or left.
   const [browsing, setBrowsing] = useState(false);
+  // The real path of a folder nobody has decided on: whether to trust it takes the place of the form until answered or left.
+  const [asking, setAsking] = useState<string | null>(null);
   // The agent that was picked, and for which environment: another environment has other agents, so the pick does not carry over.
   const [picked, setPicked] = useState<{ environmentId: string; agentId: string } | null>(null);
   const [config, setConfig] = useState<Record<string, string>>({});
@@ -136,6 +153,7 @@ export function NewSessionDialog({
     if (!open) return;
     setChosenEnvironment(startEnvironment.current ?? null);
     setBrowsing(false);
+    setAsking(null);
     setCwd(startCwd.current ?? "");
   }, [open]);
 
@@ -176,23 +194,60 @@ export function NewSessionDialog({
   }, [open]);
 
   const [busy, setBusy] = useState(false);
-  const create = async () => {
+  /** Starts the session; with an answer about the folder, records it first. */
+  const start = async (trusted?: boolean) => {
     if (busy || loaded !== defaultsKey) return;
     if (environmentId === undefined || agent === undefined || cwd.trim() === "") return;
     setBusy(true);
     try {
+      if (trusted !== undefined && asking !== null) await setTrust(environmentId, asking, trusted);
       await onCreate(environmentId, { cwd: cwd.trim(), agent: agent.id, config });
       onOpenChange(false);
     } finally {
       setBusy(false);
     }
   };
+  const create = async () => {
+    if (busy || loaded !== defaultsKey) return;
+    if (environmentId === undefined || agent === undefined || cwd.trim() === "") return;
+    if (status[environmentId]?.capabilities?.trust === true) {
+      setBusy(true);
+      // A folder that cannot be looked at is not asked about: starting there fails with the daemon's reason.
+      const trust = await readTrust(environmentId, cwd.trim()).catch(() => undefined);
+      setBusy(false);
+      // Nobody has decided: the person is asked before anything of the folder's own runs.
+      if (trust?.trusted === null) {
+        setAsking(trust.path);
+        return;
+      }
+    }
+    await start();
+  };
 
   return (
     <Dialog open={open} onOpenChange={(next) => onOpenChange(next)}>
       <DialogBackdrop />
       <DialogContent>
-        {browsing && environmentId !== undefined ? (
+        {asking !== null ? (
+          <>
+            <DialogTitle>{t("trust.title")}</DialogTitle>
+            <DialogDescription>
+              {t("trust.description", { environment: environment?.name ?? "" })}
+            </DialogDescription>
+            <code data-slot="decision-path">{asking}</code>
+            <div data-slot="row">
+              <Button data-variant="ghost" disabled={busy} onClick={() => setAsking(null)}>
+                {t("trust.back")}
+              </Button>
+              <Button data-variant="outline" disabled={busy} onClick={() => void start(false)}>
+                {t("trust.startUntrusted")}
+              </Button>
+              <Button data-variant="solid" disabled={busy} onClick={() => void start(true)}>
+                {t("trust.startTrusted")}
+              </Button>
+            </div>
+          </>
+        ) : browsing && environmentId !== undefined ? (
           <>
             <DialogTitle>{t("folders.title")}</DialogTitle>
             <FolderBrowser

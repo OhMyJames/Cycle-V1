@@ -8,6 +8,7 @@ import type {
   EnvironmentStatus,
   FileSearch,
   FolderListing,
+  FolderTrust,
   NewSession,
   PermissionRequest,
   PromptBlock,
@@ -354,6 +355,22 @@ export class AppStore {
   /** The folders in a folder on an environment's machine. Not a banner when it fails: the one who asked says why. */
   listFolders = (environmentId: string, path?: string, hidden?: boolean): Promise<FolderListing> =>
     this.#bridge.listFolders(environmentId, path, hidden);
+
+  /** Whether a folder on an environment's machine may run its own configuration's commands. The caller says why it failed. */
+  readTrust = (environmentId: string, path: string): Promise<FolderTrust> =>
+    this.#bridge.readTrust(environmentId, path);
+
+  setTrust = (environmentId: string, path: string, trusted: boolean): Promise<FolderTrust> =>
+    this.#bridge.setTrust(environmentId, path, trusted);
+
+  /** Changes a folder's trust from a menu: a failure is shown, with its reason. */
+  changeTrust = async (environmentId: string, path: string, trusted: boolean): Promise<void> => {
+    try {
+      await this.#bridge.setTrust(environmentId, path, trusted);
+    } catch (error) {
+      this.#set({ error: `The folder's trust could not be changed: ${messageOf(error)}` });
+    }
+  };
 
   /** Takes a queued prompt back to edit it. Undefined if it had gone to the agent, or came back, meanwhile. */
   dequeue = async (queueId: string): Promise<PromptBlock[] | undefined> => {

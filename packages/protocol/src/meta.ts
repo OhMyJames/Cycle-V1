@@ -49,6 +49,12 @@ export const META = {
   steer: "cycle/steer",
   /** On the answer to a `session/prompt` that the agent took into the running turn. */
   steered: "cycle/steered",
+  /**
+   * In the `session/new` and `session/resume` the daemon sends an agent: whether the session's folder
+   * may run the commands its own configuration names (docs/protocol.md §8 "信任文件夹"). Absent:
+   * nobody has decided, and the agent leaves what it had as it was.
+   */
+  trusted: "cycle/trusted",
 } as const;
 
 /** The version of Cycle's protocol, "major.minor". A different major is refused. */
@@ -71,6 +77,8 @@ export const CapabilitiesSchema = z.object({
   files: z.boolean().optional(),
   /** `_cycle/folders/list` is there (docs/protocol.md §8). */
   folders: z.boolean().optional(),
+  /** `_cycle/trust/read` and `_cycle/trust/set` are there (docs/protocol.md §8). */
+  trust: z.boolean().optional(),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 

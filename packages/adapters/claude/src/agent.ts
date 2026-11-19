@@ -20,6 +20,7 @@ import { type SdkContent, toSdkContent } from "./content.ts";
 import { NO_SETUP, type SessionSetup, setupOf } from "./setup.ts";
 import { Subagents } from "./subagents.ts";
 import { PlanState, type StopReason, stopReasonOf, TurnTranslator, toolKind } from "./translate.ts";
+import { claudeJsonPath, recordTrust } from "./trust.ts";
 
 /** The SDK's `query`, in streaming-input mode: the prompt is a stream, so one process serves many turns. */
 export type QueryFn = (params: {
@@ -554,6 +555,15 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
   /** Starts a process for the session. Its messages go to whatever turn is running. */
   const start = (client: AgentContext, session: SessionState): Live => {
     session.client = client;
+    // Before the process reads it: whether this folder may run its own configuration's commands.
+    if (session.setup.trusted !== undefined) {
+      const file = claudeJsonPath(config.env);
+      const result =
+        file === undefined ? undefined : recordTrust(file, session.cwd, session.setup.trusted);
+      if (typeof result === "object") {
+        console.error(`cycle: folder trust not recorded for ${session.cwd}: ${result.failed}`);
+      }
+    }
     const queue: SDKUserMessage[] = [];
     let wake: (() => void) | undefined;
     let closed = false;
