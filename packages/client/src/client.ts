@@ -470,6 +470,11 @@ export class CycleClient {
 
   async #connectOnce(): Promise<void> {
     const channel = await this.#options.connect();
+    // Closed while dialling: a channel that arrives now is nobody's, and must not bring it back.
+    if (this.#closing) {
+      channel.close();
+      throw new Error("The client was closed");
+    }
     const app = acpClient({ name: this.#options.name ?? "cycle-client" })
       .onNotification(methods.client.session.update, ({ params }) => {
         this.#onUpdate(params.sessionId, params.update, seqOf(params._meta));
@@ -540,6 +545,11 @@ export class CycleClient {
       if (said === "") throw error;
       throw new Error(said, { cause: error });
     }
+    // Closed while the daemon was being greeted: the same.
+    if (this.#closing) {
+      channel.close();
+      throw new Error("The client was closed");
+    }
     this.#channel = channel;
     this.#agent = connection.agent;
     void connection.closed.then(() => this.#lost(channel));
@@ -598,9 +608,12 @@ export class CycleClient {
             this.#events.gone?.(sessionId);
           }
         }
+        if (this.#closing) return;
         this.#setState("connected");
         return;
       } catch (error) {
+        // Closed meanwhile: it stays closed, and does not go back to reconnecting.
+        if (this.#closing) return;
         this.#agent = undefined;
         this.#channel?.close();
         this.#channel = undefined;
