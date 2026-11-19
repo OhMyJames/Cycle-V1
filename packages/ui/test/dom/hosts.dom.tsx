@@ -86,9 +86,10 @@ test("a host that is away: its sessions stay, greyed and saying why, and it can 
   expect(greyed[0]?.getAttribute("data-environment")).toBe("far");
   expect(greyed[0]?.getAttribute("title")).toBe("Build box · Not connected");
   // The sidebar says which environment, and how it stands, with a way to try again.
-  const status = screen.getByText(/Build box · Not connected/, {
-    selector: '[data-slot="environment-state"]',
-  });
+  const status = screen
+    .getByText("Build box · Not connected", { selector: '[data-slot="environment-name"]' })
+    .closest<HTMLElement>('[data-slot="environment-state"]');
+  if (status === null) throw new Error("no state row for the environment");
   await user.click(within(status).getByRole("button", { name: "Retry" }));
   expect(named("connect")).toEqual([["connect", "far"]]);
 });

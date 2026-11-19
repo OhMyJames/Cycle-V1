@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
+  CLAUDE_MODELS,
   CLAUDE_PERMISSION_MODES,
   CLAUDE_PROMPT_CAPABILITIES,
   DEFAULT_PERMISSION_MODE,
@@ -26,7 +27,7 @@ export const CLAUDE_CONFIG_SCHEMA = {
     model: {
       type: "string",
       title: "Model",
-      enum: ["default", "sonnet", "opus", "haiku"],
+      oneOf: CLAUDE_MODELS.map((m) => ({ const: m.value, title: m.name })),
       default: "default",
     },
   },

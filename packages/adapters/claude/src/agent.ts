@@ -61,9 +61,12 @@ export type AdapterConfig = {
 
 export type SessionInfo = { summary?: string; customTitle?: string; firstPrompt?: string };
 
-/** The models offered. Aliases: Claude Code resolves them to whatever is current. */
-const MODELS = [
-  { value: "default", name: "Default" },
+/**
+ * The models offered. Aliases: Claude Code resolves them to whatever is current. The daemon's `configSchema` is built
+ * from this list too. "Default model", not "Default": the name is shown alone, beside the message box.
+ */
+export const CLAUDE_MODELS = [
+  { value: "default", name: "Default model" },
   { value: "sonnet", name: "Sonnet" },
   { value: "opus", name: "Opus" },
   { value: "haiku", name: "Haiku" },
@@ -193,9 +196,9 @@ type SessionState = {
 };
 
 const modelOptions = (session: SessionState) =>
-  session.model === undefined || MODELS.some((m) => m.value === session.model)
-    ? MODELS
-    : [...MODELS, { value: session.model, name: session.model }];
+  session.model === undefined || CLAUDE_MODELS.some((m) => m.value === session.model)
+    ? CLAUDE_MODELS
+    : [...CLAUDE_MODELS, { value: session.model, name: session.model }];
 
 const configOptions = (session: SessionState): SessionConfigOption[] =>
   [

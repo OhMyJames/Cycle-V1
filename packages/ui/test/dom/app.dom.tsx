@@ -383,12 +383,93 @@ test("a session's setting with nothing on record is not shown as today's default
     },
   });
   await openFirstSession(user);
-  await user.click(await screen.findByRole("button", { name: "Settings" }));
+  // With the rest of the session's settings, in the message box.
+  await user.click(await screen.findByRole("button", { name: "Session settings" }));
   const dialog = await screen.findByRole("dialog");
   const trigger = within(dialog).getByRole("combobox", { name: "Permission mode" });
   // An older session may run in another mode than new ones start in: say nothing rather than guess.
   expect(trigger.textContent).toContain("Not set");
   expect(trigger.textContent).not.toContain("Auto");
+});
+
+test("a setting the schema does not list is shown as it is, not as Not set", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.sessions = async () => [
+        { ...summary("s1"), config: { model: "claude-opus-4-5" } },
+      ];
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          configSchema: {
+            type: "object",
+            properties: {
+              model: { type: "string", title: "Model", oneOf: [{ const: "opus", title: "Opus" }] },
+            },
+          },
+        },
+      ];
+    },
+  });
+  await openFirstSession(user);
+  await screen.findByRole("button", { name: "Model: claude-opus-4-5" });
+  expect(screen.getByRole("button", { name: "Session settings" })).toBeTruthy();
+});
+
+test("an agent with nothing to set has no settings in the message box", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.agents = async () => [
+        { id: "fake", name: "Fake", available: true, configSchema: { type: "object" } },
+      ];
+    },
+  });
+  await openFirstSession(user);
+  await screen.findByRole("textbox", { name: "Message" });
+  expect(screen.queryByRole("button", { name: "Session settings" })).toBeNull();
+});
+
+test("the session's settings are at hand under the message box, and a choice there is sent", async () => {
+  const { user, named } = await mount({
+    configure: (script) => {
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          configSchema: {
+            type: "object",
+            properties: {
+              mode: {
+                type: "string",
+                title: "Permission mode",
+                oneOf: [
+                  { const: "auto", title: "Auto" },
+                  { const: "plan", title: "Plan mode", description: "Changes nothing." },
+                ],
+                default: "auto",
+              },
+              // Text is not a choice: it stays in Session settings.
+              prompt: { type: "string", title: "System prompt" },
+            },
+          },
+        },
+      ];
+    },
+  });
+  await openFirstSession(user);
+  // Nothing on record: said so, not shown as the default.
+  const chip = await screen.findByRole("button", { name: "Permission mode: Not set" });
+  expect(screen.queryByRole("button", { name: /System prompt/ })).toBeNull();
+  await user.click(chip);
+  await user.click(await screen.findByRole("menuitemradio", { name: /Plan mode/ }));
+  await waitFor(() =>
+    expect(named("setSessionConfig")).toEqual([
+      ["setSessionConfig", "local", "s1", "mode", "plan"],
+    ]),
+  );
 });
 
 test("deleting a session asks first", async () => {
@@ -447,8 +528,8 @@ test("the colours of code can be chosen, and the choice is kept", async () => {
   const { user } = await mount();
   try {
     expect(codeTheme.get()).toBe("github");
-    await user.click(await screen.findByRole("combobox", { name: "Code colours" }));
-    await user.click(await screen.findByRole("option", { name: "Catppuccin" }));
+    await user.click(await screen.findByRole("button", { name: "App settings" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Catppuccin" }));
     await waitFor(() => expect(codeTheme.get()).toBe("catppuccin"));
     expect(localStorage.getItem("cycle-code-theme")).toBe("catppuccin");
   } finally {
@@ -631,9 +712,13 @@ test("an update that is found is offered, asks before it restarts, and the foote
   ).toBeGreaterThan(0);
   // No button to start it again while it works, and no second check.
   expect(screen.queryByRole("button", { name: "Update and restart" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "App settings" }));
   expect(
-    (screen.getByRole("button", { name: "Check for updates" }) as HTMLButtonElement).disabled,
-  ).toBe(true);
+    (await screen.findByRole("menuitem", { name: "Check for updates" })).getAttribute(
+      "aria-disabled",
+    ),
+  ).toBe("true");
+  await user.keyboard("{Escape}");
 
   await emit({
     type: "app-update",
@@ -643,7 +728,8 @@ test("an update that is found is offered, asks before it restarts, and the foote
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 
   await emit({ type: "app-update", state: { current: "0.1.0", kind: "up-to-date", checkedAt: 0 } });
-  await user.click(screen.getByRole("button", { name: "Check for updates" }));
+  await user.click(screen.getByRole("button", { name: "App settings" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Check for updates" }));
   expect(named("checkForUpdate")).toHaveLength(1);
 });
 
@@ -680,13 +766,15 @@ test("a host that cannot be reached says why, not only that it is not connected"
 });
 
 test("a development run says updates are for the installed app and offers no check", async () => {
-  const { emit } = await mount();
+  const { emit, user } = await mount();
   await emit({
     type: "app-update",
     state: { current: "0.0.0", kind: "disabled", reason: "Updates are for the installed app." },
   });
   expect(screen.getByText("Updates are for the installed app.")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "App settings" }));
+  await screen.findByRole("menuitemradio", { name: "GitHub" });
+  expect(screen.queryByRole("menuitem", { name: "Check for updates" })).toBeNull();
 });
 
 const queueUpdate = (version: number, entries: object[], extra: object = {}) => ({

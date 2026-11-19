@@ -22,10 +22,12 @@ import { mentionQuery, mentionRow } from "../mention.ts";
 import type { Status } from "../model/conversation.ts";
 import { type QueuedPrompt, textOf } from "../model/index.ts";
 import { commandText, filterCommands, slashQuery } from "../slash.ts";
+import { propertiesOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
-import { AttachIcon, CloseIcon } from "./icons.tsx";
+import { AttachIcon, CloseIcon, SettingsIcon } from "./icons.tsx";
 import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
 import { optionId, PickerMenu, type PickerRow } from "./picker-menu.tsx";
+import { SettingChips, type SettingsOf } from "./setting-chips.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 
 export type ComposerProps = {
@@ -42,6 +44,11 @@ export type ComposerProps = {
   canAttach?: boolean;
   /** A message was sent from the box (not yet known to have arrived): the conversation follows it. */
   onSent?: () => void;
+  /** The session's settings and the agent's schema for them; the choices among them are offered under the input. */
+  settings?: SettingsOf | undefined;
+  onSetting?: (key: string, value: string) => void;
+  /** Opens every setting of the session, the ones that are not a choice too. */
+  onOpenSettings?: () => void;
 };
 
 /** What a box with no conversation behind it has of a list: one array, so that reading it twice is the same value. */
@@ -76,6 +83,9 @@ export function Composer({
   activity,
   canAttach = false,
   onSent,
+  settings,
+  onSetting,
+  onOpenSettings,
 }: ComposerProps) {
   const { t, number } = useI18n();
   const store = useAppStore();
@@ -384,57 +394,33 @@ export function Composer({
           })}
         </ul>
       ) : null}
-      {attachments.length > 0 ? (
-        <ul data-slot="attachments" aria-label={t("composer.attached")}>
-          {attachments.map((a) => (
-            <li key={a.id} data-slot="attachment">
-              <img src={`data:${a.type};base64,${a.data}`} alt="" />
-              <span data-slot="attachment-name">{a.name}</span>
-              <button
-                type="button"
-                aria-label={t("composer.remove", { name: a.name })}
-                onClick={() =>
-                  store.drafts.setAttachments(
-                    sessionKey,
-                    store.drafts.get(sessionKey).attachments.filter((x) => x.id !== a.id),
-                  )
-                }
-              >
-                <CloseIcon size={12} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
       {problem !== undefined ? (
         <div data-slot="notice" data-severity="error" role="alert">
           {problem}
         </div>
       ) : null}
-      <div data-slot="composer-row">
-        {canAttach ? (
-          <>
-            <Button
-              data-variant="ghost"
-              aria-label={t("composer.attach")}
-              title={t("composer.attach")}
-              disabled={!enabled}
-              onClick={() => picker.current?.click()}
-            >
-              <AttachIcon />
-            </Button>
-            <input
-              ref={picker}
-              type="file"
-              hidden
-              multiple
-              accept={IMAGE_TYPES.join(",")}
-              onChange={(event) => {
-                void attach(imagesOf(event.currentTarget.files));
-                event.currentTarget.value = "";
-              }}
-            />
-          </>
+      <div data-slot="composer-box">
+        {attachments.length > 0 ? (
+          <ul data-slot="attachments" aria-label={t("composer.attached")}>
+            {attachments.map((a) => (
+              <li key={a.id} data-slot="attachment">
+                <img src={`data:${a.type};base64,${a.data}`} alt="" />
+                <span data-slot="attachment-name">{a.name}</span>
+                <button
+                  type="button"
+                  aria-label={t("composer.remove", { name: a.name })}
+                  onClick={() =>
+                    store.drafts.setAttachments(
+                      sessionKey,
+                      store.drafts.get(sessionKey).attachments.filter((x) => x.id !== a.id),
+                    )
+                  }
+                >
+                  <CloseIcon size={12} />
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : null}
         <div data-slot="composer-field">
           {menuOpen ? (
@@ -473,14 +459,62 @@ export function Composer({
             }}
           />
         </div>
-        {working ? (
-          <Button data-variant="outline" disabled={!connected} onClick={() => void store.cancel()}>
-            {t("composer.stop")}
+        <div data-slot="composer-toolbar">
+          {canAttach ? (
+            <>
+              <Button
+                data-variant="ghost"
+                aria-label={t("composer.attach")}
+                title={t("composer.attach")}
+                disabled={!enabled}
+                onClick={() => picker.current?.click()}
+              >
+                <AttachIcon />
+              </Button>
+              <input
+                ref={picker}
+                type="file"
+                hidden
+                multiple
+                accept={IMAGE_TYPES.join(",")}
+                onChange={(event) => {
+                  void attach(imagesOf(event.currentTarget.files));
+                  event.currentTarget.value = "";
+                }}
+              />
+            </>
+          ) : null}
+          {settings !== undefined && onSetting !== undefined ? (
+            <SettingChips settings={settings} disabled={!enabled || !connected} onSet={onSetting} />
+          ) : null}
+          {/* Every setting, also those that are text. Not there when the agent has none; open while the history loads. */}
+          {settings !== undefined &&
+          onOpenSettings !== undefined &&
+          propertiesOf(settings.schema).length > 0 ? (
+            <Button
+              data-variant="ghost"
+              aria-label={t("session.settings")}
+              title={t("session.settings")}
+              disabled={!connected}
+              onClick={onOpenSettings}
+            >
+              <SettingsIcon />
+            </Button>
+          ) : null}
+          <span data-slot="composer-spacer" />
+          {working ? (
+            <Button
+              data-variant="outline"
+              disabled={!connected}
+              onClick={() => void store.cancel()}
+            >
+              {t("composer.stop")}
+            </Button>
+          ) : null}
+          <Button data-variant="solid" disabled={!canSend} onClick={send}>
+            {working && canQueue ? t("composer.queue") : t("composer.send")}
           </Button>
-        ) : null}
-        <Button data-variant="solid" disabled={!canSend} onClick={send}>
-          {working && canQueue ? t("composer.queue") : t("composer.send")}
-        </Button>
+        </div>
       </div>
     </div>
   );
