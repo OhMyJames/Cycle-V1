@@ -59,32 +59,42 @@ export const listenUnix = async (options: {
     if (await isListening(path)) throw new AlreadyRunningError(path);
     await rm(path, { force: true });
   }
-  const server = Bun.listen<{ adapter: SocketAdapter }>({
-    unix: path,
-    socket: {
-      open(socket) {
-        const adapter = new SocketAdapter();
-        adapter.attach(socket);
-        socket.data = { adapter };
-        options.onConnection({
-          stream: ndJsonStream(adapter.writable, adapter.readable),
-          close: () => socket.end(),
-        });
-      },
-      data(socket, chunk) {
-        socket.data.adapter.data(chunk);
-      },
-      drain(socket) {
-        socket.data.adapter.drain();
-      },
-      close(socket) {
-        socket.data.adapter.close();
-      },
-      error(socket) {
-        socket.data.adapter.close();
-      },
-    },
-  });
+  // Born private: with the folder not ours to make private, there is no moment between the bind and
+  // the chmod in which the socket is open to others. Bun.listen binds at once, so the umask is
+  // back before anything else runs.
+  const before = process.umask(0o177);
+  const server = (() => {
+    try {
+      return Bun.listen<{ adapter: SocketAdapter }>({
+        unix: path,
+        socket: {
+          open(socket) {
+            const adapter = new SocketAdapter();
+            adapter.attach(socket);
+            socket.data = { adapter };
+            options.onConnection({
+              stream: ndJsonStream(adapter.writable, adapter.readable),
+              close: () => socket.end(),
+            });
+          },
+          data(socket, chunk) {
+            socket.data.adapter.data(chunk);
+          },
+          drain(socket) {
+            socket.data.adapter.drain();
+          },
+          close(socket) {
+            socket.data.adapter.close();
+          },
+          error(socket) {
+            socket.data.adapter.close();
+          },
+        },
+      });
+    } finally {
+      process.umask(before);
+    }
+  })();
   await chmod(path, 0o600);
   return {
     close: () => {
