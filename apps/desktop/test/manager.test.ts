@@ -7,7 +7,7 @@ import { type Channel, connectUnix } from "@cycle/transport/client";
 import { listenUnix } from "@cycle/transport/server";
 import { type AppEvent, applyUpdate, type EnvironmentConfig, emptyConversation } from "@cycle/ui";
 import { fakeAgent } from "../../../packages/daemon/test/fake-agent.ts";
-import { type AttentionNotice, ConnectionManager } from "../src/main/manager.ts";
+import { type AttentionNotice, ConnectionManager, type Tracker } from "../src/main/manager.ts";
 import { fileSettings, LOCAL_ENVIRONMENT } from "../src/main/settings.ts";
 
 let dir: string;
@@ -52,6 +52,7 @@ const setup = async (fake = fakeAgent(), daemonVersion?: string) => {
     name = "app",
     appVersion?: string,
     attention?: (notice: AttentionNotice) => void,
+    track?: Tracker,
   ) => {
     const events: AppEvent[] = [];
     const m = new ConnectionManager({
@@ -66,6 +67,7 @@ const setup = async (fake = fakeAgent(), daemonVersion?: string) => {
       backoff: { first: 10, max: 50 },
       ...(appVersion !== undefined ? { appVersion } : {}),
       ...(attention !== undefined ? { attention } : {}),
+      ...(track !== undefined ? { track } : {}),
     });
     await m.init();
     cleanup.push(() => m.close());
@@ -686,4 +688,150 @@ test("a session says when it last had something happen", async () => {
   await said(m, await m.createSession("local", { cwd: "/tmp" }));
   const [session] = await m.sessions("local");
   expect(Number.isNaN(Date.parse(session?.updatedAt ?? ""))).toBe(false);
+});
+
+// ---- what is reported about use (docs/analytics.md): how it is used, never what is said ----
+
+test("what a person does is reported as counts and words, and never as what they wrote", async () => {
+  const secret = "my password is hunter2 and the repo is /home/me/secret-project";
+  const fake = fakeAgent(
+    {
+      onPrompt: async ({ ask }) => {
+        await ask();
+      },
+    },
+    { promptCapabilities: { image: {} } },
+  );
+  const { manager } = await setup(fake);
+  const reported: [string, unknown][] = [];
+  const { m, events } = await manager("app", undefined, undefined, (name, props) =>
+    reported.push([name, props]),
+  );
+  await m.connect("local");
+  const cwd = join(dir, "secret-project");
+  await mkdir(cwd);
+  const id = await m.createSession("local", { cwd, config: { mode: "plan" } });
+  await m.openSession("local", id);
+  await m.prompt("local", id, [
+    { type: "text", text: secret },
+    { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
+    { type: "resource_link", name: "secret.ts", uri: "file:///home/me/secret-project/secret.ts" },
+  ]);
+  await until(() => of(events, "permission").length === 1, "the request");
+  await m.answerPermission(first(of(events, "permission")).request.key, "allow");
+  await m.setSessionConfig("local", id, "mode", "default");
+  await m.renameSession("local", id, "Project Nightshade");
+  await m.archiveSession("local", id, true);
+  await m.setAgentDefaults("local", "fake", { mode: "plan" });
+  await m.deleteSession("local", id);
+
+  const named = (name: string) => reported.filter(([n]) => n === name).map(([, p]) => p);
+  expect(named("environment_connection")).toEqual([{ kind: "local", state: "connected" }]);
+  expect(named("session_created")).toEqual([
+    { agent: "other", environment: "local", configured: true },
+  ]);
+  expect(named("session_opened")).toEqual([{ agent: "other", environment: "local" }]);
+  expect(named("prompt_sent")).toEqual([
+    { agent: "other", environment: "local", size: "short", images: 1, mentions: 1, steered: false },
+  ]);
+  expect(named("permission_answered")).toEqual([{ outcome: "allowed", remembered: false }]);
+  expect(named("session_config_changed")).toEqual([{ setting: "mode" }]);
+  expect(named("session_renamed")).toEqual([{}]);
+  expect(named("session_archived")).toEqual([{ archived: true }]);
+  expect(named("agent_defaults_saved")).toEqual([{ agent: "other" }]);
+  expect(named("session_deleted")).toEqual([{}]);
+
+  // Whatever was said, wherever it is: nothing of it is in what was reported.
+  const everything = JSON.stringify(reported);
+  for (const content of ["hunter2", "secret-project", "secret.ts", "Nightshade", id, "fake"])
+    expect(everything).not.toContain(content);
+});
+
+test("a refused answer or a failing call reports nothing", async () => {
+  const { manager } = await setup();
+  const reported: string[] = [];
+  const { m } = await manager("app", undefined, undefined, (name) => void reported.push(name));
+  await m.connect("local");
+  await expect(m.renameSession("local", "no-such-session", "x")).rejects.toThrow();
+  await expect(
+    m.saveEnvironment({
+      id: "x",
+      name: "x",
+      kind: "remote",
+      transport: { type: "ssh", host: "-oProxyCommand=x" },
+    }),
+  ).rejects.toThrow();
+  expect(reported).toEqual(["environment_connection"]);
+});
+
+test("a host that cannot be reached is reported as closed, and a removed one by its kind", async () => {
+  const { manager, held } = await setup();
+  const reported: [string, unknown][] = [];
+  const { m } = await manager("away", undefined, undefined, (name, props) =>
+    reported.push([name, props]),
+  );
+  held.add("away");
+  await expect(m.connect("local")).rejects.toThrow();
+  expect(reported).toEqual([["environment_connection", { kind: "local", state: "closed" }]]);
+  const far: EnvironmentConfig = {
+    id: "far",
+    name: "Far",
+    kind: "remote",
+    transport: { type: "ssh", host: "far" },
+  };
+  await m.saveEnvironment(far);
+  await m.removeEnvironment("far");
+  expect(reported.slice(1)).toEqual([
+    ["environment_saved", { transport: "ssh" }],
+    ["environment_removed", { kind: "remote" }],
+  ]);
+});
+
+test("what wants the person is reported even when nothing shows a notification", async () => {
+  const { manager } = await setup(
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        await ask();
+      },
+    }),
+  );
+  const reported: [string, unknown][] = [];
+  const { m, events } = await manager("app", undefined, undefined, (name, props) =>
+    reported.push([name, props]),
+  );
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  await m.openSession("local", id);
+  await m.prompt("local", id, "ask");
+  await until(() => of(events, "permission").length === 1, "the request");
+  await m.answerPermission(first(of(events, "permission")).request.key, "allow");
+  await until(
+    () => reported.filter(([n]) => n === "session_attention").length === 2,
+    "both reports",
+  );
+  expect(reported.filter(([n]) => n === "session_attention").map(([, p]) => p)).toEqual([
+    { kind: "needs-you" },
+    { kind: "finished" },
+  ]);
+});
+
+test("an answer that is not one of the offered options is not counted as another kind", async () => {
+  const { manager } = await setup(
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        await ask();
+      },
+    }),
+  );
+  const reported: [string, unknown][] = [];
+  const { m, events } = await manager("app", undefined, undefined, (name, props) =>
+    reported.push([name, props]),
+  );
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  await m.openSession("local", id);
+  await m.prompt("local", id, "ask");
+  await until(() => of(events, "permission").length === 1, "the request");
+  await m.answerPermission(first(of(events, "permission")).request.key, "not-an-option");
+  expect(reported.filter(([n]) => n === "permission_answered")).toEqual([]);
 });

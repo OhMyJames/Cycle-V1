@@ -47,6 +47,7 @@ git worktree、终端、diff 视图、多 provider、Web 端。
 - [docs/architecture.md](docs/architecture.md):架构与分层
 - [docs/protocol.md](docs/protocol.md):协议规范(草稿)
 - [docs/desktop.md](docs/desktop.md):桌面客户端:构建、结构、安全设置、已知缺口
+- [docs/analytics.md](docs/analytics.md):产品埋点:规则、事件字典、怎么给新功能加埋点
 - [docs/daemon.md](docs/daemon.md):daemon:做了什么、没做什么、验证结果
 - [docs/adapters/claude.md](docs/adapters/claude.md):Claude 适配:做了什么、没做什么、验证结果
 - [docs/decisions/](docs/decisions/):设计决策记录

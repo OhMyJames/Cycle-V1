@@ -146,8 +146,9 @@ const NODE = /^(?:node:|bun(?::|$)|electron(?:\/|$))/;
 const BUILTINS = builtinModules.filter((m) => !m.startsWith("_"));
 const isBuiltin = (name: string) => BUILTINS.some((m) => name === m || name.startsWith(`${m}/`));
 // Packages that run in the daemon or the main process: the page has no business with them.
+// The analytics package may be reached for its dictionary (`@cycle/analytics/events`, for types), not for PostHog.
 const BACKEND =
-  /^@cycle\/(?:daemon|daemon-app|client|transport|protocol|desktop)(?:\/|$)|^@cycle\/adapter/;
+  /^@cycle\/(?:daemon|daemon-app|client|transport|protocol|desktop)(?:\/|$)|^@cycle\/adapter|^@cycle\/analytics(?:$|\/posthog)/;
 
 const isRelative = (name: string) => name.startsWith(".");
 

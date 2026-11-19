@@ -1,0 +1,62 @@
+import { afterEach, expect, test } from "bun:test";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { AnalyticsStatus } from "../../src/api.ts";
+import { App, StoreProvider } from "../../src/react/index.ts";
+import { AppStore } from "../../src/store/index.ts";
+import { fakeBridge } from "../fake-bridge.ts";
+
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
+
+const mount = async (analytics?: AnalyticsStatus) => {
+  const script = fakeBridge({ connected: true, ...(analytics ? { analytics } : {}) });
+  const store = new AppStore(script.bridge);
+  render(
+    <StoreProvider store={store}>
+      <App />
+    </StoreProvider>,
+  );
+  await act(() => store.start());
+  return { user: userEvent.setup(), ...script };
+};
+const tracked = (calls: [string, ...unknown[]][]) =>
+  calls.filter(([name]) => name === "track").map(([, event, props]) => [event, props]);
+
+test("the first time, it says what is counted and what is not, and either button is an answer", async () => {
+  const { user, calls } = await mount({ available: true, enabled: true, noticed: false });
+  await screen.findByText(/never sends what you write/);
+  await user.click(screen.getByRole("button", { name: "Turn off" }));
+  await waitFor(() => expect(screen.queryByText(/never sends what you write/)).toBeNull());
+  expect(calls.filter(([name]) => name === "setAnalytics")).toEqual([["setAnalytics", false]]);
+  // The settings menu offers the way back, so it shows what was answered.
+  await user.click(await screen.findByRole("button", { name: "App settings" }));
+  await screen.findByRole("menuitem", { name: "Turn on usage statistics" });
+});
+
+test("a person who was told is not told again, and can turn it off and on from the settings menu", async () => {
+  const { user, calls } = await mount({ available: true, enabled: true, noticed: true });
+  expect(screen.queryByText(/never sends what you write/)).toBeNull();
+  await user.click(await screen.findByRole("button", { name: "App settings" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Turn off usage statistics" }));
+  await waitFor(() =>
+    expect(calls.filter(([n]) => n === "setAnalytics")).toEqual([["setAnalytics", false]]),
+  );
+  await user.click(await screen.findByRole("button", { name: "App settings" }));
+  await screen.findByRole("menuitem", { name: "Turn on usage statistics" });
+});
+
+test("with nowhere to report to, neither the notice nor the switch is shown", async () => {
+  await mount({ available: false, enabled: false, noticed: false });
+  expect(screen.queryByText(/never sends what you write/)).toBeNull();
+  await userEvent.setup().click(await screen.findByRole("button", { name: "App settings" }));
+  expect(screen.queryByRole("menuitem", { name: /usage statistics/ })).toBeNull();
+});
+
+test("opening the search from the sidebar is counted, with how it was opened", async () => {
+  const { user, calls } = await mount();
+  await user.click(await screen.findByRole("button", { name: /Search/ }));
+  expect(tracked(calls)).toEqual([["panel_opened", { panel: "search", via: "click" }]]);
+});

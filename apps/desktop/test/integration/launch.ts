@@ -62,6 +62,7 @@ export const launch = async (options: Launch) => {
         PATH: process.env.PATH ?? "",
         HOME: options.home,
         ELECTRON_ENABLE_LOGGING: "0",
+        CYCLE_ANALYTICS: "off",
         SMOKE_RENDERER: join(dist, "renderer"),
         SMOKE_PRELOAD: join(dist, "preload.cjs"),
         SMOKE_DAEMON: JSON.stringify(options.daemon),

@@ -1,7 +1,9 @@
 // The renderer's state, and what it does about events and clicks. Plain TypeScript, no React: React
 // only reads it (useSyncExternalStore) and calls its methods, so it is tested with a fake bridge.
+import type { EventProps, UiEventName } from "@cycle/analytics/events";
 import type {
   AgentInfo,
+  AnalyticsStatus,
   AppEvent,
   CycleBridge,
   EnvironmentConfig,
@@ -79,6 +81,8 @@ export type AppState = {
   error: string | undefined;
   /** The app's own updating. Undefined until main has said. */
   update: UpdateState | undefined;
+  /** Whether the app reports how it is used (docs/analytics.md). Undefined until main has said. */
+  analytics: AnalyticsStatus | undefined;
 };
 
 const initial = (): AppState => ({
@@ -94,6 +98,7 @@ const initial = (): AppState => ({
   views: {},
   error: undefined,
   update: undefined,
+  analytics: undefined,
 });
 
 const messageOf = (error: unknown): string => {
@@ -152,6 +157,7 @@ export class AppStore {
       // An event that came while this was asked is newer than the answer.
       this.#set((s) => (s.update === undefined ? { update } : {}));
     });
+    void this.#attempt(async () => this.#set({ analytics: await this.#bridge.analytics() }));
     await this.#attempt(async () => {
       const { environments, status, sessions } = await this.#bridge.environments();
       this.#set({
@@ -763,6 +769,18 @@ export class AppStore {
 
   checkForUpdate = async (): Promise<void> => {
     await this.#attempt(async () => this.#set({ update: await this.#bridge.checkForUpdate() }));
+  };
+
+  /** The person's answer about usage statistics. */
+  setAnalytics = async (enabled: boolean): Promise<void> => {
+    await this.#attempt(async () =>
+      this.#set({ analytics: await this.#bridge.setAnalytics(enabled) }),
+    );
+  };
+
+  /** Reports what only the page can see (a panel opened, a theme chosen). Never waits and never fails. */
+  track = <N extends UiEventName>(name: N, props: EventProps<N>): void => {
+    void this.#bridge.track(name, props).catch(() => undefined);
   };
 
   /** Main says how it goes through app-update events; an error it throws is shown as any other. */

@@ -573,3 +573,21 @@ test("a first message that could not go after the person left is kept in the bla
   expect(store.drafts.get(BLANK_KEY).text).toBe("hi");
   expect(store.drafts.get(viewKey("local", "s2")).text).toBe("");
 });
+
+test("what the page counts goes to main as it is, and a failing report is not the page's trouble", async () => {
+  const script = fakeBridge({ connected: true });
+  const store = new AppStore(script.bridge, new DraftStore(undefined));
+  await store.start();
+  store.track("panel_opened", { panel: "search", via: "shortcut" });
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([
+    ["track", "panel_opened", { panel: "search", via: "shortcut" }],
+  ]);
+
+  const broken = fakeBridge({ connected: true });
+  broken.bridge.track = () => Promise.reject(new Error("main is gone"));
+  const other = new AppStore(broken.bridge, new DraftStore(undefined));
+  await other.start();
+  expect(() => other.track("slash_command_used", {})).not.toThrow();
+  await Bun.sleep(0);
+  expect(other.getState().error).toBeUndefined();
+});

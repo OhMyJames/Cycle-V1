@@ -4,7 +4,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { posthogSink } from "@cycle/analytics/posthog";
+import { app } from "electron";
+import { POSTHOG_HOST } from "../shared/posthog.ts";
 import { RELEASE_REPO } from "../shared/release.ts";
+import {
+  fileAnalyticsStore,
+  optedOutByEnvironment,
+  projectOf,
+  startAnalytics,
+} from "./analytics.ts";
 import { startApp } from "./app.ts";
 import { localHome } from "./home.ts";
 import { BUILD_FILE, daemonCommand, loginShellPath } from "./layout.ts";
@@ -51,7 +60,25 @@ const main = async () => {
     // else the daemon's default, which is the installed app's.
     ...(dataHome !== undefined ? { CYCLE_HOME: dataHome } : {}),
   };
+  const info = buildInfo();
+  // Reported to only with a project (the build has one, or the environment names one), and never against what the person
+  // said: the environment's opt-out is checked here, before anything is made.
+  const project = optedOutByEnvironment(env) ? undefined : projectOf(info, env);
+  const analytics = await startAnalytics({
+    store: fileAnalyticsStore(join(app.getPath("userData"), "analytics.json")),
+    sink:
+      project === undefined
+        ? undefined
+        : () => posthogSink({ apiKey: project.key, host: project.host ?? POSTHOG_HOST }),
+    context: {
+      app_version: info?.version ?? "dev",
+      platform: process.platform,
+      arch: process.arch,
+    },
+    onDrop: (name, reason) => console.warn(`[analytics] ${name} not sent: ${reason}`),
+  });
   await startApp({
+    analytics,
     rendererDir: join(here, "renderer"),
     preloadPath: join(here, "preload.cjs"),
     localCommand: [...daemon, "proxy"],
@@ -59,6 +86,10 @@ const main = async () => {
     update: updateDeps(daemon, localEnv),
   });
 };
+
+/** What the build recorded about itself (`package`), or nothing in a run from source. */
+const buildInfo = (): { version: string; posthogKey?: string; posthogHost?: string } | undefined =>
+  packaged ? JSON.parse(readFileSync(join(here, "..", BUILD_FILE), "utf8")) : undefined;
 
 const localRelease = (url: string | undefined) => {
   if (url === undefined) return {};

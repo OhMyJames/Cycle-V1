@@ -227,6 +227,14 @@ export const enUS = {
   // The menu at the foot of the sidebar: what belongs to the app, not to a session or an environment
   "app.settings": "App settings",
   "app.checkForUpdates": "Check for updates",
+  "app.analyticsOff": "Turn off usage statistics",
+  "app.analyticsOn": "Turn on usage statistics",
+
+  // Said once, the first time: what is counted, and that it can be turned off (docs/analytics.md)
+  "analytics.notice":
+    "Cycle counts which features are used, to improve them. It never sends what you write, your files, or their names. You can turn this off at any time in the settings menu at the bottom of the sidebar.",
+  "analytics.turnOff": "Turn off",
+  "analytics.keepOn": "Keep on",
 } as const satisfies Messages;
 
 export type MessageKey = keyof typeof enUS;

@@ -79,6 +79,7 @@ test.skipIf(!ready)(
         [
           "agentDefaults",
           "agents",
+          "analytics",
           "answerPermission",
           "archiveSession",
           "cancel",
@@ -103,8 +104,10 @@ test.skipIf(!ready)(
           "searchFiles",
           "sessions",
           "setAgentDefaults",
+          "setAnalytics",
           "setSessionConfig",
           "setTrust",
+          "track",
           "updateState",
         ].sort(),
       );

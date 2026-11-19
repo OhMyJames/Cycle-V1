@@ -1,3 +1,4 @@
+export * from "./analytics.tsx";
 export * from "./app.tsx";
 export * from "./code-theme-picker.tsx";
 export * from "./composer.tsx";

@@ -65,6 +65,24 @@ for await (const file of sources.scan({ cwd: root })) {
       failures.push(`app.css defines ${token}, which DESIGN.md does not mention`);
 }
 
+// The dictionary of analytics events and its document agree: an event nobody wrote down is one nobody can review for what it
+// sends, and one written down that is not in the dictionary is a promise nothing keeps.
+{
+  const { EVENTS } = await import("../packages/analytics/src/events.ts");
+  const document = await Bun.file(`${root}docs/analytics.md`).text();
+  const written = new Set(
+    Array.from(document.matchAll(/^\| `([a-z_]+)`/gm), (m) => m[1] as string),
+  );
+  for (const name of Object.keys(EVENTS))
+    if (!written.has(name))
+      failures.push(
+        `packages/analytics/src/events.ts has ${name}, which docs/analytics.md does not list`,
+      );
+  for (const name of written)
+    if (!(name in EVENTS))
+      failures.push(`docs/analytics.md lists ${name}, which the dictionary does not have`);
+}
+
 // New interface text goes in the message catalog, not in the markup (decision 0012). The count of what is still in the markup
 // may only go down; the script says which file got worse.
 {

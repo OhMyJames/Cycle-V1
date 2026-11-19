@@ -1,7 +1,8 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { isUiEvent } from "@cycle/analytics/events";
 import { commandChannel, sshChannel } from "@cycle/transport/client";
-import { createTranslator, enUS, SOURCE_LOCALE } from "@cycle/ui";
+import { createTranslator, enUS, SOURCE_LOCALE, type UpdateState } from "@cycle/ui";
 import {
   API_METHODS,
   type AppEvent,
@@ -10,6 +11,7 @@ import {
   EVENT_CHANNEL,
 } from "@cycle/ui/api";
 import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from "electron";
+import { type AnalyticsControl, offAnalytics } from "./analytics.ts";
 import { notifyAttention } from "./attention.ts";
 import { ConnectionManager } from "./manager.ts";
 import { fileSettings } from "./settings.ts";
@@ -25,8 +27,31 @@ export type AppOptions = {
   localEnv: Record<string, string>;
   /** Show the window. A test turns it off. */
   show?: boolean;
+  /** What the app reports about how it is used (docs/analytics.md). Without it, nothing is. */
+  analytics?: AnalyticsControl;
   /** How the app updates itself. Without it, updating is off. */
   update?: Omit<UpdaterDeps, "emit" | "quit">;
+};
+
+/** What asking for an update came to, in the words of the dictionary; the states that are not an answer say nothing. */
+const updateResult = (
+  kind: UpdateState["kind"],
+): "available" | "up_to_date" | "error" | "disabled" | undefined => {
+  switch (kind) {
+    case "available":
+      return "available";
+    case "up-to-date":
+      return "up_to_date";
+    case "error":
+      return "error";
+    case "disabled":
+      return "disabled";
+    case "idle":
+    case "checking":
+    case "downloading":
+    case "installing":
+      return undefined;
+  }
 };
 
 const isWeb = (url: string): boolean => {
@@ -56,6 +81,9 @@ export const startApp = async (options: AppOptions) => {
   const indexUrl = pathToFileURL(join(options.rendererDir, "index.html")).href;
   let window: BrowserWindow | undefined;
 
+  const usage = options.analytics ?? offAnalytics;
+  const { analytics } = usage;
+
   const emit = (event: AppEvent) => {
     if (window !== undefined && !window.isDestroyed())
       window.webContents.send(EVENT_CHANNEL, event);
@@ -65,6 +93,7 @@ export const startApp = async (options: AppOptions) => {
     settings: fileSettings(join(app.getPath("userData"), "settings.json")),
     channelFor: channelFor(options),
     emit,
+    track: (name, props) => analytics.track(name, props),
     attention: notifyAttention({
       window: () => window,
       supported: () => Notification.isSupported(),
@@ -81,6 +110,12 @@ export const startApp = async (options: AppOptions) => {
     },
   });
   await manager.init();
+  analytics.track("app_launched", {
+    remote_environments: (await manager.environments()).environments.filter(
+      (e) => e.kind === "remote",
+    ).length,
+    first_run: usage.first,
+  });
 
   const updater = new Updater({
     ...(options.update ?? {
@@ -98,8 +133,23 @@ export const startApp = async (options: AppOptions) => {
   });
   const methods: Record<string, (...a: unknown[]) => unknown> = {
     updateState: () => updater.state,
-    checkForUpdate: () => updater.check(true),
-    installUpdate: () => updater.install(),
+    checkForUpdate: async () => {
+      const state = await updater.check(true);
+      const result = updateResult(state.kind);
+      if (result !== undefined) analytics.track("update_checked", { result });
+      return state;
+    },
+    installUpdate: () => {
+      analytics.track("update_install_started", {});
+      return updater.install();
+    },
+    // From the page, so only what the page may say, and checked: anything else is dropped.
+    track: (event: unknown, props: unknown) => {
+      if (typeof event === "string" && isUiEvent(event))
+        analytics.trackUnchecked(event, props ?? {});
+    },
+    analytics: () => usage.status(),
+    setAnalytics: (enabled: unknown) => usage.set(enabled === true),
   };
 
   // Only our own page may ask main for anything.
@@ -160,9 +210,16 @@ export const startApp = async (options: AppOptions) => {
   }
 
   app.on("window-all-closed", () => app.quit());
-  app.on("before-quit", () => {
+  // What is waiting to be reported goes out before the app ends, for as long as the sink allows (two seconds).
+  let flushed = false;
+  app.on("before-quit", (event) => {
     updater.stop();
     void manager.close();
+    // Also when it was just turned off: its last word may still be waiting.
+    if (flushed || !usage.status().available) return;
+    flushed = true;
+    event.preventDefault();
+    void analytics.shutdown().finally(() => app.quit());
   });
   return { window, manager, contents, updater };
 };

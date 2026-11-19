@@ -32,6 +32,7 @@ import {
 } from "../sessions.ts";
 import { BLANK_KEY, viewKey } from "../store/index.ts";
 import { thinking } from "../thinking.ts";
+import { AnalyticsNotice } from "./analytics.tsx";
 import { BlankConversationView } from "./blank.tsx";
 import { Composer } from "./composer.tsx";
 import { ConfigForm } from "./config-form.tsx";
@@ -57,6 +58,17 @@ type Panel =
   | "settings"
   | "search"
   | "trust";
+
+/** The word each panel has in the dictionary of events (@cycle/analytics). */
+const PANEL_EVENT = {
+  search: "search",
+  "add-environment": "add_environment",
+  defaults: "defaults",
+  settings: "session_settings",
+  rename: "rename",
+  delete: "delete",
+  trust: "trust",
+} as const;
 
 function SessionSettings({ onClose }: { onClose: () => void }) {
   const store = useAppStore();
@@ -154,6 +166,11 @@ export function App() {
   const environmentError =
     selectedEnvironment !== undefined ? status[selectedEnvironment]?.error : undefined;
   const close = () => setPanel("none");
+  // Opens a panel, and counts that it was opened (which one, and whether by a key).
+  const open = (next: Exclude<Panel, "none">, via: "click" | "shortcut" = "click") => {
+    setPanel(next);
+    store.track("panel_opened", { panel: PANEL_EVENT[next], via });
+  };
   const [layout] = useState(createResizableController);
   // The workspaces, and the one the sidebar shows; the list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
   const environmentLabels = useMemo(
@@ -187,7 +204,7 @@ export function App() {
    * Opens a blank conversation: a new session that is made by its first message. It starts in the workspace that is
    * shown, else on the environment that is open, else on the first that is connected.
    */
-  const newSession = () => {
+  const newSession = (via: "click" | "shortcut" = "click") => {
     // One is open already: it stays as it is, with what was chosen and written on it.
     if (blank !== undefined) return store.openBlank({ environmentId: blank.environmentId });
     const environmentId =
@@ -195,6 +212,7 @@ export function App() {
       (connected ? selectedEnvironment : undefined) ??
       connectedEnvironments[0]?.id;
     if (environmentId === undefined) return;
+    store.track("panel_opened", { panel: "new_session", via });
     store.openBlank({
       environmentId,
       cwd: startOn?.environmentId === environmentId ? startOn.cwd : undefined,
@@ -283,8 +301,8 @@ export function App() {
         event.preventDefault();
         action();
       };
-      if (key === "k") run(() => setPanel("search"));
-      else if (key === "n" && connectedEnvironments.length > 0) run(newSession);
+      if (key === "k") run(() => open("search", "shortcut"));
+      else if (key === "n" && connectedEnvironments.length > 0) run(() => newSession("shortcut"));
       else if (key === "b")
         run(() =>
           layout.isCollapsed("sidebar") ? layout.expand("sidebar") : layout.collapse("sidebar"),
@@ -349,20 +367,20 @@ export function App() {
             onSelectSession={(chosen) =>
               void store.selectSession(chosen.environmentId, chosen.sessionId)
             }
-            onNewSession={newSession}
-            onSearch={() => setPanel("search")}
-            onAddEnvironment={() => setPanel("add-environment")}
+            onNewSession={() => newSession()}
+            onSearch={() => open("search")}
+            onAddEnvironment={() => open("add-environment")}
             onRemoveEnvironment={(id) => void store.removeEnvironment(id)}
             onConnectEnvironment={(id) => void store.connectEnvironment(id)}
             onToggleArchived={() => setShowArchived((v) => !v)}
             onShowAll={() => setShowAll(true)}
             onAgentDefaults={(id) => {
               setDefaultsEnvironment(id);
-              setPanel("defaults");
+              open("defaults");
             }}
             trust={shownTrust}
             onTrust={(trusted) => {
-              if (trusted) setPanel("trust");
+              if (trusted) open("trust");
               else if (trustEnvironment !== undefined && trustCwd !== undefined)
                 void store
                   .changeTrust(trustEnvironment, trustCwd, false)
@@ -376,6 +394,7 @@ export function App() {
         <ResizablePanel id="main" minSize="480px">
           <main data-slot="main">
             <UpdateBanner />
+            <AnalyticsNotice />
             {selectedEnvironment !== undefined ? (
               <DaemonBanner environmentId={selectedEnvironment} />
             ) : null}
@@ -429,10 +448,10 @@ export function App() {
                 <div data-slot="row">
                   <Menu
                     onAction={(value) => {
-                      if (value === "rename") setPanel("rename");
+                      if (value === "rename") open("rename");
                       else if (value === "archive")
                         void store.archiveSession(session.sessionId, !session.archived);
-                      else if (value === "delete") setPanel("delete");
+                      else if (value === "delete") open("delete");
                     }}
                   >
                     <MenuTrigger
@@ -519,7 +538,7 @@ export function App() {
                     : undefined
                 }
                 onSetting={(key, value) => void store.setSessionConfig(key, value)}
-                onOpenSettings={() => setPanel("settings")}
+                onOpenSettings={() => open("settings")}
                 canSteer={agent?.steer === true}
                 enabled={!view.loading}
                 connected={connected}

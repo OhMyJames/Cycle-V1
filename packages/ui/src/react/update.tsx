@@ -96,6 +96,7 @@ export function UpdateFooter() {
   const store = useAppStore();
   const { t } = useI18n();
   const update = useAppState((s) => s.update);
+  const analytics = useAppState((s) => s.analytics);
   // What the banner already says is not said twice.
   const inBanner =
     update !== undefined &&
@@ -119,6 +120,8 @@ export function UpdateFooter() {
       <Menu
         onAction={(value) => {
           if (value === "check-for-updates") void store.checkForUpdate();
+          else if (value === "toggle-analytics" && analytics !== undefined)
+            void store.setAnalytics(!analytics.enabled);
         }}
       >
         <MenuTrigger aria-label={t("app.settings")} title={t("app.settings")} data-variant="ghost">
@@ -126,6 +129,14 @@ export function UpdateFooter() {
         </MenuTrigger>
         <MenuContent side="top" align="end">
           <CodeThemeItems />
+          {analytics?.available ? (
+            <>
+              <MenuSeparator />
+              <MenuItem value="toggle-analytics">
+                {t(analytics.enabled ? "app.analyticsOff" : "app.analyticsOn")}
+              </MenuItem>
+            </>
+          ) : null}
           {update !== undefined && update.kind !== "disabled" ? (
             <>
               <MenuSeparator />

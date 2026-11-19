@@ -143,7 +143,8 @@ test.skipIf(!ready)(
           `--user-data-dir=${join(root, "electron")}`,
         ],
         {
-          env: { PATH: "/usr/bin:/bin", HOME: root, ...environment },
+          // The packaged app carries the real project key: a test must say that nothing is to be reported.
+          env: { PATH: "/usr/bin:/bin", HOME: root, CYCLE_ANALYTICS: "off", ...environment },
           stdout: "ignore",
           stderr: "ignore",
         },
