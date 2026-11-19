@@ -235,6 +235,7 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 
 - `session/prompt` 立即返回 `messageId`,不代表 turn 结束。
 - turn 的状态由 `state_update` 表达:`running`、`requires_action`、`idle`。`idle` 带 `stopReason`(`end_turn`、`max_tokens`、`max_turn_requests`、`refusal`、`cancelled`、`error`),它标志 turn 结束。
+- **turn 不一定由 prompt 开始。** agent 自己开始一轮时(Claude 的后台任务完成后唤醒主 agent),agent 发 `state_update: running`,随后是这一轮的内容,最后以带 `stopReason` 的 `idle` 结束,中间没有 `user_message`。客户端和 daemon 把它当作普通的 turn:状态显示工作中,排队的 prompt 在 `end_turn` 之后发出,结束时照常通知;这时到达的 prompt 被当作"agent 忙"而排队。
 - 用户消息通过 `user_message` 更新进入日志。agent 没有发出时,daemon 用 `session/prompt` 的内容合成一条,保证历史里一定有用户消息。Claude 适配自己会发这一条(用 `session/prompt` 返回的 `messageId`),所以对 Claude 不会触发合成;合成只是对其他 agent 的兜底。daemon 通过 `messageId` 去重。
 
 **内容校验**(决策 0010):daemon 在启动 agent 之前检查 `prompt` 的每一块,不合格就以 `-32602` 拒绝,`data` 为 `{reason, index}`,不会丢掉其中一部分再继续:

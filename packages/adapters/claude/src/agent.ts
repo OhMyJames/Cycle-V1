@@ -718,7 +718,17 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
             session.started = true;
           }
           await aside(client, session, message).catch(() => undefined);
-          const turn = session.turn;
+          let turn = session.turn;
+          if ((turn === undefined || turn.done) && speaksAloneOf(message)) {
+            // Claude began on its own (a background task finished and woke it): there is no prompt, but
+            // there is a turn to show, from its first words to its result. It exists before anything is
+            // awaited, so a prompt or a cancel that arrives meanwhile finds it.
+            turn = beginOwnTurn(session, live);
+            await notify(client, session.id, {
+              sessionUpdate: "state_update",
+              state: "running",
+            } as SessionUpdate).catch(() => undefined);
+          }
           if (turn === undefined || turn.done) continue;
           for (const update of turn.translator.feed(message)) {
             // The turn can end while this waits (a cancel that ran out of time): nothing more is its.
@@ -780,6 +790,37 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       }
     })();
     return live;
+  };
+
+  /**
+   * Whether a message is the main agent beginning a message of its own: the start of one, which is what a turn that
+   * nobody prompted opens with. Not what a process says between turns (modes, commands, task news), not the tail of
+   * a turn that has ended, and not a sub-agent's talk (`parent_tool_use_id`).
+   */
+  const speaksAloneOf = (message: SDKMessage): boolean =>
+    message.type === "stream_event" &&
+    (message.event as { type?: string }).type === "message_start" &&
+    !(message as { parent_tool_use_id?: string | null }).parent_tool_use_id;
+
+  /** A turn with nothing in it yet. `process` is the one it runs on, once there is one. */
+  const newTurn = (session: SessionState, process?: Live): Turn => ({
+    translator: new TurnTranslator(session.plan),
+    permissions: new AbortController(),
+    cancelled: false,
+    done: false,
+    steers: new Set(),
+    pushed: process !== undefined,
+    process,
+    killTimer: undefined,
+  });
+
+  /** A turn nobody prompted: its process is already running it. */
+  const beginOwnTurn = (session: SessionState, live: Live): Turn => {
+    clearTimeout(live.idle);
+    warm.delete(session); // it is at work: not one held ahead of a prompt
+    const turn = newTurn(session, live);
+    session.turn = turn;
+    return turn;
   };
 
   const runTurn = async (
@@ -954,16 +995,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       const messageId = randomUUID();
       // The turn exists from here, before anything is awaited: a cancel or a second prompt that
       // arrives while the first notifications are going out must find it.
-      const turn: Turn = {
-        translator: new TurnTranslator(session.plan),
-        permissions: new AbortController(),
-        cancelled: false,
-        done: false,
-        steers: new Set(),
-        pushed: false,
-        process: undefined,
-        killTimer: undefined,
-      };
+      const turn = newTurn(session);
       session.turn = turn;
       // The turn goes on after this answers: ACP v2 ends a turn with an idle state_update.
       void (async () => {

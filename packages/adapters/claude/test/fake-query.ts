@@ -58,6 +58,8 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
     failSetters: false,
     /** `interrupt` does nothing, as for a process that has hung. */
     ignoreInterrupt: false,
+    /** Messages the newest query's process says by itself, with no prompt (a background task woke it). */
+    say: (_messages: SDKMessage[]): void => undefined,
     /** Makes the newest query's stream end with an error, as if its process had died. */
     kill: (_error?: Error): void => undefined,
     /** True when the newest query's input was closed (the adapter let it go). */
@@ -113,13 +115,18 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
       inputDone = true;
       arrived?.();
     })();
-    const next = async (): Promise<SDKUserMessage | undefined> => {
-      while (buffer.length === 0 && !inputDone) {
+    const said: SDKMessage[][] = [];
+    state.say = (messages) => {
+      said.push(messages);
+      arrived?.();
+    };
+    const next = async (): Promise<SDKUserMessage | SDKMessage[] | undefined> => {
+      while (buffer.length === 0 && said.length === 0 && !inputDone) {
         await new Promise<void>((resolve) => {
           arrived = resolve;
         });
       }
-      return buffer.shift();
+      return said.shift() ?? buffer.shift();
     };
 
     const iterator = (async function* () {
@@ -130,6 +137,10 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
           state.inputClosed = true;
           await state.holdExit;
           return;
+        }
+        if (Array.isArray(message)) {
+          for (const own of message) yield own;
+          continue;
         }
         const pushed = { value: message };
         const text = textOfInput(pushed.value);
