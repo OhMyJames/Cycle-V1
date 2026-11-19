@@ -97,18 +97,6 @@ test("a tool row says what it did with a verb in its tense, and only a failure s
   );
 });
 
-test("a call its turn did not wait for is not shown as still going", async () => {
-  const { log } = await open(
-    you("u1"),
-    ...tool("a", "Bash", "in_progress", { command: "sleep 100" }),
-    state({ state: "idle", stopReason: "end_turn" }),
-  );
-  await waitFor(() => expect(log.textContent).toContain("sleep 100"));
-  expect(log.textContent).toContain("Ran");
-  expect(log.textContent).not.toContain("Running");
-  expect(log.querySelector('[data-slot="tool-status"]')?.textContent).toBe("not finished");
-});
-
 test("a turn that failed says how, and the failed call is a row under the card, not in it", async () => {
   const { log } = await open(
     you("u1"),

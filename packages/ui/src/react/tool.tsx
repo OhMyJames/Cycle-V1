@@ -83,8 +83,8 @@ export const TOOL_ICONS: Record<string, (props: IconProps) => React.ReactElement
 };
 
 /**
- * What a call did, as a verb in its tense: "Running" while it goes, "Ran" once it has, and once its turn is over (a call the
- * turn did not wait for is not going any more). A tool with no verb of its own is named instead.
+ * What a call did, as a verb in its tense: "Running" while it goes, "Ran" once it has. A tool with no verb of its own is
+ * named instead.
  */
 export const toolVerb = (t: (key: string) => string, tool: ToolItem, going: boolean): string => {
   const activity = activityOf(tool);
@@ -120,13 +120,12 @@ export function Lead({
  * One call, as one quiet line: what it did and on what. The verb's tense says whether it is going; a failure says so in
  * a word as well as in red. It opens to what it was given and what came back.
  */
-export function ToolCard({ tool, live }: { tool: ToolItem; live: boolean }) {
+export function ToolCard({ tool }: { tool: ToolItem }) {
   const { t } = useI18n();
   const status = tool.status ?? "pending";
   const failed = status === "failed" || status === "cancelled";
-  // Going only while its turn is: one that never ended in a turn that has is "not finished", in words.
-  const going = live && isLive(tool);
-  const unfinished = !live && isLive(tool);
+  // The model ends a turn's calls when the turn ends (cancelled), so one that is live is going.
+  const going = isLive(tool);
   const [open, setOpen] = useOpenOnFailure(status === "failed");
   const output =
     tool.content.length > 0
@@ -147,9 +146,7 @@ export function ToolCard({ tool, live }: { tool: ToolItem; live: boolean }) {
           {toolVerb(t, tool, going)}
         </span>{" "}
         <span data-slot="tool-summary">{summary}</span>{" "}
-        <span data-slot={failed || unfinished ? "tool-status" : "visually-hidden"}>
-          {unfinished ? t("work.unfinished") : statusWord(t, status)}
-        </span>{" "}
+        <span data-slot={failed ? "tool-status" : "visually-hidden"}>{statusWord(t, status)}</span>{" "}
         <ChevronRightIcon size={12} data-slot="tool-chevron" aria-hidden="true" />
       </CollapsibleTrigger>
       <CollapsiblePanel>

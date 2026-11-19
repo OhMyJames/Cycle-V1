@@ -28,7 +28,7 @@ export function Notice({ severity, title }: { severity: string; title: string })
  */
 export function WorkBlock({ tools, live }: { tools: readonly ToolItem[]; live: boolean }) {
   const only = tools[0];
-  if (tools.length === 1 && only !== undefined) return <ToolCard tool={only} live={live} />;
+  if (tools.length === 1 && only !== undefined) return <ToolCard tool={only} />;
   return <WorkCard tools={tools} live={live} />;
 }
 
@@ -84,7 +84,7 @@ function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }
       </CollapsibleTrigger>
       <CollapsiblePanel>
         {tools.map((tool) => (
-          <ToolCard key={tool.id} tool={tool} live={live} />
+          <ToolCard key={tool.id} tool={tool} />
         ))}
       </CollapsiblePanel>
     </Collapsible>

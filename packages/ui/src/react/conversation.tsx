@@ -117,7 +117,7 @@ const BlockView = memo(function BlockView({
     case "work":
       return <WorkBlock tools={block.tools} live={live} />;
     case "failed":
-      return <ToolCard tool={block.tool} live={live} />;
+      return <ToolCard tool={block.tool} />;
     case "end":
       return <EndBlock stop={block.stop} />;
     case "plan":
