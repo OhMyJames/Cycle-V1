@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { join } from "node:path";
 import { runAdapter } from "@cycle/adapter-claude/run";
-import { AlreadyRunningError, isListening } from "@cycle/transport/server";
+import { AlreadyRunningError, isListening, NotASocketError } from "@cycle/transport/server";
 import { claudeEnv } from "./agents.ts";
 import { parseCli } from "./args.ts";
 import { defaultDataDir, loadConfig, pathsFor } from "./config.ts";
@@ -59,6 +59,10 @@ if (command === "serve") {
     if (error instanceof AlreadyRunningError) {
       console.error(error.message);
       process.exit(3);
+    }
+    if (error instanceof NotASocketError) {
+      console.error(error.message);
+      process.exit(2);
     }
     throw error;
   }
