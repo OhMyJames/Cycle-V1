@@ -326,6 +326,18 @@ const bash = (out: Json, text: Content[], failed: boolean): Result | undefined =
   };
 };
 
+/** A command that failed, from its text alone: "Exit code 2" and what it printed. */
+const failedCommand = (text: Content[]): Result | undefined => {
+  const said = text.find((c) => c.type === "content" && c.content.type === "text");
+  const code =
+    said?.type === "content" && said.content.type === "text"
+      ? /^Exit code (\d+)/.exec(said.content.text)?.[1]
+      : undefined;
+  return code === undefined
+    ? undefined
+    : { content: text, meta: { run: { exitCode: Number(code) } } };
+};
+
 /** A watcher started in the background: its text, and that it runs on. */
 const monitor = (out: Json, text: Content[]): Result | undefined =>
   typeof out.taskId === "string"
@@ -401,6 +413,9 @@ export const resultOf = (
   content: unknown,
   failed = false,
 ): Result | undefined => {
+  // A command that failed has no structured result (seen with a real model): its text says the exit code, which is
+  // kept as a count; the text stays as it came.
+  if (name === "Bash" && failed && !isObject(structured)) return failedCommand(contentOf(content));
   if (!isObject(structured)) return undefined;
   if (name === "Bash") return bash(structured, contentOf(content), failed);
   if (failed) return undefined;
