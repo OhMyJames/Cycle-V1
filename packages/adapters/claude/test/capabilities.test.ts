@@ -1150,7 +1150,10 @@ test("a process let go that exits late does not end the turn of the one that rep
       await new Promise((resolve) => setTimeout(resolve, 80)); // let go: idleMs is 20
       fake.state.holdExit = undefined; // only the first process is slow to go
       const second = prompt(agent, idle, [{ type: "text", text: "two" }]);
-      while (!fake.prompts.includes("two")) await new Promise((resolve) => setTimeout(resolve, 5));
+      for (let waited = 0; !fake.prompts.includes("two"); waited += 5) {
+        if (waited > 2_000) throw new Error("the second prompt never reached the process");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
       openOld(); // the first process is gone now, with the second one in the middle of its turn
       await new Promise((resolve) => setTimeout(resolve, 40));
       const ended = updates.filter(
