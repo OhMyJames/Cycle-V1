@@ -42,6 +42,8 @@ export const fakeAgent = (
      * runs; `refuse`: it says it can, and refuses every one.
      */
     steer?: "take" | "refuse";
+    /** The settings the agent says it has. */
+    configSchema?: Record<string, unknown>;
     /** Says it reaches MCP servers over http (`capabilities.session.mcp.http`), so it is given connectors. */
     mcpHttp?: boolean;
   } = {},
@@ -208,7 +210,10 @@ export const fakeAgent = (
   const definition: AgentDefinition = {
     id: "fake",
     name: "Fake",
-    configSchema: { type: "object", properties: { mode: { type: "string" } } },
+    configSchema: options.configSchema ?? {
+      type: "object",
+      properties: { mode: { type: "string" } },
+    },
     ...(options.promptCapabilities !== undefined
       ? { promptCapabilities: options.promptCapabilities }
       : {}),

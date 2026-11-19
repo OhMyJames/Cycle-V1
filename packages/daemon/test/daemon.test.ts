@@ -442,6 +442,33 @@ test("an agent's defaults are kept, applied to new sessions, and overridden by w
   ]);
 });
 
+test("a default value the agent does not list is refused when it is saved, and one it keeps open is not", async () => {
+  const schema = {
+    type: "object",
+    properties: {
+      mode: { type: "string", oneOf: [{ const: "plan" }, { const: "default" }] },
+      level: { type: "string", enum: ["low", "high"] },
+      model: { type: "string", oneOf: [{ const: "default" }], _meta: { "cycle/open": true } },
+    },
+  };
+  const { daemon } = await start(fakeAgent({}, { configSchema: schema }));
+  const c = await connectClient(daemon);
+  const set = (config: Record<string, string>) =>
+    c.agent.request("_cycle/agent_defaults/set", { agent: "fake", config });
+  await expect(set({ mode: "nonsense" })).rejects.toMatchObject({
+    code: CycleErrorCode.InvalidConfig,
+  });
+  await expect(set({ level: "medium" })).rejects.toMatchObject({
+    code: CycleErrorCode.InvalidConfig,
+  });
+  // Nothing was saved, so a session can still be made.
+  expect(await c.agent.request("_cycle/agent_defaults/read", { agent: "fake" })).toEqual({
+    config: {},
+  });
+  await set({ mode: "plan", level: "high", model: "claude-some-full-id" });
+  await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+});
+
 test("a default for a setting the agent does not have is refused, and defaults survive a restart", async () => {
   const first = await start();
   const c = await connectClient(first.daemon);
