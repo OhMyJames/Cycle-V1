@@ -305,7 +305,7 @@ export function Composer({
 
   /**
    * The keys the box asks about first. Enter sends: while the agent works, into its turn where it can take it. Shift+Enter
-   * is a new line, or while the agent works the queue (a new line is then Alt+Enter, as it is at any time). The arrows walk through what
+   * is a new line, or while Enter steers the queue (a new line is then Alt+Enter, as it is at any time). The arrows walk through what
    * was sent.
    */
   const onKey = (key: InputKey, event: KeyboardEvent): boolean => {
@@ -318,7 +318,9 @@ export function Composer({
       // `/compact` typed in full and Enter: the name is already there, and sending is what was meant. A file is still taken
       // (its link is made when it is picked), and Tab always takes.
       const complete = kind === "command" && rows[active]?.name === query;
-      if (key === "tab" || (key === "enter" && !complete)) {
+      // Only a plain Enter takes: with Shift or Alt it is the box's (a new line, or the queue).
+      const plain = key === "enter" && !event.shiftKey && !event.altKey;
+      if (key === "tab" || (plain && !complete)) {
         pick(active);
         return true;
       }
@@ -330,7 +332,8 @@ export function Composer({
     if (key === "enter") {
       if (event.altKey) return false;
       if (event.shiftKey) {
-        if (!working || !canQueue) return false;
+        // The queue only where Enter steers; otherwise Shift+Enter is a new line, as it always was.
+        if (!steers) return false;
         void send();
         return true;
       }

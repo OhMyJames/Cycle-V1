@@ -69,6 +69,8 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
     fold: false,
     /** The texts taken into a running turn, in order. */
     folded: [] as string[],
+    /** Results say nothing of what they took, as the SDK's failed results do. */
+    dropUuids: false,
   };
   const run = (params: {
     prompt: string | AsyncIterable<SDKUserMessage>;
@@ -167,7 +169,9 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
             state.folded.push(said);
             taken.push((waiting as { uuid?: string }).uuid ?? "");
           }
-          yield { ...message, user_message_uuids: taken } as SDKMessage;
+          yield (
+            state.dropUuids ? message : { ...message, user_message_uuids: taken }
+          ) as SDKMessage;
         }
       }
     })();

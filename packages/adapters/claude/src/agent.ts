@@ -161,6 +161,8 @@ type Turn = {
    * While there are any, a result does not end the turn: Claude goes on with them.
    */
   steers: Set<string>;
+  /** The turn's own prompt is in the process: only then can another be put after it. */
+  pushed: boolean;
   killTimer: ReturnType<typeof setTimeout> | undefined;
 };
 
@@ -711,12 +713,13 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           if (message.type === "result") {
             // What was put into the turn and not taken before it ended is Claude's next to answer,
             // in the same process: the turn goes on until that is answered too.
+            // A result that does not say what it took (the SDK leaves it out of failed ones) says
+            // nothing about them either: the turn ends, and the process goes with them below.
             const taken = (message as { user_message_uuids?: string[] }).user_message_uuids;
-            if (taken === undefined) turn.steers.clear();
-            else for (const id of taken) turn.steers.delete(id);
-            if (turn.steers.size > 0 && !turn.cancelled) continue;
-            // A stopped turn with something put into it still waiting: Claude would answer it
-            // after the stop, with no turn to show it in. The process goes before it can begin
+            if (taken !== undefined) for (const id of taken) turn.steers.delete(id);
+            if (taken !== undefined && turn.steers.size > 0 && !turn.cancelled) continue;
+            // A turn that ends with something put into it still waiting (stopped, or unknown): Claude
+            // would answer it afterwards, with no turn to show it in. The process goes before it can begin
             // that; the next prompt starts another, which resumes the session.
             if (turn.steers.size > 0) release(session, true);
             await finish(
@@ -777,6 +780,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       session.live = live;
       clearTimeout(live.idle);
       live.push(content, messageId);
+      turn.pushed = true;
     } catch (error) {
       await finish(client, session, turn, {
         stopReason: "error",
@@ -901,7 +905,14 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         // Only into a turn that is going on, in a process that has it: anything else is the
         // daemon's to queue or send (docs/protocol.md §8).
         const live = session.live;
-        if (running === undefined || running.done || running.cancelled || live === undefined) {
+        // Not before the turn's own prompt is in the process, or Claude would read this one first.
+        if (
+          running === undefined ||
+          running.done ||
+          running.cancelled ||
+          !running.pushed ||
+          live === undefined
+        ) {
           throw new RequestError(-32600, "No turn is running to take it", {
             sessionId: session.id,
           });
@@ -931,6 +942,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         cancelled: false,
         done: false,
         steers: new Set(),
+        pushed: false,
         killTimer: undefined,
       };
       session.turn = turn;

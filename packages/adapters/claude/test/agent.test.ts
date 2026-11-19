@@ -748,3 +748,28 @@ test("a stop with a steered prompt not yet taken lets the process go, so Claude 
   expect(fake.calls).toHaveLength(2);
   expect(fake.prompts).toEqual(["work", "again"]);
 });
+
+test("a result that does not say what it took ends the turn, and the process goes with what was put in", async () => {
+  const { fake, release } = gated();
+  fake.state.dropUuids = true;
+  await connect(fake.run, async ({ agent, updates, waitForIdle }) => {
+    await open(agent);
+    const idle = waitForIdle();
+    await ask(agent, methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "work" }],
+    });
+    await settle(20);
+    await steer(agent, "mind this");
+    release();
+    expect(await idle).toMatchObject({ stopReason: "end_turn" });
+    await settle(50);
+    expect(updates.filter((u) => (u as { state?: string }).state === "idle")).toHaveLength(1);
+    // The next prompt starts another process: the first never answered the steer unseen.
+    expect(await prompt(agent as never, waitForIdle, "again")).toMatchObject({
+      stopReason: "end_turn",
+    });
+  });
+  expect(fake.calls).toHaveLength(2);
+  expect(fake.prompts).toEqual(["work", "again"]);
+});

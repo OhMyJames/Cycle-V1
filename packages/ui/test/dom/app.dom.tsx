@@ -994,6 +994,19 @@ test("a slash at the start lists the commands that fit; the arrows choose, Enter
   );
 });
 
+test("with the menu open, Shift+Enter is a new line and does not take what is chosen", async () => {
+  const { user, named } = await mount({ snapshot: () => withCommands("init", "review") });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "/r");
+  await screen.findByRole("listbox", { name: "Commands" });
+  await press(box, "Enter", { shiftKey: true });
+  await write(box, "x");
+  expect(boxText(box)).toBe("/r\nx");
+  expect(named("prompt")).toHaveLength(0);
+});
+
 test("a command typed in full is sent by Enter, not rewritten", async () => {
   const { user, named } = await mount({ snapshot: () => withCommands("init", "compact") });
   await openFirstSession(user);
