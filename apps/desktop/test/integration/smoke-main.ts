@@ -162,18 +162,20 @@ const main = async () => {
     };
     await run(`window.cycle.setAgentDefaults("local", "claude", ${JSON.stringify(defaults)})`);
 
-    // A new session, started by clicking and typing.
+    // A new session: a blank conversation, whose folder is typed. Its session is made by the first message below.
     await click(byText("button", "New session"));
-    await waitFor("the dialog", `document.querySelector('[role="dialog"]')`);
-    await click(`document.querySelector('[role="dialog"] input')`);
+    await waitFor(
+      "the blank conversation",
+      `document.querySelector('[data-slot="blank-where"] input')`,
+    );
+    await click(`document.querySelector('[data-slot="blank-where"] input')`);
     await type(env.SMOKE_CWD as string);
-    await click(byText('[role="dialog"] button', "Start"));
     await waitFor(
       "the composer to be ready",
       `document.querySelector('[data-slot="composer"] [data-slot="composer-input"]')?.getAttribute('contenteditable') === 'true'`,
     );
     out({
-      step: "session",
+      step: "blank",
       title: await run(`document.querySelector('[data-slot="session-header"] h1')?.textContent`),
     });
 

@@ -233,9 +233,12 @@ export class CycleClient {
     return answer.prompt;
   }
 
-  /** Finds files and folders in the session's folder on the daemon's machine (docs/protocol.md §8). */
+  /**
+   * Finds files and folders in the session's folder on the daemon's machine, or in a folder given for a conversation that
+   * has no session yet: that needs a daemon that says `filesInFolder` (docs/protocol.md §8).
+   */
   async searchFiles(
-    sessionId: string,
+    where: string | { cwd: string },
     query: string,
     limit?: number,
   ): Promise<{
@@ -244,7 +247,7 @@ export class CycleClient {
     truncated: boolean;
   }> {
     return (await this.#request("_cycle/files/search", {
-      sessionId,
+      ...(typeof where === "string" ? { sessionId: where } : { cwd: where.cwd }),
       query,
       ...(limit !== undefined ? { limit } : {}),
     })) as {

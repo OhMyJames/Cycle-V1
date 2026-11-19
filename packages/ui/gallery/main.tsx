@@ -1,7 +1,7 @@
 // The gallery page: `index.html?s=<scenario>` draws that scenario with the real components over a scripted
 // bridge, `?s=tokens` draws the tokens, and no `s` lists the scenarios. `&theme=light|dark` forces a scheme.
 import { App, StoreProvider } from "@cycle/ui/react";
-import { AppStore } from "@cycle/ui/store";
+import { AppStore, BLANK_KEY } from "@cycle/ui/store";
 import { createRoot } from "react-dom/client";
 import { fakeBridge } from "../test/fake-bridge.ts";
 import { LOCAL, type Scenario, scenarios, snapshotOf, UP } from "./scenarios.ts";
@@ -126,6 +126,15 @@ const scenario = async (key: string) => {
   if (s.history !== undefined && (s.sessions ?? []).length > 0) {
     for (let i = 0; i < 100 && root.querySelector('[role="option"]') === null; i++) await sleep(30);
     (root.querySelector('[role="option"]') as HTMLElement | null)?.click();
+  }
+  if (s.blank !== undefined) {
+    if (s.blank.starting !== undefined) script.bridge.createSession = () => new Promise(() => {});
+    store.openBlank({ environmentId: "local", cwd: s.blank.cwd });
+    if (s.blank.starting !== undefined) {
+      await sleep(100);
+      store.drafts.setText(BLANK_KEY, s.blank.starting);
+      void store.send();
+    }
   }
   await sleep(300);
   await s.after?.(root, script.emit);

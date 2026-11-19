@@ -88,6 +88,17 @@ const first = <T>(items: T[]): T => {
   return item;
 };
 
+/** A session is in the list from its first message (docs/protocol.md §6): say something in it, and wait for the list. */
+const said = async (m: ConnectionManager, id: string, words = "hi") => {
+  await m.prompt("local", id, words);
+  const started = Date.now();
+  while (!(await m.sessions("local")).some((s) => s.sessionId === id)) {
+    if (Date.now() - started > 3_000)
+      throw new Error("timed out waiting for the session to be listed");
+    await Bun.sleep(10);
+  }
+};
+
 const of = <T extends AppEvent["type"]>(events: AppEvent[], type: T) =>
   events.filter((e): e is Extract<AppEvent, { type: T }> => e.type === type);
 
@@ -97,6 +108,9 @@ test("connects, creates a session, and lists it", async () => {
   await m.connect("local");
   expect(of(events, "environment-status").map((e) => e.state)).toEqual(["connecting", "connected"]);
   const id = await m.createSession("local", { cwd: "/tmp" });
+  // Nothing said in it yet: not in the list.
+  expect(await m.sessions("local")).toEqual([]);
+  await said(m, id);
   const sessions = await m.sessions("local");
   // Its agent is running, so it is idle and not stopped.
   expect(sessions).toMatchObject([
@@ -109,6 +123,7 @@ test("connects, creates a session, and lists it", async () => {
     steer: true,
     files: true,
     folders: true,
+    filesInFolder: true,
   });
   expect((await m.agents("local")).map((a) => a.id)).toEqual(["fake"]);
 });
@@ -235,8 +250,15 @@ test("a request answered by another client is closed here", async () => {
   await theirs.m.connect("local");
   const id = await mine.m.createSession("local", { cwd: "/tmp" });
   await mine.m.openSession("local", id);
-  await theirs.m.openSession("local", id);
+  // The other client finds it in the list once something is said in it, and is asked too.
   await mine.m.prompt("local", id, "ask");
+  await until(() => of(mine.events, "permission").length === 1, "the request");
+  const started = Date.now();
+  while (!(await theirs.m.sessions("local")).some((s) => s.sessionId === id)) {
+    if (Date.now() - started > 3_000) throw new Error("timed out waiting for the list");
+    await Bun.sleep(10);
+  }
+  await theirs.m.openSession("local", id);
   await until(
     () =>
       of(mine.events, "permission").length === 1 && of(theirs.events, "permission").length === 1,
@@ -278,6 +300,7 @@ test("a connection that drops is picked up again, and a request still open is no
     steer: true,
     files: true,
     folders: true,
+    filesInFolder: true,
   });
   await until(
     () => of(events, "environment-status").at(-1)?.state === "connected",
@@ -297,6 +320,7 @@ test("renames, archives and deletes a session, and the list follows", async () =
   const { m } = await manager();
   await m.connect("local");
   const id = await m.createSession("local", { cwd: "/tmp" });
+  await said(m, id);
   await m.renameSession("local", id, "Named");
   await m.archiveSession("local", id, true);
   expect(await m.sessions("local")).toMatchObject([{ title: "Named", archived: true }]);
@@ -545,6 +569,8 @@ test("a session deleted elsewhere while the connection was away is gone here, an
   const doomed = await a.m.createSession("local", { cwd: "/tmp" });
   await a.m.openSession("local", keep);
   await a.m.openSession("local", doomed);
+  await said(a.m, keep);
+  await said(a.m, doomed);
   const b = await manager("b");
   await b.m.connect("local");
 
@@ -609,6 +635,7 @@ test("the last list of a host that goes away is still given, and a host removed 
   const { m } = await manager();
   await m.connect("local");
   const id = await m.createSession("local", { cwd: "/tmp" });
+  await said(m, id);
   expect((await m.environments()).sessions.local?.map((s) => s.sessionId)).toEqual([id]);
   await m.disconnect("local");
   const after = await m.environments();
@@ -634,7 +661,7 @@ test("a session says when it last had something happen", async () => {
   const { manager } = await setup();
   const { m } = await manager();
   await m.connect("local");
-  await m.createSession("local", { cwd: "/tmp" });
+  await said(m, await m.createSession("local", { cwd: "/tmp" }));
   const [session] = await m.sessions("local");
   expect(Number.isNaN(Date.parse(session?.updatedAt ?? ""))).toBe(false);
 });

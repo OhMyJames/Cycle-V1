@@ -597,6 +597,11 @@ export class Daemon {
     }
     if (record.kind !== "update") return;
     const update = record.data as Record<string, unknown>;
+    // The person's first message: from now on the session is in the list.
+    if (update.sessionUpdate === "user_message" && session.entry.prompted !== true) {
+      this.#remember(session, { prompted: true });
+      return;
+    }
     if (update.sessionUpdate === "state_update") {
       // Worth seeing: the agent waits on the owner, or a turn has ended (an idle that says why: the
       // one the agent sends on resume is a snapshot, not an end). See docs/protocol.md §6.
@@ -866,8 +871,14 @@ export class Daemon {
     };
   }
 
+  /**
+   * A session's row in the list, or undefined for one the person has not yet written to: a new session is a blank
+   * conversation in the client until its first message, and only then is it in the list (docs/protocol.md §6).
+   */
   async #row(sessionId: string, entry: SessionEntry) {
     const session = await this.#session(sessionId);
+    // One whose history has failed is listed whatever it holds: the list is where it is deleted from.
+    if (session.historyError === undefined && !(await this.#prompted(session))) return undefined;
     const background = session.backgroundCount();
     return {
       sessionId,
@@ -886,6 +897,19 @@ export class Daemon {
         ...(entry.title !== undefined ? { title: entry.title } : {}),
       },
     };
+  }
+
+  /**
+   * Whether the person has said anything in the session. Known from the index, or for an entry written before the index
+   * kept it, read once from the log and kept. A log that cannot be read throws, and the session is listed as unreadable.
+   */
+  async #prompted(session: Session): Promise<boolean> {
+    if (session.entry.prompted !== undefined) return session.entry.prompted;
+    const records = await session.log.read();
+    const prompted = records.some(isUserMessage);
+    // A message written while the log was being read has set it already.
+    if (session.entry.prompted === undefined) this.#remember(session, { prompted }, false);
+    return session.entry.prompted ?? prompted;
   }
 
   /**
@@ -946,6 +970,7 @@ export class Daemon {
             steer: true,
             files: true,
             folders: true,
+            filesInFolder: true,
           },
         },
       } as never;
@@ -986,6 +1011,8 @@ export class Daemon {
         agentSessionId: id,
         cwd: params.cwd,
         createdAt: new Date().toISOString(),
+        // Not in the list until the person's first message is on record (docs/protocol.md §6).
+        prompted: false,
         // Kept to send again each time the agent starts. Not in the log: that goes to every client.
         ...(params.additionalDirectories?.length
           ? { additionalDirectories: params.additionalDirectories }
@@ -1069,7 +1096,8 @@ export class Daemon {
       const rows = [];
       for (const [sessionId, entry] of this.#index.list()) {
         try {
-          rows.push(await this.#row(sessionId, entry));
+          const row = await this.#row(sessionId, entry);
+          if (row !== undefined) rows.push(row);
         } catch (error) {
           // Deleted while the list was being read.
           if (error instanceof RpcError && error.code === RESOURCE_NOT_FOUND) continue;
@@ -1327,9 +1355,17 @@ export class Daemon {
       return { prompt: entry.prompt };
     });
     cycle(filesSearch, async (params) => {
-      const session = await this.#session(params.sessionId);
-      const found = await searchFiles(session.entry.cwd, params.query, params.limit);
-      return { root: session.entry.cwd, ...found };
+      // A conversation with no session yet looks in the folder it has chosen: the same search, the same bounds.
+      let cwd: string;
+      if (params.cwd !== undefined) {
+        if (!isAbsolute(params.cwd) || params.cwd.includes("\0"))
+          throw new RpcError(INVALID_PARAMS, "cwd must be an absolute path", { cwd: params.cwd });
+        cwd = params.cwd;
+      } else {
+        cwd = (await this.#session(params.sessionId as string)).entry.cwd;
+      }
+      const found = await searchFiles(cwd, params.query, params.limit);
+      return { root: cwd, ...found };
     });
     cycle(foldersList, (params) => listFolders(params.path, params.hidden === true));
     cycle(sessionArchive, (params) =>
@@ -1370,3 +1406,8 @@ export class Daemon {
     return app;
   }
 }
+
+/** A record of something the person said: the agent's echo of a prompt (docs/protocol.md §8). */
+const isUserMessage = (record: LogRecord): boolean =>
+  record.kind === "update" &&
+  (record.data as { sessionUpdate?: unknown } | null)?.sessionUpdate === "user_message";

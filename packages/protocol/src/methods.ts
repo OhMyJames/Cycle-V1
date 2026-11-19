@@ -65,11 +65,17 @@ export type FileEntry = z.infer<typeof FileEntrySchema>;
 
 export const filesSearch = cycleMethod(
   "_cycle/files/search",
-  z.object({
-    sessionId: SessionId,
-    query: z.string().max(200),
-    limit: z.number().int().min(1).max(50).optional(),
-  }),
+  // In a session's folder, or in a folder of a conversation that has no session yet: exactly one of the two.
+  z
+    .object({
+      sessionId: SessionId.optional(),
+      cwd: z.string().min(1).max(4096).optional(),
+      query: z.string().max(200),
+      limit: z.number().int().min(1).max(50).optional(),
+    })
+    .refine((p) => (p.sessionId === undefined) !== (p.cwd === undefined), {
+      message: "Give either sessionId or cwd",
+    }),
   z.object({ root: z.string(), entries: z.array(FileEntrySchema), truncated: z.boolean() }),
 );
 

@@ -71,6 +71,8 @@ export const CapabilitiesSchema = z.object({
   files: z.boolean().optional(),
   /** `_cycle/folders/list` is there (docs/protocol.md §8). */
   folders: z.boolean().optional(),
+  /** `_cycle/files/search` also takes a `cwd` in place of a session (docs/protocol.md §8). */
+  filesInFolder: z.boolean().optional(),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 

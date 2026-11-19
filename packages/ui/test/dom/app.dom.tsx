@@ -332,7 +332,7 @@ test("an open session keeps its draft offline and can send it after reconnecting
   );
 });
 
-test("starts a session from the defaults of the agent, in the directory typed", async () => {
+test("a new session is a blank conversation: nothing is made until its first message, which starts it from the agent's defaults in the folder typed", async () => {
   const { user, named } = await mount({
     configure: (script) => {
       script.bridge.agentDefaults = async () => ({ mode: "plan" });
@@ -350,19 +350,39 @@ test("starts a session from the defaults of the agent, in the directory typed", 
     },
   });
   await user.click(await screen.findByRole("button", { name: "New session" }));
-  const dialog = await screen.findByRole("dialog");
+  expect(await screen.findByRole("heading", { name: "New session" })).toBeTruthy();
+  expect(screen.getByText("The session starts when you send the first message.")).toBeTruthy();
   // It starts from the folder of the workspace that is shown: the person replaces it.
-  const directory = within(dialog).getByRole("textbox", { name: "Directory" });
-  expect((directory as HTMLInputElement).value).toBe("/work");
-  await user.clear(directory);
-  await user.type(directory, "/work/new");
-  await user.click(within(dialog).getByRole("button", { name: "Start" }));
-  await waitFor(() => expect(named("createSession")).toHaveLength(1));
+  const where = screen.getByRole("group", { name: "Where the session runs" });
+  const folder = within(where).getByRole("textbox", { name: "Folder" });
+  expect((folder as HTMLInputElement).value).toBe("/work");
+  await user.clear(folder);
+  // No folder: the box takes words, and says why they cannot go yet.
+  expect(await screen.findByText("Choose a folder for the agent to work in.")).toBeTruthy();
+  await user.type(folder, "/work/new");
+  // What it starts with is shown under the box, before anything is made.
+  await screen.findByRole("button", { name: "mode: plan" });
+  expect(named("createSession")).toEqual([]);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "Fix the build");
+  await press(box, "Enter");
+  await waitFor(() => expect(named("prompt")).toHaveLength(1));
   expect(named("createSession")[0]).toEqual([
     "createSession",
     "local",
     { cwd: "/work/new", agent: "fake", config: { mode: "plan" } },
   ]);
+  expect(named("prompt")[0]).toEqual([
+    "prompt",
+    "local",
+    "s2",
+    [{ type: "text", text: "Fix the build" }],
+  ]);
+  // The session is open in its place.
+  await waitFor(() =>
+    expect(screen.queryByRole("group", { name: "Where the session runs" })).toBeNull(),
+  );
 });
 
 test("a choice the agent names and describes shows its name and what it does, and sends its value", async () => {
@@ -398,7 +418,8 @@ test("a choice the agent names and describes shows its name and what it does, an
     },
   });
   await user.click(await screen.findByRole("button", { name: "New session" }));
-  const dialog = await screen.findByRole("dialog");
+  await user.click(await screen.findByRole("button", { name: "Session settings" }));
+  const dialog = await screen.findByRole("dialog", { name: "Settings for the new session" });
   const trigger = within(dialog).getByRole("combobox", { name: "Permission mode" });
   await waitFor(() => expect(trigger.textContent).toContain("Plan mode"));
   expect(within(dialog).getByText("Changes nothing.")).toBeTruthy();
@@ -410,8 +431,13 @@ test("a choice the agent names and describes shows its name and what it does, an
   expect(screen.getByRole("option", { name: /Auto/ }).textContent).toContain("Recommended");
   await user.click(option);
   await waitFor(() => expect(within(dialog).getByText("Asks first.")).toBeTruthy());
-  await user.type(within(dialog).getByRole("textbox", { name: "Directory" }), "/work/new");
-  await user.click(within(dialog).getByRole("button", { name: "Start" }));
+  await user.click(within(dialog).getByRole("button", { name: "Close" }));
+  // The choice is what the box shows under it, too.
+  await screen.findByRole("button", { name: "Permission mode: Ask before acting" });
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "hi");
+  await press(box, "Enter");
   await waitFor(() => expect(named("createSession")).toHaveLength(1));
   expect(named("createSession")[0]?.[2]).toMatchObject({ config: { mode: "default" } });
 });
@@ -1199,4 +1225,36 @@ test("a daemon that does not find files is not asked for them", async () => {
   });
   expect(screen.queryByRole("listbox", { name: "Files and folders" })).toBeNull();
   expect(named("searchFiles")).toHaveLength(0);
+});
+
+test("while the first message makes the session it is shown, nothing can be changed, and a failure gives it back with the reason", async () => {
+  let fail: (error: Error) => void = () => {};
+  const { user, named } = await mount({
+    configure: (script) => {
+      script.bridge.createSession = () =>
+        new Promise((_, reject) => {
+          fail = reject;
+        });
+    },
+  });
+  await user.click(await screen.findByRole("button", { name: "New session" }));
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "Fix the build");
+  await press(box, "Enter");
+  // The message is there, as it will be in the session, and the agent is being started for it.
+  expect(await screen.findByText("Fix the build")).toBeTruthy();
+  expect(screen.getAllByText("Starting the session…").length).toBeGreaterThan(0);
+  const where = screen.getByRole("group", {
+    name: "Where the session runs",
+  }) as HTMLFieldSetElement;
+  expect(where.disabled).toBe(true);
+  await act(async () => {
+    fail(new Error("No such folder"));
+    await Bun.sleep(5);
+  });
+  expect(await screen.findByText("No such folder")).toBeTruthy();
+  await waitFor(() => expect(boxText(box)).toBe("Fix the build"));
+  expect(where.disabled).toBe(false);
+  expect(named("prompt")).toEqual([]);
 });

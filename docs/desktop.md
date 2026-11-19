@@ -70,7 +70,7 @@ type Environment = {
 - 当前 workspace 里的会话:Needs you、Running(包括有后台子 agent 的)、Today、Yesterday、Earlier(本地日界线)。older 的每个 workspace 先显示 20 条,有标记的和打开的永远显示。一行只有一个标记:needs-you > running > background > unread;断线 host 和已归档的会话没有标记。
 - 打开的会话有 `cycle/unread` 时,窗口在前台,就告诉 daemon 已读(`markRead`;main 用它自己最近读到的那一行的 `lastSeq`,不会超出日志;不支持的 daemon 不会被问,失败也不弹错误条)。
 - 断线的 host:会话灰显、tooltip 说明原因,不算在标记里,侧栏里有它的状态、原因和"Retry"。
-- 新建 session:默认在当前 workspace 的 host 和目录;可以选 host(只列已连接的);"Browse…"只对本机有。Agent defaults 按 host 分别设置。
+- 新建 session 打开一个**空白对话**(`blank.tsx`,store 的 `blank`),不是弹窗,也不请求 daemon:标题下面一行选环境(只列已连接的,多于一个才有)、文件夹(默认是当前 workspace 的;"Browse…"在本机用系统的选择器,在远程用 daemon 列文件夹)和 agent(多于一个才有);设置从 agent defaults 读来,显示在输入框下面,可以改。**首条消息发出时**才依次 `session/new` 和 `session/prompt`(决定笔记 `2026-11-19-session-starts-at-first-message`):这期间消息先显示在空白对话里、上面的选择锁住;建不成,消息回到输入框并显示原因;建成了而消息发不出去,打开那个 session,消息在它的输入框里。daemon 的列表只列有过用户消息的 session,所以没发过消息的不会出现在侧栏。空白对话里 @ 搜它选的文件夹(daemon 要有 `filesInFolder`);斜杠命令要等 agent 启动后才有。Agent defaults 按 host 分别设置。
 
 设置文件 `settings.json` 是 `{ "environments": [{ id, name, kind: "local" | "remote", transport?: { type: "ssh", host, command? } }] }`。旧格式 `{ "hosts": [{ id, name, kind: "ssh", host, command? }] }` 读作 remote 加 ssh transport,id 不变(会话和草稿都按 id 认);只有保存时才写新格式;这个版本读不懂的条目(更新的版本写的)不显示,但保存时原样写回。
 

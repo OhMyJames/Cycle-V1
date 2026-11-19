@@ -28,6 +28,11 @@ export type Scenario = {
   attach?: boolean;
   /** Presses Tab this many times with real input events, so :focus-visible shows as it does for a keyboard. */
   tabs?: number;
+  /**
+   * A blank conversation is opened, in this folder. `starting`: this first message is sent, and the session it makes is
+   * never answered, so that the page stays as it is while a session is being made.
+   */
+  blank?: { cwd?: string; starting?: string };
   /** Runs once the page has drawn: open a dialog, press a key, or send an event as the app's main process would. */
   after?: (root: HTMLElement, emit: (event: AppEvent) => void) => Promise<void>;
 };
@@ -767,10 +772,24 @@ export const scenarios: Record<string, Scenario> = {
       await new Promise((r) => setTimeout(r, 300));
     },
   },
-  "dialog-new-session": {
-    title: "New session dialog",
+  "new-session": {
+    title: "New session: a blank conversation, with no workspace yet",
     sessions: [],
     after: (root) => click(root, "New session"),
+  },
+  "new-session-workspace": {
+    title: "New session in the workspace that is shown: its folder, the agent's defaults",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    attach: true,
+    blank: { cwd: "/Users/me/work/app" },
+  },
+  "new-session-starting": {
+    title: "The first message is sent, and the session is being made",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    blank: {
+      cwd: "/Users/me/work/app",
+      starting: "Find why the remote session drops after a minute, and fix it.",
+    },
   },
   "dialog-add-host": {
     title: "Add environment dialog",

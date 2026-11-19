@@ -248,18 +248,19 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 场景定义在 `packages/ui/gallery/scenarios.ts`:界面加了新状态,就加一个场景。在浏览器里直接看:
 `bun packages/ui/gallery/build.ts` 后打开 `packages/ui/gallery/dist/index.html`(带 `?s=<场景>` 或 `?s=tokens`)。
 
-| 场景                                                       | 看什么                                           |
-| ---------------------------------------------------------- | ------------------------------------------------ |
-| tokens                                                     | 令牌的真实值、字阶、间距、控件                   |
-| empty, empty-conversation                                  | 空状态                                           |
-| conversation                                               | 思考、三种工具状态、计划、表格、代码、列表、用量 |
-| streaming                                                  | 流式中的半句话                                   |
-| permission, permission-queue                               | 等待决定,长命令和多个请求                        |
-| turn-error                                                 | 回合以错误结束                                   |
-| host-down, host-reconnecting, session-reconnecting         | 未连接、重连中、已打开会话重连时的草稿入口       |
-| many-sessions                                              | 800 个会话、长标题、各种状态                     |
-| update-available, update-failed, daemon-old                | 三种横幅                                         |
-| dialog-new-session, dialog-add-host, dialog-agent-defaults | 对话框                                           |
+| 场景                                               | 看什么                                           |
+| -------------------------------------------------- | ------------------------------------------------ |
+| tokens                                             | 令牌的真实值、字阶、间距、控件                   |
+| empty, empty-conversation                          | 空状态                                           |
+| conversation                                       | 思考、三种工具状态、计划、表格、代码、列表、用量 |
+| streaming                                          | 流式中的半句话                                   |
+| permission, permission-queue                       | 等待决定,长命令和多个请求                        |
+| turn-error                                         | 回合以错误结束                                   |
+| host-down, host-reconnecting, session-reconnecting | 未连接、重连中、已打开会话重连时的草稿入口       |
+| many-sessions                                      | 800 个会话、长标题、各种状态                     |
+| update-available, update-failed, daemon-old        | 三种横幅                                         |
+| new-session                                        | 新建:空白对话(首条消息才建 session)              |
+| dialog-add-host, dialog-agent-defaults             | 对话框                                           |
 
 ## 13. 落实情况(2026-11-18)
 
@@ -382,7 +383,7 @@ old-cycle 的 daemon 是透明代理,日志里没有这些,所以它要从文字
 - **发送**清掉这个会话的草稿,并让还没读完的图知道"已经晚了"(`generation`),它们不会跑进下一条消息。
 - **发送失败时把写的东西放回输入框**(`store.send` 现在返回是否送出去了),放在这期间新写的内容前面,不丢。之前发送失败会丢掉文字和图片。
 - **删除会话、移除主机**清掉对应的草稿,并让还在读的图知道"已经晚了"(计数只增不重置;移除主机按主机计,也管那些还没有计数的会话),不会把一个已删除会话的草稿又写回来。主机 id 里没有冒号(`local` 或 `ssh-` 加字母数字和连字符,见 HostDialog),所以 `主机id:` 前缀只对应一个主机。
-- 新建会话时没有"文件夹键"要迁移:输入框只在有会话时才有,会话一创建就有 id。
+- 新建会话先是一个**空白对话**,它的输入框用一个固定的键(`BLANK_KEY`),不分环境和文件夹:换环境或文件夹时写的字还在。首条消息发出时清空;session 建好、消息却发不出去时,消息放回**那个 session** 的输入框(2026-11-19,`.agents/notes/2026-11-19-session-starts-at-first-message.md`)。
 
 **没做**:会话列表里给有草稿的会话一个标记;重载后保留图片和 @ 提及的链接(文字里的 `@路径` 还在);被别的客户端删掉的会话(列表里消失)的草稿不会被清,也没有数量上限。
 
@@ -391,7 +392,7 @@ old-cycle 的 daemon 是透明代理,日志里没有这些,所以它要从文字
 一个你没在看的会话需要你时,用系统通知告诉你。**判断是纯函数**(`packages/ui/src/attention.ts` 的 `attentionOf(之前, 现在)`),**显示在主进程**(`apps/desktop/src/main/attention.ts`,Electron 的窗口和 Notification 作为参数传进去,所以不用 Electron 就能测)。
 
 - **三种**:_等你回答_(`requires_action`,从别的状态来);_做完了_(在跑或在等你,变成 idle);_agent 没了_(在跑或在等你,变成 stopped;**空闲时被安静地释放不算**,decision 0007)。
-- **只告诉变化**:第一次读到的列表不告诉;新出现的会话不告诉;已归档的不告诉;一直是那个状态的不重复。
+- **只告诉变化**:第一次读到的列表不告诉;已归档的不告诉;一直是那个状态的不重复。会话从第一条用户消息起才在列表里(协议 §6),出现时已经在跑,所以第一次之后新出现的会话按"之前是空闲"比较:一出现就在等你的,告诉"等你回答"(2026-11-19;之前是新出现的不告诉)。
 - **断线重连之后只告诉"等你回答"**:断线期间一个在跑的会话可能做完、又被安静地释放(idle 5 分钟后 stopped),重连后看到"在跑→stopped"会被误报成 agent 没了,"回到空闲"也是旧闻;等你回答的仍然要紧,仍然通知。
 - **答案乱序时不倒回去**:每次重读的列表带一个序号,晚到的旧答案不盖掉新的(否则一个过时的 requires_action 会误报)。
 - **通知失败不影响列表**:钩子抛错(比如 `Notification` 构造失败)被吞掉,列表照常发给界面。
