@@ -69,6 +69,8 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
     fold: false,
     /** The texts taken into a running turn, in order. */
     folded: [] as string[],
+    /** A process that has been let go takes this long to exit: its stream ends when this settles. */
+    holdExit: undefined as Promise<void> | undefined,
     /** Results say nothing of what they took, as the SDK's failed results do. */
     dropUuids: false,
   };
@@ -126,6 +128,7 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
         const message = await Promise.race([ended, next()]);
         if (message === undefined) {
           state.inputClosed = true;
+          await state.holdExit;
           return;
         }
         const pushed = { value: message };

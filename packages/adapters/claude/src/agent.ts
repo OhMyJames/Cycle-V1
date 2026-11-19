@@ -754,7 +754,9 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         endSubagents(session);
       }
       clearTimeout(live.idle);
-      const turn = session.turn;
+      // An exit that comes late, after another process has taken over the session, says nothing of
+      // that process's turn: it is the new loop's to end.
+      const turn = session.live === undefined ? session.turn : undefined;
       if (turn !== undefined && !turn.done) {
         await finish(
           client,
