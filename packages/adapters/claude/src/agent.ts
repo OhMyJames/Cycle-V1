@@ -718,7 +718,17 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
             session.started = true;
           }
           await aside(client, session, message).catch(() => undefined);
-          const turn = session.turn;
+          let turn = session.turn;
+          if ((turn === undefined || turn.done) && speaksAloneOf(message)) {
+            // Claude began on its own (a background task finished and woke it): there is no prompt, but
+            // there is a turn to show, from its first words to its result. It exists before anything is
+            // awaited, so a prompt or a cancel that arrives meanwhile finds it.
+            turn = beginOwnTurn(session, live);
+            await notify(client, session.id, {
+              sessionUpdate: "state_update",
+              state: "running",
+            } as SessionUpdate).catch(() => undefined);
+          }
           if (turn === undefined || turn.done) continue;
           for (const update of turn.translator.feed(message)) {
             // The turn can end while this waits (a cancel that ran out of time): nothing more is its.
@@ -780,6 +790,31 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       }
     })();
     return live;
+  };
+
+  /**
+   * Whether a message is the main agent beginning to say something, as opposed to what a process says
+   * between turns (modes, commands, task news) or a sub-agent's own talk (`parent_tool_use_id`).
+   */
+  const speaksAloneOf = (message: SDKMessage): boolean =>
+    (message.type === "stream_event" || message.type === "assistant") &&
+    !(message as { parent_tool_use_id?: string | null }).parent_tool_use_id;
+
+  /** A turn nobody prompted: its process is already running it. */
+  const beginOwnTurn = (session: SessionState, live: Live): Turn => {
+    clearTimeout(live.idle);
+    const turn: Turn = {
+      translator: new TurnTranslator(session.plan),
+      permissions: new AbortController(),
+      cancelled: false,
+      done: false,
+      steers: new Set(),
+      pushed: true,
+      process: live,
+      killTimer: undefined,
+    };
+    session.turn = turn;
+    return turn;
   };
 
   const runTurn = async (

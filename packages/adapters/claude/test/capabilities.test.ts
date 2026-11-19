@@ -1172,3 +1172,49 @@ test("a process let go that exits late does not end the turn of the one that rep
     { idleMs: 20 },
   );
 });
+
+test("what Claude says on its own after a turn (a background task woke it) is a turn of its own, shown and ended", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m1", "first"));
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "start it" }]);
+    const before = updates.length;
+    // No prompt: the process answers a finished background task.
+    const waiting = idle();
+    fake.state.say(textTurn(ID, "m2", "the inventory is ready"));
+    await waiting;
+    const own = updates.slice(before);
+    expect(kinds(own)).toEqual([
+      "state_update",
+      "agent_message_chunk",
+      "agent_message_chunk",
+      "state_update",
+    ]);
+    expect(own[0]).toMatchObject({ state: "running" });
+    expect(own.at(-1)).toMatchObject({ state: "idle", stopReason: "end_turn" });
+    const said = own
+      .filter((u) => u.sessionUpdate === "agent_message_chunk")
+      .map((u) => (u as { content: { text: string } }).content.text)
+      .join("");
+    expect(said).toBe("the inventory is ready");
+    // And it is a turn like any: a prompt after it is answered.
+    await prompt(agent, idle, [{ type: "text", text: "thanks" }]);
+  });
+});
+
+test("a sub-agent's own talk between turns does not start a turn", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m1", "first"));
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "start it" }]);
+    const before = updates.length;
+    fake.state.say(
+      textTurn(ID, "sub", "I am a helper").map((m) => ({
+        ...m,
+        parent_tool_use_id: "toolu_1",
+      })) as never,
+    );
+    await Bun.sleep(50);
+    expect(updates.slice(before)).toEqual([]);
+  });
+});
