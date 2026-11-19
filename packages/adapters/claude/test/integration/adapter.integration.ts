@@ -545,3 +545,128 @@ test("a session that had a turn answered, whose record is there, is resumed with
     await config.dispose();
   }
 }, 60_000);
+
+/** Waits, for at most `ms`, until `ok` holds. */
+const waitUntil = async (ok: () => boolean, what: string, ms = 30_000) => {
+  const started = Date.now();
+  while (!ok()) {
+    if (Date.now() - started > ms) throw new Error(`timed out waiting for ${what}`);
+    await Bun.sleep(20);
+  }
+};
+
+const idles = (updates: { sessionUpdate: string }[]) =>
+  updates.filter(
+    (u) => u.sessionUpdate === "state_update" && (u as { state?: string }).state === "idle",
+  );
+
+test("a prompt steered in while a tool runs reaches the model in the same turn, with the tool's result", async () => {
+  const mock = startMock((requests) =>
+    JSON.stringify(asked(requests).at(-1)?.body).includes("tool_result")
+      ? textReply("Done.")
+      : toolReply("Bash", { command: "sleep 2; echo slept" }),
+  );
+  const config = await tempConfigDir();
+  const id = "c1637485-6666-4777-8888-e999aaa0bb2c";
+  try {
+    await withAdapter(
+      { mockUrl: mock.url, configDir: config.dir },
+      async ({ agent, updates, idle }) => {
+        await agent.request(methods.agent.session.new, { cwd, _meta: { "cycle/sessionId": id } });
+        // Nothing to ask: the model's tool call runs while the prompt is steered in.
+        await agent.request(methods.agent.session.setConfigOption, {
+          sessionId: id,
+          configId: "mode",
+          type: "id",
+          value: "bypassPermissions",
+        } as never);
+        const done = idle();
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: id,
+          prompt: [{ type: "text", text: "Sleep a little." }],
+        });
+        await waitUntil(
+          () => updates.some((u) => u.sessionUpdate === "tool_call_update"),
+          "the tool call",
+        );
+        const answer = (await agent.request(methods.agent.session.prompt, {
+          sessionId: id,
+          prompt: [{ type: "text", text: "ALSO MIND THIS" }],
+          _meta: { "cycle/steer": true },
+        })) as { messageId: string };
+        expect(await done).toMatchObject({ stopReason: "end_turn" });
+        expect(
+          updates.some(
+            (u) =>
+              u.sessionUpdate === "user_message" &&
+              (u as { messageId?: string }).messageId === answer.messageId,
+          ),
+        ).toBe(true);
+        // The model was sent it, after the tool call it was steered in during.
+        const withIt = asked(mock.requests).filter((r) =>
+          sentText(r.body).includes("ALSO MIND THIS"),
+        );
+        expect(withIt.length).toBeGreaterThan(0);
+        await Bun.sleep(500);
+        expect(idles(updates)).toHaveLength(1);
+      },
+    );
+  } finally {
+    mock.stop();
+    await config.dispose();
+  }
+}, 60_000);
+
+test("a prompt steered in as the model finishes its answer is answered before the turn ends", async () => {
+  const held = heldTextReply("Writing. ", "Written.");
+  let used = false;
+  const mock = startMock((requests) => {
+    if (!used && requests.at(-1)?.path === "/v1/messages") {
+      used = true;
+      return held.body;
+    }
+    return textReply("Noted.");
+  });
+  const config = await tempConfigDir();
+  const id = "d2748596-7777-4888-8999-faaabbb1cc3d";
+  try {
+    await withAdapter(
+      { mockUrl: mock.url, configDir: config.dir },
+      async ({ agent, updates, idle }) => {
+        await agent.request(methods.agent.session.new, { cwd, _meta: { "cycle/sessionId": id } });
+        const done = idle();
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: id,
+          prompt: [{ type: "text", text: "Write." }],
+        });
+        await waitUntil(
+          () => updates.some((u) => u.sessionUpdate === "agent_message_chunk"),
+          "the model to start writing",
+        );
+        await agent.request(methods.agent.session.prompt, {
+          sessionId: id,
+          prompt: [{ type: "text", text: "ONE MORE THING" }],
+          _meta: { "cycle/steer": true },
+        });
+        await Bun.sleep(300);
+        held.release();
+        expect(await done).toMatchObject({ stopReason: "end_turn" });
+        // Answered, whether Claude took it into the turn or as one of its own after it.
+        expect(asked(mock.requests).some((r) => sentText(r.body).includes("ONE MORE THING"))).toBe(
+          true,
+        );
+        await Bun.sleep(500);
+        expect(idles(updates)).toHaveLength(1);
+        const text = updates
+          .filter((u) => u.sessionUpdate === "agent_message_chunk")
+          .map((u) => (u as unknown as { content: { text: string } }).content.text)
+          .join("");
+        expect(text).toContain("Noted.");
+      },
+    );
+  } finally {
+    held.release();
+    mock.stop();
+    await config.dispose();
+  }
+}, 60_000);

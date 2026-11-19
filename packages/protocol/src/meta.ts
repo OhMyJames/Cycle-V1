@@ -42,6 +42,13 @@ export const META = {
   noClient: "cycle/noClient",
   /** On the answer to a `session/prompt` that was queued, not sent: the agent was still working. */
   queued: "cycle/queued",
+  /**
+   * On a `session/prompt` (client to daemon, and daemon to agent): put it into the turn that is
+   * running instead of queueing it (docs/protocol.md §8). Ignored when the session is not busy.
+   */
+  steer: "cycle/steer",
+  /** On the answer to a `session/prompt` that the agent took into the running turn. */
+  steered: "cycle/steered",
 } as const;
 
 /** The version of Cycle's protocol, "major.minor". A different major is refused. */
@@ -58,6 +65,8 @@ export const CapabilitiesSchema = z.object({
   sessionOps: z.array(z.string()),
   /** Prompts sent while the agent works are queued by the daemon (docs/protocol.md §8). */
   queue: z.boolean().optional(),
+  /** A prompt with `_meta["cycle/steer"]` goes into the running turn where the agent can (docs/protocol.md §8). */
+  steer: z.boolean().optional(),
   /** `_cycle/files/search` is there (docs/protocol.md §8). */
   files: z.boolean().optional(),
   /** `_cycle/folders/list` is there (docs/protocol.md §8). */

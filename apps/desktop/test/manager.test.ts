@@ -106,6 +106,7 @@ test("connects, creates a session, and lists it", async () => {
   // What the daemon said it can do reaches the page with the connection's state.
   expect(of(events, "environment-status").at(-1)?.capabilities).toEqual({
     queue: true,
+    steer: true,
     files: true,
     folders: true,
   });
@@ -274,6 +275,7 @@ test("a connection that drops is picked up again, and a request still open is no
     of(events, "environment-status").find((e) => e.state === "reconnecting")?.capabilities,
   ).toEqual({
     queue: true,
+    steer: true,
     files: true,
     folders: true,
   });

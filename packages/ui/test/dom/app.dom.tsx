@@ -22,11 +22,13 @@ const mount = async (
   options: {
     snapshot?: () => SessionSnapshot;
     configure?: (script: ReturnType<typeof fakeBridge>) => void;
-    capabilities?: { queue: boolean; files: boolean; folders: boolean };
+    capabilities?: { queue: boolean; steer?: boolean; files: boolean; folders: boolean };
+    steer?: boolean;
   } = {},
 ) => {
   const script = fakeBridge({
     connected: true,
+    ...(options.steer === true ? { steer: true } : {}),
     ...(options.snapshot ? { snapshot: options.snapshot } : {}),
     ...(options.capabilities ? { capabilities: options.capabilities } : {}),
   });
@@ -123,6 +125,64 @@ test("while the agent works there is Stop, and a message typed is queued, not re
     version: 2,
   });
   await screen.findByRole("button", { name: "Send" });
+});
+
+test("while the agent works, Enter sends into its turn, Shift+Enter queues, and Alt+Enter is a new line", async () => {
+  const { user, emit, named } = await mount({
+    steer: true,
+    capabilities: { queue: true, steer: true, files: true, folders: true },
+  });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    update: u({ sessionUpdate: "state_update", state: "running" }),
+    version: 1,
+  });
+  await screen.findByRole("button", { name: "Send now" });
+  expect(screen.getByRole("button", { name: "Queue" })).toBeDefined();
+  await write(box, "one");
+  await press(box, "Enter", { altKey: true });
+  await write(box, "two");
+  expect(boxText(box)).toBe("one\ntwo");
+  expect(named("prompt")).toHaveLength(0);
+  await press(box, "Enter");
+  await waitFor(() =>
+    expect(named("prompt")).toEqual([
+      ["prompt", "local", "s1", [{ type: "text", text: "one\ntwo" }], { steer: true }],
+    ]),
+  );
+  await write(box, "later");
+  await press(box, "Enter", { shiftKey: true });
+  await waitFor(() => expect(named("prompt")).toHaveLength(2));
+  expect(named("prompt")[1]).toEqual(["prompt", "local", "s1", [{ type: "text", text: "later" }]]);
+  expect(boxText(box)).toBe("");
+});
+
+test("an agent that cannot be steered keeps Enter as queue while it works", async () => {
+  const { user, emit, named } = await mount({
+    capabilities: { queue: true, steer: true, files: true, folders: true },
+  });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    update: u({ sessionUpdate: "state_update", state: "running" }),
+    version: 1,
+  });
+  await screen.findByRole("button", { name: "Queue" });
+  expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+  await write(box, "next");
+  await press(box, "Enter");
+  await waitFor(() =>
+    expect(named("prompt")).toEqual([["prompt", "local", "s1", [{ type: "text", text: "next" }]]]),
+  );
 });
 
 test("streams: what arrives is added to the message on screen", async () => {
@@ -932,6 +992,19 @@ test("a slash at the start lists the commands that fit; the arrows choose, Enter
       ["prompt", "local", "s1", [{ type: "text", text: "/review 12" }]],
     ]),
   );
+});
+
+test("with the menu open, Shift+Enter is a new line and does not take what is chosen", async () => {
+  const { user, named } = await mount({ snapshot: () => withCommands("init", "review") });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "/r");
+  await screen.findByRole("listbox", { name: "Commands" });
+  await press(box, "Enter", { shiftKey: true });
+  await write(box, "x");
+  expect(boxText(box)).toBe("/r\nx");
+  expect(named("prompt")).toHaveLength(0);
 });
 
 test("a command typed in full is sent by Enter, not rewritten", async () => {

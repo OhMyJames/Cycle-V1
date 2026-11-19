@@ -648,3 +648,128 @@ test("where the record cannot be looked at, the session is taken to be there, as
     expect(fake.calls[0]?.options).toMatchObject({ resume: ID });
   }
 });
+
+// ---- steer: a prompt put into the turn that is running (docs/protocol.md §8) ----
+
+const steer = (agent: unknown, text: string) =>
+  ask(agent, methods.agent.session.prompt, {
+    sessionId: ID,
+    prompt: [{ type: "text", text }],
+    _meta: { "cycle/steer": true },
+  }) as Promise<{ messageId: string }>;
+
+/** A first turn that waits for `release`, then a plain answer to anything else. */
+const gated = () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fake = fakeQuery(async (call) => {
+    if (call.prompt === "work") await gate;
+    return textTurn(ID, `m-${call.prompt}`, "ok");
+  });
+  return { fake, release: () => release() };
+};
+
+test("a prompt steered into a running turn is taken by it: one turn, one idle, its user message in the middle", async () => {
+  const { fake, release } = gated();
+  fake.state.fold = true;
+  await connect(fake.run, async ({ agent, updates, waitForIdle }) => {
+    await open(agent);
+    const idle = waitForIdle();
+    await ask(agent, methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "work" }],
+    });
+    await settle(20);
+    const { messageId } = await steer(agent, "mind this");
+    await settle(20);
+    release();
+    expect(await idle).toMatchObject({ stopReason: "end_turn" });
+    await settle(20);
+    const users = updates.filter((u) => u.sessionUpdate === "user_message");
+    expect(users.at(-1)).toMatchObject({ messageId, content: [{ text: "mind this" }] });
+    expect(updates.filter((u) => (u as { state?: string }).state === "idle")).toHaveLength(1);
+  });
+  expect(fake.state.folded).toEqual(["mind this"]);
+});
+
+test("a steered prompt the turn ended without taking is answered before the turn ends", async () => {
+  const { fake, release } = gated();
+  await connect(fake.run, async ({ agent, updates, waitForIdle }) => {
+    await open(agent);
+    const idle = waitForIdle();
+    await ask(agent, methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "work" }],
+    });
+    await settle(20);
+    await steer(agent, "mind this");
+    release();
+    expect(await idle).toMatchObject({ stopReason: "end_turn" });
+    // Claude answered it as a turn of its own in the same process; for the client it is the same turn.
+    expect(fake.prompts).toEqual(["work", "mind this"]);
+    await settle(20);
+    expect(updates.filter((u) => (u as { state?: string }).state === "idle")).toHaveLength(1);
+  });
+  expect(fake.calls).toHaveLength(1);
+});
+
+test("a steer with no turn running is refused, for the daemon to send or queue", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  await connect(fake.run, async ({ agent }) => {
+    await open(agent);
+    await expect(steer(agent, "hello")).rejects.toMatchObject({ code: -32600 });
+  });
+  expect(fake.prompts).toEqual([]);
+});
+
+test("a stop with a steered prompt not yet taken lets the process go, so Claude does not answer it unseen", async () => {
+  const fake = fakeQuery((call) =>
+    call.prompt === "work" ? new Promise(() => {}) : textTurn(ID, "m", "ok"),
+  );
+  await connect(fake.run, async ({ agent, waitForIdle }) => {
+    await open(agent);
+    const idle = waitForIdle();
+    await ask(agent, methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "work" }],
+    });
+    await settle(20);
+    await steer(agent, "mind this");
+    await tell(agent, methods.agent.session.cancel, { sessionId: ID });
+    expect(await idle).toMatchObject({ stopReason: "cancelled" });
+    // The next prompt starts another process.
+    expect(await prompt(agent as never, waitForIdle, "again")).toMatchObject({
+      stopReason: "end_turn",
+    });
+  });
+  // Another process took the next prompt; the first never got to answer what was put in.
+  expect(fake.calls).toHaveLength(2);
+  expect(fake.prompts).toEqual(["work", "again"]);
+});
+
+test("a result that does not say what it took ends the turn, and the process goes with what was put in", async () => {
+  const { fake, release } = gated();
+  fake.state.dropUuids = true;
+  await connect(fake.run, async ({ agent, updates, waitForIdle }) => {
+    await open(agent);
+    const idle = waitForIdle();
+    await ask(agent, methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "work" }],
+    });
+    await settle(20);
+    await steer(agent, "mind this");
+    release();
+    expect(await idle).toMatchObject({ stopReason: "end_turn" });
+    await settle(50);
+    expect(updates.filter((u) => (u as { state?: string }).state === "idle")).toHaveLength(1);
+    // The next prompt starts another process: the first never answered the steer unseen.
+    expect(await prompt(agent as never, waitForIdle, "again")).toMatchObject({
+      stopReason: "end_turn",
+    });
+  });
+  expect(fake.calls).toHaveLength(2);
+  expect(fake.prompts).toEqual(["work", "again"]);
+});

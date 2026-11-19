@@ -483,6 +483,26 @@ export class Daemon {
   }
 
   /** Gives a prompt to the agent, starting it if it is not running. */
+  /**
+   * Hands a prompt to the turn that is running (docs/protocol.md §8). Undefined when the agent
+   * cannot take it (it does not steer, it is not there, or it refused, as when the turn has just
+   * ended): the caller queues it, or sends it, as the session now is.
+   */
+  async #steer(session: Session, prompt: unknown[]): Promise<unknown> {
+    const link = session.link;
+    if (this.#definition(session.entry.agent).steer !== true || link === undefined) return;
+    try {
+      const answer = (await link.agent.request(methods.agent.session.prompt, {
+        sessionId: session.entry.agentSessionId,
+        prompt,
+        _meta: { [META.steer]: true },
+      } as never)) as { messageId?: unknown; _meta?: Record<string, unknown> | null };
+      return { ...answer, _meta: { ...(answer._meta ?? {}), [META.steered]: true } };
+    } catch {
+      return undefined;
+    }
+  }
+
   async #send(session: Session, prompt: unknown[]): Promise<unknown> {
     const link = await this.#ensureAgent(session);
     return link.agent.request(methods.agent.session.prompt, {
@@ -923,6 +943,7 @@ export class Daemon {
             agents: [...this.#agents.keys()],
             sessionOps: ["archive", "rename", "delete", "markRead"],
             queue: true,
+            steer: true,
             files: true,
             folders: true,
           },
@@ -1128,7 +1149,14 @@ export class Daemon {
           ...problem,
         });
       this.#returnStale(session);
-      if (session.status() !== "idle" && session.status() !== "stopped") {
+      const busy = () => session.status() !== "idle" && session.status() !== "stopped";
+      const steer = (params._meta as Record<string, unknown> | null | undefined)?.[META.steer];
+      if (busy() && steer === true) {
+        // Into the running turn, where the agent can take it; otherwise it is queued as any other.
+        const steered = await this.#steer(session, params.prompt);
+        if (steered !== undefined) return steered as never;
+      }
+      if (busy()) {
         // The agent is busy: the prompt waits here, and goes when the turn ends well.
         if (session.queue.length >= QUEUE_LIMIT) throw queueFull(session.id, QUEUE_LIMIT);
         const queueId = randomUUID();
@@ -1243,6 +1271,7 @@ export class Daemon {
           ...(a.promptCapabilities !== undefined
             ? { promptCapabilities: a.promptCapabilities }
             : {}),
+          ...(a.steer === true ? { steer: true } : {}),
         })),
       ),
     }));

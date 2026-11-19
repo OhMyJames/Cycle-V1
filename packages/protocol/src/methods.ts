@@ -14,6 +14,8 @@ export const AgentInfoSchema = z.object({
   configSchema: z.record(z.string(), z.unknown()),
   /** What the agent takes in a prompt beyond text and links (decision 0010). Absent: nothing more. */
   promptCapabilities: PromptCapabilitiesSchema.optional(),
+  /** It can take a prompt into the turn that is running (docs/protocol.md §8). Absent: it cannot. */
+  steer: z.boolean().optional(),
 });
 export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 

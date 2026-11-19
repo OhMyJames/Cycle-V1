@@ -56,9 +56,10 @@ function Parent({
       disabled={disabled}
       label="Message"
       placeholder="Message the agent"
-      onKey={(key) => {
+      onKey={(key, event) => {
         seen.keys.push(key);
-        return key === "escape";
+        // As the composer does when the agent is idle: Enter is used, Shift+Enter is left.
+        return key === "escape" || (key === "enter" && !event.shiftKey);
       }}
       onPasteFiles={(files) => seen.files.push(...files)}
     />
@@ -102,7 +103,7 @@ test("a text that comes from outside replaces the document", async () => {
   await waitFor(() => expect(markdownOf(editorOf(box))).toBe(""));
 });
 
-test("Enter is asked of the parent and is never a new line; Shift+Enter is left to the editor", async () => {
+test("Enter is asked of the parent, with or without a modifier; one it does not use is a line break", async () => {
   const { seen } = mount("a");
   const box = await screen.findByRole("textbox", { name: "Message" });
   const plain = new KeyboardEvent("keydown", { key: "Enter", cancelable: true });
@@ -111,16 +112,22 @@ test("Enter is asked of the parent and is never a new line; Shift+Enter is left 
   });
   expect(seen.keys).toEqual(["enter"]);
   expect(plain.defaultPrevented).toBe(true);
+  expect(markdownOf(editorOf(box))).toBe("a");
   const shifted = new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, cancelable: true });
   act(() => {
+    editorOf(box).update(() => $getRoot().selectEnd(), { discrete: true });
     editorOf(box).dispatchCommand(KEY_ENTER_COMMAND, shifted);
   });
-  expect(seen.keys).toEqual(["enter"]);
+  expect(seen.keys).toEqual(["enter", "enter"]);
+  expect(shifted.defaultPrevented).toBe(true);
+  // A line break in the same paragraph, not a new paragraph.
+  await waitFor(() => expect(box.querySelectorAll("p")).toHaveLength(1));
+  expect(box.querySelector("br")).not.toBeNull();
   const composing = new KeyboardEvent("keydown", { key: "Enter", isComposing: true });
   act(() => {
     editorOf(box).dispatchCommand(KEY_ENTER_COMMAND, composing);
   });
-  expect(seen.keys).toEqual(["enter"]);
+  expect(seen.keys).toEqual(["enter", "enter"]);
 });
 
 test("a key the parent uses is not also the editor's", async () => {

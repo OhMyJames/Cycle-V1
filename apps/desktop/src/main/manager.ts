@@ -196,6 +196,7 @@ export class ConnectionManager
               ? {
                   capabilities: {
                     queue: connection.client.capabilities.queue === true,
+                    steer: connection.client.capabilities.steer === true,
                     files: connection.client.capabilities.files === true,
                     folders: connection.client.capabilities.folders === true,
                   },
@@ -429,10 +430,13 @@ export class ConnectionManager
     environmentId: string,
     sessionId: string,
     content: string | PromptBlock[],
+    options: { steer?: boolean } = {},
   ): Promise<void> {
     const blocks =
       typeof content === "string" ? [{ type: "text" as const, text: content }] : content;
-    await this.#connection(environmentId).client.prompt(sessionId, blocks);
+    await this.#connection(environmentId).client.prompt(sessionId, blocks, {
+      ...(options.steer === true ? { steer: true } : {}),
+    });
   }
 
   async cancel(environmentId: string, sessionId: string): Promise<void> {

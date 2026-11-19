@@ -38,7 +38,9 @@ export const fakeBridge = (
     connected?: boolean;
     update?: UpdateState;
     /** What the daemon says it can do. Default: all of it. */
-    capabilities?: { queue: boolean; files: boolean; folders: boolean };
+    capabilities?: { queue: boolean; steer?: boolean; files: boolean; folders: boolean };
+    /** The agent can take a message into a running turn. */
+    steer?: boolean;
     /** More environments than the local one, and how each stands (by id; the local one's is `connected`). */
     environments?: EnvironmentConfig[];
     states?: Record<string, ConnectionState>;
@@ -121,7 +123,13 @@ export const fakeBridge = (
     deleteSession: record("deleteSession", async () => {}),
     answerPermission: record("answerPermission", async () => {}),
     agents: record("agents", async () => [
-      { id: "fake", name: "Fake", available: true, configSchema: {} },
+      {
+        id: "fake",
+        name: "Fake",
+        available: true,
+        configSchema: {},
+        ...(options.steer === true ? { steer: true } : {}),
+      },
     ]),
     agentDefaults: record("agentDefaults", async () => ({})),
     setAgentDefaults: record("setAgentDefaults", async () => {}),

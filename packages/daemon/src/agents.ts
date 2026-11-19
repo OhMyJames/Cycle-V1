@@ -16,6 +16,8 @@ export type AgentDefinition = {
   configSchema: Record<string, unknown>;
   /** What the agent takes in a prompt beyond text and links (ACP `PromptCapabilities`). None when absent. */
   promptCapabilities?: PromptCapabilities;
+  /** It takes a prompt into the turn that is running (`_meta["cycle/steer"]`, docs/protocol.md §8). */
+  steer?: boolean;
   available?: () => boolean | Promise<boolean>;
   launch: () => Promise<AgentTarget>;
 };

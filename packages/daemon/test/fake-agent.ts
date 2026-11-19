@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type AgentConnection, agent, methods, type SessionUpdate } from "@cycle/acp";
+import { type AgentConnection, agent, methods, RequestError, type SessionUpdate } from "@cycle/acp";
 import type { AgentDefinition } from "../src/index.ts";
 
 type Script = {
@@ -37,12 +37,19 @@ export const fakeAgent = (
     configOptions?: { configId: string; currentValue: string }[];
     /** What `session/resume` answers with: the settings a resumed session is in. */
     resumeConfigOptions?: { configId: string; currentValue: string }[];
+    /**
+     * Says it can take a prompt into a running turn (`cycle/steer`). `take`: it does, while a turn
+     * runs; `refuse`: it says it can, and refuses every one.
+     */
+    steer?: "take" | "refuse";
   } = {},
 ) => {
   const log = {
     news: [] as Record<string, unknown>[],
     resumes: [] as Record<string, unknown>[],
     prompts: [] as string[],
+    /** Prompts taken into a running turn. */
+    steers: [] as string[],
     blocks: [] as unknown[][],
     cancels: 0,
     launches: 0,
@@ -55,6 +62,7 @@ export const fakeAgent = (
 
   const build = () => {
     const sessions = new Set<string>();
+    let running = 0;
     const app = agent({ name: "fake" })
       .onConnect((connection) => {
         connections.push(connection);
@@ -99,6 +107,26 @@ export const fakeAgent = (
       .onRequest(methods.agent.session.prompt, ({ params, client }) => {
         const sessionId = params.sessionId;
         const text = params.prompt.map((b) => (b.type === "text" ? b.text : "")).join("");
+        if (
+          (params._meta as Record<string, unknown> | null | undefined)?.["cycle/steer"] === true
+        ) {
+          if (options.steer !== "take" || running === 0) {
+            throw new RequestError(-32600, "No turn is running to take it");
+          }
+          log.steers.push(text);
+          const steered = randomUUID();
+          void client
+            .notify(methods.client.session.update, {
+              sessionId,
+              update: {
+                sessionUpdate: "user_message",
+                messageId: steered,
+                content: params.prompt,
+              } as SessionUpdate,
+            })
+            .catch(() => {});
+          return { messageId: steered };
+        }
         log.prompts.push(text);
         log.blocks.push(params.prompt as unknown[]);
         const messageId = randomUUID();
@@ -128,6 +156,7 @@ export const fakeAgent = (
         void (async () => {
           await say({ sessionUpdate: "user_message", messageId, content: params.prompt });
           await say({ sessionUpdate: "state_update", state: "running" });
+          running++;
           let ended = false;
           if (script.onPrompt) {
             ended =
@@ -146,6 +175,7 @@ export const fakeAgent = (
               content: { type: "text", text: `echo: ${text}` },
             });
           }
+          running--;
           // A script that ended the turn itself (an error, say) is not given a second ending.
           if (!ended)
             await say({
@@ -166,6 +196,7 @@ export const fakeAgent = (
     ...(options.promptCapabilities !== undefined
       ? { promptCapabilities: options.promptCapabilities }
       : {}),
+    ...(options.steer !== undefined ? { steer: true } : {}),
     launch: async () => {
       if (control.failLaunch) throw new Error("The agent cannot start");
       log.launches++;
