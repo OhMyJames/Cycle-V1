@@ -12,6 +12,7 @@ import {
   type ConnectorSecrets,
   type ConnectorTransport,
   CYCLE_PROTOCOL_VERSION,
+  CycleErrorCode,
   type FolderList,
   META,
   NOTIFICATIONS,
@@ -27,6 +28,11 @@ const isSessionGone = (error: unknown): boolean =>
   typeof error === "object" &&
   error !== null &&
   (error as { code?: unknown }).code === RESOURCE_NOT_FOUND;
+
+const isLogUnavailable = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  (error as { code?: unknown }).code === CycleErrorCode.LogUnavailable;
 
 export type ConnectionState = "connecting" | "connected" | "reconnecting" | "closed";
 
@@ -72,6 +78,12 @@ export type ClientEvents = {
    * while this one was away). It is not watched any more; the others carry on.
    */
   gone?: (sessionId: string) => void;
+  /**
+   * A session this client was watching has a history the daemon cannot read, so it could not be
+   * attached again after a reconnect. It is not watched any more; the others carry on, and the
+   * connection is up. Opening the session says what is wrong with it.
+   */
+  unreadable?: (sessionId: string, error: unknown) => void;
   connection?: (state: ConnectionState, error?: unknown) => void;
 };
 
@@ -213,7 +225,7 @@ export class CycleClient {
       await this.#attach(sessionId, entry);
     } catch (error) {
       // A session that is not there is not kept to be asked for at every reconnect.
-      if (isSessionGone(error)) this.#watched.delete(sessionId);
+      if (isSessionGone(error) || isLogUnavailable(error)) this.#watched.delete(sessionId);
       throw error;
     }
   }
@@ -567,6 +579,13 @@ export class CycleClient {
           } catch (error) {
             // One session that is gone is that session's end, not the host's: the rest are
             // attached. Anything else (the connection itself) is tried again from the start.
+            // One whose history cannot be read is the same: its own error to show, not a reason to
+            // dial again, which would meet it again.
+            if (isLogUnavailable(error)) {
+              this.#watched.delete(sessionId);
+              this.#events.unreadable?.(sessionId, error);
+              continue;
+            }
             if (!isSessionGone(error)) throw error;
             this.#watched.delete(sessionId);
             this.#events.gone?.(sessionId);
