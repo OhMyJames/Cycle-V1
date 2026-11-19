@@ -55,7 +55,14 @@ export class AgentLink {
       launched.target instanceof AgentApp
         ? app.connect(launched.target)
         : app.connect(launched.target as Stream);
-    void connection.closed.then(handlers.closed, handlers.closed);
+    // A connection that ends while it is being set up is reported by connect() throwing. Telling
+    // the handler too would reach it before the caller has the link it is about (and the caller's
+    // own `link` is not yet assigned), so only an end after a successful connect is passed on.
+    let ready = false;
+    const ended = () => {
+      if (ready) handlers.closed();
+    };
+    void connection.closed.then(ended, ended);
     let initialized: unknown;
     try {
       initialized = await connection.agent.request(methods.agent.initialize, {
@@ -69,6 +76,7 @@ export class AgentLink {
       launched.kill?.();
       throw error;
     }
+    ready = true;
     const mcpHttp =
       (initialized as { capabilities?: { session?: { mcp?: { http?: unknown } } } } | undefined)
         ?.capabilities?.session?.mcp?.http != null;

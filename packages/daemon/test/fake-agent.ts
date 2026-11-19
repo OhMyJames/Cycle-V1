@@ -59,7 +59,7 @@ export const fakeAgent = (
   };
   const connections: AgentConnection[] = [];
   /** What a test may switch: the next launch fails. */
-  const control = { failLaunch: false };
+  const control = { failLaunch: false, failInitialize: false };
   const cancelResolvers: (() => void)[] = [];
 
   const build = () => {
@@ -69,11 +69,14 @@ export const fakeAgent = (
       .onConnect((connection) => {
         connections.push(connection);
       })
-      .onRequest(methods.agent.initialize, () => ({
-        protocolVersion: 2,
-        info: { name: "fake", version: "0" },
-        capabilities: options.mcpHttp === true ? { session: { mcp: { http: {} } } } : {},
-      }))
+      .onRequest(methods.agent.initialize, () => {
+        if (control.failInitialize) throw new RequestError(-32603, "cannot initialize");
+        return {
+          protocolVersion: 2,
+          info: { name: "fake", version: "0" },
+          capabilities: options.mcpHttp === true ? { session: { mcp: { http: {} } } } : {},
+        };
+      })
       .onRequest(methods.agent.session.new, ({ params }) => {
         log.news.push(params as unknown as Record<string, unknown>);
         const proposed = (params._meta as Record<string, unknown> | null)?.["cycle/sessionId"];
