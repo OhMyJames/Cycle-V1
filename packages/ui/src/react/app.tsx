@@ -21,7 +21,7 @@ import {
   ResizableHandle,
   ResizablePanel,
 } from "@ui-sdk/react/resizable";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usageLabel } from "../model/index.ts";
 import {
   currentWorkspace,
@@ -202,12 +202,21 @@ export function App() {
   // What is on screen has been seen: the daemon is told, so the mark goes and stays gone (also on another client).
   // Only while the app is in front, and only for a daemon that says there is news.
   const inFront = useInFront();
-  // Run again with each list that still says so: a mark that could not be told is tried again with the next list.
+  // Once for what the list says (the session, how far it goes, and whether the app is in front): a daemon that refuses it
+  // would otherwise be asked again for each new list, and each ask lists again.
+  const told = useRef("");
   useEffect(() => {
     if (session?.unread !== true || !inFront) return;
     if (status[session.environmentId]?.state !== "connected") return;
+    const what = `${session.environmentId}/${session.sessionId}/${session.lastSeq}`;
+    if (told.current === what) return;
+    told.current = what;
     void store.markRead(session.environmentId, session.sessionId);
   }, [session, inFront, status, store]);
+  // Leaving the app and coming back asks again.
+  useEffect(() => {
+    if (!inFront) told.current = "";
+  }, [inFront]);
 
   const activity = view?.permissions.length
     ? "requires_action"
@@ -472,6 +481,8 @@ export function App() {
             sessionsByEnvironment[environmentId]?.find((s) => s.sessionId === sessionId)?.archived
           )
             setShowArchived(true);
+          // What was found is shown with its workspace, also when it is the session that is open.
+          setChosen(undefined);
           await store.selectSession(environmentId, sessionId);
         }}
         onNewSession={() => setPanel("new-session")}

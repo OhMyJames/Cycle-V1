@@ -18,6 +18,8 @@ export const enUS = {
   "session.away": "{environment} · {state}",
   "session.awayBanner":
     "{environment} is not connected. This is what the session had when it went away.",
+  "defaults.unreadable":
+    "The saved settings of this agent could not be read, so they are not shown. Close this and open it again.",
   "newSession.environment": "Environment",
   "newSession.onEnvironment": "The agent works in this directory, on {environment}.",
 

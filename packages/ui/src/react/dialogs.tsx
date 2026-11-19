@@ -141,21 +141,51 @@ export function NewSessionDialog({
 
   // Start each session from what the user set as the agent's defaults, on that environment.
   const agentKey = agent?.id;
+  // What `config` is the defaults of: until it is the defaults of the agent and environment shown, it is not what a session
+  // starts with (another agent's settings are not this one's).
+  const [loaded, setLoaded] = useState<string | null>(null);
+  const [unread, setUnread] = useState(false);
+  const defaultsKey = `${environmentId}/${agentKey}`;
   useEffect(() => {
     if (!open || environmentId === undefined || agentKey === undefined) return;
     let current = true;
-    void readDefaults(environmentId, agentKey).then((defaults) => {
-      if (current) setConfig(defaults ?? {});
-    });
+    setLoaded(null);
+    setUnread(false);
+    setConfig({});
+    readDefaults(environmentId, agentKey).then(
+      (defaults) => {
+        if (!current) return;
+        setConfig(defaults ?? {});
+        setLoaded(`${environmentId}/${agentKey}`);
+      },
+      () => {
+        // Not "nothing saved": a session started from an empty form would not start from what the person set.
+        if (current) setUnread(true);
+      },
+    );
     return () => {
       current = false;
     };
   }, [open, environmentId, agentKey, readDefaults]);
+  // Closed, it keeps nothing: opened again, it is not the form of the time before for a moment.
+  useEffect(() => {
+    if (open) return;
+    setLoaded(null);
+    setUnread(false);
+    setConfig({});
+  }, [open]);
 
+  const [busy, setBusy] = useState(false);
   const create = async () => {
+    if (busy || loaded !== defaultsKey) return;
     if (environmentId === undefined || agent === undefined || cwd.trim() === "") return;
-    await onCreate(environmentId, { cwd: cwd.trim(), agent: agent.id, config });
-    onOpenChange(false);
+    setBusy(true);
+    try {
+      await onCreate(environmentId, { cwd: cwd.trim(), agent: agent.id, config });
+      onOpenChange(false);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -259,9 +289,10 @@ export function NewSessionDialog({
                   </Select>
                 </Field>
               ) : null}
-              {agent !== undefined ? (
+              {agent !== undefined && loaded === defaultsKey ? (
                 <ConfigForm schema={agent.configSchema} value={config} onChange={setConfig} />
               ) : null}
+              {unread ? <p data-slot="hint">{t("defaults.unreadable")}</p> : null}
               {agent === undefined ? (
                 <p data-slot="hint">No agent is available on this environment.</p>
               ) : null}
@@ -270,7 +301,9 @@ export function NewSessionDialog({
               <DialogClose>{t("common.cancel")}</DialogClose>
               <Button
                 data-variant="solid"
-                disabled={agent === undefined || cwd.trim() === ""}
+                disabled={
+                  agent === undefined || cwd.trim() === "" || loaded !== defaultsKey || busy
+                }
                 onClick={create}
               >
                 Start
@@ -292,8 +325,24 @@ export function EnvironmentDialog({ open, onOpenChange, onSave }: EnvironmentDia
   const [name, setName] = useState("");
   const [host, setHost] = useState("");
   const [command, setCommand] = useState("cycle proxy");
+  const [busy, setBusy] = useState(false);
+  // Each time it opens it is empty: what was added the time before is not to be added again.
+  useEffect(() => {
+    if (open) return;
+    setName("");
+    setHost("");
+    setCommand("cycle proxy");
+  }, [open]);
   const save = async () => {
-    if (host.trim() === "") return;
+    if (host.trim() === "" || busy) return;
+    setBusy(true);
+    try {
+      await add();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const add = async () => {
     const id = `ssh-${host.trim().replace(/[^a-zA-Z0-9]+/g, "-")}`;
     await onSave({
       id,
@@ -340,7 +389,7 @@ export function EnvironmentDialog({ open, onOpenChange, onSave }: EnvironmentDia
         </div>
         <div data-slot="row">
           <DialogClose>Cancel</DialogClose>
-          <Button data-variant="solid" disabled={host.trim() === ""} onClick={save}>
+          <Button data-variant="solid" disabled={host.trim() === "" || busy} onClick={save}>
             Add
           </Button>
         </div>
@@ -367,16 +416,38 @@ export function AgentDefaultsDialog({
   const [config, setConfig] = useState<Record<string, string>>({});
   const agent = agents.find((a) => a.id === agentId) ?? agents[0];
   const agentKey = agent?.id;
+  // Saved only as what was read for the agent shown: the settings of the one before are not this one's.
+  const [loaded, setLoaded] = useState<string | null>(null);
+  const [unread, setUnread] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { t } = useI18n();
   useEffect(() => {
     if (!open || agentKey === undefined) return;
     let current = true;
-    void read(agentKey).then((defaults) => {
-      if (current) setConfig(defaults ?? {});
-    });
+    setLoaded(null);
+    setUnread(false);
+    setConfig({});
+    read(agentKey).then(
+      (defaults) => {
+        if (!current) return;
+        setConfig(defaults ?? {});
+        setLoaded(agentKey);
+      },
+      () => {
+        // Not "nothing saved": saving over it would replace what is saved with the near-empty form.
+        if (current) setUnread(true);
+      },
+    );
     return () => {
       current = false;
     };
   }, [open, agentKey, read]);
+  useEffect(() => {
+    if (open) return;
+    setLoaded(null);
+    setUnread(false);
+    setConfig({});
+  }, [open]);
   return (
     <Dialog open={open} onOpenChange={(next) => onOpenChange(next)}>
       <DialogBackdrop />
@@ -405,18 +476,25 @@ export function AgentDefaultsDialog({
               </Select>
             </Field>
           ) : null}
-          {agent !== undefined ? (
+          {agent !== undefined && loaded === agentKey ? (
             <ConfigForm schema={agent.configSchema} value={config} onChange={setConfig} />
           ) : null}
+          {unread ? <p data-slot="hint">{t("defaults.unreadable")}</p> : null}
         </div>
         <div data-slot="row">
           <DialogClose>Close</DialogClose>
           <Button
             data-variant="solid"
-            disabled={agent === undefined}
+            disabled={agent === undefined || loaded !== agentKey || busy}
             onClick={async () => {
-              if (agent !== undefined) await onSave(agent.id, config);
-              onOpenChange(false);
+              if (agent === undefined || busy) return;
+              setBusy(true);
+              try {
+                await onSave(agent.id, config);
+                onOpenChange(false);
+              } finally {
+                setBusy(false);
+              }
             }}
           >
             Save

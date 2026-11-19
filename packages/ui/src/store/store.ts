@@ -243,10 +243,15 @@ export class AppStore {
       snapshot = await this.#bridge.openSession(environmentId, sessionId);
     } catch (error) {
       this.#held.delete(key);
-      this.#set((s) => {
-        const { [key]: _gone, ...views } = s.views;
-        return { views };
-      });
+      // What was read before is still what there is: a re-read that failed does not take the conversation away.
+      // (Not the placeholder of a read still going: that has nothing in it.) Version -1: the next event asks again.
+      if (existing !== undefined && !existing.loading)
+        this.#setView(key, { ...existing, loading: false, version: -1 });
+      else
+        this.#set((s) => {
+          const { [key]: _gone, ...views } = s.views;
+          return { views };
+        });
       throw error;
     }
     let view: SessionView = {
@@ -386,7 +391,7 @@ export class AppStore {
 
   /**
    * The person is looking at the session: tell the daemon it has been seen. Nothing to show if it cannot be told (the
-   * mark stays, and is tried again with the next list): a mark is not worth an error banner.
+   * mark stays, and is asked again when something new comes in or the app comes back to the front): a mark is not worth an error banner.
    */
   markRead = async (environmentId: string, sessionId: string): Promise<void> => {
     try {
@@ -467,7 +472,11 @@ export class AppStore {
     environmentId: string,
     agent: string,
   ): Promise<Record<string, string> | undefined> =>
-    this.#attempt(() => this.#bridge.agentDefaults(environmentId, agent));
+    // A read that failed is told as one (and not as "nothing saved"): what is saved over a failed read would be the near-empty form.
+    this.#bridge.agentDefaults(environmentId, agent).catch((error: unknown) => {
+      this.#set({ error: messageOf(error) });
+      throw error;
+    });
 
   setAgentDefaults = async (
     environmentId: string,
