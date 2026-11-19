@@ -621,7 +621,7 @@ export class Daemon {
       kind: "update",
       data: {
         sessionUpdate: QUEUE_UPDATE,
-        entries: session.queue,
+        entries: [...session.queue],
         ...(back !== undefined ? back : {}),
       },
     }).then((written) => {

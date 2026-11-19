@@ -388,3 +388,15 @@ test("a steer to a session that is not working is sent as any prompt", async () 
   expect(fake.log.prompts).toEqual(["hello"]);
   expect(fake.log.steers).toEqual([]);
 });
+
+test("two prompts queued together are announced one entry at a time, each snapshot as it was", async () => {
+  const { c, sessionId, release } = await working();
+  await Promise.all([
+    c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("A") }),
+    c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("B") }),
+  ]);
+  await until(() => queueUpdates(c.seen).length === 2, "two snapshots");
+  const snapshots = queueUpdates(c.seen).map((s) => queueTexts(s.update));
+  expect(snapshots).toEqual([["A"], ["A", "B"]]);
+  release();
+});
