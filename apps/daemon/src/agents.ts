@@ -7,6 +7,7 @@ import {
   DEFAULT_PERMISSION_MODE,
 } from "@cycle/adapter-claude";
 import { type AgentDefinition, processAgent } from "@cycle/daemon";
+import { META } from "@cycle/protocol";
 import type { Config } from "./config.ts";
 import { claudeExecutable, selfCommand } from "./self.ts";
 
@@ -28,6 +29,8 @@ export const CLAUDE_CONFIG_SCHEMA = {
       type: "string",
       title: "Model",
       oneOf: CLAUDE_MODELS.map((m) => ({ const: m.value, title: m.name })),
+      // Claude takes any model name it knows, a full id included: these are the ones offered.
+      _meta: { [META.open]: true },
       default: "default",
     },
   },

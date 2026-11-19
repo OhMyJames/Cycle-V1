@@ -145,6 +145,30 @@ const withoutContent = (outcome: unknown): unknown => {
   return rest;
 };
 
+/**
+ * The values a `configSchema` property allows when it lists them and takes no others: its `enum`, or
+ * the `const` of each `oneOf` entry. Undefined for a property that lists none, or says it is open.
+ */
+const closedChoices = (property: unknown): unknown[] | undefined => {
+  if (typeof property !== "object" || property === null) return undefined;
+  const {
+    enum: values,
+    oneOf,
+    _meta,
+  } = property as {
+    enum?: unknown;
+    oneOf?: unknown;
+    _meta?: Record<string, unknown>;
+  };
+  if (_meta?.[META.open] === true) return undefined;
+  if (Array.isArray(values)) return values;
+  if (Array.isArray(oneOf)) {
+    const consts = oneOf.map((entry) => (entry as { const?: unknown } | null)?.const);
+    return consts.every((value) => value !== undefined) ? consts : undefined;
+  }
+  return undefined;
+};
+
 export class Daemon {
   readonly #version: string;
   readonly #agents: Map<string, AgentDefinition>;
@@ -1527,11 +1551,22 @@ export class Daemon {
       const known = (definition.configSchema as { properties?: Record<string, unknown> })
         .properties;
       if (known !== undefined) {
-        for (const key of Object.keys(params.config)) {
+        for (const [key, value] of Object.entries(params.config)) {
           if (!(key in known)) {
             throw new RpcError(CycleErrorCode.InvalidConfig, "The agent has no such setting", {
               agent: params.agent,
               configId: key,
+            });
+          }
+          // A value the agent lists as the only ones it takes is checked now, not at the next new
+          // session, which it would otherwise stop from being made.
+          const choices = closedChoices(known[key]);
+          if (choices !== undefined && !choices.includes(value)) {
+            throw new RpcError(CycleErrorCode.InvalidConfig, "The agent has no such value", {
+              agent: params.agent,
+              configId: key,
+              value,
+              allowed: choices,
             });
           }
         }
