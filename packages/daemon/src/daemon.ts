@@ -674,7 +674,22 @@ export class Daemon {
     const returned = session.queue;
     session.queue = [];
     session.heldReason = undefined;
+    // It is on record, but no one is attached to take it from there (a client that reads a history ignores what was
+    // handed back in it): kept, to be handed back live to the first that attaches.
+    if (session.attachments.size === 0)
+      session.unclaimed = {
+        returned: [...(session.unclaimed?.returned ?? []), ...returned],
+        reason,
+      };
     this.#publishQueue(session, { returned, reason });
+  }
+
+  /** What was handed back to no one is handed back to the client that has attached now, as if live. */
+  #handBackUnclaimed(session: Session): void {
+    const { unclaimed } = session;
+    if (unclaimed === undefined || session.attachments.size === 0) return;
+    session.unclaimed = undefined;
+    this.#publishQueue(session, unclaimed);
   }
 
   /** A queue left behind with no turn to send it: the reason it was held, or a restart's. */
@@ -1413,6 +1428,7 @@ export class Daemon {
       // A queue with no turn behind it was cut short by a restart. It is handed back now, after the
       // replay and the snapshot, so the client that attached is told while it is listening.
       this.#returnStale(session);
+      this.#handBackUnclaimed(session);
       // Which they are, so a client that had one before can tell it is not among them: answered elsewhere.
       return {
         configOptions: [],
