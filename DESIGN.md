@@ -165,7 +165,7 @@ ui-sdk 的中性令牌不再是浅灰和黑白,而是**暖灰**一套(表面 sur
   "Needs you"行加粗标题。归档的 60% 透明。
 - **New session**:侧栏顶部的一行(ghost:无边,图标、文字、右侧快捷键),和"Search sessions"并列,与会话行左对齐(2026-11-19,原为描边按钮)。**只有 Send 和权限卡的"Allow once"是 accent 实心按钮。**
 - **message**:用户消息 `--ui-muted` 底、1px `border-default` 的边、16px 圆角,最宽 75%;agent 消息无底无边,直接排版。代码块和表格各是一张卡片(第 22 节)。
-- **tool row**(只有一次调用的一段;两次以上见第 16 节):无边框的一行,28px:开头一格(工具的图标;在跑时是转动的线;失败是叉)+ 动词(按时态:Running / Ran、Reading / Read…;没有动词的工具写名字)+ 等宽的 muted 摘要 + 展开箭头(悬停、聚焦、展开时才出现)。展开后输入输出是下沉的填充块,和文字对齐。失败行整行 destructive,并写出"failed",默认展开(第 22 节)。
+- **tool row**(只有一次调用的一段;两次以上见第 16 节):无边框的一行,28px:开头一格(完成是一个小灰点;在跑时是转动的线;失败是叉;不用工具图标,第 23 节)+ 动词(按时态:Running / Ran、Reading / Read…;没有动词的工具写名字)+ 等宽的 muted 摘要 + 展开箭头(悬停、聚焦、展开时才出现)。展开后输入输出是下沉的填充块,和文字对齐。失败行整行 destructive,并写出"failed",默认展开(第 22 节)。
 - **thought**:**默认不显示**(第 16 节);打开后是折叠的一行 muted "Thinking",展开后 muted 文字,左侧竖线。
 - **plan**:勾框列表(第 3 节),不用删除线表示完成,改用 muted 颜色加勾。
 - **permission**:吸附在输入框上方,和对话分开:accent 的 2px 上边条、`--ui-background` 加浮层阴影;标题写"Bash wants to run",
@@ -455,3 +455,15 @@ old-cycle 的 daemon 是透明代理,日志里没有这些,所以它要从文字
 **刻意不跟 old-cycle 的**:主按钮仍是靛蓝(D1;old-cycle 是墨黑主按钮,"在跑"用红);焦点环仍是 2px accent(old-cycle 是 1px 的 `border-focus`,对比度刚够);图标仍是 iconmcp;不打包 JetBrains Mono;选中的会话行仍是填充(old-cycle 让它和主区连成一片,我们的分隔条是 Resizable 的拖动柄,盖不住);v1 范围外的右侧面板、Overview、分支和 worktree 不做。
 
 **没做**:工具行和步骤行的计时(old-cycle 有;我们的 item 没有时间,要 daemon 记下开始时间,是协议改动);消息悬停时的复制和时间;回合失败的 Retry;终端输出和 diff 的专门样式(v1 范围外)。
+
+## 23. 对话内容逐类(2026-11-19,CYCL-14)
+
+对话里每一类内容从 SDK 到屏幕的映射、现状和打算在 [docs/conversation-content.md](docs/conversation-content.md);这里只写规则。负责人的决定(2026-11-19):
+
+- **工具行不用图标。** 动词已经说了做了什么("Ran""Read""Edited"),图标是第二遍;左边一列只留状态:完成是 5px 的灰点(`ink-disabled`,装饰,状态的文字给读屏),在跑是转动的线,失败是叉。一段调用展开后,细竖线把这些点连起来。不认识的工具也就不用找图标。
+- **有 description 就用它。** Bash、Agent 等的输入里有 agent 写的一句"在做什么"("Run the daemon tests"),这一行就是这句话(正文字体),后面跟淡灰的等宽命令或路径;没有才是"动词 + 摘要"。步骤行和卡片在跑时的那一句同样。放不下时先让摘要,再让这句话,末尾淡出。
+- **@ 提及不画两遍。** 用户消息里的 `resource_link` 带 `cycle/mention` 的,文字里已有 `@path`,不再画;别的链接画它的名字,不再是 `[resource_link]`。
+- **Edit 只显示这一次调用的改动**(增删行),不做跨文件浏览的 Changes 面板(v1 范围外)。
+- **AskUserQuestion 做成真正的表单**,在 CYCL-14 里做。
+
+分批:1 盘点和通用行(本节);2 Read/Edit/Write/Glob/Grep;3 Bash;4 表单、子 agent、压缩、计划;5 Web、MCP 和未知工具。每批先抓那几个工具的样本。

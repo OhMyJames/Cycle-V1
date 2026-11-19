@@ -247,11 +247,27 @@ export const scenarios: Record<string, Scenario> = {
       "Three turns: a card of tool calls that went well; a turn that failed (the failure pulled out, how it ended); a turn that is going (the step)",
     sessions: [session("s1", { title: "Ship the fix", state: "running" })],
     history: [
-      you("u1", "Run the tests and fix what fails."),
+      // A mention: the text says @path, and the link that goes with it is not drawn again.
+      u({
+        sessionUpdate: "user_message",
+        messageId: "u1",
+        content: [
+          { type: "text", text: "Run the tests in @packages/daemon and fix what fails." },
+          {
+            type: "resource_link",
+            name: "daemon",
+            uri: "file:///home/dev/cycle-v1/packages/daemon/",
+            _meta: { "cycle/mention": "packages/daemon" },
+          },
+        ],
+      }),
       ...tool("a1", "Read", "completed", { file_path: "packages/daemon/src/daemon.ts" }),
       ...tool("a2", "Read", "completed", { file_path: "packages/daemon/test/daemon.test.ts" }),
       ...tool("a3", "Edit", "completed", { file_path: "packages/daemon/src/daemon.ts" }),
-      ...tool("a4", "Bash", "completed", { command: "bun test packages/daemon" }),
+      ...tool("a4", "Bash", "completed", {
+        command: "bun test packages/daemon",
+        description: "Run the daemon tests",
+      }),
       say(
         "m1",
         "Two tests failed because the working directory was never checked. I fixed it and the suite passes.",
@@ -265,7 +281,10 @@ export const scenarios: Record<string, Scenario> = {
       you("u3", "Try again, with the staging profile."),
       running(),
       ...tool("c1", "Read", "completed", { file_path: "deploy/staging.json" }),
-      ...tool("c2", "Bash", "in_progress", { command: "bun run deploy --profile staging" }),
+      ...tool("c2", "Bash", "in_progress", {
+        command: "bun run deploy --profile staging",
+        description: "Deploy to staging",
+      }),
     ],
   },
   long: {

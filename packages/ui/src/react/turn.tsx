@@ -9,8 +9,15 @@ import {
   type ToolItem,
 } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
-import { ChevronRightIcon, ErrorCircleIcon, ToolIcon, WarningIcon } from "./icons.tsx";
-import { Lead, ToolCard, toolSummary, toolVerb, useOpenOnFailure } from "./tool.tsx";
+import { ChevronRightIcon, ErrorCircleIcon, WarningIcon } from "./icons.tsx";
+import {
+  Lead,
+  ToolCard,
+  toolDescription,
+  toolSummary,
+  toolVerb,
+  useOpenOnFailure,
+} from "./tool.tsx";
 
 /** A notice from the daemon or the agent, in the conversation. */
 export function Notice({ severity, title }: { severity: string; title: string }) {
@@ -59,14 +66,16 @@ function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }
       onOpenChange={setOpen}
     >
       <CollapsibleTrigger>
-        <Lead
-          mark={going !== undefined ? "going" : failed > 0 ? "failed" : "other"}
-          icon={ToolIcon}
-        />{" "}
+        <Lead mark={going !== undefined ? "going" : failed > 0 ? "failed" : "other"} />{" "}
         <span data-slot="tool-verb">{summary}</span>{" "}
         {/* While one goes, the line says which, in its tense: that is also what a screen reader is told. */}
-        <span data-slot="tool-summary">
-          {going !== undefined ? `${toolVerb(t, going, true)} ${toolSummary(going)}` : ""}
+        <span
+          data-slot="tool-summary"
+          data-prose={(going !== undefined && toolDescription(going) !== undefined) || undefined}
+        >
+          {going !== undefined
+            ? (toolDescription(going) ?? `${toolVerb(t, going, true)} ${toolSummary(going)}`)
+            : ""}
         </span>{" "}
         {failed > 0 ? (
           <span data-slot="tool-status" data-tone="danger">
@@ -148,7 +157,14 @@ export function StepLine({
         <span data-slot="spinner" aria-hidden="true" />
       )}
       <span>{words}</span>
-      {step.kind === "tool" ? <span data-slot="step-detail">{toolSummary(step.tool)}</span> : null}
+      {step.kind === "tool" ? (
+        <span
+          data-slot="step-detail"
+          data-prose={toolDescription(step.tool) !== undefined || undefined}
+        >
+          {toolDescription(step.tool) ?? toolSummary(step.tool)}
+        </span>
+      ) : null}
     </div>
   );
 }

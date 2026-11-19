@@ -8,6 +8,7 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
+import { MENTION_META } from "../draft.ts";
 import {
   type Block,
   type BlockCache,
@@ -29,6 +30,18 @@ import { EndBlock, Notice, StepLine, WorkBlock } from "./turn.tsx";
 
 export { toolSummary } from "./tool.tsx";
 
+/** A file or folder the person named with @: the text already says "@path", so the link is not drawn a second time. */
+const isMention = (block: Block): boolean =>
+  block.type === "resource_link" &&
+  typeof (block._meta as Record<string, unknown> | undefined)?.[MENTION_META] === "string";
+
+const linkName = (block: Block): string =>
+  typeof block.name === "string" && block.name !== ""
+    ? block.name
+    : typeof block.uri === "string"
+      ? block.uri
+      : block.type;
+
 function Blocks({ blocks, from }: { blocks: Block[]; from: "agent" | "user" }) {
   return (
     <>
@@ -39,6 +52,11 @@ function Blocks({ blocks, from }: { blocks: Block[]; from: "agent" | "user" }) {
             <span key={key}>{String(block.text)}</span>
           ) : block.type === "image" ? (
             <ImageBlockView key={key} block={block} from={from} />
+          ) : isMention(block) ? null : block.type === "resource_link" ? (
+            // A link that is not a mention in the text: its name, so it reads as what it points to.
+            <span data-slot="block-note" key={key}>
+              {linkName(block)}
+            </span>
           ) : (
             <span data-slot="block-note" key={key}>
               [{block.type}]
