@@ -26,6 +26,8 @@ export type Scenario = {
   update?: UpdateState;
   /** The agent takes images: the composer shows how to attach them. */
   attach?: boolean;
+  /** Folder trust: the daemon keeps it, and this is the decision for every folder (null: nobody has decided). */
+  trust?: boolean | null;
   /** Presses Tab this many times with real input events, so :focus-visible shows as it does for a keyboard. */
   tabs?: number;
   /**
@@ -789,6 +791,29 @@ export const scenarios: Record<string, Scenario> = {
     blank: {
       cwd: "/Users/me/work/app",
       starting: "Find why the remote session drops after a minute, and fix it.",
+    },
+  },
+  "new-session-trust": {
+    title: "The first message, in a folder nobody has decided on: asked whether to trust it",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    trust: null,
+    blank: {
+      cwd: "/Users/me/work/app",
+      starting: "Find why the remote session drops after a minute, and fix it.",
+    },
+    after: () =>
+      until(
+        () => document.querySelector('[role="dialog"] [data-slot="decision-path"]') !== null,
+        "the trust question",
+      ),
+  },
+  "menu-trust": {
+    title: "The environment menu offers to trust the shown workspace's folder",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    trust: null,
+    after: async (root) => {
+      await clickByLabel(root, "Environment actions");
+      await new Promise((r) => setTimeout(r, 200));
     },
   },
   "dialog-add-host": {

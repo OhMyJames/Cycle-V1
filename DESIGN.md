@@ -424,7 +424,7 @@ old-cycle 的 daemon 是透明代理,日志里没有这些,所以它要从文字
 改成:
 
 - **`ghost` 按钮**(`app.css`):无边无底,`ink-secondary`;悬停和菜单打开时 `surface-hover`。`outline` 就是 ui-sdk 的默认外观,不另写。
-- **侧栏三段**:顶部(switcher 和"…",New session 和 Search 两行)不动;**中段一个滚动区**,装会话列表、"Show N more"和"Show archived"(后两个是列表里的小字,不是按钮);底部一行:版本和更新状态,右边一个 **App settings** 菜单(Code colours 单选组,选了立即生效、菜单不关,画面上的代码就是预览;Check for updates)。720×480 时列表约有 300px;列表至少留 10rem,固定的部分把它挤到这之下时(比如几个环境都断了),整个侧栏改为滚动,什么都不会被裁掉。
+- **侧栏三段**:顶部(New session 和 Search 两行,其下是 switcher 和"…")不动;switcher 是下面会话列表的标题,所以紧贴列表,上面留 0.5rem 和两个动作分开(负责人 2026-11-19 的要求,原来在最顶上);**中段一个滚动区**,装会话列表、"Show N more"和"Show archived"(后两个是列表里的小字,不是按钮);底部一行:版本和更新状态,右边一个 **App settings** 菜单(Code colours 单选组,选了立即生效、菜单不关,画面上的代码就是预览;Check for updates)。720×480 时列表约有 300px;列表至少留 10rem,固定的部分把它挤到这之下时(比如几个环境都断了),整个侧栏改为滚动,什么都不会被裁掉。
 - **switcher** 改用 `data-kind`,样式生效:左对齐、600、名字后面是 chevron,像侧栏的标题。
 - **选中**:`surface-selected` 的填充,不再有边和左条,和焦点环分得开。
 - **New session、Search sessions** 的快捷键写在行的右边(`kbd`),不只在提示里;可访问名只是动作的名字。

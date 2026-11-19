@@ -14,6 +14,7 @@ import {
   emptyConversation,
   type FileSearch,
   type FolderListing,
+  type FolderTrust,
   type NewSession,
   type PermissionRequest,
   type PromptBlock,
@@ -209,6 +210,7 @@ export class ConnectionManager
                     files: connection.client.capabilities.files === true,
                     folders: connection.client.capabilities.folders === true,
                     filesInFolder: connection.client.capabilities.filesInFolder === true,
+                    trust: connection.client.capabilities.trust === true,
                   },
                 }
               : state === "reconnecting" && connection.status.capabilities !== undefined
@@ -476,6 +478,14 @@ export class ConnectionManager
     hidden?: boolean,
   ): Promise<FolderListing> {
     return this.#connection(environmentId).client.listFolders(path, hidden);
+  }
+
+  async readTrust(environmentId: string, path: string): Promise<FolderTrust> {
+    return this.#connection(environmentId).client.readTrust(path);
+  }
+
+  async setTrust(environmentId: string, path: string, trusted: boolean): Promise<FolderTrust> {
+    return this.#connection(environmentId).client.setTrust(path, trusted);
   }
 
   async searchFiles(

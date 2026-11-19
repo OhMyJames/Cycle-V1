@@ -16,6 +16,8 @@
 - `env` 是 Claude 进程能看到的**全部**环境,不继承适配进程自己的环境。由 daemon 按白名单填。
 - 凭证、`CLAUDE_CONFIG_DIR`、`ANTHROPIC_BASE_URL` 等都在这里。适配进程不读宿主机的 `~/.claude`。
 - 不设 `claudeExecutable` 时用 SDK 自带的二进制,不依赖机器上装了 `claude`。
+- **配置来源**:不传 `settingSources`,所以 SDK 加载全部来源。用户级的来自 `CLAUDE_CONFIG_DIR`(daemon 给的是 `$CYCLE_HOME/claude`,Cycle 托管);项目级的(`CLAUDE.md`、`.claude/settings.json`、`.claude/settings.local.json`、`.mcp.json`、`.claude/skills`)照常从 `cwd` 加载。`claude mcp add --scope local` 加的服务器存在用户级的 `.claude.json` 里,所以在 `~/.claude` 里加的,Cycle 看不到;要跟着项目走,写在 `.mcp.json` 里。
+- **文件夹信任**(protocol.md §8 "信任文件夹"):Claude 只在信任过的文件夹里运行项目配置里的命令(`headersHelper`、hooks 等)。它把信任记在用户级的 `.claude.json` 里(`projects[路径].hasTrustDialogAccepted`),而在 SDK 里没有弹窗,也没有选项可传(0.3.327 的类型定义里没有)。所以适配在 `session/new`、`session/resume` 的 `_meta["cycle/trusted"]` 是 `true` 或 `false` 时,在启动 Claude 进程之前把它写进 `$CLAUDE_CONFIG_DIR/.claude.json`(没有 `CLAUDE_CONFIG_DIR` 时用 `$HOME/.claude.json`),路径用 `cwd`,`cwd` 的真实路径不同时两个都写;没带这个键时不动。值已经一样就不写;要写时先写临时文件再改名,文件读不了(不是 JSON)就不写,在 stderr 里说一声。Claude 进程自己也会改这个文件,两边同时写时可能有一方的改动丢失,所以只在值不同时写,写的是读到的整份加上这一项。2026-11-19 前没有这一步,Cycle 里 `headersHelper` 从不运行,带它的 http MCP 服务器一律显示为"需要登录"(Claude 的 MCP 日志:`headersHelper not run: this workspace has no persisted trust`)。
 
 ## 已做(v1 核心)
 

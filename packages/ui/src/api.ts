@@ -43,6 +43,8 @@ export type EnvironmentStatus = {
     folders: boolean;
     /** `_cycle/files/search` also takes a folder: @ works in a blank conversation. */
     filesInFolder?: boolean;
+    /** Folder trust can be read and set (docs/protocol.md §8 "信任文件夹"). */
+    trust?: boolean;
   };
   /** What the daemon on the environment says it is. Not for the local one, which the app carries. */
   daemon?: {
@@ -106,6 +108,12 @@ export type FolderListing = {
   folders: { name: string }[];
   truncated: boolean;
 };
+
+/**
+ * Whether a folder on an environment's machine may run the commands its own configuration names (hooks, MCP helpers).
+ * `trusted` is null when nobody has decided; `from` is the folder the decision is on (it or one above it).
+ */
+export type FolderTrust = { path: string; trusted: boolean | null; from: string | null };
 
 /** Lists the folders of one environment's folder (the environment is already chosen). */
 export type ListFolders = (path?: string, hidden?: boolean) => Promise<FolderListing>;
@@ -227,6 +235,10 @@ export type AppApi = {
    * home. Fails with the daemon's reason (not a folder, cannot be read) or when the daemon is too old.
    */
   listFolders(environmentId: string, path?: string, hidden?: boolean): Promise<FolderListing>;
+  /** Whether a folder on that environment's machine is trusted. Fails when the daemon is too old. */
+  readTrust(environmentId: string, path: string): Promise<FolderTrust>;
+  /** Records whether a folder on that environment's machine is trusted; the folders under it follow. */
+  setTrust(environmentId: string, path: string, trusted: boolean): Promise<FolderTrust>;
   /** Takes a prompt back out of the queue, to be edited. Answers with its blocks; fails if it has gone. */
   dequeue(environmentId: string, sessionId: string, queueId: string): Promise<PromptBlock[]>;
   setSessionConfig(
@@ -280,6 +292,8 @@ export const API_METHODS = [
   "dequeue",
   "searchFiles",
   "listFolders",
+  "readTrust",
+  "setTrust",
   "setSessionConfig",
   "renameSession",
   "archiveSession",

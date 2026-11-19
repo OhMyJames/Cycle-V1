@@ -36,11 +36,14 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
+  detail,
   confirmLabel,
   onConfirm,
 }: OpenProps & {
   title: string;
   description: string;
+  /** A path or name the decision is about, shown whole under the description. */
+  detail?: string;
   confirmLabel: string;
   onConfirm: () => void | Promise<void>;
 }) {
@@ -51,6 +54,7 @@ export function ConfirmDialog({
         <div data-slot="stack">
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
+          {detail !== undefined ? <code data-slot="decision-path">{detail}</code> : null}
         </div>
         <div data-slot="row">
           <AlertDialogClose>Cancel</AlertDialogClose>

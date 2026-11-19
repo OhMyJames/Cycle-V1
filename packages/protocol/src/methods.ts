@@ -103,6 +103,31 @@ export const foldersList = cycleMethod(
 );
 
 /**
+ * Whether a folder may run the commands its own configuration names (hooks, MCP helpers), as the
+ * daemon has it on record (docs/protocol.md §8 "信任文件夹"). `null`: nobody has decided.
+ */
+export const TrustSchema = z.object({
+  /** The real path (links resolved) of the folder asked about. */
+  path: z.string(),
+  trusted: z.boolean().nullable(),
+  /** The folder the decision is recorded on: `path` itself or one above it. Null when there is none. */
+  from: z.string().nullable(),
+});
+export type Trust = z.infer<typeof TrustSchema>;
+
+export const trustRead = cycleMethod(
+  "_cycle/trust/read",
+  z.object({ path: z.string().min(1).max(4096) }),
+  TrustSchema,
+);
+
+export const trustSet = cycleMethod(
+  "_cycle/trust/set",
+  z.object({ path: z.string().min(1).max(4096), trusted: z.boolean() }),
+  TrustSchema,
+);
+
+/**
  * Says the client has seen the session up to `seq`. `readSeq` only moves forward; `seq` beyond the
  * session's last record is refused. See docs/protocol.md §6 "已读".
  */

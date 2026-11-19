@@ -67,6 +67,15 @@ export function BlankConversationView({
   const environment = environments.find((h) => h.id === blank.environmentId);
   const [browsing, setBrowsing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [answering, setAnswering] = useState(false);
+  const answer = async (trusted: boolean | undefined) => {
+    setAnswering(true);
+    try {
+      await store.answerTrust(trusted);
+    } finally {
+      setAnswering(false);
+    }
+  };
   const starting = blank.starting !== undefined;
   // The first message, shown as it will be in the session while the session is being made.
   const shown = useMemo(
@@ -216,6 +225,44 @@ export function BlankConversationView({
         placeholder={placeholder}
         onSent={onSent}
       />
+      {/* A folder nobody has decided on: asked when the first message goes, before anything of the folder's own runs. */}
+      <Dialog
+        open={blank.asking !== undefined}
+        onOpenChange={(open) => {
+          if (!open && !answering) void answer(undefined);
+        }}
+      >
+        <DialogBackdrop />
+        <DialogContent>
+          <DialogTitle>{t("trust.title")}</DialogTitle>
+          <DialogDescription>
+            {t("trust.description", { environment: environment?.name ?? "" })}
+          </DialogDescription>
+          {blank.asking !== undefined ? (
+            <code data-slot="decision-path">{blank.asking.path}</code>
+          ) : null}
+          {blank.asking?.failed !== undefined ? (
+            <p data-slot="hint" role="alert">
+              {t("trust.failed", { reason: blank.asking.failed })}
+            </p>
+          ) : null}
+          <div data-slot="row">
+            <Button
+              data-variant="ghost"
+              disabled={answering}
+              onClick={() => void answer(undefined)}
+            >
+              {t("trust.back")}
+            </Button>
+            <Button data-variant="outline" disabled={answering} onClick={() => void answer(false)}>
+              {t("trust.startUntrusted")}
+            </Button>
+            <Button data-variant="solid" disabled={answering} onClick={() => void answer(true)}>
+              {t("trust.startTrusted")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={browsing} onOpenChange={setBrowsing}>
         <DialogBackdrop />
         <DialogContent>

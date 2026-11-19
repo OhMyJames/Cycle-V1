@@ -44,6 +44,7 @@ export const fakeBridge = (
       files: boolean;
       folders: boolean;
       filesInFolder?: boolean;
+      trust?: boolean;
     };
     /** The agent can take a message into a running turn. */
     steer?: boolean;
@@ -116,6 +117,16 @@ export const fakeBridge = (
       home: "/home/me",
       folders: [{ name: "app" }, { name: "docs" }],
       truncated: false,
+    })),
+    readTrust: record("readTrust", async (_environment: string, path: string) => ({
+      path,
+      trusted: true,
+      from: path,
+    })),
+    setTrust: record("setTrust", async (_environment: string, path: string, trusted: boolean) => ({
+      path,
+      trusted,
+      from: path,
     })),
     searchFiles: record("searchFiles", async () => ({
       root: "/work",

@@ -32,11 +32,13 @@ import {
   sessionMarkRead,
   sessionSetTitle,
   sessionUnarchive,
+  trustRead,
+  trustSet,
 } from "@cycle/protocol";
 import type { z } from "zod";
 import { AgentLink } from "./agent-link.ts";
 import type { AgentDefinition } from "./agents.ts";
-import { blobsDir, defaultsPath, indexPath, sessionsDir } from "./data-dir.ts";
+import { blobsDir, defaultsPath, indexPath, sessionsDir, trustPath } from "./data-dir.ts";
 import { AgentDefaults } from "./defaults-file.ts";
 import {
   INTERNAL_ERROR,
@@ -64,6 +66,7 @@ import {
   type Pending,
   Session,
 } from "./session.ts";
+import { FolderTrust, realFolder, within } from "./trust-file.ts";
 
 export type DaemonOptions = {
   /** Where the daemon keeps its data. Always given: nothing here guesses a home. */
@@ -136,6 +139,7 @@ export class Daemon {
   readonly #store: LogStore;
   readonly #index: SessionIndex;
   readonly #defaults: AgentDefaults;
+  readonly #trust: FolderTrust;
   readonly #sessions = new Map<string, Session>();
   /** Sessions being loaded, so a second request for one waits for the first load. */
   readonly #loading = new Map<string, Promise<Session>>();
@@ -143,7 +147,12 @@ export class Daemon {
   #counter = 0;
   #closing = false;
 
-  private constructor(options: DaemonOptions, index: SessionIndex, defaults: AgentDefaults) {
+  private constructor(
+    options: DaemonOptions,
+    index: SessionIndex,
+    defaults: AgentDefaults,
+    trust: FolderTrust,
+  ) {
     this.#version = options.version ?? "dev";
     this.#agents = new Map(options.agents.map((a) => [a.id, a]));
     this.#store =
@@ -154,6 +163,7 @@ export class Daemon {
       );
     this.#index = index;
     this.#defaults = defaults;
+    this.#trust = trust;
   }
 
   /** Reads the index, and refuses to start if it is there and cannot be read. */
@@ -162,6 +172,7 @@ export class Daemon {
       options,
       await SessionIndex.load(indexPath(options.dataDir)),
       await AgentDefaults.load(defaultsPath(options.dataDir)),
+      await FolderTrust.load(trustPath(options.dataDir)),
     );
   }
 
@@ -284,9 +295,58 @@ export class Daemon {
 
   // ---- agents ----
 
+  /**
+   * What the agent is told of the session's folder: `cycle/trusted` when someone has decided
+   * (docs/protocol.md §8 "信任文件夹"), nothing when nobody has or the folder is gone.
+   */
+  async #trustMeta(cwd: string): Promise<Record<string, boolean>> {
+    const real = await realFolder(cwd).catch(() => undefined);
+    const trusted = real === undefined ? null : this.#trust.of(real).trusted;
+    return trusted === null ? {} : { [META.trusted]: trusted };
+  }
+
+  /**
+   * A decision changed: every agent in that folder was started with the old one, and would write it
+   * back each time it starts a process. Each is stopped as soon as it has nothing to do (now, for an
+   * idle one), so the next prompt starts it again with the new decision.
+   */
+  async #applyTrust(folder: string): Promise<void> {
+    const running = [...this.#sessions.values()].filter(
+      (s) => s.link !== undefined || s.starting !== undefined,
+    );
+    const reals = new Map<string, string | undefined>();
+    await Promise.all(
+      [...new Set(running.map((s) => s.entry.cwd))].map(async (cwd) => {
+        reals.set(cwd, await realFolder(cwd).catch(() => undefined));
+      }),
+    );
+    for (const session of running) {
+      const real = reals.get(session.entry.cwd);
+      if (real === undefined || !within(real, folder)) continue;
+      session.trustStale = true;
+      this.#restartIfStale(session);
+    }
+  }
+
+  /** Stops an agent started with a trust decision that has changed since, once it has nothing to do. */
+  #restartIfStale(session: Session): void {
+    if (!session.trustStale) return;
+    if (session.link === undefined && session.starting === undefined) {
+      // No agent: the next one is started with the decision as it is then.
+      session.trustStale = false;
+      return;
+    }
+    if (session.link === undefined || session.starting !== undefined) return;
+    if (session.status() !== "idle" || session.queue.length > 0) return;
+    if (session.backgroundCount() > 0) return;
+    session.trustStale = false;
+    session.link.kill();
+  }
+
   /** Starts the agent for a session and has it create or resume it. */
   async #startAgent(session: Session, mode: "new" | "resume", create?: Record<string, unknown>) {
     const definition = this.#definition(session.entry.agent);
+    const trust = await this.#trustMeta(session.entry.cwd);
     const link = await AgentLink.connect(definition, {
       update: (update) => this.#onUpdate(session, update),
       permission: (params) => this.#onPermission(session, params),
@@ -298,7 +358,11 @@ export class Daemon {
       if (mode === "new") {
         const created = await link.agent.request(methods.agent.session.new, {
           ...(create as object),
-          _meta: { ...((create as { _meta?: object })?._meta ?? {}), [META.sessionId]: session.id },
+          _meta: {
+            ...((create as { _meta?: object })?._meta ?? {}),
+            ...trust,
+            [META.sessionId]: session.id,
+          },
         } as never);
         return { link, created };
       }
@@ -313,8 +377,11 @@ export class Daemon {
           ...(additionalDirectories !== undefined ? { additionalDirectories } : {}),
           ...(mcpServers !== undefined ? { mcpServers } : {}),
           ...(systemPrompt !== undefined ? { systemPrompt } : {}),
-          // So that an agent that finds no record of a session that had turns says so.
-          ...(session.entry.hadTurn === true ? { _meta: { [META.hadTurn]: true } } : {}),
+          _meta: {
+            ...trust,
+            // So that an agent that finds no record of a session that had turns says so.
+            ...(session.entry.hadTurn === true ? { [META.hadTurn]: true } : {}),
+          },
         } as never);
       } catch (error) {
         throw new RpcError(CycleErrorCode.ResumeFailed, "The agent could not resume the session", {
@@ -396,6 +463,13 @@ export class Daemon {
       else
         void this.#returnQueue(session, ended.stopReason === "cancelled" ? "cancelled" : "error");
     }
+    // A turn that ended with nothing behind it: an agent started with an old trust decision can go now.
+    if (
+      ended.sessionUpdate === "state_update" &&
+      ended.state === "idle" &&
+      typeof ended.stopReason === "string"
+    )
+      this.#restartIfStale(session);
   }
 
   // ---- the queue (docs/protocol.md §8) ----
@@ -615,7 +689,10 @@ export class Daemon {
         if (update.state === "idle") session.turnEnded = session.agentState === "idle";
       }
     } else if (update.sessionUpdate === "subagent_update") {
-      if (session.noteSubagent(update)) this.#changed();
+      if (session.noteSubagent(update)) {
+        this.#changed();
+        this.#restartIfStale(session);
+      }
     }
   }
 
@@ -973,6 +1050,7 @@ export class Daemon {
             files: true,
             folders: true,
             filesInFolder: true,
+            trust: true,
           },
         },
       } as never;
@@ -1377,6 +1455,13 @@ export class Daemon {
       return { root: cwd, ...found };
     });
     cycle(foldersList, (params) => listFolders(params.path, params.hidden === true));
+    cycle(trustRead, async (params) => this.#trust.of(await realFolder(params.path)));
+    cycle(trustSet, async (params) => {
+      const real = await realFolder(params.path);
+      const trust = await this.#trust.set(real, params.trusted);
+      await this.#applyTrust(real);
+      return trust;
+    });
     cycle(sessionArchive, (params) =>
       change(async (session) => {
         if (session.status() === "running" || session.status() === "requires_action")

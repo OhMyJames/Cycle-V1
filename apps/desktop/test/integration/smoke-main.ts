@@ -231,6 +231,13 @@ const main = async () => {
       ),
     });
     await press("Enter");
+    // The first message makes the session; a folder nobody has decided on is asked about first (docs/protocol.md §8
+    // "信任文件夹").
+    await waitFor(
+      "the folder trust question",
+      `[...document.querySelectorAll('[role="dialog"] button')].some((b) => b.textContent === "Trust and start")`,
+    );
+    await click(byText('[role="dialog"] button', "Trust and start"));
     // Sent: the box is emptied. (This was a fixed wait of 1.5 s, then a look at the page for the log.)
     await waitFor(
       "the message to leave the box",

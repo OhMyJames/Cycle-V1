@@ -8,6 +8,7 @@ import type {
   EnvironmentStatus,
   FileSearch,
   FolderListing,
+  FolderTrust,
   PermissionRequest,
   PromptBlock,
   SessionSnapshot,
@@ -44,6 +45,11 @@ export type BlankConversation = {
   unreadable?: true;
   /** The first message, on its way: the session is being made. Nothing here can change meanwhile. */
   starting?: PromptBlock[];
+  /**
+   * The folder (its real path) nobody has decided whether to trust: asked when the first message is sent, before the
+   * session is made (docs/protocol.md §8 "信任文件夹"). `failed`: why the answer could not be kept.
+   */
+  asking?: { path: string; failed?: string };
 };
 
 export type SessionView = {
@@ -103,6 +109,8 @@ export class AppStore {
   /** Events about a session that is still being opened, held until its snapshot is in. */
   readonly #held = new Map<string, AppEvent[]>();
   #stop: (() => void) | undefined;
+  /** The blank conversation's folder is being looked up for trust: a second send waits for the first. */
+  #checkingTrust = false;
   /** What each session's box holds, written and not sent. */
   readonly drafts: DraftStore;
 
@@ -392,6 +400,31 @@ export class AppStore {
     if (next.config === undefined && next.unreadable === undefined) void this.#readBlankDefaults();
   };
 
+  /**
+   * Answers whether to trust the blank conversation's folder, and then sends its first message. Undefined: neither, the
+   * question is left and the message stays in the box. If the answer cannot be kept, nothing is started and it says why.
+   */
+  answerTrust = async (trusted: boolean | undefined): Promise<void> => {
+    const blank = this.#state.blank;
+    const asking = blank?.asking;
+    if (blank === undefined || asking === undefined) return;
+    const { asking: _asked, ...rest } = blank;
+    if (trusted === undefined) {
+      this.#set({ blank: rest });
+      return;
+    }
+    try {
+      await this.#bridge.setTrust(blank.environmentId, asking.path, trusted);
+    } catch (error) {
+      if (this.#state.blank === blank)
+        this.#set({ blank: { ...blank, asking: { path: asking.path, failed: messageOf(error) } } });
+      return;
+    }
+    if (this.#state.blank !== blank) return;
+    this.#set({ blank: rest });
+    await this.#sendBlank(rest, true);
+  };
+
   /** Reads the agent's defaults again, after a read that failed. */
   retryBlank = (): void => {
     const blank = this.#state.blank;
@@ -440,22 +473,41 @@ export class AppStore {
    * The message is shown in the blank conversation while that goes on. If the session cannot be made, the message comes
    * back to the box; if it is made and the message cannot go, the session is opened with the message back in its box.
    */
-  async #sendBlank(blank: BlankConversation): Promise<void> {
+  async #sendBlank(blank: BlankConversation, trustAnswered = false): Promise<void> {
     const agent = this.blankAgent(blank);
     const cwd = blank.cwd.trim();
     if (
       blank.starting !== undefined ||
+      blank.asking !== undefined ||
+      this.#checkingTrust ||
       agent === undefined ||
       blank.config === undefined ||
       cwd === ""
     )
       return;
+    if (promptBlocks(this.drafts.get(BLANK_KEY)) === undefined) return;
+    const { environmentId } = blank;
+    // A folder nobody has decided on is asked about before anything of its own can run. One that cannot be looked at
+    // is not: making the session there fails with the daemon's reason.
+    if (!trustAnswered && this.#state.status[environmentId]?.capabilities?.trust === true) {
+      this.#checkingTrust = true;
+      const trust = await this.#bridge.readTrust(environmentId, cwd).catch(() => undefined);
+      this.#checkingTrust = false;
+      const now = this.#state.blank;
+      // Changed meanwhile (another folder, another environment): the person sends again.
+      if (now === undefined || now.environmentId !== environmentId || now.cwd.trim() !== cwd)
+        return;
+      if (trust?.trusted === null) {
+        this.#set({ blank: { ...now, asking: { path: trust.path } } });
+        return;
+      }
+      blank = now;
+    }
     const content = promptBlocks(this.drafts.get(BLANK_KEY));
     if (content === undefined) return;
     this.drafts.clear(BLANK_KEY);
     const starting: BlankConversation = { ...blank, cwd, starting: content };
     this.#set({ blank: starting });
-    const { environmentId } = blank;
     const sessionId = await this.#attempt(() =>
       this.#bridge.createSession(environmentId, {
         cwd,
@@ -555,6 +607,22 @@ export class AppStore {
   /** The folders in a folder on an environment's machine. Not a banner when it fails: the one who asked says why. */
   listFolders = (environmentId: string, path?: string, hidden?: boolean): Promise<FolderListing> =>
     this.#bridge.listFolders(environmentId, path, hidden);
+
+  /** Whether a folder on an environment's machine may run its own configuration's commands. The caller says why it failed. */
+  readTrust = (environmentId: string, path: string): Promise<FolderTrust> =>
+    this.#bridge.readTrust(environmentId, path);
+
+  setTrust = (environmentId: string, path: string, trusted: boolean): Promise<FolderTrust> =>
+    this.#bridge.setTrust(environmentId, path, trusted);
+
+  /** Changes a folder's trust from a menu: a failure is shown, with its reason. */
+  changeTrust = async (environmentId: string, path: string, trusted: boolean): Promise<void> => {
+    try {
+      await this.#bridge.setTrust(environmentId, path, trusted);
+    } catch (error) {
+      this.#set({ error: `The folder's trust could not be changed: ${messageOf(error)}` });
+    }
+  };
 
   /** Takes a queued prompt back to edit it. Undefined if it had gone to the agent, or came back, meanwhile. */
   dequeue = async (queueId: string): Promise<PromptBlock[] | undefined> => {

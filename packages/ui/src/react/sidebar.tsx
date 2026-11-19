@@ -34,6 +34,12 @@ export type SidebarProps = {
   onToggleArchived: () => void;
   onShowAll: () => void;
   onAgentDefaults: (environmentId: string) => void;
+  /**
+   * Whether the shown workspace's folder is trusted (docs/protocol.md §8 "信任文件夹"): absent when its daemon cannot say,
+   * or has not yet. With it, the menu offers to change it.
+   */
+  trust?: boolean | null | undefined;
+  onTrust?: (trusted: boolean) => void;
   /** Below the rest: the update footer. */
   children?: ReactNode;
 };
@@ -49,6 +55,32 @@ export function Sidebar(props: SidebarProps) {
   return (
     <nav data-slot="sidebar" aria-label={t("sessions.label")}>
       <div data-slot="titlebar" aria-hidden="true" />
+      <div data-slot="sidebar-actions">
+        <Button
+          data-variant="ghost"
+          data-kind="sidebar-action"
+          disabled={connected.length === 0}
+          aria-label={t("sidebar.newSession")}
+          title={`${t("sidebar.newSession")}  ${MOD}N`}
+          onClick={props.onNewSession}
+        >
+          <PlusIcon />
+          {t("sidebar.newSession")}
+          <kbd>{MOD}N</kbd>
+        </Button>
+        <Button
+          data-variant="ghost"
+          data-kind="sidebar-action"
+          aria-label={t("search.open")}
+          title={`${t("search.open")}  ${MOD}K`}
+          onClick={props.onSearch}
+        >
+          <SearchIcon />
+          {t("search.open")}
+          <kbd>{MOD}K</kbd>
+        </Button>
+      </div>
+      {/* Below the actions, above the list it chooses: the switcher names what the list shows. */}
       <div data-slot="environment-bar">
         <WorkspaceSwitcher
           workspaces={props.workspaces}
@@ -66,6 +98,8 @@ export function Sidebar(props: SidebarProps) {
               props.onRemoveEnvironment(environmentId);
             else if (action === "agent-defaults" && environmentId !== undefined)
               props.onAgentDefaults(environmentId);
+            else if (value === "trust") props.onTrust?.(true);
+            else if (value === "untrust") props.onTrust?.(false);
           }}
         >
           <MenuTrigger
@@ -76,6 +110,14 @@ export function Sidebar(props: SidebarProps) {
             <MoreIcon />
           </MenuTrigger>
           <MenuContent>
+            {props.trust !== undefined && props.onTrust !== undefined ? (
+              <>
+                <MenuItem value={props.trust === true ? "untrust" : "trust"}>
+                  {t(props.trust === true ? "trust.untrust" : "trust.trust")}
+                </MenuItem>
+                <MenuSeparator />
+              </>
+            ) : null}
             <MenuItem value="add-environment">Add environment</MenuItem>
             {connected.map((h) => (
               <MenuItem key={h.id} value={`agent-defaults:${h.id}`}>
@@ -120,31 +162,6 @@ export function Sidebar(props: SidebarProps) {
           </span>
         );
       })}
-      <div data-slot="sidebar-actions">
-        <Button
-          data-variant="ghost"
-          data-kind="sidebar-action"
-          disabled={connected.length === 0}
-          aria-label={t("sidebar.newSession")}
-          title={`${t("sidebar.newSession")}  ${MOD}N`}
-          onClick={props.onNewSession}
-        >
-          <PlusIcon />
-          {t("sidebar.newSession")}
-          <kbd>{MOD}N</kbd>
-        </Button>
-        <Button
-          data-variant="ghost"
-          data-kind="sidebar-action"
-          aria-label={t("search.open")}
-          title={`${t("search.open")}  ${MOD}K`}
-          onClick={props.onSearch}
-        >
-          <SearchIcon />
-          {t("search.open")}
-          <kbd>{MOD}K</kbd>
-        </Button>
-      </div>
       {/* Only the list scrolls: what is above it and the footer stay where the hand expects them. */}
       <div data-slot="sidebar-scroll">
         {props.list.order.length > 0 ? (

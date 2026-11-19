@@ -23,7 +23,24 @@ const bridgeFor = (scenario: Scenario) => {
     ...(scenario.update ? { update: scenario.update } : {}),
   });
   const environments = scenario.environments ?? [LOCAL];
-  const status = scenario.status ?? environments.map((h) => UP(h.id));
+  const status =
+    scenario.status ??
+    environments.map((h) =>
+      scenario.trust !== undefined
+        ? {
+            ...UP(h.id),
+            capabilities: { queue: true, files: true, folders: true, trust: true },
+          }
+        : UP(h.id),
+    );
+  if (scenario.trust !== undefined) {
+    const trusted = scenario.trust;
+    script.bridge.readTrust = async (_environment, path) => ({
+      path,
+      trusted,
+      from: trusted === null ? null : path,
+    });
+  }
   const sessions = Object.fromEntries(
     environments.map((environment) => [
       environment.id,
