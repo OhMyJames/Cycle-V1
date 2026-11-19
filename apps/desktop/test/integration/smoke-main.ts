@@ -168,6 +168,12 @@ const main = async () => {
     await click(`document.querySelector('[role="dialog"] input')`);
     await type(env.SMOKE_CWD as string);
     await click(byText('[role="dialog"] button', "Start"));
+    // A folder nobody has decided on is asked about first (docs/protocol.md §8 "信任文件夹").
+    await waitFor(
+      "the folder trust question",
+      `[...document.querySelectorAll('[role="dialog"] button')].some((b) => b.textContent === "Trust and start")`,
+    );
+    await click(byText('[role="dialog"] button', "Trust and start"));
     await waitFor(
       "the composer to be ready",
       `document.querySelector('[data-slot="composer"] [data-slot="composer-input"]')?.getAttribute('contenteditable') === 'true'`,

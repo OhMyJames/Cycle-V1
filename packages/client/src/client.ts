@@ -11,6 +11,7 @@ import {
   META,
   NOTIFICATIONS,
   seqOf,
+  type Trust,
 } from "@cycle/protocol";
 import type { Channel } from "@cycle/transport/client";
 
@@ -265,6 +266,23 @@ export class CycleClient {
       ...(path !== undefined ? { path } : {}),
       ...(hidden === true ? { hidden } : {}),
     })) as FolderList;
+  }
+
+  /**
+   * Whether a folder on the daemon's machine may run the commands its own configuration names, and where that was
+   * decided (docs/protocol.md §8 "信任文件夹"). A daemon that does not say it can is older: it is not asked.
+   */
+  async readTrust(path: string): Promise<Trust> {
+    if (this.#capabilities.trust !== true)
+      throw new Error("This daemon is too old to keep folder trust");
+    return (await this.#request("_cycle/trust/read", { path })) as Trust;
+  }
+
+  /** Records whether a folder on the daemon's machine may run its own configuration's commands. */
+  async setTrust(path: string, trusted: boolean): Promise<Trust> {
+    if (this.#capabilities.trust !== true)
+      throw new Error("This daemon is too old to keep folder trust");
+    return (await this.#request("_cycle/trust/set", { path, trusted })) as Trust;
   }
 
   async cancel(sessionId: string): Promise<void> {

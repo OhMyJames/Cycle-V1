@@ -152,6 +152,18 @@ export const enUS = {
   "folders.error": "This folder cannot be shown: {reason}",
   "folders.retry": "Try again",
   "newSession.browse": "Browse…",
+
+  // Folder trust: whether a folder may run the commands its own settings name (docs/protocol.md §8)
+  "trust.title": "Trust this folder?",
+  "trust.description":
+    "{environment} would run what this folder's own settings name: hooks, and the servers and helpers in .mcp.json. Trust it only if you trust what is in it. Folders inside it follow this choice.",
+  "trust.startTrusted": "Trust and start",
+  "trust.startUntrusted": "Start without trusting",
+  "trust.back": "Back",
+  "trust.confirm": "Trust folder",
+  "trust.trust": "Trust this folder",
+  "trust.untrust": "Stop trusting this folder",
+  "trust.failed": "The answer could not be kept, so nothing was started: {reason}",
   "common.cancel": "Cancel",
 
   // The workspace switcher: a workspace is a folder on one environment

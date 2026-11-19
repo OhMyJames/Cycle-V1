@@ -95,6 +95,7 @@ test.skipIf(!ready)(
           "onEvent",
           "openSession",
           "prompt",
+          "readTrust",
           "removeEnvironment",
           "renameSession",
           "saveEnvironment",
@@ -103,6 +104,7 @@ test.skipIf(!ready)(
           "sessions",
           "setAgentDefaults",
           "setSessionConfig",
+          "setTrust",
           "updateState",
         ].sort(),
       );
@@ -117,6 +119,11 @@ test.skipIf(!ready)(
       expect(step("reloaded")?.ok).toBe(true);
       // Allowing it really ran it.
       expect(existsSync(join(cwd, "made-by-the-agent.txt"))).toBe(true);
+      // The folder was trusted in the dialog: on record in the daemon, and where Claude looks for it.
+      const trusted = JSON.parse(await readFile(join(data, "trust.json"), "utf8"));
+      expect(Object.values(trusted.folders)).toEqual([true]);
+      const claudeJson = JSON.parse(await readFile(join(root, "claude", ".claude.json"), "utf8"));
+      expect(claudeJson.projects[cwd]?.hasTrustDialogAccepted).toBe(true);
       expect(existsSync(join(home, "shot.png"))).toBe(true);
     } finally {
       const pid = Number((await readFile(join(data, "daemon.pid"), "utf8").catch(() => "")).trim());

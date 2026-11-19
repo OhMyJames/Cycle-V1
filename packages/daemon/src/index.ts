@@ -11,3 +11,4 @@ export * from "./log/replay.ts";
 export * from "./log/types.ts";
 export * from "./process-agent.ts";
 export * from "./session.ts";
+export * from "./trust-file.ts";

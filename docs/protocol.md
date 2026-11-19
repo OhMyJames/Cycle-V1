@@ -47,7 +47,8 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
   "queue": true,
   "steer": true,
   "files": true,
-  "folders": true
+  "folders": true,
+  "trust": true
 }
 ```
 
@@ -72,6 +73,8 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 | `_cycle/prompt/dequeue`      | 客户端 → daemon | daemon 处理:把排队的 prompt 撤回,见 §8                |
 | `_cycle/files/search`        | 客户端 → daemon | daemon 处理:在 session 的 `cwd` 里找文件,见 §8        |
 | `_cycle/folders/list`        | 客户端 → daemon | daemon 处理:列出一个目录下的文件夹(选 `cwd` 用),见 §8 |
+| `_cycle/trust/read`          | 客户端 → daemon | daemon 处理:一个文件夹是否信任,见 §8                  |
+| `_cycle/trust/set`           | 客户端 → daemon | daemon 处理:记下对一个文件夹的信任决定,见 §8          |
 | `session/cancel`             | 客户端 → daemon | 转发(通知)                                            |
 | `session/close`              | 客户端 → daemon | daemon 处理:停止 agent 进程,保留历史                  |
 | `session/delete`             | 客户端 → daemon | daemon 处理:删除日志和索引,客户端必须先向用户确认     |
@@ -305,6 +308,20 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 - **和 `_cycle/files/search` 不同,它不限定在某个 `cwd` 之内**:选文件夹本来就要走遍整个文件系统。它给出的只有文件夹的名字,而且谁能连上 daemon,谁本来就能让 agent 在这台机器上执行命令;所以没有新增能被利用的东西。仍然只在 loopback、unix socket 或 SSH 通道上服务,不放宽。
 - **路径用 `/` 分隔**:v1 只支持 POSIX 的 daemon(Linux、macOS);客户端拼下一级时按这个来。
 - 能力 `folders` 为 `true` 才有这个方法。旧 daemon 没有:客户端不提供浏览,用户自己输入路径。
+
+### 信任文件夹
+
+项目自己的配置里有会**执行命令**的部分:Claude 的 hooks、`.mcp.json` 里 stdio 服务器的命令和 http 服务器的 `headersHelper` 等。agent 只在被信任的文件夹里运行它们。用户级的配置由 Cycle 托管(Claude 的配置目录是 `$CYCLE_HOME/claude`,不是 `~/.claude`),项目级的配置照常加载;"这个文件夹可以运行它自己的命令"这个决定由 Cycle 记下,由 agent 适配交给 agent。理由见决定笔记 [2026-11-19-folder-trust-is-cycles](../.agents/notes/2026-11-19-folder-trust-is-cycles.md)。
+
+- **决定记在 daemon**(它所在的机器上,`$CYCLE_HOME/trust.json`):文件夹的真实路径(`realpath`)到 `true`(信任)或 `false`(不信任)。没有记录就是**没有决定**。
+- **管到子文件夹**:一个文件夹的决定适用于它下面的所有文件夹,**离得最近的决定生效**(信任 `/work`、不信任 `/work/x`,则 `/work/x/y` 不信任)。
+- `_cycle/trust/read`,参数 `{path}`,响应 `{path, trusted, from}`:`path` 是真实路径;`trusted` 是 `true`、`false`,没有决定时为 `null`;`from` 是这个决定记在哪个文件夹上(`path` 自己或它的上级),没有决定时为 `null`。
+- `_cycle/trust/set`,参数 `{path, trusted}`(`trusted` 是布尔),记在 `path` 的真实路径上,响应同 `read`。
+- `path` 必须是绝对路径,否则 `-32602`;不存在,`-32002`;不是文件夹或看不了,`-32602`,`data.reason` 是 `not_a_folder` 或 `unreadable`(和 `_cycle/folders/list` 一致)。
+- **交给 agent**(L2):daemon 每次启动 agent(`session/new`,以及恢复时的 `session/resume`)都按 session 的 `cwd` 查一次,有决定就在 `_meta["cycle/trusted"]` 里带上 `true` 或 `false`,没有决定就不带。没有决定时 agent 保持它自己原有的状态,不改。Claude 适配的做法见 [docs/adapters/claude.md](adapters/claude.md)。
+- **对已有 session 何时生效**:决定在 agent 进程启动时交给它,agent 之后每次起自己的子进程都按它来。所以 `_cycle/trust/set` 之后,daemon 结束这个文件夹(含子文件夹)里每个 session 的 agent 进程:空闲的(没有在跑的 turn、没有排队的 prompt、没有等待回答的请求、没有后台子 agent)立即结束;正在工作或正在启动的,等它下一次这样空闲时结束(turn 结束、最后一个后台子 agent 结束)。下一条 prompt 以新的决定恢复它。
+- **客户端**:新建 session 时,`cwd` 没有决定就先问用户(信任并开始、不信任也开始、取消),答案用 `_cycle/trust/set` 记下;不要默认替用户信任。workspace 的菜单里可以改这个决定。
+- 能力 `trust` 为 `true` 才有这两个方法。旧 daemon 没有:客户端不问,也不显示。
 
 **发送**:composer 里的 `@路径` 在发送时变成两样东西:
 

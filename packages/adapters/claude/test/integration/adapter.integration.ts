@@ -279,6 +279,108 @@ test("MCP servers, an added directory and an appended system prompt reach the re
   }
 }, 60_000);
 
+/**
+ * A project folder whose own `.mcp.json` names an http MCP server that wants a key, and gets it from a
+ * `headersHelper`, as a project would from its `.env`. The server answers only with the key.
+ */
+const projectWithHelper = async (url: string) => {
+  const dir = await mkdtemp(join(tmpdir(), "cycle-v1-claude-project-"));
+  await Bun.write(
+    join(dir, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        proj: {
+          type: "http",
+          url,
+          headersHelper: `echo '{"Authorization":"Bearer helper-ran-4417"}'`,
+        },
+      },
+    }),
+  );
+  await Bun.write(
+    join(dir, ".claude", "settings.local.json"),
+    JSON.stringify({ enableAllProjectMcpServers: true }),
+  );
+  return dir;
+};
+
+/** An http MCP server with one tool, that refuses whoever does not bring the helper's key. */
+const keyedMcp = () => {
+  const seen: (string | null)[] = [];
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: async (request) => {
+      seen.push(request.headers.get("authorization"));
+      if (request.headers.get("authorization") !== "Bearer helper-ran-4417")
+        return new Response("unauthorized", { status: 401 });
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      const message = (await request.json()) as { id?: number; method: string };
+      if (message.id === undefined) return new Response(null, { status: 202 });
+      const result =
+        message.method === "initialize"
+          ? {
+              protocolVersion: "2025-06-18",
+              capabilities: { tools: {} },
+              serverInfo: { name: "proj", version: "0" },
+            }
+          : message.method === "tools/list"
+            ? {
+                tools: [
+                  {
+                    name: "keyed_ping",
+                    description: "Answers when the key was right.",
+                    inputSchema: { type: "object", properties: {} },
+                  },
+                ],
+              }
+            : {};
+      return Response.json({ jsonrpc: "2.0", id: message.id, result });
+    },
+  });
+  return { url: `http://127.0.0.1:${server.port}/mcp`, seen, stop: () => server.stop(true) };
+};
+
+test("a project's headersHelper runs only in a folder the daemon says is trusted", async () => {
+  const mock = startMock(() => textReply("Ok."));
+  const mcp = keyedMcp();
+  const config = await tempConfigDir();
+  const trusted = await projectWithHelper(mcp.url);
+  const untrusted = await projectWithHelper(mcp.url);
+  const toolsOffered = async (dir: string, id: string, meta: Record<string, unknown>) =>
+    withAdapter({ mockUrl: mock.url, configDir: config.dir }, async ({ agent, idle }) => {
+      await agent.request(methods.agent.session.new, {
+        cwd: dir,
+        _meta: { "cycle/sessionId": id, ...meta },
+      } as never);
+      const done = idle();
+      await agent.request(methods.agent.session.prompt, {
+        sessionId: id,
+        prompt: [{ type: "text", text: "hello" }],
+      });
+      await done;
+      return JSON.stringify(asked(mock.requests).at(-1)?.body).includes("mcp__proj__keyed_ping");
+    });
+  try {
+    // Nobody decided: Claude does not run the folder's helper, so the server never gets the key.
+    expect(await toolsOffered(untrusted, "b1526374-5555-4666-8777-d88899900011", {})).toBe(false);
+    expect(mcp.seen.filter((auth) => auth !== null)).toEqual([]);
+    // Trusted: the helper runs, the key reaches the server, and its tool is offered to the model.
+    expect(
+      await toolsOffered(trusted, "c2637485-6666-4777-8888-e99900011122", {
+        "cycle/trusted": true,
+      }),
+    ).toBe(true);
+    expect(mcp.seen).toContain("Bearer helper-ran-4417");
+  } finally {
+    mock.stop();
+    mcp.stop();
+    await config.dispose();
+    await rm(trusted, { recursive: true, force: true });
+    await rm(untrusted, { recursive: true, force: true });
+  }
+}, 90_000);
+
 test("the adapter announces the commands the real Claude process has", async () => {
   const mock = startMock(() => textReply("Ok."));
   const config = await tempConfigDir();

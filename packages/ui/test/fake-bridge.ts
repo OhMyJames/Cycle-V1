@@ -38,7 +38,13 @@ export const fakeBridge = (
     connected?: boolean;
     update?: UpdateState;
     /** What the daemon says it can do. Default: all of it. */
-    capabilities?: { queue: boolean; steer?: boolean; files: boolean; folders: boolean };
+    capabilities?: {
+      queue: boolean;
+      steer?: boolean;
+      files: boolean;
+      folders: boolean;
+      trust?: boolean;
+    };
     /** The agent can take a message into a running turn. */
     steer?: boolean;
     /** More environments than the local one, and how each stands (by id; the local one's is `connected`). */
@@ -110,6 +116,16 @@ export const fakeBridge = (
       home: "/home/me",
       folders: [{ name: "app" }, { name: "docs" }],
       truncated: false,
+    })),
+    readTrust: record("readTrust", async (_environment: string, path: string) => ({
+      path,
+      trusted: true,
+      from: path,
+    })),
+    setTrust: record("setTrust", async (_environment: string, path: string, trusted: boolean) => ({
+      path,
+      trusted,
+      from: path,
     })),
     searchFiles: record("searchFiles", async () => ({
       root: "/work",
