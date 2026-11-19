@@ -107,124 +107,138 @@ export function BlankConversationView({
         : undefined;
   const placeholder = t("composer.placeholder.idle");
 
+  // Before the first message the box sits in the middle with where it runs just above it (old-cycle's new session): what
+  // is chosen and what is written are one thing. Once it is sent, the message shows as the conversation and the box goes
+  // to the foot, where it is in a session.
+  // Where it runs: above the box, and still there, off, while the session is being made from the first message.
+  const where = (
+    <fieldset data-slot="blank-where" disabled={starting} aria-label={t("blank.where")}>
+      {environments.length > 1 ? (
+        <Field name="environment">
+          <FieldLabel>{t("newSession.environment")}</FieldLabel>
+          <Select
+            items={environments.map((h) => ({ value: h.id, label: h.name }))}
+            value={blank.environmentId}
+            onValueChange={(next) => {
+              if (typeof next === "string") store.changeBlank({ environmentId: next });
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {environments.map((h) => (
+                <SelectItem key={h.id} value={h.id}>
+                  {h.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      ) : null}
+      <Field name="cwd" data-kind="blank-folder">
+        <FieldLabel>{t("blank.folder")}</FieldLabel>
+        <div data-slot="row">
+          <Input
+            value={blank.cwd}
+            placeholder={t("blank.folder.placeholder")}
+            spellCheck={false}
+            onChange={(e) => store.changeBlank({ cwd: e.currentTarget.value })}
+          />
+          {canBrowse ? (
+            <Button data-variant="outline" disabled={starting} onClick={() => void browse()}>
+              {t("newSession.browse")}
+            </Button>
+          ) : null}
+        </div>
+      </Field>
+      {available.length > 1 ? (
+        <Field name="agent">
+          <FieldLabel>{t("blank.agent")}</FieldLabel>
+          <Select
+            items={available.map((a) => ({ value: a.id, label: a.name }))}
+            value={agent?.id ?? null}
+            onValueChange={(next) => {
+              if (typeof next === "string") store.changeBlank({ agent: next });
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {available.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      ) : null}
+    </fieldset>
+  );
+  const box = (
+    <Composer
+      key={`composer:${BLANK_KEY}`}
+      environmentId={blank.environmentId}
+      sessionKey={BLANK_KEY}
+      blank
+      canAttach={agent?.promptCapabilities?.image != null}
+      settings={
+        agent !== undefined && blank.config !== undefined
+          ? {
+              schema: agent.configSchema,
+              value: { ...defaultsOf(agent.configSchema), ...blank.config },
+            }
+          : undefined
+      }
+      onSetting={(key, value) => store.changeBlank({ setting: { key, value } })}
+      onOpenSettings={() => setSettingsOpen(true)}
+      enabled={!starting}
+      connected={connected}
+      activity="idle"
+      blocked={blocked}
+      placeholder={placeholder}
+      onSent={onSent}
+    />
+  );
   return (
     <>
       <header data-slot="session-header">
-        <div data-slot="stack">
+        <div data-slot="session-heading">
           <h1>{t("blank.title")}</h1>
         </div>
       </header>
-      <fieldset data-slot="blank-where" disabled={starting} aria-label={t("blank.where")}>
-        {environments.length > 1 ? (
-          <Field name="environment">
-            <FieldLabel>{t("newSession.environment")}</FieldLabel>
-            <Select
-              items={environments.map((h) => ({ value: h.id, label: h.name }))}
-              value={blank.environmentId}
-              onValueChange={(next) => {
-                if (typeof next === "string") store.changeBlank({ environmentId: next });
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {environments.map((h) => (
-                  <SelectItem key={h.id} value={h.id}>
-                    {h.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-        ) : null}
-        <Field name="cwd" data-kind="blank-folder">
-          <FieldLabel>{t("blank.folder")}</FieldLabel>
-          <div data-slot="row">
-            <Input
-              value={blank.cwd}
-              placeholder={t("blank.folder.placeholder")}
-              spellCheck={false}
-              onChange={(e) => store.changeBlank({ cwd: e.currentTarget.value })}
-            />
-            {canBrowse ? (
-              <Button data-variant="outline" disabled={starting} onClick={() => void browse()}>
-                {t("newSession.browse")}
-              </Button>
-            ) : null}
+      {/* One tree before and after the first message is sent, so the box and the choices keep their focus and state when a
+          start fails and they come back: only the stage's layout changes (data-starting). */}
+      <div data-slot="blank-stage" data-starting={shown !== undefined || undefined}>
+        {shown !== undefined ? (
+          <ConversationView
+            sessionKey={BLANK_KEY}
+            follow={follow}
+            conversation={shown}
+            loading={false}
+            awaitingApproval={false}
+          />
+        ) : (
+          <div data-slot="blank-lead">
+            {connected && agent === undefined && status?.state === "connected" ? (
+              <p>{t("blank.noAgent", { environment: environment?.name ?? blank.environmentId })}</p>
+            ) : blank.unreadable === true ? (
+              <div data-slot="empty-block" role="alert">
+                <p>{t("blank.unreadable")}</p>
+                <Button data-variant="outline" onClick={store.retryBlank}>
+                  {t("blank.retry")}
+                </Button>
+              </div>
+            ) : (
+              <p>{t("blank.lead")}</p>
+            )}
           </div>
-        </Field>
-        {available.length > 1 ? (
-          <Field name="agent">
-            <FieldLabel>{t("blank.agent")}</FieldLabel>
-            <Select
-              items={available.map((a) => ({ value: a.id, label: a.name }))}
-              value={agent?.id ?? null}
-              onValueChange={(next) => {
-                if (typeof next === "string") store.changeBlank({ agent: next });
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {available.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-        ) : null}
-      </fieldset>
-      {shown !== undefined ? (
-        <ConversationView
-          sessionKey={BLANK_KEY}
-          follow={follow}
-          conversation={shown}
-          loading={false}
-          awaitingApproval={false}
-        />
-      ) : (
-        <div data-slot="empty">
-          {connected && agent === undefined && status?.state === "connected" ? (
-            <p>{t("blank.noAgent", { environment: environment?.name ?? blank.environmentId })}</p>
-          ) : blank.unreadable === true ? (
-            <div data-slot="empty-block" role="alert">
-              <p>{t("blank.unreadable")}</p>
-              <Button data-variant="outline" onClick={store.retryBlank}>
-                {t("blank.retry")}
-              </Button>
-            </div>
-          ) : (
-            <p>{t("blank.lead")}</p>
-          )}
-        </div>
-      )}
-      <Composer
-        key={`composer:${BLANK_KEY}`}
-        environmentId={blank.environmentId}
-        sessionKey={BLANK_KEY}
-        blank
-        canAttach={agent?.promptCapabilities?.image != null}
-        settings={
-          agent !== undefined && blank.config !== undefined
-            ? {
-                schema: agent.configSchema,
-                value: { ...defaultsOf(agent.configSchema), ...blank.config },
-              }
-            : undefined
-        }
-        onSetting={(key, value) => store.changeBlank({ setting: { key, value } })}
-        onOpenSettings={() => setSettingsOpen(true)}
-        enabled={!starting}
-        connected={connected}
-        activity="idle"
-        blocked={blocked}
-        placeholder={placeholder}
-        onSent={onSent}
-      />
+        )}
+        {where}
+        {box}
+      </div>
       {/* A folder nobody has decided on: asked when the first message goes, before anything of the folder's own runs. */}
       <Dialog
         open={blank.asking !== undefined}

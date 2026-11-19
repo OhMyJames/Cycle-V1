@@ -79,6 +79,24 @@ test("a single tool call is a row of its own, not a card", async () => {
   expect(log.textContent).not.toContain("Ran 1 command");
 });
 
+test("a tool row says what it did with a verb in its tense, and only a failure says so in a word", async () => {
+  const { log, emit } = await open(
+    you("u1"),
+    ...tool("a", "Bash", "in_progress", { command: "bun test" }),
+    state({ state: "running" }),
+  );
+  const row = await screen.findByRole("button", { name: /Running/ });
+  expect(row.textContent).toContain("bun test");
+  // The tool's name is still in what a screen reader is told.
+  expect(row.textContent).toContain("Bash");
+  await emit(u({ sessionUpdate: "tool_call_update", toolCallId: "a", status: "completed" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: /Ran/ })).toBeTruthy());
+  await emit(u({ sessionUpdate: "tool_call_update", toolCallId: "a", status: "failed" }));
+  await waitFor(() =>
+    expect(log.querySelector('[data-slot="tool-status"]')?.textContent).toBe("failed"),
+  );
+});
+
 test("a turn that failed says how, and the failed call is a row under the card, not in it", async () => {
   const { log } = await open(
     you("u1"),
@@ -116,7 +134,7 @@ test("a failure that arrives while the card is on screen opens it", async () => 
   );
   await waitFor(() => expect(card.getAttribute("aria-expanded")).toBe("true"));
   // The other call is still going, and the card says both.
-  expect(log.textContent).toContain("running");
+  expect(log.textContent).toContain("Running");
   expect(log.textContent).toContain("1 failed");
 });
 

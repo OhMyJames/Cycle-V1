@@ -102,6 +102,10 @@
   --cycle-shadow-dialog: 0 16px 40px rgb(0 0 0 / 16%), 0 2px 8px rgb(0 0 0 / 8%);
   --cycle-scrim: light-dark(rgb(0 0 0 / 10%), rgb(0 0 0 / 40%));
 
+  /* Text too long for its line fades out at the end instead of ending in "…" (old-cycle's rule): the box is full width and
+     the last 1.5rem of it fade, so a short line, which never reaches there, is not touched. */
+  --cycle-fade-end: linear-gradient(to right, black calc(100% - 1.5rem), transparent);
+
   /* Layout and motion: 100ms for a state, 160ms for a disclosure, 200ms for something arriving. */
   --cycle-measure: 48rem;
   --cycle-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -175,6 +179,63 @@ summary:focus-visible {
     animation: none !important;
     transition: none !important;
   }
+
+  /* The end fade is not motion: it is drawn by an animation on scroll, and stays. */
+  :is(
+    [data-slot="environment-name"],
+    [data-slot="session-title"],
+    [data-slot="workspace-name"],
+    [data-slot="search-title"],
+    [data-slot="update-text"] [data-slot="hint"],
+    [data-slot="setting-value"],
+    [data-slot="queued-text"],
+    [data-slot="attachment-name"],
+    [data-slot="picker-description"],
+    [data-slot="composer-placeholder"],
+    [data-slot="connector-name"],
+    [data-slot="connector-where"],
+    [data-slot="tool-summary"],
+    [data-slot="step-detail"],
+    [data-slot="session-header"] h1,
+    [data-slot="session-where"]
+  ) {
+    animation: cycle-fade linear both !important;
+    animation-timeline: scroll(self inline) !important;
+  }
+}
+
+/* Text too long for its line fades at the end; it never ends in "…" (old-cycle's rule). The fade is a scroll-driven
+   animation on the element's own overflow, so it is there only when the text overflows: a short title is not touched.
+   The full text is in the element's title or reachable (search, the folder field). */
+@keyframes cycle-fade {
+  from,
+  to {
+    mask-image: var(--cycle-fade-end);
+  }
+}
+
+:is(
+  [data-slot="environment-name"],
+  [data-slot="session-title"],
+  [data-slot="workspace-name"],
+  [data-slot="search-title"],
+  [data-slot="update-text"] [data-slot="hint"],
+  [data-slot="setting-value"],
+  [data-slot="queued-text"],
+  [data-slot="attachment-name"],
+  [data-slot="picker-description"],
+  [data-slot="composer-placeholder"],
+  [data-slot="connector-name"],
+  [data-slot="connector-where"],
+  [data-slot="tool-summary"],
+  [data-slot="step-detail"],
+  [data-slot="session-header"] h1,
+  [data-slot="session-where"]
+) {
+  overflow: hidden;
+  white-space: nowrap;
+  animation: cycle-fade linear both;
+  animation-timeline: scroll(self inline);
 }
 
 html,
@@ -241,7 +302,8 @@ body {
 /* The content column: conversation, permission and composer share one centred measure. */
 [data-slot="conversation"],
 [data-slot="permissions"],
-[data-slot="composer"] {
+[data-slot="composer"],
+[data-slot="blank-where"] {
   --cycle-column-pad: max(var(--cycle-gap), calc((100% - var(--cycle-measure)) / 2));
 }
 
@@ -374,12 +436,18 @@ svg[data-slot="dot"] {
 [data-kind="sidebar-action"] {
   justify-content: flex-start;
   width: 100%;
+  height: 1.75rem;
   padding-inline: 0.5rem;
   font-weight: var(--cycle-weight);
 }
 
+/* The shortcut as plain muted text at the row's end, not a key cap. */
 [data-kind="sidebar-action"] kbd {
   margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
   font: inherit;
   font-size: var(--cycle-text-meta);
   color: var(--ui-muted-foreground);
@@ -473,7 +541,6 @@ svg[data-slot="dot"] {
 [data-slot="environment-name"] {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -503,12 +570,15 @@ svg[data-slot="dot"] {
   color: var(--cycle-attention);
 }
 
+/* Rows of 28px, as old-cycle's: the list is read at a glance, and many fit. */
 [data-slot="sidebar"] [role="option"] {
   flex: none;
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
-  padding: 0.375rem 0.5rem;
+  min-height: 1.75rem;
+  box-sizing: border-box;
+  padding: 0.25rem 0.5rem;
   border-radius: var(--ui-radius);
   border-color: transparent;
   background: transparent;
@@ -572,7 +642,6 @@ svg[data-slot="dot"] {
 
 [data-slot="session-title"] {
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
 }
@@ -616,7 +685,6 @@ svg[data-slot="dot"] {
 [data-slot="workspace-name"] {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -676,14 +744,26 @@ html[data-platform="darwin"] [data-slot="titlebar"] {
   -webkit-app-region: drag;
 }
 
-html[data-platform="darwin"] :is([data-slot="session-header"], [data-slot="empty"]) {
+html[data-platform="darwin"]
+  :is([data-slot="session-header"], [data-slot="empty"], [data-slot="blank-stage"]) {
   -webkit-app-region: drag;
 }
 
 /* What can be clicked or selected is not a place to drag from: the error's reason has to be selectable. */
 html[data-platform="darwin"]
-  :is([data-slot="session-header"], [data-slot="empty"])
-  :is(button, a, input, textarea, code, [data-slot="reason"], [data-slot="empty-title"]) {
+  :is([data-slot="session-header"], [data-slot="empty"], [data-slot="blank-stage"])
+  :is(
+    button,
+    a,
+    input,
+    textarea,
+    code,
+    [data-slot="reason"],
+    [data-slot="empty-title"],
+    [data-slot="composer"],
+    [data-slot="blank-where"],
+    [data-slot="conversation"]
+  ) {
   -webkit-app-region: no-drag;
 }
 
@@ -807,7 +887,6 @@ html[data-platform="darwin"]
 
 [data-slot="search-title"] {
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
 }
@@ -841,39 +920,48 @@ html[data-platform="darwin"]
 [data-slot="update-text"] [data-slot="hint"] {
   font-size: inherit;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* The session's title bar: one row of 42px, the title and where it runs on one line, actions at the end. No rule under
+   it: the conversation scrolls up to it (old-cycle's title row). */
 [data-slot="session-header"] {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--cycle-gap);
-  padding: 0.625rem var(--cycle-gap);
-  border-bottom: 1px solid var(--ui-border);
+  height: 2.625rem;
+  flex: none;
+  padding: 0 0.5rem 0 var(--cycle-gap);
 }
 
-[data-slot="session-header"] [data-slot="stack"] {
-  gap: 0.125rem;
+[data-slot="session-heading"] {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
   flex: 1;
-}
-
-[data-slot="session-header"] h1 {
-  margin: 0;
-  font-size: var(--cycle-text-title);
-  font-weight: 600;
-  line-height: var(--cycle-leading-title);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
   white-space: nowrap;
 }
 
-[data-slot="session-header"] [data-slot="hint"],
-[data-slot="usage"] {
+/* The title gives way last: where it runs shrinks first, then the title, and the row fades where it is cut. */
+[data-slot="session-header"] h1 {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--cycle-text-ui);
+  font-weight: 500;
+  line-height: var(--cycle-leading-ui);
+}
+
+[data-slot="session-where"] {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
   font-family: var(--ui-font-mono);
   font-size: var(--cycle-text-meta);
-  font-variant-numeric: tabular-nums;
+  color: var(--ui-muted-foreground);
 }
 
 [data-slot="session-header"] [data-slot="row"] {
@@ -944,10 +1032,11 @@ html[data-platform="darwin"]
   align-items: flex-start;
   gap: 0.5rem;
   align-self: flex-end;
-  max-width: 80%;
+  max-width: 75%;
   background: var(--ui-muted);
+  border: 1px solid var(--cycle-border-default);
   border-radius: var(--cycle-radius-message);
-  padding: 0.5rem 0.75rem;
+  padding: 0.4375rem 0.75rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -955,6 +1044,125 @@ html[data-platform="darwin"]
 [data-slot="message"][data-role="agent"] {
   max-width: 100%;
   overflow-wrap: anywhere;
+}
+
+/* Markdown from the agent. Streamdown draws a code block as a box holding a box, and a table as a toolbar over a box
+   holding a box. Here each is one card (12, the default edge): the language and Copy in a quiet head, the code under it.
+   Its own data-streamdown names are stable; its Tailwind classes are below ours, so these win. */
+[data-slot="message"] [data-streamdown="code-block"] {
+  position: relative;
+  gap: 0;
+  margin-block: 0.5rem;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--cycle-border-default);
+  border-radius: var(--cycle-radius-card);
+  background: var(--cycle-surface-raised);
+}
+
+[data-slot="message"] [data-streamdown="code-block-header"] {
+  height: 2rem;
+  padding-inline: 0.75rem;
+  font-size: var(--cycle-text-meta);
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="message"] [data-streamdown="code-block-header"] > span {
+  margin: 0;
+}
+
+/* Copy: seen when the block is hovered or something in it has the focus, so it can be reached by keyboard. */
+[data-slot="message"] [data-streamdown="code-block-actions"] {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  backdrop-filter: none;
+  opacity: 0;
+  transition: opacity var(--cycle-motion-state) var(--cycle-ease);
+}
+
+[data-slot="message"]
+  [data-streamdown="code-block"]:is(:hover, :focus-within)
+  [data-streamdown="code-block-actions"] {
+  opacity: 1;
+}
+
+[data-slot="message"] [data-streamdown="code-block-copy-button"] {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: var(--ui-radius);
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="message"] [data-streamdown="code-block-copy-button"]:hover {
+  background: var(--cycle-surface-hover);
+  color: var(--cycle-ink);
+}
+
+[data-slot="message"] [data-streamdown="code-block-body"] {
+  padding: 0 0.75rem 0.75rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--cycle-text-meta);
+  line-height: var(--cycle-leading-meta);
+}
+
+[data-slot="message"] [data-streamdown="code-block-body"] > pre {
+  background: transparent;
+}
+
+/* A general rule gives code a fill and padding for inline code; on a block's code it drew a sliver at the ends of the
+   first and last lines. */
+[data-slot="message"] [data-streamdown="code-block-body"] code {
+  display: block;
+  padding: 0;
+  background: transparent;
+}
+
+[data-slot="message"] [data-streamdown="table-wrapper"] {
+  gap: 0;
+  margin-block: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+[data-slot="message"] [data-streamdown="table-wrapper"] > div {
+  border: 1px solid var(--cycle-border-default);
+  border-radius: var(--cycle-radius-card);
+  background: var(--cycle-surface-raised);
+}
+
+[data-slot="message"] :is([data-streamdown="table-header-cell"], [data-streamdown="table-cell"]) {
+  padding: 0.375rem 0.75rem;
+  font-size: var(--cycle-text-ui);
+  line-height: var(--cycle-leading-ui);
+}
+
+[data-slot="message"] [data-streamdown="table-header-cell"] {
+  font-weight: 500;
+  color: var(--cycle-ink-secondary);
+}
+
+[data-slot="message"] [data-streamdown="table-header"] {
+  background: var(--cycle-surface-message);
+}
+
+/* Rows divided by the subtle line: the card's edge is the default one, the lines inside it are lighter. */
+[data-slot="message"] [data-streamdown="table"],
+[data-slot="message"] [data-streamdown="table"] > * {
+  border-color: var(--cycle-border-subtle);
+}
+
+[data-slot="message"] [data-streamdown="inline-code"] {
+  padding: 0.0625rem 0.3125rem;
+  border-radius: var(--cycle-radius-sm);
+  background: var(--cycle-surface-message);
+  font-size: 0.9em;
 }
 
 /* An image of a conversation: a thumbnail that opens large. It is a data URL; nothing is fetched. */
@@ -996,29 +1204,40 @@ html[data-platform="darwin"]
   color: var(--ui-muted-foreground);
 }
 
-[data-kind="tool"] {
-  border: 1px solid var(--ui-border);
-  border-radius: var(--cycle-radius-card);
+/* A tool call is a quiet line, not a box (old-cycle's rows): a lead (its icon, or the spinner, or a cross), the verb in
+   its tense, then on what, muted. The chevron shows on hover, on focus and while open. A failure is red and says so. */
+[data-kind="tool"],
+[data-kind="work"] {
   font-size: var(--cycle-text-ui);
   line-height: var(--cycle-leading-ui);
 }
 
-[data-kind="tool"][data-status="failed"],
-[data-kind="tool"][data-status="cancelled"] {
-  border-color: color-mix(in oklab, var(--ui-destructive) 45%, var(--ui-border));
-}
-
-[data-kind="tool"] > button,
-[data-kind="thought"] > button {
+:is([data-kind="tool"], [data-kind="work"], [data-kind="thought"]) > button {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   width: 100%;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.5rem;
+  margin-inline: -0.5rem;
+  box-sizing: content-box;
+  border-radius: var(--ui-radius);
+  color: var(--cycle-ink-secondary);
   text-align: left;
+  transition: background-color var(--cycle-motion-state) var(--cycle-ease);
 }
 
-[data-kind="tool"] > button {
-  padding: 0.375rem 0.625rem;
+:is([data-kind="tool"], [data-kind="work"]) > button:hover {
+  background: var(--cycle-surface-hover);
+  color: var(--cycle-ink);
+}
+
+[data-slot="tool-lead"] {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
 }
 
 [data-slot="tool-icon"] {
@@ -1026,15 +1245,19 @@ html[data-platform="darwin"]
   color: var(--ui-muted-foreground);
 }
 
-[data-slot="tool-name"] {
-  font-weight: 600;
+[data-slot="tool-mark"] {
+  flex: none;
+}
+
+[data-slot="tool-verb"] {
+  flex: none;
+  white-space: nowrap;
 }
 
 [data-slot="tool-summary"] {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ui-muted-foreground);
   font-family: var(--ui-font-mono);
@@ -1042,55 +1265,65 @@ html[data-platform="darwin"]
 }
 
 [data-slot="tool-status"] {
+  flex: none;
   font-size: var(--cycle-text-meta);
   color: var(--ui-muted-foreground);
 }
 
-[data-slot="tool-mark"] {
-  flex: none;
+:is([data-kind="tool"], [data-kind="work"]):is([data-status="failed"], [data-status="cancelled"])
+  > button
+  :is([data-slot="tool-verb"], [data-slot="tool-status"]) {
+  color: var(--ui-destructive);
 }
 
-[data-kind="tool"][data-status="failed"] [data-slot="tool-status"],
-[data-kind="tool"][data-status="cancelled"] [data-slot="tool-status"] {
-  color: var(--ui-destructive);
+/* The chevron points at what opens, and turns when it has: seen on hover, on focus and while open, not on every line. */
+[data-slot="tool-chevron"] {
+  flex: none;
+  color: var(--ui-muted-foreground);
+  opacity: 0;
+  transition:
+    opacity var(--cycle-motion-state) var(--cycle-ease),
+    transform var(--cycle-motion-disclosure) var(--cycle-ease);
+}
+
+button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
+[data-panel-open] > [data-slot="tool-chevron"],
+[aria-expanded="true"] > [data-slot="tool-chevron"] {
+  opacity: 1;
+}
+
+[aria-expanded="true"] > [data-slot="tool-chevron"] {
+  transform: rotate(90deg);
 }
 
 /* The collapsible parts of the conversation are told apart by data-kind: ui-sdk sets data-slot itself on Collapsible and
    replaces ours, so a rule on data-slot="tool" never matched. */
-/* A stretch of tool calls: one card, opening to its rows. Same edge as a row; the rows inside share it. */
-[data-kind="work"] {
-  border: 1px solid var(--ui-border);
-  border-radius: var(--cycle-radius-card);
-  font-size: var(--cycle-text-ui);
-  line-height: var(--cycle-leading-ui);
-}
-
-[data-kind="work"][data-status="failed"] {
-  border-color: color-mix(in oklab, var(--ui-destructive) 45%, var(--ui-border));
-}
-
-[data-kind="work"] > button {
+/* A stretch of tool calls: its summary is a line like a row's; open, its rows hang under it, their leads joined by a
+   thin line so the stretch reads as one. */
+[data-kind="work"] > [data-slot="collapsible-panel"] {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.375rem 0.625rem;
-  text-align: left;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin-top: 0.125rem;
 }
 
-[data-slot="work-summary"] {
-  font-weight: 600;
-  white-space: nowrap;
+[data-kind="work"] > [data-slot="collapsible-panel"]::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(0.5rem - 0.5px);
+  top: 0.25rem;
+  bottom: 0.25rem;
+  width: 1px;
+  background: var(--cycle-border-default);
 }
 
-[data-kind="work"] [data-slot="tool-status"][data-tone="danger"] {
-  color: var(--ui-destructive);
-}
-
-/* Rows inside a card share its edge: only a line above each, in the row's own colour (a failed row keeps its red). */
 [data-kind="work"] [data-kind="tool"] {
-  border-width: 1px 0 0;
-  border-radius: 0;
+  position: relative;
+}
+
+[data-kind="work"] [data-kind="tool"] > button [data-slot="tool-lead"] {
+  background: var(--ui-background);
 }
 
 /* The line at the end of a turn that is going: what the agent is doing, so a hidden thought is not a silence. */
@@ -1098,6 +1331,7 @@ html[data-platform="darwin"]
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-height: 1.75rem;
   font-size: var(--cycle-text-ui);
   color: var(--ui-muted-foreground);
 }
@@ -1107,9 +1341,9 @@ html[data-platform="darwin"]
 }
 
 [data-slot="step-detail"] {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--ui-font-mono);
   font-size: var(--cycle-text-meta);
@@ -1145,16 +1379,19 @@ html[data-platform="darwin"]
   margin-top: calc(var(--cycle-gap-turn) - var(--cycle-gap));
 }
 
+/* What a call was given and what came back: sunken, set in from the line's text so it reads as the line's own. */
 [data-slot="tool-input"],
 [data-slot="tool-output"] {
-  margin: 0;
+  margin: 0.25rem 0 0.25rem 1.5rem;
   padding: 0.5rem 0.75rem;
-  overflow-x: auto;
+  max-height: 16rem;
+  overflow: auto;
+  border-radius: var(--ui-radius);
+  background: var(--ui-muted);
   font-family: var(--ui-font-mono);
   font-size: var(--cycle-text-meta);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  border-top: 1px solid var(--ui-border);
 }
 
 [data-kind="thought"] {
@@ -1219,10 +1456,6 @@ html[data-platform="darwin"]
   color: var(--ui-muted-foreground);
 }
 
-[data-slot="usage"] {
-  color: var(--ui-muted-foreground);
-}
-
 [data-slot="notice"] {
   display: flex;
   align-items: center;
@@ -1233,6 +1466,31 @@ html[data-platform="darwin"]
 
 [data-slot="notice"][data-severity="error"] {
   color: var(--ui-destructive);
+}
+
+/* A turn that failed ends in a box: the reason is what the person has to read, so it is held apart from the reply. Its
+   corners are a message's, its fill a wash of the colour. A turn that was stopped is a line. */
+[data-kind="turn-end"][data-severity="error"] {
+  align-items: flex-start;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--ui-destructive) 40%, transparent);
+  border-radius: var(--cycle-radius-card);
+  background: color-mix(in oklab, var(--ui-destructive) 8%, transparent);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+[data-kind="turn-end"][data-severity="error"] > svg {
+  flex: none;
+  margin-top: 0.1875rem;
+}
+
+[data-kind="turn-end"][data-severity="warning"] {
+  color: var(--ui-muted-foreground);
+}
+
+[data-kind="turn-end"][data-severity="warning"] > svg {
+  color: var(--cycle-attention);
 }
 
 /* Permission requests: above the composer, apart from the conversation, with the strongest edge on screen. */
@@ -1334,12 +1592,88 @@ html[data-platform="darwin"]
   flex: 1;
 }
 
-[data-slot="composer-toolbar"] > [data-variant="solid"],
-[data-slot="composer-toolbar"] > [data-variant="outline"] {
+[data-slot="composer-toolbar"] > :is([data-kind="round"], [data-kind="queue"]) {
   margin-left: 0.25rem;
 }
 
-/* A setting at hand: its value in a quiet word and a chevron; the name is in its label and its tooltip. */
+/* Send and Stop: round, the size of a control's height, so the toolbar's end is one shape (old-cycle's). Send is the
+   screen's one accent; Stop has an edge. Their names are their labels and tooltips. */
+[data-kind="round"] {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 50%;
+}
+
+/* Queue while the agent works: words, on a quiet fill, because it is not the next step the way Send is. */
+[data-kind="queue"] {
+  height: 2rem;
+  padding-inline: 0.75rem;
+  border-color: transparent;
+  background: var(--cycle-surface-hover);
+  font-weight: var(--cycle-weight);
+}
+
+[data-kind="queue"]:hover:not([data-disabled]) {
+  background: var(--cycle-surface-selected);
+}
+
+/* How full the context is: a ring and the number, beside Send. Amber past 70%, red past 90%. */
+[data-slot="context-meter"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding-inline: 0.375rem;
+  font-size: var(--cycle-text-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="context-meter"] circle {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+[data-slot="context-track"] {
+  stroke: var(--cycle-border-default);
+}
+
+[data-slot="context-fill"] {
+  stroke: currentColor;
+  stroke-linecap: round;
+}
+
+/* The keys under the box: one line of the same height whatever it says, so the box does not move. */
+[data-slot="key-hints"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  height: 1.125rem;
+  margin: -0.25rem 0 0;
+  padding: 0 0.5rem;
+  overflow: hidden;
+  list-style: none;
+  font-size: var(--cycle-text-meta);
+  line-height: var(--cycle-leading-meta);
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="key-hints"] li {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+[data-slot="key-hints"] kbd {
+  min-width: 1.125rem;
+  padding: 0 0.25rem;
+  border-radius: var(--cycle-radius-sm);
+  background: var(--cycle-surface-message);
+  font: inherit;
+  text-align: center;
+}
+
+/* A setting at hand: its value as a quiet word, no chevron (old-cycle's rule); the name is in its label and tooltip. */
 [data-kind="setting-chip"] {
   min-width: 0;
   max-width: 12rem;
@@ -1355,7 +1689,6 @@ html[data-platform="darwin"]
 [data-slot="setting-value"] {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 [data-slot="drop-hint"] {
@@ -1393,7 +1726,6 @@ html[data-platform="darwin"]
   min-width: 0;
   overflow: hidden;
   color: var(--ui-foreground);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1428,7 +1760,6 @@ html[data-platform="darwin"]
 [data-slot="attachment-name"] {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1567,7 +1898,6 @@ html[data-platform="darwin"]
   min-width: 0;
   overflow: hidden;
   color: var(--ui-muted-foreground);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1581,7 +1911,6 @@ html[data-platform="darwin"]
   font-size: var(--cycle-text-body);
   line-height: var(--cycle-leading-body);
   pointer-events: none;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1624,18 +1953,66 @@ html[data-platform="darwin"]
   color: var(--ui-muted-foreground);
 }
 
-/* A blank conversation: where its session will run, under its title. A fieldset, so that it is one named group and is
-   disabled whole while the session is being made. */
+/* A blank conversation: the box in the middle of the page, with where its session will run in one line just above it,
+   and a line of lead above that (old-cycle's new session). Each choice is its name and its control side by side; the
+   folder takes what room is left. */
+[data-slot="blank-stage"] {
+  --cycle-column-pad: max(var(--cycle-gap), calc((100% - var(--cycle-measure)) / 2));
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* safe: content taller than the stage starts at its top and scrolls, not above where scrolling can reach. */
+  justify-content: safe center;
+  gap: 0.5rem;
+  padding-bottom: 10vh;
+  overflow-y: auto;
+}
+
+/* Once the first message is sent, it shows as the conversation and the box is at the foot, as in a session. */
+[data-slot="blank-stage"][data-starting] {
+  justify-content: flex-start;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+[data-slot="blank-lead"] {
+  padding: 0 var(--cycle-column-pad) 0.5rem;
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="blank-lead"] p {
+  margin: 0;
+}
+
+[data-slot="blank-lead"] [data-slot="empty-block"] {
+  align-items: flex-start;
+  text-align: left;
+}
+
+/* A fieldset, so that it is one named group and is disabled whole while the session is being made. */
 [data-slot="blank-where"] {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--cycle-gap);
+  align-items: center;
+  gap: 0.5rem var(--cycle-gap);
   margin: 0;
   min-width: 0;
-  padding: var(--cycle-gap);
+  padding: 0 calc(var(--cycle-column-pad) + 0.5rem);
   border: 0;
-  border-bottom: 1px solid var(--ui-border);
+}
+
+[data-slot="blank-where"] [data-slot="field"] {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+[data-slot="blank-where"] [data-slot="field-label"] {
+  flex: none;
+  font-size: var(--cycle-text-meta);
+  font-weight: var(--cycle-weight);
+  color: var(--ui-muted-foreground);
 }
 
 [data-slot="blank-where"] [data-kind="blank-folder"] {
@@ -1644,17 +2021,27 @@ html[data-platform="darwin"]
 }
 
 [data-slot="blank-where"] [data-kind="blank-folder"] [data-slot="row"] {
+  flex: 1;
+  min-width: 0;
   flex-wrap: nowrap;
+  gap: 0.25rem;
 }
 
 [data-slot="blank-where"] [data-kind="blank-folder"] input {
   flex: 1;
   min-width: 0;
+  height: 1.75rem;
   font-family: var(--ui-font-mono);
+  font-size: var(--cycle-text-meta);
 }
 
 [data-slot="blank-where"] [data-kind="blank-folder"] button {
   flex: none;
+  height: 1.75rem;
+}
+
+[data-slot="blank-where"] [data-slot="select-trigger"] {
+  height: 1.75rem;
 }
 
 /* Connectors: the MCP servers a daemon keeps for every agent. One bordered list, a row each; the form replaces it. */
@@ -1698,7 +2085,6 @@ html[data-platform="darwin"]
 
 :is([data-slot="connector-name"], [data-slot="connector-where"]) {
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

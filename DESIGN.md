@@ -98,18 +98,19 @@ ui-sdk 的中性令牌不再是浅灰和黑白,而是**暖灰**一套(表面 sur
 
 除颜色外,`app.css` 的 `:root` 里还有这些 `--cycle-*`。组件只引用它们,不写散落的数值。
 
-| 令牌                                                                                          | 值                   | 用途                                                       |
-| --------------------------------------------------------------------------------------------- | -------------------- | ---------------------------------------------------------- |
-| `--cycle-gap`                                                                                 | 0.75rem              | 区块之间和内边距的基本间距                                 |
-| `--cycle-gap-turn`                                                                            | 2rem                 | 一个 turn 开头前的间距(块之间是 `--cycle-gap`)             |
-| `--cycle-text-meta`、`--cycle-text-ui`、`--cycle-text-body`、`--cycle-text-title`             | 12、13、14、16px     | 第 4 节的四档字阶                                          |
-| `--cycle-measure`                                                                             | 48rem                | 对话内容列的最大宽度                                       |
-| `--cycle-column-pad`                                                                          | 由 measure 算出      | 让对话、权限卡、输入框共用同一条内容列(在各自的规则里定义) |
-| `--cycle-ease`                                                                                | ease-out 曲线        | 动效(见 skill 的 motion.md)                                |
-| `--cycle-motion-state`、`--cycle-motion-disclosure`、`--cycle-motion-enter`                   | 100ms、160ms、200ms  | 状态变化(悬停、按下)、展开收起、出现                       |
-| `--cycle-leading-meta`、`--cycle-leading-ui`、`--cycle-leading-body`、`--cycle-leading-title` | 1.5、1.54、1.57、1.5 | 第 4 节字阶的行高(18、20、22、24px)                        |
-| `--cycle-weight`                                                                              | 420(深色 400)        | 常规字重:浅底上的深字显得细,深底上的浅字显得粗             |
-| `--cycle-radius-sm`、`-card`、`-message`、`-composer`                                         | 4、12、16、20px      | 第 5 节的圆角档(控件是 `--ui-radius`,8px)                  |
+| 令牌                                                                                          | 值                     | 用途                                                       |
+| --------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------- |
+| `--cycle-gap`                                                                                 | 0.75rem                | 区块之间和内边距的基本间距                                 |
+| `--cycle-gap-turn`                                                                            | 2rem                   | 一个 turn 开头前的间距(块之间是 `--cycle-gap`)             |
+| `--cycle-text-meta`、`--cycle-text-ui`、`--cycle-text-body`、`--cycle-text-title`             | 12、13、14、16px       | 第 4 节的四档字阶                                          |
+| `--cycle-measure`                                                                             | 48rem                  | 对话内容列的最大宽度                                       |
+| `--cycle-column-pad`                                                                          | 由 measure 算出        | 让对话、权限卡、输入框共用同一条内容列(在各自的规则里定义) |
+| `--cycle-ease`                                                                                | ease-out 曲线          | 动效(见 skill 的 motion.md)                                |
+| `--cycle-motion-state`、`--cycle-motion-disclosure`、`--cycle-motion-enter`                   | 100ms、160ms、200ms    | 状态变化(悬停、按下)、展开收起、出现                       |
+| `--cycle-leading-meta`、`--cycle-leading-ui`、`--cycle-leading-body`、`--cycle-leading-title` | 1.5、1.54、1.57、1.5   | 第 4 节字阶的行高(18、20、22、24px)                        |
+| `--cycle-weight`                                                                              | 420(深色 400)          | 常规字重:浅底上的深字显得细,深底上的浅字显得粗             |
+| `--cycle-radius-sm`、`-card`、`-message`、`-composer`                                         | 4、12、16、20px        | 第 5 节的圆角档(控件是 `--ui-radius`,8px)                  |
+| `--cycle-fade-end`                                                                            | 末尾 1.5rem 的渐变遮罩 | 放不下的一行在末尾淡出,不用"…"(第 22 节)                   |
 
 ### 状态到颜色和形状
 
@@ -152,20 +153,19 @@ ui-sdk 的中性令牌不再是浅灰和黑白,而是**暖灰**一套(表面 sur
   原先写的"窄于 900px 自动收起成抽屉"没有做:最小窗口 720px 时侧栏最窄 200px、主区最窄 480px,两者都能用,不需要抽屉。
 - **短窗口**:平时只有会话列表滚动;列表至少留 10rem,固定的部分(断线的环境多、窗口矮)挤到这之下时,整个侧栏滚动,底部的 App settings 仍然够得到(2026-11-19,第 21 节)。
 - **对话**:内容列最大 48rem(≈ 72 个字符),在主区内水平居中;用户消息靠右最大 80%,agent 消息占满内容列。
-- **头部**:标题一行,路径和用量放在标题下方的 meta 行;操作全部收进一个"…"菜单;会话设置不在头部,在输入框的工具条里(2026-11-19,第 21 节)。
-- **输入框**:固定在底部,与内容列同宽,是一个 20px 圆角的整块(第 21 节)。无会话时显示下一步说明。已打开的会话断线时仍可编辑草稿,发送和编辑队列、停止、权限操作在重连后恢复。
+- **头部**:一行 42px:标题(13px、500)后面跟着等宽的路径(muted),放不下时路径先让,整行在末尾淡出;下面不画横线。操作全部收进一个"…"菜单;会话设置和用量不在头部,在输入框的工具条里(2026-11-19,第 21、22 节)。
+- **输入框**:固定在底部,与内容列同宽,是一个 20px 圆角的整块(第 21 节);发送和停止是圆形按钮,块下面一行按键提示(第 22 节)。新会话发出第一条消息之前,它在主区中间(第 22 节)。无会话时显示下一步说明。已打开的会话断线时仍可编辑草稿,发送和编辑队列、停止、权限操作在重连后恢复。
 
 ## 6. 组件
 
 按 `data-slot`。只写和现状不同的地方;没写的保持现状。
 
 - **host-bar**:主机选择加一个状态点(第 3 节);"Add environment"、"Remove"、"Agent defaults"收进选择器旁的"…"菜单。
-- **session row**:左侧状态点,标题一行省略,第二行 meta(路径末段、相对时间);选中行是 surface-selected 的填充(平时的行在 sidebar 底上,悬停是 surface-hover);
+- **session row**:28px 高,左侧状态点,标题一行、放不下时末尾淡出,第二行 meta(路径末段、相对时间);选中行是 surface-selected 的填充(平时的行在 sidebar 底上,悬停是 surface-hover);
   "Needs you"行加粗标题。归档的 60% 透明。
 - **New session**:侧栏顶部的一行(ghost:无边,图标、文字、右侧快捷键),和"Search sessions"并列,与会话行左对齐(2026-11-19,原为描边按钮)。**只有 Send 和权限卡的"Allow once"是 accent 实心按钮。**
-- **message**:用户消息 `--ui-muted` 底、16px 圆角;agent 消息无底无边,直接排版。
-- **tool row**(只有一次调用的一段;两次以上见第 16 节的卡片):图标(按工具:Bash、Read、Edit…)+ 名称 + 等宽摘要 + 状态形状;展开后输入输出等宽,左侧竖线缩进。失败行加
-  destructive 状态形状和"failed",输出默认展开。
+- **message**:用户消息 `--ui-muted` 底、1px `border-default` 的边、16px 圆角,最宽 75%;agent 消息无底无边,直接排版。代码块和表格各是一张卡片(第 22 节)。
+- **tool row**(只有一次调用的一段;两次以上见第 16 节):无边框的一行,28px:开头一格(工具的图标;在跑时是转动的线;失败是叉)+ 动词(按时态:Running / Ran、Reading / Read…;没有动词的工具写名字)+ 等宽的 muted 摘要 + 展开箭头(悬停、聚焦、展开时才出现)。展开后输入输出是下沉的填充块,和文字对齐。失败行整行 destructive,并写出"failed",默认展开(第 22 节)。
 - **thought**:**默认不显示**(第 16 节);打开后是折叠的一行 muted "Thinking",展开后 muted 文字,左侧竖线。
 - **plan**:勾框列表(第 3 节),不用删除线表示完成,改用 muted 颜色加勾。
 - **permission**:吸附在输入框上方,和对话分开:accent 的 2px 上边条、`--ui-background` 加浮层阴影;标题写"Bash wants to run",
@@ -436,3 +436,22 @@ old-cycle 的 daemon 是透明代理,日志里没有这些,所以它要从文字
 **画廊检查跟着改**:输入框边的对比度量 `composer-box` 的边;Tab 落到输入框时,焦点环量的是整块。顺手修了两个已经坏掉的场景:`session-focus` 等的是 `data-kind="working"`(分组早已改名 `running`),`dialog-new-session` 按按钮的字找 New session(现在按名字找)。
 
 **没做**:会话行的第二行(相对时间);附件按钮以外,工具条在很窄时(主区 480px、三个设置)会不会挤,只看了两个设置;`bypassPermissions` 在按钮上没有特别的颜色(那要认识 Claude 的值,或者协议里加一个"危险"的标记,没有决定)。
+
+## 22. 和 old-cycle 对齐(2026-11-19)
+
+负责人说"体验还是很粗犷",要求和 old-cycle 在组件和布局上再对齐一次。old-cycle 的做法来自它的 `packages/ui/src`(`styles.css`、`content/tool-row.tsx`、`thread.aui.tsx`、`composer-action.aui.tsx`)和 `.agents/designs/design-system.md` v0.8;只取规则,没有拷贝代码。颜色、圆角、字阶上次(第 3–5 节的 D9–D11)已经对齐,这次是**结构和密度**:满屏是框,old-cycle 只有输入框是一张卡片。
+
+负责人的决定(2026-11-19):权限请求**仍吸附在输入框上方**(D6 不变);新会话**按 old-cycle**,输入框在主区中间;长文字**不用"…",在末尾淡出**;下面几项一起做。
+
+- **代码块和表格**:Streamdown 默认画成"框里一个框",表格上还有一条复制、下载、全屏的工具条。现在各是一张卡片(12px、`border-default`、raised 底):代码卡片的头是语言名,右边一个 Copy,悬停或卡片里有焦点时才出现;不显示行号。表格没有工具条,行之间是 `border-subtle`,表头是 message 底。行内代码是 message 底、4px 圆角。还修了一个缺陷:一条通用规则给 `code` 加了底色和内边距,代码块的首行和末行两端因此各有一小条灰块。
+- **工具行**:见第 6 节。两次以上调用的卡片也不再有边框:摘要是和工具行一样的一行("Read 2 files, made 1 edit, and ran 1 command"),展开后各行挂在下面,行首的图标由一条细竖线连起来。完成的不再画勾:过去时的动词已经说了(old-cycle 的"只说一次")。状态仍是形状加颜色加文字:在跑是转动的线加现在时,失败是叉加红字加"failed"。
+- **回合失败**:红色淡底、红边的一块,原因可选中;被停止、到长度上限这类是一行 muted 字加琥珀色警告图标。
+- **头部**:见第 5 节。用量("21% of context")移到输入框。
+- **输入框**:Send 是 accent 的圆形箭头按钮,Stop 是带边的圆形方块按钮(名字和提示仍是"Send""Stop (⌘.)");agent 在做事时可以排队,"Queue" 是 hover 底上的文字按钮。会话设置的值后面不再有箭头(old-cycle:工具条上的控件是纯文字)。Send 左边是**用量环**:一个随用量填满的环加百分数,超过 70% 琥珀色、超过 90% 红色;有花费时百分数后面写出花费(原来在头部);完整的一句是它的名字和提示。块下面一行**按键提示**,高度固定,内容不同时块也不动:平时是"↵ Send · ⇧↵ New line · @ Mention a file · / Commands"(@ 和 / 只在能用时列出);能排队时"↵ Queue";能插话时"↵ Send now · ⇧↵ Queue · ⌥↵ New line"。Mac 以外写成 Shift+↵、Alt+↵。没连上、还不能发(比如没选文件夹)、正在打开时这一行是空的,但高度还在。按键符号各语言相同,文字在消息目录里。
+- **新会话**:在发出第一条消息之前,一行说明("The session starts when you send the first message.")、"在哪里跑"的一行(Folder 的名字和输入框、Browse…;多个环境时有 Environment,多个 agent 时有 Agent)和输入框一起在主区**垂直居中**。名字在控件左边,muted 的小字。发出之后,第一条消息显示成对话,"在哪里跑"那一行(此时禁用)和输入框回到底部;创建失败时它们原样回来,焦点和写的字都在(页面始终是同一棵树,只换布局)。
+- **侧栏**:会话行和 New session、Search 两行都是 28px;快捷键是行尾的 muted 文字,不再是键帽。
+- **不用"…"**:放不下的一行在末尾 1.5rem 淡出(`--cycle-fade-end`)。淡出是一个跟着元素自己横向溢出走的滚动驱动动画(`animation-timeline: scroll(self inline)`),只有真的溢出时才有,短标题不受影响;`prefers-reduced-motion` 下它照样在(它不是动效)。用到它的:会话标题、工作区名、环境名、搜索结果、更新状态、设置值、排队的消息、附件名、候选说明、输入框占位、连接器、工具摘要、步骤行、头部。
+
+**刻意不跟 old-cycle 的**:主按钮仍是靛蓝(D1;old-cycle 是墨黑主按钮,"在跑"用红);焦点环仍是 2px accent(old-cycle 是 1px 的 `border-focus`,对比度刚够);图标仍是 iconmcp;不打包 JetBrains Mono;选中的会话行仍是填充(old-cycle 让它和主区连成一片,我们的分隔条是 Resizable 的拖动柄,盖不住);v1 范围外的右侧面板、Overview、分支和 worktree 不做。
+
+**没做**:工具行和步骤行的计时(old-cycle 有;我们的 item 没有时间,要 daemon 记下开始时间,是协议改动);消息悬停时的复制和时间;回合失败的 Retry;终端输出和 diff 的专门样式(v1 范围外)。

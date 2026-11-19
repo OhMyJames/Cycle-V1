@@ -1,10 +1,10 @@
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
 import { useEffect, useRef, useState } from "react";
 import type { Block, ToolItem } from "../model/index.ts";
-import { textOf } from "../model/index.ts";
+import { activityOf, isLive, textOf } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
 import {
-  CheckIcon,
+  ChevronRightIcon,
   CloseIcon,
   FileEditIcon,
   FileReadIcon,
@@ -82,35 +82,72 @@ export const TOOL_ICONS: Record<string, (props: IconProps) => React.ReactElement
   WebSearch: WebIcon,
 };
 
-/** How a tool call stands, as a shape (and the word beside it): done, failed, going, or not yet. */
-export function ToolStatus({ status }: { status: string }) {
-  if (status === "completed")
-    return <CheckIcon size={14} data-slot="tool-mark" data-tone="success" />;
-  if (status === "failed" || status === "cancelled")
-    return <CloseIcon size={14} data-slot="tool-mark" data-tone="danger" />;
-  if (status === "in_progress") return <span data-slot="spinner" aria-hidden="true" />;
-  return <span data-slot="dot" data-tone="muted" data-shape="ring" aria-hidden="true" />;
+/**
+ * What a call did, as a verb in its tense: "Running" while it goes, "Ran" once it has. A tool with no verb of its own is
+ * named instead.
+ */
+export const toolVerb = (t: (key: string) => string, tool: ToolItem, going: boolean): string => {
+  const activity = activityOf(tool);
+  if (activity === "other") return tool.name ?? t("tool.unnamed");
+  return t(`tool.verb.${activity}.${going ? "live" : "done"}`);
+};
+
+/**
+ * What leads a line, for a call or a stretch of them: the spinner while it goes, a cross when it failed, else its icon.
+ * The one place a status becomes a mark.
+ */
+export function Lead({
+  mark,
+  icon: Icon,
+}: {
+  mark: "going" | "failed" | "other";
+  icon: (props: IconProps) => React.ReactElement;
+}) {
+  return (
+    <span data-slot="tool-lead">
+      {mark === "going" ? (
+        <span data-slot="spinner" aria-hidden="true" />
+      ) : mark === "failed" ? (
+        <CloseIcon size={14} data-slot="tool-mark" data-tone="danger" />
+      ) : (
+        <Icon size={14} data-slot="tool-icon" />
+      )}
+    </span>
+  );
 }
 
+/**
+ * One call, as one quiet line: what it did and on what. The verb's tense says whether it is going; a failure says so in
+ * a word as well as in red. It opens to what it was given and what came back.
+ */
 export function ToolCard({ tool }: { tool: ToolItem }) {
   const { t } = useI18n();
   const status = tool.status ?? "pending";
+  const failed = status === "failed" || status === "cancelled";
+  // The model ends a turn's calls when the turn ends (cancelled), so one that is live is going.
+  const going = isLive(tool);
   const [open, setOpen] = useOpenOnFailure(status === "failed");
   const output =
     tool.content.length > 0
       ? textOf(tool.content.flatMap((c) => (c.type === "content" ? [c.content as Block] : [c])))
       : stringify(tool.rawOutput);
   const summary = toolSummary(tool);
-  const Icon = TOOL_ICONS[tool.name ?? ""] ?? ToolIcon;
   return (
     // A failure is what the person came to read: it starts open.
     <Collapsible data-kind="tool" data-status={status} open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger>
-        <Icon size={14} data-slot="tool-icon" />
-        <span data-slot="tool-name">{tool.name ?? t("tool.unnamed")}</span>
-        <span data-slot="tool-summary">{summary}</span>
-        <ToolStatus status={status} />
-        <span data-slot="tool-status">{statusWord(t, status)}</span>
+        <Lead
+          mark={going && status === "in_progress" ? "going" : failed ? "failed" : "other"}
+          icon={TOOL_ICONS[tool.name ?? ""] ?? ToolIcon}
+        />
+        {/* The verb says what it did; which tool did it is for a screen reader and the tooltip of the line. */}{" "}
+        <span data-slot="visually-hidden">{tool.name ?? t("tool.unnamed")}</span>{" "}
+        <span data-slot="tool-verb" title={tool.name}>
+          {toolVerb(t, tool, going)}
+        </span>{" "}
+        <span data-slot="tool-summary">{summary}</span>{" "}
+        <span data-slot={failed ? "tool-status" : "visually-hidden"}>{statusWord(t, status)}</span>{" "}
+        <ChevronRightIcon size={12} data-slot="tool-chevron" aria-hidden="true" />
       </CollapsibleTrigger>
       <CollapsiblePanel>
         {tool.rawInput !== undefined ? (

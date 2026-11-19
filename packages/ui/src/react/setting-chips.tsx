@@ -11,7 +11,6 @@ import {
 } from "@ui-sdk/react/menu";
 import { OptionLabel, optionsOf, propertiesOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
-import { ChevronDownIcon } from "./icons.tsx";
 
 export type SettingsOf = {
   /** The agent's `configSchema`. */
@@ -52,7 +51,6 @@ export function SettingChips({
           title={name}
         >
           <span data-slot="setting-value">{label}</span>
-          <ChevronDownIcon size={12} />
         </MenuTrigger>
         <MenuContent side="top" align="start">
           <MenuRadioGroup
