@@ -16,7 +16,8 @@ export type ToolResultMeta =
   | { search: { files: number; matches?: number; lines?: number; more?: true } }
   | {
       run: { interrupted?: true; timedOutMs?: number; background?: true; exitCode?: number };
-    };
+    }
+  | { fetch: { status: number; bytes?: number } };
 
 /** On a text content item: which stream of a command it is, when a command's output and errors are told apart. */
 export const STREAM_META = "cycle/stream";
@@ -25,7 +26,10 @@ export const STREAM_META = "cycle/stream";
 export type Content =
   | {
       type: "content";
-      content: { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+      content:
+        | { type: "text"; text: string }
+        | { type: "image"; data: string; mimeType: string }
+        | { type: "resource_link"; uri: string; name: string };
       _meta?: Record<string, unknown>;
     }
   | {
@@ -36,7 +40,8 @@ export type Content =
 
 export type Result = {
   content: Content[];
-  meta: ToolResultMeta;
+  /** Absent when ACP's own fields say it all (a search's results are links). */
+  meta?: ToolResultMeta;
   locations?: { path: string; line?: number }[];
 };
 
@@ -338,6 +343,60 @@ const failedCommand = (text: Content[]): Result | undefined => {
     : { content: text, meta: { run: { exitCode: Number(code) } } };
 };
 
+/** A page fetched: what the model was told of it (the text), and the HTTP status and size. */
+const webFetch = (out: Json, text: Content[]): Result | undefined => {
+  const status = num(out.code);
+  if (status === undefined || status < 100 || status > 599) return undefined;
+  const bytes = num(out.bytes);
+  return {
+    content: text,
+    meta: {
+      fetch: {
+        status: Math.round(status),
+        ...(bytes !== undefined ? { bytes: Math.round(bytes) } : {}),
+      },
+    },
+  };
+};
+
+/**
+ * A web search: each hit as an ACP `resource_link` (its title and address, never the page), and the model's own notes
+ * between them as text, in the order they came. The SDK's text for the model repeats all of it as JSON: not sent.
+ */
+const webSearch = (out: Json): Result | undefined => {
+  if (!Array.isArray(out.results)) return undefined;
+  const content: Content[] = [];
+  // Several searches can find the same page: it is listed once.
+  const seen = new Set<string>();
+  for (const result of out.results) {
+    if (typeof result === "string") {
+      if (result.trim() !== "")
+        content.push({ type: "content", content: { type: "text", text: result } });
+    } else if (isObject(result) && Array.isArray(result.content)) {
+      for (const hit of result.content) {
+        if (!isObject(hit) || typeof hit.url !== "string" || seen.has(hit.url)) continue;
+        seen.add(hit.url);
+        const name = titleOfHit(hit.title) ?? hit.url;
+        content.push({ type: "content", content: { type: "resource_link", uri: hit.url, name } });
+      }
+    }
+  }
+  return content.length > 0 ? { content } : undefined;
+};
+
+/**
+ * A hit's title as a line: a real search gives titles like "> ## Documentation Index" or "# Test runner" (the page's
+ * markdown), so the marks at their start are not the title. None left: the address stands for it.
+ */
+const titleOfHit = (title: unknown): string | undefined => {
+  if (typeof title !== "string") return undefined;
+  const line = title
+    .replace(/^[\s>#*_-]+/, "")
+    .replace(/[\s#*_]+$/, "")
+    .trim();
+  return line === "" ? undefined : line;
+};
+
 /** A watcher started in the background: its text, and that it runs on. */
 const monitor = (out: Json, text: Content[]): Result | undefined =>
   typeof out.taskId === "string"
@@ -418,6 +477,8 @@ export const resultOf = (
   if (name === "Bash" && failed && !isObject(structured)) return failedCommand(contentOf(content));
   if (!isObject(structured)) return undefined;
   if (name === "Bash") return bash(structured, contentOf(content), failed);
+  // A page that came back with an error status: its status is why, and the text says the rest.
+  if (name === "WebFetch") return webFetch(structured, contentOf(content));
   if (failed) return undefined;
   switch (name) {
     case "Edit":
@@ -434,6 +495,10 @@ export const resultOf = (
       return grep(structured, contentOf(content));
     case "Monitor":
       return monitor(structured, contentOf(content));
+    case "WebFetch":
+      return webFetch(structured, contentOf(content));
+    case "WebSearch":
+      return webSearch(structured);
     default:
       return undefined;
   }

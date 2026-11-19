@@ -14,6 +14,7 @@ import {
   Lead,
   ToolCard,
   toolDescription,
+  toolName,
   toolSummary,
   toolVerb,
   useOpenOnFailure,
@@ -152,7 +153,7 @@ export function StepLine({
         : step.kind === "working"
           ? t("step.working")
           : activityOf(step.tool) === "other"
-            ? t("step.other", { name: step.tool.name ?? t("tool.unnamed") })
+            ? t("step.other", { name: toolName(t, step.tool) })
             : t(`step.${activityOf(step.tool)}`);
   return (
     <div data-slot="step" data-step={step.kind}>

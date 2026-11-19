@@ -1635,6 +1635,38 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   color: var(--ui-destructive);
 }
 
+/* What a search found: a title per line in the accent (it can be opened), the site after it, muted. A long title
+   wraps: it is what tells the hits apart. */
+[data-slot="tool-links"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0.25rem 1.5rem;
+  padding: 0;
+  list-style: none;
+  font-size: var(--cycle-text-ui);
+  line-height: var(--cycle-leading-ui);
+}
+
+[data-slot="tool-links"] > li {
+  overflow-wrap: anywhere;
+}
+
+[data-slot="tool-links"] a {
+  color: var(--cycle-accent);
+  text-decoration: none;
+}
+
+[data-slot="tool-links"] a:hover {
+  text-decoration: underline;
+}
+
+[data-slot="tool-link-site"] {
+  margin-left: 0.5rem;
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
+}
+
 /* A line about the panel itself: a long diff cut short, a change too large to show. */
 [data-slot="tool-note"] {
   margin: 0.25rem 0 0.25rem 1.5rem;

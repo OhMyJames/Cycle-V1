@@ -831,3 +831,79 @@ test.skipIf(!enabled)(
   },
   180_000,
 );
+
+test.skipIf(!enabled)(
+  "real web tools say what they found: a search's hits as links, a fetch's status (CYCL-14, a report)",
+  async () => {
+    const config = await tempConfigDir();
+    try {
+      await withAdapter(
+        { configDir: config.dir, env: claudeEnv(config.dir), onPermission: () => "allow" },
+        async ({ agent, updates, idle }) => {
+          const id = ID(7);
+          await agent.request(methods.agent.session.new, {
+            cwd,
+            _meta: { "cycle/sessionId": id },
+          });
+          await agent.request(methods.agent.session.setConfigOption, {
+            sessionId: id,
+            configId: "model",
+            type: "id",
+            value: model,
+          } as never);
+          const done = idle();
+          await agent.request(methods.agent.session.prompt, {
+            sessionId: id,
+            prompt: say(
+              [
+                "Do these two steps, each with the tool named, and nothing else:",
+                "1. WebSearch for: bun test runner documentation",
+                "2. WebFetch the URL https://example.com with the prompt: What is the page's heading?",
+                "Then reply with the word finished.",
+              ].join("\n"),
+            ),
+          });
+          await done;
+          const names = new Map<string, string>();
+          for (const u of updates as unknown as Record<string, unknown>[]) {
+            if (typeof u.name === "string") names.set(String(u.toolCallId), u.name);
+          }
+          const ended = (updates as unknown as Record<string, unknown>[]).filter(
+            (u) =>
+              u.sessionUpdate === "tool_call_update" &&
+              (u.status === "completed" || u.status === "failed"),
+          );
+          for (const r of ended) {
+            console.log(
+              "REAL web:",
+              names.get(String(r.toolCallId)),
+              r.status,
+              JSON.stringify({ kind: r.kind, content: r.content, meta: r._meta }).slice(0, 900),
+            );
+          }
+          const of = (name: string) =>
+            ended.filter((r) => names.get(String(r.toolCallId)) === name);
+          // A real model does not always do every step: what it did is checked, what it skipped is said.
+          const [search] = of("WebSearch");
+          if (search === undefined) console.log("REAL web: the model made no web search");
+          else if (search.status === "completed") {
+            const links = (search.content as { content?: { type?: string } }[]).filter(
+              (c) => c.content?.type === "resource_link",
+            );
+            console.log("REAL web: search links", links.length);
+            expect(links.length).toBeGreaterThan(0);
+          }
+          const [fetched] = of("WebFetch");
+          if (fetched === undefined) console.log("REAL web: the model fetched nothing");
+          else
+            expect(fetched._meta).toMatchObject({
+              "cycle/toolResult": { fetch: { status: expect.any(Number) } },
+            });
+        },
+      );
+    } finally {
+      await config.dispose();
+    }
+  },
+  180_000,
+);

@@ -19,21 +19,42 @@ export const toolKind = (name: string): ToolKind => {
       return "edit";
     case "Grep":
     case "Glob":
+    case "WebSearch":
       return "search";
     case "Bash":
       return "execute";
     case "WebFetch":
-    case "WebSearch":
       return "fetch";
     // Changing the plan: the plan says it (docs/conversation-content.md), a client need not draw a row per call.
     // Reading it (TaskGet, TaskList) changes nothing the plan shows, so it stays a call of its own.
     case "TodoWrite":
     case "TaskCreate":
     case "TaskUpdate":
+    // The SDK looking up which tools it has (seen with a real model): its own business, not the work.
+    case "ToolSearch":
       return "think";
     default:
       return "other";
   }
+};
+
+/**
+ * A tool's title for people, where its name is not one: an MCP tool's `mcp__<server>__<tool>` is "server · tool".
+ * Claude's naming is known here, so no client has to parse it.
+ */
+export const titleOf = (name: string, servers: readonly string[] = []): { title?: string } => {
+  if (!name.startsWith("mcp__")) return {};
+  // A server's name may itself hold "__": the servers this session was given are matched first, longest first, as
+  // Claude writes them (anything but letters, digits, "_" and "-" becomes "_").
+  const known = servers
+    .map((server) => ({ server, as: server.replace(/[^a-zA-Z0-9_-]/g, "_") }))
+    .sort((a, b) => b.as.length - a.as.length)
+    .find(({ as }) => name.startsWith(`mcp__${as}__`) && name.length > `mcp__${as}__`.length);
+  if (known !== undefined) {
+    return { title: `${known.server} · ${name.slice(`mcp__${known.as}__`.length)}` };
+  }
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
+  return mcp !== null ? { title: `${mcp[1]} · ${mcp[2]}` } : {};
 };
 
 type Block = { type?: string; [key: string]: unknown };
@@ -69,7 +90,11 @@ export class TurnTranslator {
   /** Tool calls that were shown starting and have had no result yet, in the order they started. */
   readonly #open = new Set<string>();
 
-  constructor(readonly plan: PlanState = new PlanState()) {}
+  constructor(
+    readonly plan: PlanState = new PlanState(),
+    /** The MCP servers this session was given, by the names they were given under: for tools' titles. */
+    readonly servers: readonly string[] = [],
+  ) {}
 
   feed(message: SDKMessage): SessionUpdate[] {
     // A sub-agent's own talk and tool calls are not the session's: it is only announced, through
@@ -114,6 +139,7 @@ export class TurnTranslator {
             toolCallId: String(block.id),
             name,
             kind: toolKind(name),
+            ...titleOf(name, this.servers),
             status: "pending",
           } as SessionUpdate,
         ];
@@ -147,6 +173,7 @@ export class TurnTranslator {
           toolCallId: String(block.id),
           name,
           kind: toolKind(name),
+          ...titleOf(name, this.servers),
           status: "in_progress",
           rawInput: block.input,
           ...(where !== undefined ? { locations: [where] } : {}),
@@ -267,7 +294,7 @@ export class TurnTranslator {
         content: read?.content ?? contentOf(block.content),
         ...(raw !== undefined ? { rawOutput: raw } : {}),
         ...(read?.locations !== undefined ? { locations: read.locations } : {}),
-        ...(read !== undefined ? { _meta: { [TOOL_RESULT_META]: read.meta } } : {}),
+        ...(read?.meta !== undefined ? { _meta: { [TOOL_RESULT_META]: read.meta } } : {}),
       } as SessionUpdate);
     }
     return updates;

@@ -148,3 +148,20 @@ test("new content without counts clears the old ones; counts from the daemon are
   expect(toolAfter(start, counted).result).toEqual({ edit: { additions: 2, deletions: 1 } });
   expect(toolAfter(start, counted, { ...start, content: [] }).result).toBeUndefined();
 });
+
+test("a page fetched has its status and size; links a call gave back are kept with their titles", () => {
+  const fetched = call({ name: "WebFetch", result: { fetch: { status: 404, bytes: 1200 } } });
+  expect(toolFacts(fetched).fetch).toEqual({ status: 404, bytes: 1200 });
+  const searched = call({
+    name: "WebSearch",
+    content: [
+      { type: "content", content: { type: "text", text: "notes" } },
+      { type: "content", content: { type: "resource_link", uri: "https://bun.sh", name: "Bun" } },
+      { type: "content", content: { type: "resource_link", uri: "https://x.dev", name: "" } },
+    ],
+  });
+  expect(toolFacts(searched).links).toEqual([
+    { key: "link-1", uri: "https://bun.sh", name: "Bun" },
+    { key: "link-2", uri: "https://x.dev", name: "https://x.dev" },
+  ]);
+});

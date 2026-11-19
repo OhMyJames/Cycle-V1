@@ -32,6 +32,8 @@ export type ToolItem = InTurn & {
   kind: "tool";
   id: string;
   name?: string;
+  /** A title for people, when the agent gave one (an MCP tool's "server · tool"). */
+  title?: string;
   toolKind?: string;
   status?: string;
   content: Block[];
@@ -247,6 +249,7 @@ const toolUpdate = (c: Conversation, update: Fields): Conversation => {
     content: old?.content ?? [],
   };
   const name = patch(old?.name, update.name);
+  const title = patch(old?.title, update.title);
   const toolKind = patch(old?.toolKind, update.kind);
   const status = patch(old?.status, update.status);
   const content =
@@ -258,6 +261,7 @@ const toolUpdate = (c: Conversation, update: Fields): Conversation => {
   const said = (update._meta as Record<string, unknown> | null | undefined)?.["cycle/toolResult"];
   const result = said !== undefined ? said : update.content !== undefined ? undefined : old?.result;
   if (name !== undefined) next.name = name;
+  if (title !== undefined) next.title = title;
   if (toolKind !== undefined) next.toolKind = toolKind;
   if (status !== undefined) next.status = status;
   next.content = asBlocks(content);

@@ -28,6 +28,10 @@ export type ToolFacts = {
   read?: { start: number; count: number; total?: number };
   /** A search: files found, and matches or lines where it counted them. */
   search?: { files: number; matches?: number; lines?: number; more: boolean };
+  /** A page fetched: its HTTP status and size. */
+  fetch?: { status: number; bytes?: number };
+  /** Addresses a call gave back (a web search's hits): a title and an address each, never a page. */
+  links: { key: string; uri: string; name: string }[];
   /** How a command ended, when the agent said (docs/protocol.md §9 `run`). */
   run?: { interrupted: boolean; timedOutMs?: number; background: boolean; exitCode?: number };
   /** Pictures in the result (a Read of an image, an MCP screenshot), each with a key for its list. */
@@ -75,7 +79,7 @@ export const diffLines = (patch: string): DiffLine[] => {
 /** One part of the call's `_meta["cycle/toolResult"]` (docs/protocol.md §9), when it is there and an object. */
 const resultPart = (
   tool: ToolItem,
-  part: "edit" | "read" | "search" | "run",
+  part: "edit" | "read" | "search" | "run" | "fetch",
 ): Record<string, unknown> => {
   const result = tool.result;
   return isObject(result) && isObject(result[part]) ? result[part] : {};
@@ -157,25 +161,45 @@ export const streamsOf = (tool: ToolItem): { out: string; err: string } => {
   return { out, err };
 };
 
+const fetchOf = (tool: ToolItem): ToolFacts["fetch"] => {
+  const said = resultPart(tool, "fetch");
+  const status = num(said.status);
+  if (status === undefined) return undefined;
+  const bytes = num(said.bytes);
+  return { status, ...(bytes !== undefined ? { bytes } : {}) };
+};
+
 /** The facts of a call. Only a completed call has them: a failed one's text is what it says. */
 export const toolFacts = (tool: ToolItem): ToolFacts => {
   const images: ToolFacts["images"] = [];
+  const links: ToolFacts["links"] = [];
   for (const [index, block] of tool.content.entries()) {
     const inner =
       block.type === "content" && isObject(block.content) ? (block.content as Block) : block;
     if (inner.type === "image") images.push({ key: `image-${index}`, block: inner });
+    if (inner.type === "resource_link" && typeof inner.uri === "string") {
+      const name = typeof inner.name === "string" && inner.name !== "" ? inner.name : inner.uri;
+      links.push({ key: `link-${index}`, uri: inner.uri, name });
+    }
   }
-  // How a command ended is said for one that failed too: its exit code is why.
+  // How a command ended, and a page's status, are said for a call that failed too: they are why.
   if (tool.status === "failed") {
-    const run = runOf(tool);
-    return run !== undefined ? { images, run } : { images };
+    const [run, fetch] = [runOf(tool), fetchOf(tool)];
+    return {
+      images,
+      links,
+      ...(run !== undefined ? { run } : {}),
+      ...(fetch !== undefined ? { fetch } : {}),
+    };
   }
-  if (tool.status !== "completed") return { images };
-  const facts: ToolFacts = { images };
+  if (tool.status !== "completed") return { images, links };
+  const facts: ToolFacts = { images, links };
   // By what the agent sent, never by the tool's name: another agent's edit or search says the same in the same fields.
   const [edit, read, search, run] = [editOf(tool), readOf(tool), searchOf(tool), runOf(tool)];
   if (edit !== undefined) facts.edit = edit;
   if (run !== undefined) facts.run = run;
+  const fetch = fetchOf(tool);
+  if (fetch !== undefined) facts.fetch = fetch;
   if (read !== undefined) facts.read = read;
   if (search !== undefined) facts.search = search;
   return facts;

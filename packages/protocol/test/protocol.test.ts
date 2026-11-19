@@ -167,3 +167,8 @@ test("a command's result says only how it ended", () => {
   ).toBe(true);
   expect(ToolResultSchema.safeParse({ run: { interrupted: false } }).success).toBe(false);
 });
+
+test("a page fetched says only its status and size", () => {
+  expect(ToolResultSchema.safeParse({ fetch: { status: 200, bytes: 10 } }).success).toBe(true);
+  expect(ToolResultSchema.safeParse({ fetch: { status: 99 } }).success).toBe(false);
+});

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { contentOf, MAX_PATCH, rawOutputOf, resultOf } from "../src/results.ts";
 import { Subagents } from "../src/subagents.ts";
-import { TurnTranslator } from "../src/translate.ts";
+import { TurnTranslator, titleOf } from "../src/translate.ts";
 
 // Shapes from the SDK's `sdk-tools.d.ts` (0.3.327): FileEditOutput, FileWriteOutput, FileReadOutput, GlobOutput,
 // GrepOutput. No real session has been recorded yet (docs/conversation-content.md, "样本").
@@ -488,4 +488,104 @@ test("the SDK's own hand-back at a sub-agent's end is not shown as a tool it use
     )._meta["cycle/subagent"];
   expect(progress("Read")?.lastTool).toBe("Read");
   expect(progress("SubagentHandback")?.lastTool).toBeUndefined();
+});
+
+test("a page fetched says its status and size; a search's hits are links, with the model's notes between them", () => {
+  const [, fetched] = run(
+    call("f", "WebFetch", { url: "https://example.com", prompt: "Summarize" }),
+    result("f", "A short page about examples.", {
+      bytes: 1256,
+      code: 200,
+      codeText: "OK",
+      result: "A short page about examples.",
+      durationMs: 120,
+      url: "https://example.com",
+    }),
+  );
+  expect(meta(fetched)).toEqual({ fetch: { status: 200, bytes: 1256 } });
+  expect(fetched?.content).toEqual([
+    { type: "content", content: { type: "text", text: "A short page about examples." } },
+  ]);
+  const [, searched] = run(
+    call("s", "WebSearch", { query: "bun test" }),
+    result("s", 'Web search results for query: "bun test"\nLinks: [...]', {
+      query: "bun test",
+      results: [
+        "Here is what I found.",
+        {
+          tool_use_id: "x",
+          content: [
+            { title: "Test runner – Bun", url: "https://bun.sh/docs/cli/test" },
+            { title: "", url: "https://example.com/bare" },
+            { url: 3 },
+            // Seen with a real search: a page's markdown as its title, and the same page found twice.
+            { title: "> ## Documentation Index", url: "https://bun.com/docs/test.md" },
+            { title: "# Test runner", url: "https://bun.sh/docs/cli/test" },
+          ],
+        },
+      ],
+      durationSeconds: 1.2,
+    }),
+  );
+  expect(searched?._meta).toBeUndefined();
+  expect(searched?.content).toEqual([
+    { type: "content", content: { type: "text", text: "Here is what I found." } },
+    {
+      type: "content",
+      content: {
+        type: "resource_link",
+        uri: "https://bun.sh/docs/cli/test",
+        name: "Test runner – Bun",
+      },
+    },
+    {
+      type: "content",
+      content: {
+        type: "resource_link",
+        uri: "https://example.com/bare",
+        name: "https://example.com/bare",
+      },
+    },
+    {
+      type: "content",
+      content: {
+        type: "resource_link",
+        uri: "https://bun.com/docs/test.md",
+        name: "Documentation Index",
+      },
+    },
+  ]);
+  // A size that is not a whole number is rounded: the protocol counts bytes.
+  expect(
+    meta(
+      run(call("f", "WebFetch", {}), result("f", "?", { code: 200, bytes: 1536.5, url: "x" }))[1],
+    ),
+  ).toEqual({ fetch: { status: 200, bytes: 1537 } });
+  // A page that came back with an error status still says it.
+  const [, failedFetch] = run(
+    call("f", "WebFetch", {}),
+    result("f", "Request failed with status code 404", { code: 404, bytes: 10, url: "x" }, true),
+  );
+  expect(failedFetch).toMatchObject({
+    status: "failed",
+    _meta: { "cycle/toolResult": { fetch: { status: 404 } } },
+  });
+  // A status that is not one is not sent.
+  expect(
+    meta(run(call("f", "WebFetch", {}), result("f", "?", { code: 0, bytes: 1, url: "x" }))[1]),
+  ).toBeUndefined();
+});
+
+test("an MCP tool has a title for people; a built-in one does not need one", () => {
+  expect(titleOf("mcp__linear__create_issue")).toEqual({ title: "linear · create_issue" });
+  expect(titleOf("mcp__my__server__tool")).toEqual({ title: "my · server__tool" });
+  expect(titleOf("Read")).toEqual({});
+  // A server whose name holds "__", or characters Claude replaces, is found by the names the session was given.
+  expect(titleOf("mcp__my__srv__run", ["my__srv"])).toEqual({ title: "my__srv · run" });
+  expect(titleOf("mcp__my_srv__run", ["my.srv"])).toEqual({ title: "my.srv · run" });
+  const [started] = run(call("m", "mcp__linear__create_issue", { title: "Bug" }));
+  expect(started).toMatchObject({
+    name: "mcp__linear__create_issue",
+    title: "linear · create_issue",
+  });
 });

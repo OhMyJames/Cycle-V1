@@ -36,7 +36,7 @@ const BY_NAME: Record<string, Activity> = {
   Grep: "search",
   Glob: "search",
   WebFetch: "fetch",
-  WebSearch: "fetch",
+  WebSearch: "search",
 };
 
 const BY_KIND: Record<string, Activity> = {

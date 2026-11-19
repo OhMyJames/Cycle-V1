@@ -527,6 +527,8 @@ test("the plan is followed above the input box and is one line in the conversati
   expect(log.querySelector('[data-kind="plan"]')?.textContent).toContain("1 of 3 done");
   const agent = screen.getByRole("button", { name: /Survey the tests/ });
   expect(agent.textContent).toContain("in the background · using Grep");
+  // The description is the line once, not again as the summary.
+  expect(agent.textContent?.split("Survey the tests").length).toBe(2);
   expect(log.textContent).toContain("Context compacted");
   await user.click(screen.getByRole("button", { name: /Proposed a plan/ }));
   expect(log.querySelector('[data-slot="tool-plan"] h2')?.textContent).toBe("The plan");
@@ -534,4 +536,78 @@ test("the plan is followed above the input box and is one line in the conversati
   // All done: the strip goes.
   await emit(plan(["completed", "completed", "completed"]));
   await waitFor(() => expect(document.querySelector('[data-kind="plan-strip"]')).toBeNull());
+});
+
+test("an MCP tool reads by its title and the first short line of its input; a search's hits are links; a fetch says its status", async () => {
+  const { user, log, script } = await open(
+    you("u1"),
+    u({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "m",
+      name: "mcp__linear__create_issue",
+      title: "linear · create_issue",
+      status: "completed",
+      rawInput: { team: "CYCL", title: "Fix the login bug", description: "A long\nbody" },
+    }),
+    u({
+      sessionUpdate: "agent_message",
+      messageId: "a1",
+      content: [{ type: "text", text: "next" }],
+    }),
+    ...finished(
+      "s",
+      "WebSearch",
+      { query: "bun test runner" },
+      {
+        content: [
+          { type: "content", content: { type: "text", text: "Two results." } },
+          {
+            type: "content",
+            content: {
+              type: "resource_link",
+              uri: "https://bun.sh/docs/cli/test",
+              name: "Test runner",
+            },
+          },
+          {
+            type: "content",
+            content: { type: "resource_link", uri: "javascript:alert(1)", name: "Trap" },
+          },
+        ],
+      },
+    ),
+    u({
+      sessionUpdate: "agent_message",
+      messageId: "a2",
+      content: [{ type: "text", text: "next" }],
+    }),
+    ...finished(
+      "f",
+      "WebFetch",
+      { url: "https://example.com/missing", prompt: "Read it" },
+      { _meta: { "cycle/toolResult": { fetch: { status: 404, bytes: 1500 } } } },
+    ),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const mcp = await screen.findByRole("button", { name: /linear · create_issue/ });
+  // The first short line of its input, not the first field: "CYCL" is short too, and comes first.
+  expect(mcp.textContent).toContain("CYCL");
+  expect(mcp.textContent).not.toContain("A long");
+  const search = screen.getByRole("button", { name: /Searched/ });
+  expect(search.textContent).toContain("bun test runner");
+  await user.click(search);
+  const link = within(log).getByRole("link", { name: "Test runner" });
+  expect(link.getAttribute("href")).toBe("https://bun.sh/docs/cli/test");
+  link.addEventListener("click", (event) => event.preventDefault());
+  await user.click(link);
+  // That a link was opened, never which.
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([
+    ["track", "tool_link_opened", {}],
+  ]);
+  expect(link.parentElement?.textContent).toContain("bun.sh");
+  // An address that is not a web one is text, never a link.
+  expect(within(log).queryByRole("link", { name: "Trap" })).toBeNull();
+  expect(log.textContent).toContain("Trap");
+  const fetch = screen.getByRole("button", { name: /Fetched/ });
+  expect(fetch.textContent).toContain("404 · 1.5 kB");
 });
