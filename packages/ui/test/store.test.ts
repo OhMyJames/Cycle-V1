@@ -591,3 +591,43 @@ test("what the page counts goes to main as it is, and a failing report is not th
   await Bun.sleep(0);
   expect(other.getState().error).toBeUndefined();
 });
+
+test("connectors: a change elsewhere is read again only where the panel has asked, and a failed read keeps what was read", async () => {
+  const script = fakeBridge({ connected: true });
+  const store = new AppStore(script.bridge, new DraftStore(undefined));
+  await store.start();
+  // Nobody has asked about this environment's connectors: a change there is not read.
+  script.emit({ type: "connectors", environmentId: "local" });
+  expect(script.named("listConnectors")).toHaveLength(0);
+  await store.loadConnectors("local");
+  expect(store.getState().connectors.local).toEqual({ list: [] });
+  script.emit({ type: "connectors", environmentId: "local" });
+  await Bun.sleep(0);
+  expect(script.named("listConnectors")).toHaveLength(2);
+
+  const added = await store.addConnector("local", {
+    name: "docs",
+    transport: { type: "http", url: "https://docs.example/mcp" },
+    auth: { type: "none" },
+  });
+  expect("connector" in added).toBe(true);
+  expect(store.getState().connectors.local?.list?.map((c) => c.name)).toEqual(["docs"]);
+
+  script.bridge.listConnectors = async () => {
+    throw new Error("Error invoking remote method 'cycle:listConnectors': Error: Not connected");
+  };
+  await store.loadConnectors("local");
+  expect(store.getState().connectors.local).toMatchObject({
+    list: [{ name: "docs" }],
+    error: "Not connected",
+  });
+
+  // What main throws is an answer the panel shows like the daemon's own words.
+  script.bridge.removeConnector = async () => {
+    throw new Error("Not connected to that environment");
+  };
+  expect(await store.removeConnector("local", "c1")).toEqual({
+    problem: "failed",
+    message: "Not connected to that environment",
+  });
+});

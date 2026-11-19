@@ -12,6 +12,8 @@ export const CycleErrorCode = {
   InvalidConfig: -32014,
   LogUnavailable: -32015,
   NotQueued: -32016,
+  /** A connector's authorization server or upstream refused or could not be reached (docs/protocol.md §14). */
+  ConnectorFailed: -32017,
 } as const;
 export type CycleErrorCode = (typeof CycleErrorCode)[keyof typeof CycleErrorCode];
 

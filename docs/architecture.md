@@ -17,6 +17,7 @@ Desktop(Electron) ──L1──▶ Daemon ──L2(ACP)──▶ Agent 适配�
 - 会话内容沿用 ACP v2 的 item 模型:消息、tool call 等按稳定 id 打补丁。
 - daemon 只管理 Cycle 自己创建的 session(见 [决策 0006](decisions/0006-own-sessions.md))。
 - 管理类方法(`_cycle/*`):session 列表和创建、归档与删除、agent 配置的读写、能力与版本协商。
+- **MCP 是 daemon 的公共能力,不是某个 agent 的**(protocol.md §14):connector 的清单、凭证和 OAuth 都在 daemon,并且各自放在接口后面,以后可以换成 cloud 的实现;agent 只在 L2 的 `mcpServers` 里看到 daemon 网关的 loopback 地址,拿不到上游的 token。理由见决定笔记 [2026-11-19-connectors-behind-a-daemon-gateway](../.agents/notes/2026-11-19-connectors-behind-a-daemon-gateway.md)。
 
 ### L2:daemon 到 agent
 

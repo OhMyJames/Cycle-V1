@@ -20,7 +20,10 @@ const panel = z.enum([
   "rename",
   "delete",
   "trust",
+  "connectors",
 ]);
+const connectorTransport = z.enum(["http", "stdio"]);
+const connectorAuth = z.enum(["none", "oauth"]);
 
 const o = z.strictObject;
 
@@ -57,6 +60,17 @@ export const EVENTS = {
   agent_defaults_saved: o({ agent }),
   /** A session that was working changed to something the person is told of: it finished, it needs them, or it stopped. */
   session_attention: o({ kind: z.enum(["finished", "needs-you", "stopped"]) }),
+
+  // ---- connectors (MCP servers every agent can use) ----
+  /** Never the name, the URL, the command or a secret: how it is reached, how it signs in, how many secrets it has. */
+  connector_added: o({ transport: connectorTransport, auth: connectorAuth, secrets: count }),
+  /** Turned on or off from the list, or edited in its form. */
+  connector_changed: o({ change: z.enum(["enabled", "disabled", "edited"]) }),
+  /** After the person confirmed it: its credentials go with it. */
+  connector_removed: o({ transport: connectorTransport }),
+  /** A sign-in in the browser ended: signed in, refused or failed, or given up. */
+  connector_authorized: o({ result: z.enum(["ok", "failed", "cancelled"]) }),
+  connector_signed_out: o({}),
 
   // ---- the conversation ----
   prompt_sent: o({

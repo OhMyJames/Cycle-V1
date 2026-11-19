@@ -28,6 +28,7 @@ export const connectClient = async (
   const resolved: unknown[] = [];
   let listChanged = 0;
   let defaultsChanged = 0;
+  let connectorsChanged = 0;
   const app = client({ name: "test-client" })
     .onConnect((connection) => {
       agent = connection.agent;
@@ -48,6 +49,13 @@ export const connectClient = async (
       (p: unknown) => p as object,
       () => {
         defaultsChanged++;
+      },
+    )
+    .onNotification(
+      "_cycle/connectors_changed",
+      (p: unknown) => p as object,
+      () => {
+        connectorsChanged++;
       },
     )
     .onNotification(
@@ -88,6 +96,7 @@ export const connectClient = async (
     resolved,
     listChanged: () => listChanged,
     defaultsChanged: () => defaultsChanged,
+    connectorsChanged: () => connectorsChanged,
     kinds: () => seen.map((s) => s.update.sessionUpdate),
     /** Turns that have ended: an idle that says why, as opposed to a state snapshot. */
     ended: () =>

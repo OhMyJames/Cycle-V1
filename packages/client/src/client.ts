@@ -6,6 +6,11 @@ import {
   type SessionUpdate,
 } from "@cycle/acp";
 import {
+  CONNECTORS_CHANGED,
+  type Connector,
+  type ConnectorAuth,
+  type ConnectorSecrets,
+  type ConnectorTransport,
   CYCLE_PROTOCOL_VERSION,
   type FolderList,
   META,
@@ -58,6 +63,8 @@ export type ClientEvents = {
   resolved?: (sessionId: string, requestId: string | number, outcome: unknown) => void;
   /** Sessions were created, deleted, archived, renamed or changed state: list them again. */
   listChanged?: () => void;
+  /** A connector was added, changed or removed, or its status moved: list them again (docs/protocol.md §14). */
+  connectorsChanged?: () => void;
   /** An agent's defaults were changed, here or by another client. */
   defaultsChanged?: (agent: string) => void;
   /**
@@ -294,6 +301,85 @@ export class CycleClient {
     return (await this.#request("_cycle/trust/set", { path, trusted })) as Trust;
   }
 
+  // ---- connectors (docs/protocol.md §14) ----
+
+  #connectors(): void {
+    if (this.#capabilities.connectors !== true)
+      throw new Error("This daemon is too old to keep connectors");
+  }
+
+  /** The daemon's connectors. Secrets are named, never given. */
+  async listConnectors(): Promise<Connector[]> {
+    this.#connectors();
+    return ((await this.#request("_cycle/connectors/list", {})) as { connectors: Connector[] })
+      .connectors;
+  }
+
+  async addConnector(params: {
+    name: string;
+    enabled?: boolean;
+    transport: ConnectorTransport;
+    auth: ConnectorAuth;
+    secrets?: ConnectorSecrets;
+  }): Promise<Connector> {
+    this.#connectors();
+    return ((await this.#request("_cycle/connectors/add", params)) as { connector: Connector })
+      .connector;
+  }
+
+  /** What is not given stays as it is; a secret given as null is removed. */
+  async updateConnector(params: {
+    id: string;
+    name?: string;
+    enabled?: boolean;
+    transport?: ConnectorTransport;
+    auth?: ConnectorAuth;
+    secrets?: ConnectorSecrets;
+  }): Promise<Connector> {
+    this.#connectors();
+    return ((await this.#request("_cycle/connectors/update", params)) as { connector: Connector })
+      .connector;
+  }
+
+  /** Removes a connector and its credentials for good. The caller asks the user first. */
+  async removeConnector(id: string): Promise<void> {
+    this.#connectors();
+    await this.#request("_cycle/connectors/remove", { id });
+  }
+
+  /** Starts signing in: the daemon keeps the PKCE verifier and gives the URL to open. */
+  async startConnectorAuth(
+    id: string,
+    redirectUri: string,
+  ): Promise<{ flowId: string; authorizationUrl: string }> {
+    this.#connectors();
+    return (await this.#request("_cycle/connectors/auth/start", { id, redirectUri })) as {
+      flowId: string;
+      authorizationUrl: string;
+    };
+  }
+
+  /** Ends signing in with what the browser brought back. */
+  async finishConnectorAuth(params: {
+    flowId: string;
+    code?: string;
+    state?: string;
+    error?: string;
+  }): Promise<Connector> {
+    this.#connectors();
+    return (
+      (await this.#request("_cycle/connectors/auth/finish", params)) as { connector: Connector }
+    ).connector;
+  }
+
+  /** Forgets the connector's token. */
+  async clearConnectorAuth(id: string): Promise<Connector> {
+    this.#connectors();
+    return (
+      (await this.#request("_cycle/connectors/auth/clear", { id })) as { connector: Connector }
+    ).connector;
+  }
+
   async cancel(sessionId: string): Promise<void> {
     await this.#api().notify(methods.agent.session.cancel, { sessionId } as never);
   }
@@ -401,6 +487,11 @@ export class CycleClient {
         NOTIFICATIONS.agentDefaultsChanged,
         (p: unknown) => p as { agent: string },
         ({ params }) => this.#events.defaultsChanged?.(params.agent),
+      )
+      .onNotification(
+        CONNECTORS_CHANGED,
+        (p: unknown) => p as object,
+        () => this.#events.connectorsChanged?.(),
       )
       .onNotification(
         NOTIFICATIONS.sessionListChanged,

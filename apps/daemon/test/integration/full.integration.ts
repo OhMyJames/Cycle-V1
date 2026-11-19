@@ -160,3 +160,116 @@ test("the backend end to end: ssh, proxy, daemon, adapter, SDK, and a drop that 
     mock.stop();
   }
 }, 100_000);
+
+/** An http MCP server with one tool, that answers only the key the connector was given. */
+const keyedMcp = (key: string) => {
+  const seen: (string | null)[] = [];
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: async (request) => {
+      seen.push(request.headers.get("authorization"));
+      if (request.headers.get("authorization") !== `Bearer ${key}`)
+        return new Response("unauthorized", { status: 401 });
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      const message = (await request.json()) as { id?: number; method: string };
+      if (message.id === undefined) return new Response(null, { status: 202 });
+      const result =
+        message.method === "initialize"
+          ? {
+              protocolVersion: "2025-06-18",
+              capabilities: { tools: {} },
+              serverInfo: { name: "keyed", version: "0" },
+            }
+          : message.method === "tools/list"
+            ? {
+                tools: [
+                  {
+                    name: "gateway_ping",
+                    description: "Answers when the key was right.",
+                    inputSchema: { type: "object", properties: {} },
+                  },
+                ],
+              }
+            : {};
+      return Response.json({ jsonrpc: "2.0", id: message.id, result });
+    },
+  });
+  return { url: `http://127.0.0.1:${server.port}/mcp`, seen, stop: () => server.stop(true) };
+};
+
+test("a connector added in Cycle reaches the real Claude through the daemon's gateway; its key stays in the daemon", async () => {
+  const key = "connector-key-5150";
+  const mock = startMock(() => textReply("Ok."));
+  const mcp = keyedMcp(key);
+  const base = join(root, "connectors");
+  const dataDir = join(base, "data");
+  const socket = join(base, "d.sock");
+  const cwd = join(base, "work");
+  await Bun.write(join(cwd, ".keep"), "");
+  await Bun.write(
+    join(dataDir, "config.json"),
+    JSON.stringify({
+      claude: {
+        configDir: join(base, "claude"),
+        env: { ANTHROPIC_BASE_URL: mock.url, ANTHROPIC_API_KEY: "mock-key-not-real" },
+      },
+    }),
+  );
+  const ssh = await fakeSsh(base);
+  let pid: number | undefined;
+  try {
+    const seen: { update: SessionUpdate; seq: number | undefined }[] = [];
+    const client = new CycleClient({
+      connect: async () =>
+        sshChannel({
+          host: "me@box",
+          ssh: ssh.path,
+          command: [...DAEMON, "proxy", "--data-dir", dataDir, "--socket", socket],
+        }),
+      events: { update: (_id, update, seq) => seen.push({ update, seq }) },
+    });
+    await client.start();
+    pid = await daemonPid(dataDir);
+    const connector = await client.addConnector({
+      name: "keyed",
+      transport: { type: "http", url: mcp.url },
+      auth: { type: "none" },
+      secrets: { headers: { Authorization: `Bearer ${key}` } },
+    });
+    expect(connector.secrets.headers).toEqual(["Authorization"]);
+    expect(JSON.stringify(await client.listConnectors())).not.toContain(key);
+
+    const sessionId = await client.newSession({ cwd, config: { mode: "default" } });
+    await client.watch(sessionId, cwd);
+    await client.prompt(sessionId, [{ type: "text", text: "hello" }]);
+    await until(
+      () =>
+        seen.some((s) => {
+          const u = s.update as { state?: string; stopReason?: string };
+          return u.state === "idle" && u.stopReason !== undefined;
+        }),
+      "the turn",
+    );
+    await client.close();
+
+    // The model was offered the connector's tool: Claude reached the server, through the gateway.
+    const asked = mock.requests.filter((r) => r.path === "/v1/messages");
+    expect(asked.some((r) => JSON.stringify(r.body).includes("mcp__keyed__gateway_ping"))).toBe(
+      true,
+    );
+    // The server only ever saw the key the daemon put in; the key is in no history on disk.
+    expect(mcp.seen.length).toBeGreaterThan(0);
+    expect(mcp.seen.every((auth) => auth === `Bearer ${key}`)).toBe(true);
+    const glob = new Bun.Glob("**/*.jsonl");
+    for await (const file of glob.scan({ cwd: dataDir, absolute: true })) {
+      expect(await Bun.file(file).text()).not.toContain(key);
+    }
+    expect(await Bun.file(join(dataDir, "index.json")).text()).not.toContain(key);
+  } finally {
+    const toStop = pid ?? (await daemonPid(dataDir));
+    if (toStop !== undefined) process.kill(toStop, "SIGTERM");
+    mock.stop();
+    mcp.stop();
+  }
+}, 60_000);

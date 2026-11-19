@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { EnvironmentConfig, EnvironmentStatus, SessionSummary } from "../api.ts";
 import type { Elsewhere, SessionList, Workspace } from "../sessions.ts";
 import { useI18n } from "./i18n.tsx";
-import { MoreIcon, PlusIcon, SearchIcon } from "./icons.tsx";
+import { MoreIcon, PlugIcon, PlusIcon, SearchIcon } from "./icons.tsx";
 import { type Away, SessionListView } from "./session-list.tsx";
 import { ENVIRONMENT_STATE, StatusDot } from "./status.tsx";
 import { WorkspaceSwitcher } from "./workspace-switcher.tsx";
@@ -28,6 +28,8 @@ export type SidebarProps = {
   onSelectSession: (session: SessionSummary) => void;
   onNewSession: () => void;
   onSearch: () => void;
+  /** Opens the connectors: the MCP servers a daemon keeps for every agent. */
+  onConnectors?: () => void;
   onAddEnvironment: () => void;
   onRemoveEnvironment: (environmentId: string) => void;
   onConnectEnvironment: (environmentId: string) => void;
@@ -79,6 +81,12 @@ export function Sidebar(props: SidebarProps) {
           {t("search.open")}
           <kbd>{MOD}K</kbd>
         </Button>
+        {props.onConnectors !== undefined ? (
+          <Button data-variant="ghost" data-kind="sidebar-action" onClick={props.onConnectors}>
+            <PlugIcon />
+            {t("connectors.open")}
+          </Button>
+        ) : null}
       </div>
       {/* Below the actions, above the list it chooses: the switcher names what the list shows. */}
       <div data-slot="environment-bar">

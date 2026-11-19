@@ -1656,3 +1656,103 @@ html[data-platform="darwin"]
 [data-slot="blank-where"] [data-kind="blank-folder"] button {
   flex: none;
 }
+
+/* Connectors: the MCP servers a daemon keeps for every agent. One bordered list, a row each; the form replaces it. */
+[data-kind="connectors"] {
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+}
+
+[data-slot="connector-list"] {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--cycle-border-default);
+  border-radius: var(--cycle-radius-card);
+}
+
+[data-slot="connector"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem var(--cycle-gap);
+}
+
+[data-slot="connector"] + [data-slot="connector"] {
+  border-top: 1px solid var(--cycle-border-default);
+}
+
+[data-slot="connector-row"] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+[data-slot="connector-text"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+:is([data-slot="connector-name"], [data-slot="connector-where"]) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-slot="connector-name"] {
+  font-weight: 500;
+}
+
+[data-slot="connector-where"] {
+  font-family: var(--ui-font-mono);
+  font-size: var(--cycle-text-meta);
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="connector-status"] {
+  font-size: var(--cycle-text-meta);
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="connector-status"]:is([data-state="error"], [data-state="needs_auth"]) {
+  color: var(--ui-destructive);
+}
+
+[data-slot="connector"][data-off="true"] [data-slot="connector-text"] {
+  opacity: 0.6;
+}
+
+[data-slot="connector"] > [role="alert"],
+[data-kind="connectors"] form > [role="alert"] {
+  color: var(--ui-destructive);
+}
+
+[data-slot="secrets"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+[data-slot="secrets"] > legend {
+  padding: 0;
+  font-weight: 500;
+}
+
+[data-slot="secret-name"] {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--ui-font-mono);
+  overflow-wrap: anywhere;
+}
+
+[data-slot="secret-name"][data-removed="true"] {
+  text-decoration: line-through;
+  color: var(--ui-muted-foreground);
+}

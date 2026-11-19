@@ -36,6 +36,7 @@ import { AnalyticsNotice } from "./analytics.tsx";
 import { BlankConversationView } from "./blank.tsx";
 import { Composer } from "./composer.tsx";
 import { ConfigForm } from "./config-form.tsx";
+import { ConnectorsDialog } from "./connectors.tsx";
 import { ConversationView } from "./conversation.tsx";
 import { AgentDefaultsDialog, ConfirmDialog, EnvironmentDialog, RenameDialog } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
@@ -57,7 +58,8 @@ type Panel =
   | "delete"
   | "settings"
   | "search"
-  | "trust";
+  | "trust"
+  | "connectors";
 
 /** The word each panel has in the dictionary of events (@cycle/analytics). */
 const PANEL_EVENT = {
@@ -68,6 +70,7 @@ const PANEL_EVENT = {
   rename: "rename",
   delete: "delete",
   trust: "trust",
+  connectors: "connectors",
 } as const;
 
 function SessionSettings({ onClose }: { onClose: () => void }) {
@@ -369,6 +372,7 @@ export function App() {
             }
             onNewSession={() => newSession()}
             onSearch={() => open("search")}
+            onConnectors={() => open("connectors")}
             onAddEnvironment={() => open("add-environment")}
             onRemoveEnvironment={(id) => void store.removeEnvironment(id)}
             onConnectEnvironment={(id) => void store.connectEnvironment(id)}
@@ -591,6 +595,13 @@ export function App() {
           }
         />
       ) : null}
+      <ConnectorsDialog
+        open={panel === "connectors"}
+        onOpenChange={(open) => !open && close()}
+        environments={environments}
+        status={status}
+        environmentId={selectedEnvironment}
+      />
       <EnvironmentDialog
         open={panel === "add-environment"}
         onOpenChange={(open) => !open && close()}

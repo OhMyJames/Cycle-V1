@@ -329,3 +329,15 @@ export const ImageIcon = ({ size = 16, ...rest }: IconProps) => (
     </g>
   </Svg>
 );
+
+/** iconmcp: plug */
+export const PlugIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <path d="M4 5.5 H12 V8 A4 4 0 0 1 4 8 Z" />
+      <line x1="6" y1="2" x2="6" y2="5.5" />
+      <line x1="10" y1="2" x2="10" y2="5.5" />
+      <line x1="8" y1="12" x2="8" y2="14.25" />
+    </g>
+  </Svg>
+);

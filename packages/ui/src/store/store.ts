@@ -5,6 +5,11 @@ import type {
   AgentInfo,
   AnalyticsStatus,
   AppEvent,
+  ConnectorAnswer,
+  ConnectorChange,
+  ConnectorDraft,
+  ConnectorInfo,
+  ConnectorProblem,
   CycleBridge,
   EnvironmentConfig,
   EnvironmentStatus,
@@ -72,6 +77,11 @@ export type AppState = {
   agents: Record<string, AgentInfo[]>;
   /** Counts changes to an agent's defaults, so a form that shows them knows to read them again. */
   defaultsRevision: Record<string, number>;
+  /**
+   * Each environment's connectors as last read, or why they could not be. Only for an environment the panel has asked
+   * about; a change there (here or elsewhere) reads them again.
+   */
+  connectors: Record<string, { list?: ConnectorInfo[]; error?: string }>;
   selectedEnvironment: string | undefined;
   selectedSession: string | undefined;
   /** The blank conversation that is open, in place of a session: `selectedSession` is undefined while it is. */
@@ -92,6 +102,7 @@ const initial = (): AppState => ({
   sessions: {},
   agents: {},
   defaultsRevision: {},
+  connectors: {},
   selectedEnvironment: undefined,
   selectedSession: undefined,
   blank: undefined,
@@ -207,6 +218,10 @@ export class AppStore {
         // A blank conversation starts from the defaults as they are now, under what was chosen on it.
         if (this.#state.blank?.environmentId === event.environmentId)
           void this.#readBlankDefaults(true);
+        return;
+      case "connectors":
+        if (this.#state.connectors[event.environmentId] !== undefined)
+          void this.loadConnectors(event.environmentId);
         return;
       case "app-update":
         this.#set({ update: event.state });
@@ -765,6 +780,86 @@ export class AppStore {
     await this.#attempt(() => this.#bridge.setAgentDefaults(environmentId, agent, config));
   };
 
+  // ---- connectors: the panel shows what went wrong itself, next to what it was about ----
+
+  /** Reads the environment's connectors into the state; why it could not is kept there too. */
+  loadConnectors = async (environmentId: string): Promise<void> => {
+    try {
+      const list = await this.#bridge.listConnectors(environmentId);
+      this.#set((s) => ({ connectors: { ...s.connectors, [environmentId]: { list } } }));
+    } catch (error) {
+      this.#set((s) => ({
+        connectors: {
+          ...s.connectors,
+          // What was read before stays on screen under the error: it is still the last that is known.
+          [environmentId]: { ...s.connectors[environmentId], error: messageOf(error) },
+        },
+      }));
+    }
+  };
+
+  /** One connector as an answer gave it, in place: the list is right before the change event reads it again. */
+  #putConnector(environmentId: string, connector: ConnectorInfo): void {
+    this.#set((s) => {
+      const list = s.connectors[environmentId]?.list;
+      if (list === undefined) return {};
+      const at = list.findIndex((c) => c.id === connector.id);
+      const next = at < 0 ? [...list, connector] : list.map((c, i) => (i === at ? connector : c));
+      return { connectors: { ...s.connectors, [environmentId]: { list: next } } };
+    });
+  }
+
+  async #connectorAnswer<T extends object>(
+    environmentId: string,
+    answer: Promise<T>,
+  ): Promise<T | { problem: ConnectorProblem; message?: string }> {
+    const result = await answered(answer);
+    if ("connector" in result) this.#putConnector(environmentId, result.connector as ConnectorInfo);
+    return result;
+  }
+
+  addConnector = (environmentId: string, draft: ConnectorDraft): Promise<ConnectorAnswer> =>
+    this.#connectorAnswer(environmentId, this.#bridge.addConnector(environmentId, draft));
+
+  updateConnector = (
+    environmentId: string,
+    id: string,
+    change: ConnectorChange,
+  ): Promise<ConnectorAnswer> =>
+    this.#connectorAnswer(environmentId, this.#bridge.updateConnector(environmentId, id, change));
+
+  /** Removes a connector and its credentials. The panel has asked the person first. */
+  removeConnector = async (
+    environmentId: string,
+    id: string,
+  ): Promise<{ removed: true } | { problem: ConnectorProblem; message?: string }> => {
+    const answer = await answered(this.#bridge.removeConnector(environmentId, id));
+    if ("removed" in answer)
+      this.#set((s) => {
+        const list = s.connectors[environmentId]?.list;
+        if (list === undefined) return {};
+        return {
+          connectors: {
+            ...s.connectors,
+            [environmentId]: { list: list.filter((c) => c.id !== id) },
+          },
+        };
+      });
+    return answer;
+  };
+
+  authorizeConnector = (
+    environmentId: string,
+    id: string,
+  ): Promise<ConnectorAnswer | { cancelled: true }> =>
+    this.#connectorAnswer(environmentId, this.#bridge.authorizeConnector(environmentId, id));
+
+  cancelConnectorAuth = (): Promise<void> =>
+    this.#bridge.cancelConnectorAuth().catch(() => undefined);
+
+  signOutConnector = (environmentId: string, id: string): Promise<ConnectorAnswer> =>
+    this.#connectorAnswer(environmentId, this.#bridge.signOutConnector(environmentId, id));
+
   chooseDirectory = (): Promise<string | undefined> => this.#bridge.chooseDirectory();
 
   checkForUpdate = async (): Promise<void> => {
@@ -793,6 +888,12 @@ export class AppStore {
     await this.#attempt(() => this.#bridge.installUpdate());
   };
 }
+
+/** What main threw (it lost its connection, it is too old) as an answer the panel shows like the others. */
+const answered = <T>(
+  answer: Promise<T>,
+): Promise<T | { problem: ConnectorProblem; message?: string }> =>
+  answer.catch((error: unknown) => ({ problem: "failed" as const, message: messageOf(error) }));
 
 const toStatus = (event: AppEvent & { type: "environment-status" }): EnvironmentStatus => ({
   environmentId: event.environmentId,
