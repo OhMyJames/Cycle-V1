@@ -116,8 +116,9 @@ const main = async () => {
     await sleep(50);
   };
 
+  // By the name a person hears: the label when there is one (the sidebar's actions also show their shortcut), else the text.
   const byText = (selector: string, text: string) =>
-    `[...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => e.textContent.trim() === ${JSON.stringify(text)})`;
+    `[...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => (e.getAttribute("aria-label") ?? e.textContent.trim()) === ${JSON.stringify(text)})`;
 
   // Parenthesised: it is spliced into larger expressions, and `a ?? ""` binds loosely.
   const conversationText = () =>
@@ -149,7 +150,7 @@ const main = async () => {
 
     await waitFor(
       "a host to be connected (the New session button is on)",
-      `[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'New session' && !b.disabled)`,
+      `[...document.querySelectorAll('button')].some((b) => b.getAttribute('aria-label') === 'New session' && !b.disabled)`,
     );
     out({ step: "connected" });
     // Set the way the "Agent defaults" dialog sets them. The mode that asks first: what follows
@@ -334,7 +335,7 @@ const main = async () => {
     await run("location.reload()").catch(() => undefined);
     await waitFor(
       "the app again",
-      `[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'New session' && !b.disabled)`,
+      `[...document.querySelectorAll('button')].some((b) => b.getAttribute('aria-label') === 'New session' && !b.disabled)`,
     );
     await click(`document.querySelector('[role="option"]')`);
     await waitFor("the conversation back", `${has(hello)} && ${has(finished)}`);

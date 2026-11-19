@@ -104,7 +104,9 @@ export function Sidebar(props: SidebarProps) {
             role="status"
           >
             <StatusDot tone={how.tone} shape={how.shape} />
-            {h.name} · {how.word}
+            <span data-slot="environment-name" title={`${h.name} · ${how.word}`}>
+              {h.name} · {how.word}
+            </span>
             {state?.error !== undefined && (state?.state ?? "closed") === "closed" ? (
               <span data-slot="hint" title={state.error}>
                 {state.error}
@@ -118,46 +120,55 @@ export function Sidebar(props: SidebarProps) {
           </span>
         );
       })}
-      <Button
-        data-variant="outline"
-        disabled={connected.length === 0}
-        title={`New session  ${MOD}N`}
-        onClick={props.onNewSession}
-      >
-        <PlusIcon />
-        New session
-      </Button>
-      <Button
-        data-variant="ghost"
-        data-kind="search-button"
-        title={`${t("search.open")}  ${MOD}K`}
-        onClick={props.onSearch}
-      >
-        <SearchIcon />
-        {t("search.open")}
-        <kbd>{MOD}K</kbd>
-      </Button>
-      {props.list.order.length > 0 ? (
-        <SessionListView
-          list={props.list}
-          selected={props.selected}
-          away={props.away}
-          onSelect={props.onSelectSession}
-          onShowAll={props.onShowAll}
-        />
-      ) : (
-        <p data-slot="hint">
-          {t(
-            connected.length === 0 && props.environments.length > 0
-              ? "sessions.unavailable"
-              : "sessions.empty",
-          )}
-        </p>
-      )}
-      <Button data-variant="ghost" onClick={props.onToggleArchived}>
-        {props.showArchived ? "Hide archived" : "Show archived"}
-      </Button>
-      {props.children}
+      <div data-slot="sidebar-actions">
+        <Button
+          data-variant="ghost"
+          data-kind="sidebar-action"
+          disabled={connected.length === 0}
+          aria-label={t("sidebar.newSession")}
+          title={`${t("sidebar.newSession")}  ${MOD}N`}
+          onClick={props.onNewSession}
+        >
+          <PlusIcon />
+          {t("sidebar.newSession")}
+          <kbd>{MOD}N</kbd>
+        </Button>
+        <Button
+          data-variant="ghost"
+          data-kind="sidebar-action"
+          aria-label={t("search.open")}
+          title={`${t("search.open")}  ${MOD}K`}
+          onClick={props.onSearch}
+        >
+          <SearchIcon />
+          {t("search.open")}
+          <kbd>{MOD}K</kbd>
+        </Button>
+      </div>
+      {/* Only the list scrolls: what is above it and the footer stay where the hand expects them. */}
+      <div data-slot="sidebar-scroll">
+        {props.list.order.length > 0 ? (
+          <SessionListView
+            list={props.list}
+            selected={props.selected}
+            away={props.away}
+            onSelect={props.onSelectSession}
+            onShowAll={props.onShowAll}
+          />
+        ) : (
+          <p data-slot="hint">
+            {t(
+              connected.length === 0 && props.environments.length > 0
+                ? "sessions.unavailable"
+                : "sessions.empty",
+            )}
+          </p>
+        )}
+        <button type="button" data-slot="list-toggle" onClick={props.onToggleArchived}>
+          {t(props.showArchived ? "sessions.hideArchived" : "sessions.showArchived")}
+        </button>
+      </div>
+      <div data-slot="sidebar-footer">{props.children}</div>
     </nav>
   );
 }

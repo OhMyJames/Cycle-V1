@@ -89,7 +89,7 @@ ui-sdk 的中性令牌不再是浅灰和黑白,而是**暖灰**一套(表面 sur
 - **文字四档,每档是不同的层级。** 浅色下对 workspace 为 16.8、8.3、5.6 和 3.5:1;深色下为 16.0、10.1、6.4 和 4.0:1。
 - **ink-muted 在上表每一个表面上都 ≥ 4.5:1**,包括选中(浅 4.61、深 4.57)。old-cycle 的同名一档在选中的行上只有 4.28 和 4.19,不够;这里把它加深一点(浅色 #6a6660,深色 #9d9992)。
 - **控件的边不用 `border-default`。** 它对 workspace 只有 1.24:1,只是分隔用;输入框等控件的边仍用 `--cycle-input-border`(≥ 3:1)。old-cycle 的 `border-control` 只有 1.5:1,我们不取。
-- 选中的会话行仍是 workspace 色加边加靛蓝左条;悬停是 `surface-hover`;侧栏的行平时是 `ink-secondary`,选中时是 `ink`。
+- 选中的会话行是 `surface-selected` 的填充,没有边和左条(2026-11-19,第 21 节);悬停是 `surface-hover`;侧栏的行平时是 `ink-secondary`,选中时是 `ink`。
 - 浮层的阴影和遮罩:`--cycle-shadow-popover`(菜单、权限卡、候选列表)、`--cycle-shadow-dialog`(对话框)、`--cycle-scrim`(模态的遮罩)。深色下阴影更深,因为浅色的阴影在深底上看不见。
 - 三个动效时长令牌和 `--cycle-surface-selected` 先定义在这里,等控件(Segmented、Tabs、Switch 的状态和展开收起)做的时候引用;现在 `app.css` 里还没有过渡动画,所以没有规则用到它们。
 - 主题跟随系统。`light-dark()` 只能装颜色;阴影和字重在 `@media (prefers-color-scheme: dark)` 里换。
@@ -152,17 +152,17 @@ ui-sdk 的中性令牌不再是浅灰和黑白,而是**暖灰**一套(表面 sur
   原先写的"窄于 900px 自动收起成抽屉"没有做:最小窗口 720px 时侧栏最窄 200px、主区最窄 480px,两者都能用,不需要抽屉。
 - **短窗口**:高度不超过 36rem 时侧栏统一滚动,会话列表优先占空间,配色、归档和更新操作可滚动到达。
 - **对话**:内容列最大 48rem(≈ 72 个字符),在主区内水平居中;用户消息靠右最大 80%,agent 消息占满内容列。
-- **头部**:标题一行,路径和用量放在标题下方的 meta 行;操作按钮收进一个"…"菜单,只留 Settings 外露。
-- **输入框**:固定在底部,与内容列同宽。无会话时显示下一步说明。已打开的会话断线时仍可编辑草稿,发送和编辑队列、停止、权限操作在重连后恢复。
+- **头部**:标题一行,路径和用量放在标题下方的 meta 行;操作全部收进一个"…"菜单;会话设置不在头部,在输入框的工具条里(2026-11-19,第 21 节)。
+- **输入框**:固定在底部,与内容列同宽,是一个 20px 圆角的整块(第 21 节)。无会话时显示下一步说明。已打开的会话断线时仍可编辑草稿,发送和编辑队列、停止、权限操作在重连后恢复。
 
 ## 6. 组件
 
 按 `data-slot`。只写和现状不同的地方;没写的保持现状。
 
 - **host-bar**:主机选择加一个状态点(第 3 节);"Add environment"、"Remove"、"Agent defaults"收进选择器旁的"…"菜单。
-- **session row**:左侧状态点,标题一行省略,第二行 meta(路径末段、相对时间);选中行用 workspace 底、1px 边加 2px accent 左条(平时的行在 sidebar 底上,悬停是 surface-hover);
+- **session row**:左侧状态点,标题一行省略,第二行 meta(路径末段、相对时间);选中行是 surface-selected 的填充(平时的行在 sidebar 底上,悬停是 surface-hover);
   "Needs you"行加粗标题。归档的 60% 透明。
-- **New session**:次要按钮(描边),放在侧栏顶部。**只有 Send 和权限卡的"Allow once"是 accent 实心按钮。**
+- **New session**:侧栏顶部的一行(ghost:无边,图标、文字、右侧快捷键),和"Search sessions"并列,与会话行左对齐(2026-11-19,原为描边按钮)。**只有 Send 和权限卡的"Allow once"是 accent 实心按钮。**
 - **message**:用户消息 `--ui-muted` 底、16px 圆角;agent 消息无底无边,直接排版。
 - **tool row**(只有一次调用的一段;两次以上见第 16 节的卡片):图标(按工具:Bash、Read、Edit…)+ 名称 + 等宽摘要 + 状态形状;展开后输入输出等宽,左侧竖线缩进。失败行加
   destructive 状态形状和"failed",输出默认展开。
@@ -405,3 +405,33 @@ old-cycle 的 daemon 是透明代理,日志里没有这些,所以它要从文字
 - **不做**:声音和 Dock 角标的选择;开关(现在没有设置页可放);短时间里多个会话的合并(daemon 重启后每个在跑的会话各一条)。
 
 **没验证的(这台机器是 Linux,没有 Mac)**:macOS 上通知要应用已签名、用户在系统设置里允许才会出现;点击后窗口是否真的回到前面;勿扰模式。测试里 Notification 是假的,xvfb 里的 Electron 冒烟测试看不到原生通知。上线前要在 Mac 上手动看一次。
+
+## 21. 侧栏和输入框(2026-11-19)
+
+负责人说"核心难用的来源是侧栏和 composer 的交互和视觉"。画廊里看到的(改之前,1200×800 和 720×480,深浅色):
+
+| 处                          | 问题                                                                                                                                         |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 侧栏顶部                    | workspace switcher、New session、Search 是三个一样大的描边方框,switcher 的名字居中,不像标题                                                  |
+| 所有 `data-variant="ghost"` | **ui-sdk 只认 `solid` 和 `destructive`**,我们写的 `ghost` 和 `outline` 没有样式:"…"、Show archived、Dismiss、Retry、附件按钮都画成了描边按钮 |
+| switcher                    | 传给 `MenuTrigger` 的 `data-slot="workspace-switcher"` 被 ui-sdk 盖掉(第 16 节说过的坑),所以它的样式(加粗、灰显断线的环境)一直没有生效       |
+| 侧栏中段                    | 会话列表在侧栏里**嵌套滚动**,下面又是全宽的 Show archived 按钮                                                                               |
+| 侧栏底部                    | Code colours 选择框和 Check for updates 常驻,约占 130px,都是很少用的                                                                         |
+| 选中的会话                  | 边加左条,点过之后又叠上焦点环,看起来像一个输入框                                                                                             |
+| 输入框                      | 一行高的单行框加框外的 Send、Stop、附件按钮;权限模式和模型要从头部的 Settings 打开对话框才能看到和改                                         |
+
+改成:
+
+- **`ghost` 按钮**(`app.css`):无边无底,`ink-secondary`;悬停和菜单打开时 `surface-hover`。`outline` 就是 ui-sdk 的默认外观,不另写。
+- **侧栏三段**:顶部(switcher 和"…",New session 和 Search 两行)不动;**中段一个滚动区**,装会话列表、"Show N more"和"Show archived"(后两个是列表里的小字,不是按钮);底部一行:版本和更新状态,右边一个 **App settings** 菜单(Code colours 单选组,选了立即生效、菜单不关,画面上的代码就是预览;Check for updates)。原先"短窗口时整个侧栏滚动"的规则去掉了:固定的部分变矮,720×480 时列表仍有约 300px。
+- **switcher** 改用 `data-kind`,样式生效:左对齐、600、名字后面是 chevron,像侧栏的标题。
+- **选中**:`surface-selected` 的填充,不再有边和左条,和焦点环分得开。
+- **New session、Search sessions** 的快捷键写在行的右边(`kbd`),不只在提示里;可访问名只是动作的名字。
+- **断线的环境**那一行改成两行:点、名字和状态、Retry 在第一行,原因在第二行,最多三行。原先三列挤在 200px 里。
+- **输入框是一个整块**(`composer-box`,`--cycle-radius-composer`,raised 底,`--cycle-input-border` 的边):附件、文字(正文字号 14px,至少两行高)、下面一行工具条:附件、**会话设置的选择**、右边 Stop 和 Send。焦点环画在整块上,不画在里面的文字上。排队的消息、断线提示、附件错误留在块的上面。
+- **会话设置在输入框下面**(`setting-chips.tsx`):agent 的 `configSchema` 里每个可选的属性(`enum` 或 `oneOf`)一个菜单按钮,显示当前值的名字,可访问名和提示是"设置名: 值";菜单里是单选,带说明和"Recommended"。**没有记录的值显示 "Not set"**,不显示今天的默认值(和 Session settings 一致,见决定笔记 `2026-11-19-offer-every-claude-permission-mode`)。选择后面是一个齿轮按钮(Session settings),打开全部设置的对话框,文本类的设置在那里;会话的设置都在输入框这一处,头部不再有(负责人 2026-11-19 的要求)。读的是 schema,所以不认识 Claude。
+- Claude 的模型选项改成 `oneOf` 带名字(`Default model`、`Sonnet`、`Opus`、`Haiku`;`CLAUDE_MODELS`),之前是只有值的 `enum`,按钮上会显示小写的 `default`。值不变。
+
+**画廊检查跟着改**:输入框边的对比度量 `composer-box` 的边;Tab 落到输入框时,焦点环量的是整块。顺手修了两个已经坏掉的场景:`session-focus` 等的是 `data-kind="working"`(分组早已改名 `running`),`dialog-new-session` 按按钮的字找 New session(现在按名字找)。
+
+**没做**:会话行的第二行(相对时间);附件按钮以外,工具条在很窄时(主区 480px、三个设置)会不会挤,只看了两个设置;`bypassPermissions` 在按钮上没有特别的颜色(那要认识 Claude 的值,或者协议里加一个"危险"的标记,没有决定)。

@@ -89,6 +89,7 @@ type Environment = {
 - **Switcher** 是一个菜单,列出所有 workspace,按环境分组(本地在前;多于一个环境时才显示分组标题,标题带连接状态),组内按 `updatedAt` 倒序。只有一个环境时,没有按环境分组的标题(没有可选的东西)。
 - Switcher 上有一个方块数字徽章,数**其他 workspace**(所有环境)里最紧急的那一类;完整的计数写进 aria-label。
 - 搜索跨所有 workspace 和环境,结果按 workspace 分组。
+- 版式(DESIGN.md 第 21 节):顶部是 switcher、New session、Search;只有中间的会话列表滚动;底部一行是版本和 App settings 菜单(代码配色、检查更新)。
 
 当前 workspace 里的会话分组:**Needs you**(`requires_action`)、**Running**(`running`,以及有后台子 agent 的)、然后 Today / Yesterday / Earlier,按本地日界线分,用 `updatedAt`。每个 workspace 默认显示 20 条,"Show N more";有状态的和当前打开的永远显示。
 
@@ -141,7 +142,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 
 只在安装好的 macOS 应用里启用;`bun run start` 的开发运行里显示"Updates are for the installed app",不检查。实现在 `src/main/updater.ts`,所有外部依赖(网络、解压、进程、定时器)都注入,门禁里用假的 GitHub 测试;`test/integration/update.integration.ts` 在 macOS 上用真实的包走完整个流程(release 工作流里跑)。
 
-- **检查**:启动时一次,之后每 60 秒一次;侧栏里的 "Check for updates" 立即检查。后台检查失败(断网、被限流)不提示,用户自己点的检查会显示原因。
+- **检查**:启动时一次,之后每 60 秒一次;侧栏底部 App settings 菜单里的 "Check for updates" 立即检查。后台检查失败(断网、被限流)不提示,用户自己点的检查会显示原因。
 - **发现**:读 GitHub 的发布列表(带 `If-None-Match`:内容没变时 GitHub 回 304,据 GitHub 文档不计入未登录的每小时 60 次限额),取比当前版本新、不是草稿、带本平台清单文件(`latest-darwin-arm64.json`)的最高版本。不能用 `/releases/latest`,因为它跳过 pre-release,而没签名的发布都是 pre-release。
 - **安装**要用户确认:顶部横幅 "Update and restart" → 确认框(会说明本机上正在工作的会话会被中断)。然后在应用旁边的隐藏目录(同一个卷,最后的替换是 rename)里得到新包:**按差分**(见下)或整包下载,校验大小和 SHA-256,`ditto` 解压;检查得到的包的版本、平台和清单一致;当前应用有 Developer ID 签名时,还要新包签名有效且是同一个团队。
 - **差分**(`src/main/delta.ts`,决定笔记 `2026-11-18-update-by-the-difference`):清单除了整包的 `file`/`sha256`/`size`,还有 `tree`,即包内每个文件(路径、模式、大小、SHA-256)、链接和目录的表,发布时由 `release-assets` 对最终签名的 `.app` 扫出。客户端拿它和已安装的包比较:没变的文件从已安装的包复制(APFS 上是克隆,不占空间),缺的或变了的,用 HTTP Range 从同一个 zip 里取(先读末尾的中央目录,相邻的小文件合并成一次请求,大文件单独流式解压),不另发补丁。信任的是文件表(来自清单,与整包的 SHA-256 同一条信任链;差分时**不**再检查整包的 SHA-256 和大小,因为整包没有下载):拼出的包里每个文件都要等于它的 SHA-256,包的形状(文件、链接、目录、模式)要与它完全一致,然后照常过版本、平台和签名检查。文件表的路径必须在包内(相对、无 `..`、不重复、父目录先列、链接不出包、模式只有 rwx),不合格的表整张不用。服务器不支持 Range(必须是 206 且 `content-range` 与请求一致)、哈希不符、检查不过、或要取的超过整包的 80%,都**回退整包下载**一次(请求被限流或磁盘写满除外:整包会遇到同样的事,直接报错;并行取文件时一个失败,其余请求立刻中止),原因写进日志(`[update] …`),进度条的总量随之换成整包。没有文件表的发布(0.2.1 及以前)和没有这段代码的客户端都是整包。顶部横幅在差分时写 "Downloading the changes for 0.2.2"。
@@ -152,7 +153,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 
 ## 代码配色、图片、搜索
 
-- **代码配色**:Streamdown 2.x 自己不带语法高亮,它是单独的插件 `@streamdown/code`(Shiki,JavaScript 正则引擎,不需要 WebAssembly,CSP 不变)。侧栏底部可以在五套配色里选(见 DESIGN.md 第 15 节,含各套的对比度)。打包开了分包:语言和主题按需加载,启动约 0.9 MB,全部约 12 MB。
+- **代码配色**:Streamdown 2.x 自己不带语法高亮,它是单独的插件 `@streamdown/code`(Shiki,JavaScript 正则引擎,不需要 WebAssembly,CSP 不变)。侧栏底部的 App settings 菜单里可以在五套配色里选(见 DESIGN.md 第 15 节,含各套的对比度)。打包开了分包:语言和主题按需加载,启动约 0.9 MB,全部约 12 MB。
 - **图片**:agent 和用户消息里的图片(png、jpeg、gif、webp;svg 不是)用 data URL 画,不请求网络;超过大小上限的显示成一行字。Markdown 里的远程图片仍然不加载。
 - **搜索**:⌘K(Windows、Linux 是 Ctrl+K)。
 
@@ -161,6 +162,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - **Markdown 输入**(决策笔记 `2026-11-18-composer-text-is-markdown`):输入框是 Lexical 编辑器,文本即 Markdown,边写边渲染;发出去的是敲下的字(`composer-markdown.ts` 把 Lexical 会改写的字符换成私用区的占位再换回来,测试覆盖固定样例和随机文本)。Enter 发送,Shift+Enter 换行,输入法组合中的 Enter 不发送;粘贴图片变成附件,粘贴文字按文字放入。
 - **草稿**:每个 session 一份,文字存在渲染进程的 localStorage(键含主机和 session),图片只在内存里;发送、删除 session 时清掉。发送失败,内容放回输入框。
 - **排队**:agent 工作时同一个框继续写,按钮变成"Queue";排队的消息列在输入框上方,可以 Edit 取回;停止或出错后 daemon 退回的消息自动放回输入框(不当作错误)。
+- **会话设置**:输入框下面的工具条里,agent `configSchema` 中每个可选的属性(`enum`、`oneOf`)一个菜单按钮(权限模式、模型),改了就发 `set_config`;没有记录的值写 "Not set"。它们后面一个齿轮按钮打开 Session settings,里面是全部设置(包括文本类的)。版式见 DESIGN.md 第 21 节。
 - **回看**:空输入框里按 ↑ 取回上一条发过的消息(从对话里读),↓ 回来;只有光标在首块、末块时才生效。
 - **命令**:消息最开头的 `/` 列出 agent 的命令(`available_commands_update`),空格之前有效;**提及**:`@` 之后列出 session 目录里的文件和文件夹(`_cycle/files/search`),文字里写 `@路径`,发送时另附 `resource_link` 块(决策笔记 `2026-11-18-mentions-are-resource-links`)。
 - **测试**:DOM 测试(happy-dom 没有 Lexical 要用的选区和输入事件)通过编辑器自己的命令驱动;真实的敲键和粘贴只在 Electron 冒烟测试里走(`smoke-main.ts` 敲 `**bold**` 并检查渲染,再粘贴一段带星号的文字,检查它按原样放入);**输入法组合(IME)没有验证过**:代码里 Enter 在组合中不发送,但没有在真实的输入法上试过。

@@ -32,7 +32,6 @@ import {
 } from "../sessions.ts";
 import { viewKey } from "../store/index.ts";
 import { thinking } from "../thinking.ts";
-import { CodeThemePicker } from "./code-theme-picker.tsx";
 import { Composer } from "./composer.tsx";
 import { ConfigForm } from "./config-form.tsx";
 import { ConversationView } from "./conversation.tsx";
@@ -44,7 +43,7 @@ import {
   RenameDialog,
 } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
-import { ErrorCircleIcon, MoreIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
+import { ErrorCircleIcon, MoreIcon, WarningIcon } from "./icons.tsx";
 import { useDay, useInFront } from "./in-front.ts";
 import { PermissionCard } from "./permission.tsx";
 import { SearchDialog } from "./search.tsx";
@@ -66,6 +65,7 @@ type Panel =
 
 function SessionSettings({ onClose }: { onClose: () => void }) {
   const store = useAppStore();
+  const { t } = useI18n();
   const environment = useAppState((s) => s.selectedEnvironment);
   const sessionId = useAppState((s) => s.selectedSession);
   const sessions = useAppState((s) =>
@@ -81,7 +81,7 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogBackdrop />
       <DialogContent>
-        <DialogTitle>Session settings</DialogTitle>
+        <DialogTitle>{t("session.settings")}</DialogTitle>
         <DialogDescription>A change applies to the next thing the agent does.</DialogDescription>
         <ConfigForm
           schema={agent.configSchema}
@@ -135,6 +135,7 @@ export function App() {
   const session = sessions.find(
     (s) => s.environmentId === selectedEnvironment && s.sessionId === selectedSession,
   );
+  const agent = agents.find((a) => a.id === session?.agent);
   const [defaultsEnvironment, setDefaultsEnvironment] = useState<string | undefined>(undefined);
   const connectedEnvironments = environments.filter((h) => status[h.id]?.state === "connected");
   // An environment that is not connected: its sessions are the last it gave, and are shown greyed.
@@ -318,7 +319,6 @@ export function App() {
               setPanel("defaults");
             }}
           >
-            <CodeThemePicker />
             <UpdateFooter />
           </Sidebar>
         </ResizablePanel>
@@ -368,10 +368,6 @@ export function App() {
                   ) : null}
                 </div>
                 <div data-slot="row">
-                  <Button data-variant="outline" onClick={() => setPanel("settings")}>
-                    <SettingsIcon />
-                    Settings
-                  </Button>
                   <Menu
                     onAction={(value) => {
                       if (value === "rename") setPanel("rename");
@@ -457,9 +453,14 @@ export function App() {
                 key={`composer:${viewKey(view.environmentId, view.sessionId)}`}
                 environmentId={view.environmentId}
                 sessionKey={viewKey(view.environmentId, view.sessionId)}
-                canAttach={
-                  agents.find((a) => a.id === session?.agent)?.promptCapabilities?.image != null
+                canAttach={agent?.promptCapabilities?.image != null}
+                settings={
+                  agent !== undefined && session !== undefined
+                    ? { schema: agent.configSchema, value: session.config ?? {} }
+                    : undefined
                 }
+                onSetting={(key, value) => void store.setSessionConfig(key, value)}
+                onOpenSettings={() => setPanel("settings")}
                 enabled={!view.loading}
                 connected={connected}
                 activity={activity}

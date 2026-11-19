@@ -42,7 +42,15 @@ const bridgeFor = (scenario: Scenario) => {
       configSchema: {
         type: "object",
         properties: {
-          model: { type: "string", enum: ["default", "sonnet", "opus"] },
+          model: {
+            type: "string",
+            title: "Model",
+            oneOf: [
+              { const: "default", title: "Default" },
+              { const: "sonnet", title: "Sonnet" },
+              { const: "opus", title: "Opus" },
+            ],
+          },
           mode: {
             type: "string",
             title: "Permission mode",

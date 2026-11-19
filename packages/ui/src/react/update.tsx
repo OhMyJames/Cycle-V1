@@ -1,8 +1,11 @@
 import { Button } from "@ui-sdk/react/button";
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
 import { useState } from "react";
 import type { UpdateState } from "../api.ts";
+import { CodeThemeItems } from "./code-theme-picker.tsx";
 import { ConfirmDialog } from "./dialogs.tsx";
-import { DownloadIcon, ErrorCircleIcon, WarningIcon } from "./icons.tsx";
+import { useI18n } from "./i18n.tsx";
+import { DownloadIcon, ErrorCircleIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 
 /** Whole megabytes, and tenths while the whole is small (an update that changed a little). */
@@ -86,32 +89,54 @@ export function DaemonBanner({ environmentId }: { environmentId: string }) {
 }
 
 /** In the sidebar: the running version, what the update is doing, and a way to ask now. */
+/**
+ * The foot of the sidebar: which version this is, what the update is doing, and a menu of what belongs to the app (the
+ * colours of code, a check for updates). One quiet row: these are used rarely and must not take room from the list.
+ */
 export function UpdateFooter() {
   const store = useAppStore();
+  const { t } = useI18n();
   const update = useAppState((s) => s.update);
-  if (update === undefined) return null;
   // What the banner already says is not said twice.
   const inBanner =
-    update.kind === "available" ||
-    update.kind === "downloading" ||
-    update.kind === "installing" ||
-    (update.kind === "error" && update.version !== undefined);
-  const line = inBanner ? "" : updateLine(update);
+    update !== undefined &&
+    (update.kind === "available" ||
+      update.kind === "downloading" ||
+      update.kind === "installing" ||
+      (update.kind === "error" && update.version !== undefined));
+  const line = update === undefined || inBanner ? "" : updateLine(update);
   const asking =
-    update.kind === "checking" || update.kind === "downloading" || update.kind === "installing";
+    update?.kind === "checking" || update?.kind === "downloading" || update?.kind === "installing";
   return (
     <div data-slot="update-footer">
-      <span data-slot="hint">Cycle {update.current}</span>
-      {line !== "" ? (
-        <span data-slot="hint" data-update={update.kind} role="status">
-          {line}
-        </span>
-      ) : null}
-      {update.kind !== "disabled" ? (
-        <Button data-variant="ghost" disabled={asking} onClick={() => void store.checkForUpdate()}>
-          Check for updates
-        </Button>
-      ) : null}
+      <div data-slot="update-text">
+        {update !== undefined ? <span data-slot="hint">Cycle {update.current}</span> : null}
+        {line !== "" ? (
+          <span data-slot="hint" data-update={update?.kind} role="status" title={line}>
+            {line}
+          </span>
+        ) : null}
+      </div>
+      <Menu
+        onAction={(value) => {
+          if (value === "check-for-updates") void store.checkForUpdate();
+        }}
+      >
+        <MenuTrigger aria-label={t("app.settings")} title={t("app.settings")} data-variant="ghost">
+          <SettingsIcon />
+        </MenuTrigger>
+        <MenuContent side="top" align="end">
+          <CodeThemeItems />
+          {update !== undefined && update.kind !== "disabled" ? (
+            <>
+              <MenuSeparator />
+              <MenuItem value="check-for-updates" disabled={asking}>
+                {t("app.checkForUpdates")}
+              </MenuItem>
+            </>
+          ) : null}
+        </MenuContent>
+      </Menu>
     </div>
   );
 }

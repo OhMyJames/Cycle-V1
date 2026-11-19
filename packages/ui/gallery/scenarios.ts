@@ -68,6 +68,8 @@ const session = (id: string, over: Partial<SessionSummary> = {}): SessionSummary
   agent: "claude",
   state: "idle",
   lastSeq: 1,
+  // What a session made since the daemon records its settings has: the composer shows them.
+  config: { mode: "auto", model: "default" },
   ...over,
 });
 
@@ -187,7 +189,8 @@ const permission = (title: string, command: string): PermissionRequest => ({
 const click = async (root: HTMLElement, text: string) => {
   for (let i = 0; i < 50; i++) {
     const found = Array.from(root.querySelectorAll('button, [role="menuitem"]')).find(
-      (b) => b.textContent?.trim() === text,
+      // By its name: a button's label when it has one (the sidebar's actions also show their shortcut), else its text.
+      (b) => (b.getAttribute("aria-label") ?? b.textContent?.trim()) === text,
     );
     if (found) return void (found as HTMLElement).click();
     await new Promise((r) => setTimeout(r, 50));
@@ -597,7 +600,7 @@ export const scenarios: Record<string, Scenario> = {
         ],
       });
       await until(
-        () => option("one")?.closest('[data-kind="working"]') !== null,
+        () => option("one")?.closest('[data-kind="running"]') !== null,
         "the row to move to Working",
       );
       await frames(3);

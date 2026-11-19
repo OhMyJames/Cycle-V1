@@ -26,7 +26,10 @@ function measureLayout() {
       visible.bottom <= Math.min(inner.bottom, outer.bottom);
   }
 
-  const input = document.querySelector('[data-slot="composer-input"][contenteditable="true"]');
+  // The edge of the message is the box round the text, the images and the controls.
+  const input = document
+    .querySelector('[data-slot="composer-input"][contenteditable="true"]')
+    ?.closest('[data-slot="composer-box"]');
   let composerContrast = null;
   if (input) {
     // Canvas resolves CSS colors to sRGB. Sample the outline against the same background it is drawn over.
@@ -119,7 +122,8 @@ app
           ? await win.webContents.executeJavaScript(`(() => {
             const el = document.activeElement;
             if (!el || el === document.body) return { on: "nothing" };
-            const s = getComputedStyle(el);
+            // The message box draws its ring round the whole box, not on the text inside it.
+            const s = getComputedStyle(el.closest('[data-slot="composer-box"]') ?? el);
             const label = el.getAttribute("aria-label") || (el.textContent || "").trim().slice(0, 30);
             return {
               on: el.tagName.toLowerCase() + (el.getAttribute("role") ? "[" + el.getAttribute("role") + "]" : "") + " " + label,

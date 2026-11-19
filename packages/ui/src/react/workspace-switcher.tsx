@@ -97,7 +97,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   };
   if (current === undefined) {
     return (
-      <span data-slot="workspace-switcher" data-empty="">
+      <span data-kind="workspace-switcher" data-empty="">
         {t("workspace.none")}
       </span>
     );
@@ -107,7 +107,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     <Menu onAction={(value) => props.onChoose(String(value))}>
       <MenuTrigger
         data-variant="ghost"
-        data-slot="workspace-switcher"
+        data-kind="workspace-switcher"
         data-away={away(current.environmentId) || undefined}
         aria-label={[t("workspace.switch"), current.name, elsewhere]
           .filter((s) => s !== "")

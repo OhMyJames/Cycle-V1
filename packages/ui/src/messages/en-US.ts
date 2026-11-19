@@ -54,6 +54,7 @@ export const enUS = {
   "composer.send": "Send",
   "composer.queue": "Queue",
   "composer.stop": "Stop",
+  "composer.setting": "{setting}: {value}",
 
   // The commands that fit what is typed after a slash
   "composer.commands.label": "Commands",
@@ -113,6 +114,7 @@ export const enUS = {
   "step.fetch": "Fetching a page",
   "step.other": "Using {name}",
   "thinking.show": "Show thinking",
+  "session.settings": "Session settings",
 
   // The session list
   "sessions.label": "Sessions",
@@ -124,6 +126,9 @@ export const enUS = {
   "sessions.group.earlier": "Earlier",
   "sessions.unavailable": "Connect to an environment to see its sessions.",
   "sessions.empty": "No sessions in this workspace yet.",
+  "sessions.showArchived": "Show archived",
+  "sessions.hideArchived": "Hide archived",
+  "sidebar.newSession": "New session",
   // What a row says of its session, in words (the dot is its colour and shape)
   "mark.needsYou": "Needs you",
   "mark.running": "Running",
@@ -188,6 +193,10 @@ export const enUS = {
 
   // The code colours choice
   "codeTheme.label": "Code colours",
+
+  // The menu at the foot of the sidebar: what belongs to the app, not to a session or an environment
+  "app.settings": "App settings",
+  "app.checkForUpdates": "Check for updates",
 } as const satisfies Messages;
 
 export type MessageKey = keyof typeof enUS;
