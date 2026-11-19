@@ -179,12 +179,12 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
   - **有 `description` 优先展示**：Bash / Monitor / Agent 的单行短说明（≤ 160 字）用正文字体居前，后跟淡灰等宽命令/路径，放不下时先让摘要再让说明并在末尾淡出；没有时用“动词 + 摘要”。StepLine 与进行中卡片同步遵循。
   - **`@` 提及不画两遍**：用户消息中带 `cycle/mention` 的 `resource_link` 当正文中仍含 `@path` 时不重复渲染；其余链接渲染为 `[名字]`。
   - **文件工具（Edit / Write / Read / Glob / Grep）**：按 ACP `diff` 与 `_meta["cycle/toolResult"]`（协议 §9）渲染、不硬编码工具名——Edit 仅显示本次调用的增删计数（`+2 −1`，新建为 `Created +N`），展开显示带行号与浅绿/浅红底的 diff（省去首段 `@@`，段间 `⋯`，上限 400 行，不再重复输入 JSON，过大或空文件给出明确提示）；Read 写出行范围/总行数（含读取图片直接展示）；Glob/Grep 写出文件数与匹配数/行数（截断时带 `+`）；输入中仅含行上已显示的字段时展开不再重复。
-  - **命令（Bash / Monitor）**：行上只在没照常跑完时多写一句（`interrupted`、`ran past 2m, now in the background`、`in the background`）。展开为三块：命令（不再是输入 JSON）、输出、错误（另一块，标题为红；来自 `_meta["cycle/stream"]: "stderr"`），各带 `Copy`（经 main 的 `copyText`，页面无剪贴板权限，失败不显示 `Copied`）。长输出只显示末 40 行，上方 `Show N earlier lines`；超过 20,000 字时保留末尾。
-  - **子 agent 挂在它的 Agent 行上**：在跑时转圈（转到后台的在调用结束后仍转；前台的只在调用未结束时转），写 `in the background · using Grep`；结束写 `done · 4 steps · 1m 3s`，失败为红字。
+  - **命令（Bash / Monitor）**：行上只在没照常跑完时多写一句（`interrupted`、`exited with code 2`、`ran past 2 min, now in the background`、`in the background`）；有退出码含义（`returnCodeInterpretation`）时显示模型看到的原文。展开为三块：命令（不再是输入 JSON）、输出、错误（另一块，标题为红；来自 `_meta["cycle/stream"]: "stderr"`），各带 `Copy`（经 main 的 `copyText`，页面无剪贴板权限，失败不显示 `Copied`）。长输出只显示末 40 行，上方 `Show N earlier lines`；超过 20,000 字时保留末尾。
+  - **子 agent 挂在它的 Agent 行上**：只在调用本身未结束时转圈（转到后台的之后不转，只写文字：它的结束可能永远不来），写 `in the background · using Grep`；结束写 `done · 4 steps · 1m 3s`，失败为红字。
   - **压缩上下文是一行**（同 notice）：`Compacting the context…` → `Context compacted`。
   - **计划**：见第 3 层 `Plan & PlanStrip`；改计划的调用（ACP `kind` 为 `think`：TodoWrite、TaskCreate、TaskUpdate）不成行，进行中也不，失败的照常；只读计划的（TaskGet、TaskList）照常成行。提出的计划（输入有 `plan`，如 ExitPlanMode）动词为 `Proposed a plan`，展开为 Markdown 正文；提问（输入有 `questions`）动词为 `Asked`，摘要为问题。均按输入的形状判断，不看工具名。
   - **工具折叠状态保持**：连续工具调用从 1 个变为 2 个以上时保留用户已手动展开的状态；展开态下的长输入/输出与代理消息支持快捷复制；turn 失败支持就地重试。
-  - **提问是表单**：agent 的提问（`AskUserQuestion`、MCP 的 elicitation）以 `FormCard` 出现在权限区；只发回填了的字段；`required` 字段未填时 `Answer` 不可点，必填字段画不了时写明只能跳过。
+  - **提问是表单**：agent 的提问（`AskUserQuestion`、MCP 的 elicitation）以 `FormCard` 出现在权限区；只发回填了的字段（main 再按 schema 的字段过滤）；什么都没填、`required` 字段未填、数字不合 schema（非整数、超出 `minimum`/`maximum`）时 `Send answers` 不可点；一个字段都画不了或必填字段画不了时写明只能跳过。
   - **StepLine**：turn 进行中且未开始输出文本时，在末尾展示实时步骤行（等待批准 / 思考中 / 运行中的工具摘要），防止“静默卡死感”。
 - **长会话窗口与滚动锚定**：
   - 初次仅渲染最后 60 块；向上滚动至距顶 `< 800px` 或点击 `Show earlier` 时向上增量加载 60 块，通过首块位移修正保持视口不跳动；页面内存中记住最近 50 个会话的阅读锚点；用户向上翻阅时提供浮动的回到底部入口。

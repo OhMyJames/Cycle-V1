@@ -904,12 +904,15 @@ export class ConnectionManager
   }
 
   async answerForm(key: string, answer: unknown): Promise<void> {
-    const checked = formAnswerOf(answer);
     for (const [environmentId, connection] of this.#connections) {
       for (const [sessionId, watched] of connection.watched) {
         const pending = watched.pending.get(key);
         if (pending?.answerForm === undefined) continue;
+        // Only the fields the form asked for go on.
+        const checked = formAnswerOf(answer, fieldsAsked(pending.request.form?.schema));
         pending.answerForm(checked);
+        // The request that holds the form is settled too: it was answered, nothing waits on it.
+        pending.answer({ outcome: "cancelled" });
         // What was done with it, never what was written in it.
         this.#track("form_answered", {
           outcome:
@@ -1151,17 +1154,26 @@ export class ConnectionManager
  * A form's answer as the page sent it, checked: the page is not trusted with what goes to the agent. Only `accept`
  * carries content, and only text, numbers, yes/no and lists of text; anything else is a dismissal.
  */
-export const formAnswerOf = (answer: unknown): ElicitationAnswer => {
+export const formAnswerOf = (answer: unknown, asked?: ReadonlySet<string>): ElicitationAnswer => {
   const given = (answer ?? {}) as { action?: unknown; content?: unknown };
   if (given.action === "decline") return { action: "decline" };
   if (given.action !== "accept" || typeof given.content !== "object" || given.content === null)
     return { action: "cancel" };
   const content: Record<string, string | number | boolean | string[]> = {};
   for (const [field, value] of Object.entries(given.content)) {
+    if (asked !== undefined && !asked.has(field)) continue;
     if (typeof value === "string" || typeof value === "boolean") content[field] = value;
     else if (typeof value === "number" && Number.isFinite(value)) content[field] = value;
     else if (Array.isArray(value) && value.every((item) => typeof item === "string"))
       content[field] = value;
   }
   return { action: "accept", content };
+};
+
+/** The fields a form's schema asks for: its `properties`. */
+const fieldsAsked = (schema: unknown): ReadonlySet<string> => {
+  const properties = (schema as { properties?: unknown } | null | undefined)?.properties;
+  return new Set(
+    typeof properties === "object" && properties !== null ? Object.keys(properties) : [],
+  );
 };

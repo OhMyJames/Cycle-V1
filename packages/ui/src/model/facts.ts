@@ -29,7 +29,7 @@ export type ToolFacts = {
   /** A search: files found, and matches or lines where it counted them. */
   search?: { files: number; matches?: number; lines?: number; more: boolean };
   /** How a command ended, when the agent said (docs/protocol.md §9 `run`). */
-  run?: { interrupted: boolean; timedOutMs?: number; background: boolean };
+  run?: { interrupted: boolean; timedOutMs?: number; background: boolean; exitCode?: number };
   /** Pictures in the result (a Read of an image, an MCP screenshot), each with a key for its list. */
   images: { key: string; block: Block }[];
 };
@@ -130,9 +130,11 @@ const runOf = (tool: ToolItem): ToolFacts["run"] => {
   if (!isObject(result) || !isObject(result.run)) return undefined;
   const said = result.run;
   const timedOutMs = num(said.timedOutMs);
+  const exitCode = num(said.exitCode);
   return {
     interrupted: said.interrupted === true,
     ...(timedOutMs !== undefined ? { timedOutMs } : {}),
+    ...(exitCode !== undefined ? { exitCode } : {}),
     background: said.background === true,
   };
 };
@@ -162,6 +164,11 @@ export const toolFacts = (tool: ToolItem): ToolFacts => {
     const inner =
       block.type === "content" && isObject(block.content) ? (block.content as Block) : block;
     if (inner.type === "image") images.push({ key: `image-${index}`, block: inner });
+  }
+  // How a command ended is said for one that failed too: its exit code is why.
+  if (tool.status === "failed") {
+    const run = runOf(tool);
+    return run !== undefined ? { images, run } : { images };
   }
   if (tool.status !== "completed") return { images };
   const facts: ToolFacts = { images };

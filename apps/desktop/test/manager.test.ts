@@ -1111,4 +1111,8 @@ test("a form's answer that is not one is a dismissal", () => {
     action: "accept",
     content: {},
   });
+  // Only the fields the form asked for.
+  expect(
+    formAnswerOf({ action: "accept", content: { pick: "a", injected: "b" } }, new Set(["pick"])),
+  ).toEqual({ action: "accept", content: { pick: "a" } });
 });

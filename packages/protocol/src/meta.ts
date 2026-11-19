@@ -152,6 +152,7 @@ export const ToolResultSchema = z.union([
       interrupted: z.literal(true).optional(),
       timedOutMs: count.optional(),
       background: z.literal(true).optional(),
+      exitCode: count.optional(),
     }),
   }),
 ]);

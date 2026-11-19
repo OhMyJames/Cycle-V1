@@ -408,7 +408,24 @@ test("a command's output and errors come apart, and how it ended is said only wh
     call("b", "Bash", {}),
     result("b", "Exit code 1\nboom", { stdout: "", stderr: "boom", interrupted: false }, true),
   );
-  expect(failed).toMatchObject({ status: "failed", _meta: { "cycle/toolResult": { run: {} } } });
+  expect(failed).toMatchObject({
+    status: "failed",
+    _meta: { "cycle/toolResult": { run: { exitCode: 1 } } },
+  });
+  // What an exit code means is only in the model's text: that text is shown.
+  const [, meant] = run(
+    call("b", "Bash", {}),
+    result("b", "Files differ", {
+      stdout: "x",
+      stderr: "",
+      interrupted: false,
+      returnCodeInterpretation: "Files differ",
+    }),
+  );
+  expect(meant?._meta).toBeUndefined();
+  expect(meant?.content).toEqual([
+    { type: "content", content: { type: "text", text: "Files differ" } },
+  ]);
   expect(((failed?.content ?? []) as { _meta?: unknown }[])[1]?._meta).toEqual({
     "cycle/stream": "stderr",
   });

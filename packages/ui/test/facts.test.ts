@@ -70,6 +70,16 @@ test("an edit's counts come from the agent, or from its patch when it sent none"
   expect(toolFacts(call({ name: "Write", content: [big] })).edit).toBeUndefined();
 });
 
+test("a failed command says its exit code", () => {
+  expect(
+    toolFacts(call({ name: "Bash", status: "failed", result: { run: { exitCode: 2 } } })).run,
+  ).toEqual({
+    interrupted: false,
+    background: false,
+    exitCode: 2,
+  });
+});
+
 test("reads, searches and pictures; a call that is not completed, or from an older log, has no facts", () => {
   const read = call({
     name: "Read",

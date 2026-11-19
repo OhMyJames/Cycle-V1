@@ -254,11 +254,10 @@ export class TurnTranslator {
       const planned = this.#planned(id, failed, structured, asText(block.content));
       if (planned !== undefined) updates.push(planned);
       // The structured result is the message's, not a block's: with more than one result in it, whose it is is not known.
-      // A failed call keeps its text (the message is what matters), except a command: one that exits non-zero is the
-      // one whose errors most need to be told apart from what it printed.
+      // Whether a failed call keeps its text is each tool's own reader's to say (`resultOf`).
       const read =
-        (!failed || name === "Bash") && blocks.length === 1 && name !== undefined
-          ? resultOf(name, structured, block.content)
+        blocks.length === 1 && name !== undefined
+          ? resultOf(name, structured, block.content, failed)
           : undefined;
       const raw = rawOutputOf(block.content);
       updates.push({

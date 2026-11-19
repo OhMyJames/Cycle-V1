@@ -373,7 +373,7 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 - `{edit: {additions, deletions, created?, staged?}}`:增删的行数;`created` 为 `true` 是新建的文件;`staged` 为 `true` 是改动被留下等人审、文件没变。
 - `{read: {startLine, numLines, totalLines?}}`:从第几行起读了几行,文件共几行。
 - `{search: {files, matches?, lines?, more?}}`:找到几个文件,按匹配数或行数计时带上那个数;`more` 为 `true` 是可能还有(被截断、超时、到了上限)。
-- `{run: {interrupted?, timedOutMs?, background?}}`:命令没有照常跑完时怎么了:被中断;超过时限(毫秒)后转到后台;在后台运行(自己要求的、被转过去的)。照常跑完是 `{run: {}}`。
+- `{run: {interrupted?, timedOutMs?, background?, exitCode?}}`:命令没有照常跑完时怎么了:被中断;超过时限(毫秒)后转到后台;在后台运行(自己要求的、被转过去的);失败时的退出码。照常跑完是 `{run: {}}`。
 
 命令的输出和错误分开:`content` 里第一项是标准输出,标准错误(不为空时)是另一项,这一项的 `_meta["cycle/stream"]` 为 `"stderr"`。
 

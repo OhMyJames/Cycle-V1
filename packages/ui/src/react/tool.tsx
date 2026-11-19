@@ -179,11 +179,9 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
   const plan = planOf(tool);
   const questions = questionsOf(tool);
   const subagent = tool.subagent;
-  // A sub-agent that runs on after its call has returned is still going, but only one sent to the background does: a
-  // foreground one whose call has ended (the turn was stopped, the agent went) has no end coming to say so.
-  const working =
-    (going && status === "in_progress") ||
-    (subagent?.state === "running" && (going || subagent.background));
+  // The mark spins only while the call goes. A sub-agent that runs on in the background says so in words: its end may
+  // never come (the agent's process went with the daemon), and a mark that spins for good would say it is working.
+  const working = going && status === "in_progress";
   const summary = toolSummary(tool);
   const description = toolDescription(tool);
   const facts = toolFacts(tool);
@@ -293,14 +291,16 @@ function Facts({ facts }: { facts: ToolFacts }) {
     );
   }
   if (facts.run !== undefined) {
-    const { interrupted, timedOutMs, background } = facts.run;
+    const { interrupted, timedOutMs, background, exitCode } = facts.run;
     const text = interrupted
       ? t("tool.facts.interrupted")
-      : timedOutMs !== undefined
-        ? t("tool.facts.timedOut", { duration: durationOf(i18n, timedOutMs) })
-        : background
-          ? t("tool.facts.background")
-          : undefined;
+      : exitCode !== undefined
+        ? t("tool.facts.exitCode", { code: exitCode })
+        : timedOutMs !== undefined
+          ? t("tool.facts.timedOut", { duration: durationOf(i18n, timedOutMs) })
+          : background
+            ? t("tool.facts.background")
+            : undefined;
     return text === undefined ? null : <span data-slot="tool-facts">{text}</span>;
   }
   if (read !== undefined) {
@@ -448,7 +448,7 @@ function Copyable({ kind, text }: { kind: "command" | "output" | "stderr"; text:
         </button>
       ) : null}
       <pre data-slot={kind === "command" ? "tool-command" : "tool-output"}>
-        {kind === "command" ? clip(shown) : clipStart(t, shown)}
+        {kind === "command" ? clip(shown) : whole ? shown : clipStart(t, shown)}
       </pre>
     </div>
   );

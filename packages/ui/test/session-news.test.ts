@@ -49,6 +49,17 @@ test("a sub-agent's news goes onto the call that started it; what an update leav
     usage: { tokens: 5000, toolUses: 7, durationMs: 42000 },
   });
   expect(early.waiting).toEqual({});
+  // A sub-agent's own sub-agent: its call is never seen here, so its news is not kept.
+  const nested = reduce(news({ state: "running" }, { parentId: "task-0" }));
+  expect(nested.waiting).toEqual({});
+  // News whose call never comes does not pile up.
+  const many = reduce(
+    ...Array.from({ length: 40 }, (_, n) => ({
+      ...news({ state: "running" }, {}),
+      _meta: { "cycle/subagent": { toolCallId: `x${n}` } },
+    })),
+  );
+  expect(Object.keys(many.waiting).length).toBeLessThanOrEqual(16);
 });
 
 test("a compaction is one line where it began, and changes in place", () => {

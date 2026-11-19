@@ -14,7 +14,7 @@ export type FormField = Base &
     | { kind: "choice"; options: Option[] }
     | { kind: "choices"; options: Option[] }
     | { kind: "text"; max?: number }
-    | { kind: "number"; integer: boolean }
+    | { kind: "number"; integer: boolean; min?: number; max?: number }
     | { kind: "yes" }
   );
 
@@ -69,7 +69,14 @@ export const fieldsOf = (schema: unknown): FormField[] => {
         fields.push({ kind: "text", ...base, ...(max !== undefined ? { max } : {}) });
       }
     } else if (property.type === "number" || property.type === "integer") {
-      fields.push({ kind: "number", ...base, integer: property.type === "integer" });
+      const [min, max] = [property.minimum, property.maximum];
+      fields.push({
+        kind: "number",
+        ...base,
+        integer: property.type === "integer",
+        ...(typeof min === "number" ? { min } : {}),
+        ...(typeof max === "number" ? { max } : {}),
+      });
     } else if (property.type === "boolean") {
       fields.push({ kind: "yes", ...base });
     }
@@ -91,8 +98,15 @@ export const contentOf = (
     if (field.kind === "choices" && Array.isArray(value) && value.length > 0)
       content[field.key] = value;
     else if (field.kind === "number" && typeof value === "string" && value.trim() !== "") {
+      // A number the schema would refuse is not sent: the field counts as empty, and a required one keeps the card from
+      // being answered. Never rounded or clamped behind the person's back.
       const n = Number(value);
-      if (Number.isFinite(n)) content[field.key] = field.integer ? Math.trunc(n) : n;
+      const fits =
+        Number.isFinite(n) &&
+        (!field.integer || Number.isInteger(n)) &&
+        (field.min === undefined || n >= field.min) &&
+        (field.max === undefined || n <= field.max);
+      if (fits) content[field.key] = n;
     } else if (field.kind === "yes" && typeof value === "boolean") content[field.key] = value;
     else if ((field.kind === "choice" || field.kind === "text") && typeof value === "string") {
       if (value.trim() !== "") content[field.key] = value;
@@ -121,11 +135,14 @@ export function FormCard({ request, disabled, onAnswer }: FormCardProps) {
   const title = request.form.message !== "" ? request.form.message : t("form.title");
   const content = contentOf(fields, values);
   // A field it must have that this card cannot draw: it cannot be answered here, only skipped or dismissed.
-  const unanswerable = requiredOf(request.form.schema).some(
-    (key) => !fields.some((field) => field.key === key),
-  );
+  // Nothing it can draw, or a field it must have that it cannot: it cannot be answered here, only skipped or dismissed.
+  const unanswerable =
+    fields.length === 0 ||
+    requiredOf(request.form.schema).some((key) => !fields.some((field) => field.key === key));
   const missing = fields.some((field) => field.required && content[field.key] === undefined);
-  const ready = !disabled && !unanswerable && !missing;
+  // An answer with nothing in it is not one: Skip says that.
+  const empty = Object.keys(content).length === 0;
+  const ready = !disabled && !unanswerable && !missing && !empty;
   const submit = () => onAnswer(request.key, { action: "accept", content });
   return (
     <section data-slot="permission" data-kind="form" aria-label={title}>
@@ -275,6 +292,13 @@ function FieldView({
         {...(field.question !== undefined ? { placeholder: field.question } : {})}
         value={typeof value === "string" ? value : ""}
         {...(field.kind === "text" && field.max !== undefined ? { maxLength: field.max } : {})}
+        {...(field.kind === "number"
+          ? {
+              step: field.integer ? 1 : "any",
+              ...(field.min !== undefined ? { min: field.min } : {}),
+              ...(field.max !== undefined ? { max: field.max } : {}),
+            }
+          : {})}
         disabled={disabled}
         onChange={(event) => onChange(event.currentTarget.value)}
       />

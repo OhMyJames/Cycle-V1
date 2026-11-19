@@ -169,6 +169,7 @@ export const enUS = {
   "tool.facts.filesMore": "{count}+ files",
   "tool.facts.matchesIn": { one: "{count} match in {files}", other: "{count} matches in {files}" },
   "tool.facts.interrupted": "interrupted",
+  "tool.facts.exitCode": "exited with code {code}",
   "tool.facts.timedOut": "ran past {duration}, now in the background",
   "tool.facts.background": "in the background",
   "subagent.using": "using {tool}",

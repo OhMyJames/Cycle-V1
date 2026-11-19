@@ -279,12 +279,17 @@ const toolUpdate = (c: Conversation, update: Fields): Conversation => {
  * A sub-agent's news, onto the call that started it (`_meta["cycle/subagent"].toolCallId`). Each update says only what
  * changed: a field it leaves out stays as it was. News of a call not seen yet waits for it.
  */
+/** How many sub-agents' news may wait for their calls at once. */
+const MAX_WAITING = 16;
+
 const subagentUpdate = (c: Conversation, update: Fields): Conversation => {
   const meta = (update._meta as Record<string, unknown> | null | undefined)?.["cycle/subagent"] as
     | Record<string, unknown>
     | undefined;
   const callId = typeof meta?.toolCallId === "string" ? meta.toolCallId : undefined;
-  if (callId === undefined || meta === undefined) return { ...c, ignored: c.ignored + 1 };
+  // A sub-agent started by a sub-agent: its call is in the parent sub-agent's conversation, which is never forwarded.
+  if (callId === undefined || meta === undefined || typeof meta.parentId === "string")
+    return { ...c, ignored: c.ignored + 1 };
   const tool = find(c.items, "tool", callId);
   const was = tool?.subagent ??
     c.waiting[callId] ?? { state: "running" as const, background: false };
@@ -311,8 +316,11 @@ const subagentUpdate = (c: Conversation, update: Fields): Conversation => {
     next.usage = { tokens: n("tokens"), toolUses: n("toolUses"), durationMs: n("durationMs") };
   }
   if (tool === undefined) {
-    // Its call is not known yet (the news came first): kept, and put on the call when it comes.
-    return { ...c, waiting: { ...c.waiting, [callId as string]: next } };
+    // Its call is not known yet (the news came first): kept, and put on the call when it comes. Only a few are kept:
+    // news whose call never comes must not grow the conversation for good.
+    const { [callId]: _was, ...rest } = c.waiting;
+    const kept = Object.entries(rest).slice(-(MAX_WAITING - 1));
+    return { ...c, waiting: { ...Object.fromEntries(kept), [callId]: next } };
   }
   return { ...c, items: upsert(c.items, { ...tool, subagent: next }) };
 };
