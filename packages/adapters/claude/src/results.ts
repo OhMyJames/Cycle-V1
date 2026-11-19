@@ -350,7 +350,12 @@ const webFetch = (out: Json, text: Content[]): Result | undefined => {
   const bytes = num(out.bytes);
   return {
     content: text,
-    meta: { fetch: { status: Math.round(status), ...(bytes !== undefined ? { bytes } : {}) } },
+    meta: {
+      fetch: {
+        status: Math.round(status),
+        ...(bytes !== undefined ? { bytes: Math.round(bytes) } : {}),
+      },
+    },
   };
 };
 
@@ -456,6 +461,8 @@ export const resultOf = (
   if (name === "Bash" && failed && !isObject(structured)) return failedCommand(contentOf(content));
   if (!isObject(structured)) return undefined;
   if (name === "Bash") return bash(structured, contentOf(content), failed);
+  // A page that came back with an error status: its status is why, and the text says the rest.
+  if (name === "WebFetch") return webFetch(structured, contentOf(content));
   if (failed) return undefined;
   switch (name) {
     case "Edit":

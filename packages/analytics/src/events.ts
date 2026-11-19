@@ -97,6 +97,7 @@ export const EVENTS = {
   tool_copied: o({ part: z.enum(["command", "output"]) }),
   tool_output_expanded: o({}),
   plan_opened: o({}),
+  tool_link_opened: o({}),
   code_theme_changed: o({}),
   slash_command_used: o({}),
 } as const;
@@ -113,6 +114,7 @@ export const UI_EVENTS = [
   "tool_copied",
   "tool_output_expanded",
   "plan_opened",
+  "tool_link_opened",
 ] as const satisfies readonly EventName[];
 export type UiEventName = (typeof UI_EVENTS)[number];
 

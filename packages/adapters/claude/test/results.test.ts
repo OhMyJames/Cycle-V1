@@ -544,6 +544,21 @@ test("a page fetched says its status and size; a search's hits are links, with t
       },
     },
   ]);
+  // A size that is not a whole number is rounded: the protocol counts bytes.
+  expect(
+    meta(
+      run(call("f", "WebFetch", {}), result("f", "?", { code: 200, bytes: 1536.5, url: "x" }))[1],
+    ),
+  ).toEqual({ fetch: { status: 200, bytes: 1537 } });
+  // A page that came back with an error status still says it.
+  const [, failedFetch] = run(
+    call("f", "WebFetch", {}),
+    result("f", "Request failed with status code 404", { code: 404, bytes: 10, url: "x" }, true),
+  );
+  expect(failedFetch).toMatchObject({
+    status: "failed",
+    _meta: { "cycle/toolResult": { fetch: { status: 404 } } },
+  });
   // A status that is not one is not sent.
   expect(
     meta(run(call("f", "WebFetch", {}), result("f", "?", { code: 0, bytes: 1, url: "x" }))[1]),
@@ -554,6 +569,9 @@ test("an MCP tool has a title for people; a built-in one does not need one", () 
   expect(titleOf("mcp__linear__create_issue")).toEqual({ title: "linear · create_issue" });
   expect(titleOf("mcp__my__server__tool")).toEqual({ title: "my · server__tool" });
   expect(titleOf("Read")).toEqual({});
+  // A server whose name holds "__", or characters Claude replaces, is found by the names the session was given.
+  expect(titleOf("mcp__my__srv__run", ["my__srv"])).toEqual({ title: "my__srv · run" });
+  expect(titleOf("mcp__my_srv__run", ["my.srv"])).toEqual({ title: "my.srv · run" });
   const [started] = run(call("m", "mcp__linear__create_issue", { title: "Bug" }));
   expect(started).toMatchObject({
     name: "mcp__linear__create_issue",

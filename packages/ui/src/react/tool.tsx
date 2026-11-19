@@ -56,9 +56,12 @@ export const toolSummary = (tool: ToolItem): string => {
 const firstShortText = (tool: ToolItem): string | undefined => {
   const input = tool.rawInput;
   if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined;
+  // The sentence that already is the line (an Agent's description) is not said again after it.
+  const said = toolDescription(tool);
   for (const value of Object.values(input)) {
     if (typeof value !== "string") continue;
     const line = value.trim();
+    if (line === said) continue;
     if (line !== "" && line.length <= SHORT_TEXT && !line.includes("\n")) return line;
   }
   return undefined;
@@ -522,7 +525,8 @@ function SubagentFacts({ subagent }: { subagent: NonNullable<ToolItem["subagent"
 /** A size in bytes as people read it: "820 byte", "1.5 kB", "120 kB", "1.4 MB", in the person's language. */
 const sizeOf = ({ number }: Pick<Translator, "number">, bytes: number): string => {
   if (bytes < 1000) return number(bytes, { style: "unit", unit: "byte", unitDisplay: "short" });
-  if (bytes < 1_000_000)
+  // The unit is chosen after rounding: 999,600 bytes is 1 MB, not "1,000 kB".
+  if (bytes < 999_500)
     return number(bytes / 1000, {
       style: "unit",
       unit: "kilobyte",
@@ -544,6 +548,7 @@ const sizeOf = ({ number }: Pick<Translator, "number">, bytes: number): string =
  * one. Anything else is shown as text.
  */
 function LinkList({ links }: { links: ToolFacts["links"] }) {
+  const store = useAppStore();
   return (
     <ul data-slot="tool-links">
       {links.map((link) => {
@@ -552,7 +557,14 @@ function LinkList({ links }: { links: ToolFacts["links"] }) {
         return (
           <li key={link.key}>
             {safe ? (
-              <a href={link.uri} target="_blank" rel="noopener noreferrer" title={link.uri}>
+              <a
+                href={link.uri}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={link.uri}
+                // That one was opened, never which.
+                onClick={() => store.track("tool_link_opened", {})}
+              >
                 {link.name}
               </a>
             ) : (

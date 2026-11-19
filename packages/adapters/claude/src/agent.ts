@@ -805,7 +805,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
 
   /** A turn with nothing in it yet. `process` is the one it runs on, once there is one. */
   const newTurn = (session: SessionState, process?: Live): Turn => ({
-    translator: new TurnTranslator(session.plan),
+    translator: new TurnTranslator(session.plan, Object.keys(session.setup.mcpServers)),
     permissions: new AbortController(),
     cancelled: false,
     done: false,

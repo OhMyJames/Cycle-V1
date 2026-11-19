@@ -182,10 +182,15 @@ export const toolFacts = (tool: ToolItem): ToolFacts => {
       links.push({ key: `link-${index}`, uri: inner.uri, name });
     }
   }
-  // How a command ended is said for one that failed too: its exit code is why.
+  // How a command ended, and a page's status, are said for a call that failed too: they are why.
   if (tool.status === "failed") {
-    const run = runOf(tool);
-    return run !== undefined ? { images, links, run } : { images, links };
+    const [run, fetch] = [runOf(tool), fetchOf(tool)];
+    return {
+      images,
+      links,
+      ...(run !== undefined ? { run } : {}),
+      ...(fetch !== undefined ? { fetch } : {}),
+    };
   }
   if (tool.status !== "completed") return { images, links };
   const facts: ToolFacts = { images, links };

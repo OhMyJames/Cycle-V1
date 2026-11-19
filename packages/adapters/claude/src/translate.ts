@@ -40,7 +40,17 @@ export const toolKind = (name: string): ToolKind => {
  * A tool's title for people, where its name is not one: an MCP tool's `mcp__<server>__<tool>` is "server · tool".
  * Claude's naming is known here, so no client has to parse it.
  */
-export const titleOf = (name: string): { title?: string } => {
+export const titleOf = (name: string, servers: readonly string[] = []): { title?: string } => {
+  if (!name.startsWith("mcp__")) return {};
+  // A server's name may itself hold "__": the servers this session was given are matched first, longest first, as
+  // Claude writes them (anything but letters, digits, "_" and "-" becomes "_").
+  const known = servers
+    .map((server) => ({ server, as: server.replace(/[^a-zA-Z0-9_-]/g, "_") }))
+    .sort((a, b) => b.as.length - a.as.length)
+    .find(({ as }) => name.startsWith(`mcp__${as}__`) && name.length > `mcp__${as}__`.length);
+  if (known !== undefined) {
+    return { title: `${known.server} · ${name.slice(`mcp__${known.as}__`.length)}` };
+  }
   const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
   return mcp !== null ? { title: `${mcp[1]} · ${mcp[2]}` } : {};
 };
@@ -78,7 +88,11 @@ export class TurnTranslator {
   /** Tool calls that were shown starting and have had no result yet, in the order they started. */
   readonly #open = new Set<string>();
 
-  constructor(readonly plan: PlanState = new PlanState()) {}
+  constructor(
+    readonly plan: PlanState = new PlanState(),
+    /** The MCP servers this session was given, by the names they were given under: for tools' titles. */
+    readonly servers: readonly string[] = [],
+  ) {}
 
   feed(message: SDKMessage): SessionUpdate[] {
     // A sub-agent's own talk and tool calls are not the session's: it is only announced, through
@@ -123,7 +137,7 @@ export class TurnTranslator {
             toolCallId: String(block.id),
             name,
             kind: toolKind(name),
-            ...titleOf(name),
+            ...titleOf(name, this.servers),
             status: "pending",
           } as SessionUpdate,
         ];
@@ -157,7 +171,7 @@ export class TurnTranslator {
           toolCallId: String(block.id),
           name,
           kind: toolKind(name),
-          ...titleOf(name),
+          ...titleOf(name, this.servers),
           status: "in_progress",
           rawInput: block.input,
           ...(where !== undefined ? { locations: [where] } : {}),

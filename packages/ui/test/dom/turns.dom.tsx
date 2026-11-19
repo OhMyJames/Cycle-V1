@@ -527,6 +527,8 @@ test("the plan is followed above the input box and is one line in the conversati
   expect(log.querySelector('[data-kind="plan"]')?.textContent).toContain("1 of 3 done");
   const agent = screen.getByRole("button", { name: /Survey the tests/ });
   expect(agent.textContent).toContain("in the background · using Grep");
+  // The description is the line once, not again as the summary.
+  expect(agent.textContent?.split("Survey the tests").length).toBe(2);
   expect(log.textContent).toContain("Context compacted");
   await user.click(screen.getByRole("button", { name: /Proposed a plan/ }));
   expect(log.querySelector('[data-slot="tool-plan"] h2')?.textContent).toBe("The plan");
@@ -537,7 +539,7 @@ test("the plan is followed above the input box and is one line in the conversati
 });
 
 test("an MCP tool reads by its title and the first short line of its input; a search's hits are links; a fetch says its status", async () => {
-  const { user, log } = await open(
+  const { user, log, script } = await open(
     you("u1"),
     u({
       sessionUpdate: "tool_call_update",
@@ -596,6 +598,12 @@ test("an MCP tool reads by its title and the first short line of its input; a se
   await user.click(search);
   const link = within(log).getByRole("link", { name: "Test runner" });
   expect(link.getAttribute("href")).toBe("https://bun.sh/docs/cli/test");
+  link.addEventListener("click", (event) => event.preventDefault());
+  await user.click(link);
+  // That a link was opened, never which.
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([
+    ["track", "tool_link_opened", {}],
+  ]);
   expect(link.parentElement?.textContent).toContain("bun.sh");
   // An address that is not a web one is text, never a link.
   expect(within(log).queryByRole("link", { name: "Trap" })).toBeNull();
