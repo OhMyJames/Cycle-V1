@@ -400,3 +400,57 @@ test("two prompts queued together are announced one entry at a time, each snapsh
   expect(snapshots).toEqual([["A"], ["A", "B"]]);
   release();
 });
+
+test("a queue left by a restart, with a prompt sent before anyone attaches, is handed back live to the first client that attaches, once", async () => {
+  const slow = gate();
+  const first = await start(fakeAgent({ onPrompt: () => slow.closed }));
+  const c = await connectClient(first);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("first") });
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("second") });
+  await until(() => queueUpdates(c.seen).length === 1, "a snapshot");
+  await waitFor(
+    async () => /"queued":\s*true/.test(await readFile(indexPath(dir), "utf8")),
+    "the index",
+  );
+  await first.close();
+  open = [];
+
+  const fake = fakeAgent();
+  const second = await start(fake);
+  const sender = await connectClient(second);
+  // Nobody has attached: this client sends at once, without resuming.
+  await sender.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("new") });
+  await until(() => fake.log.prompts.includes("new"), "the new prompt to reach the agent");
+  // The old queued prompt was not sent on behind it.
+  await Bun.sleep(50);
+  expect(fake.log.prompts).toEqual(["new"]);
+
+  const live = async (d: Awaited<ReturnType<typeof connectClient>>) => {
+    const complete = d.kinds().indexOf("replay_complete");
+    return d.seen
+      .slice(complete + 1)
+      .filter((s) => s.update.sessionUpdate === "_cycle/queue_update")
+      .flatMap((s) => (s.update as unknown as QueueUpdate).returned ?? []);
+  };
+  const d = await connectClient(second);
+  await d.agent.request(methods.agent.session.resume, {
+    sessionId,
+    cwd: "/tmp",
+    replayFrom: { type: "start" },
+  });
+  await waitFor(async () => (await live(d)).length > 0, "the queue to be handed back");
+  await Bun.sleep(30);
+  expect(queueTexts({ entries: await live(d) })).toEqual(["second"]);
+
+  // Handed back once: the next client to attach is not given it again.
+  const e = await connectClient(second);
+  await e.agent.request(methods.agent.session.resume, {
+    sessionId,
+    cwd: "/tmp",
+    replayFrom: { type: "start" },
+  });
+  await Bun.sleep(50);
+  expect(await live(e)).toEqual([]);
+});

@@ -3,6 +3,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { electronBinary } from "../../../scripts/electron-binary.ts";
 import { type Scenario, scenarios } from "./scenarios.ts";
 
 const here = new URL(".", import.meta.url).pathname;
@@ -24,10 +25,7 @@ const names = named.length > 0 ? named : ["tokens", ...Object.keys(scenarios)];
 
 const mac = process.platform === "darwin";
 const bunModules = join(here, "../../../node_modules/.bun");
-const binary = mac ? "Electron.app/Contents/MacOS/Electron" : "electron";
-const electron = Array.from(
-  new Bun.Glob(`electron@*/node_modules/electron/dist/${binary}`).scanSync(bunModules),
-)[0];
+const electron = electronBinary(bunModules);
 const xvfb = mac ? null : Bun.which("xvfb-run");
 if (electron === undefined || (!mac && xvfb === null)) {
   console.error(mac ? "needs the Electron binary" : "needs the Electron binary and xvfb-run");
@@ -58,7 +56,7 @@ writeFileSync(jobFile, JSON.stringify(jobs));
 const profile = mkdtempSync(join(tmpdir(), "cycle-ui-gallery-"));
 let results: string;
 try {
-  const command = [join(bunModules, electron)];
+  const command = [electron];
   if (xvfb !== null) command.unshift(xvfb, "-a", "-s", "-screen 0 1600x1200x24");
   if (!mac) command.push("--no-sandbox");
   // Screen captures do not need the GPU. macOS can drop the compositor between capturePage calls.

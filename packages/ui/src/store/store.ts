@@ -900,6 +900,7 @@ const toStatus = (event: AppEvent & { type: "environment-status" }): Environment
   state: event.state,
   ...(event.error !== undefined ? { error: event.error } : {}),
   ...(event.daemon !== undefined ? { daemon: event.daemon } : {}),
+  ...(event.incompatible !== undefined ? { incompatible: event.incompatible } : {}),
   ...(event.capabilities !== undefined ? { capabilities: event.capabilities } : {}),
 });
 

@@ -55,6 +55,11 @@ export class Session {
   queue: QueueEntry[] = [];
   /** Why the queue is being held for a client to attach, when it was to be handed back and none was there. */
   heldReason: QueueReason | undefined;
+  /**
+   * What was handed back (it is on record) while no client was attached, so nobody was there to take it: it is
+   * handed back again, live, to the first client that attaches.
+   */
+  unclaimed: { returned: QueueEntry[]; reason: QueueReason } | undefined;
   readonly attachments = new Set<Attachment>();
   #requests = 0;
   /**

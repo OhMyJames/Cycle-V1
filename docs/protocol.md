@@ -36,7 +36,7 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 连接建立后,客户端必须先发 `initialize`(ACP v2 的方法),在响应之前不得发其他请求。
 
 - `protocolVersion`:ACP 的协议版本,整数,仅在不兼容变更时递增。
-- Cycle 自己的版本放在 `_meta["cycle/protocolVersion"]`,格式 `"主.次"`,本文描述的是 `"0.2"`(`0.1` 到 `0.2` 只加了字段和 `markRead`,见 §6)。主版本不同则 daemon 以 `-32022`(ACP 的 Unsupported protocol version)拒绝,并在 `data` 里列出自己支持的版本。次版本差异通过能力协商处理。
+- Cycle 自己的版本放在 `_meta["cycle/protocolVersion"]`,格式 `"主.次"`,本文描述的是 `"0.2"`(`0.1` 到 `0.2` 只加了字段和 `markRead`,见 §6)。主版本不同则 daemon 以 `-32022`(ACP 的 Unsupported protocol version)拒绝,并在 `data` 里列出自己支持的版本(`supported`)和收到的(`requested`)。客户端据此知道哪一边更旧、该升级哪一边,不要只当作普通的连接错误。次版本差异通过能力协商处理。
 - daemon 在 `initialize` 响应的 `_meta["cycle/capabilities"]` 中声明能力:
 
 ```json
@@ -235,6 +235,7 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 
 - `session/prompt` 立即返回 `messageId`,不代表 turn 结束。
 - turn 的状态由 `state_update` 表达:`running`、`requires_action`、`idle`。`idle` 带 `stopReason`(`end_turn`、`max_tokens`、`max_turn_requests`、`refusal`、`cancelled`、`error`),它标志 turn 结束。
+- **turn 不一定由 prompt 开始。** agent 自己开始一轮时(Claude 的后台任务完成后唤醒主 agent),agent 发 `state_update: running`,随后是这一轮的内容,最后以带 `stopReason` 的 `idle` 结束,中间没有 `user_message`。客户端和 daemon 把它当作普通的 turn:状态显示工作中,排队的 prompt 在 `end_turn` 之后发出,结束时照常通知;这时到达的 prompt 被当作"agent 忙"而排队。
 - 用户消息通过 `user_message` 更新进入日志。agent 没有发出时,daemon 用 `session/prompt` 的内容合成一条,保证历史里一定有用户消息。Claude 适配自己会发这一条(用 `session/prompt` 返回的 `messageId`),所以对 Claude 不会触发合成;合成只是对其他 agent 的兜底。daemon 通过 `messageId` 去重。
 
 **内容校验**(决策 0010):daemon 在启动 agent 之前检查 `prompt` 的每一块,不合格就以 `-32602` 拒绝,`data` 为 `{reason, index}`,不会丢掉其中一部分再继续:

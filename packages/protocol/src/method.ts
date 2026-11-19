@@ -16,3 +16,8 @@ export const cycleMethod = <P extends z.ZodType, R extends z.ZodType>(
   params: P,
   result: R,
 ): CycleMethod<P, R> => ({ name, params, result });
+
+/** What a method takes, as a caller writes it. */
+export type ParamsOf<M extends CycleMethod> = z.input<M["params"]>;
+/** What a method answers, as it is on the wire: what the daemon's handler returns (the client does not parse it). */
+export type ResultOf<M extends CycleMethod> = z.input<M["result"]>;

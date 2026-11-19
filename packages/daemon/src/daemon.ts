@@ -17,6 +17,7 @@ import {
   CONNECTORS_CHANGED,
   CYCLE_PROTOCOL_VERSION,
   CycleErrorCode,
+  type CycleMethod,
   checkPrompt,
   connectorsAdd,
   connectorsAuthClear,
@@ -673,7 +674,23 @@ export class Daemon {
     const returned = session.queue;
     session.queue = [];
     session.heldReason = undefined;
+    // It is on record, but no one is attached to take it from there (a client that reads a history ignores what was
+    // handed back in it): kept, to be handed back live to the first that attaches.
+    if (session.attachments.size === 0)
+      session.unclaimed = {
+        returned: [...(session.unclaimed?.returned ?? []), ...returned],
+        // The first reason stands for what was kept first: it is the oldest that no one has taken.
+        reason: session.unclaimed?.reason ?? reason,
+      };
     this.#publishQueue(session, { returned, reason });
+  }
+
+  /** What was handed back to no one is handed back to the client that has attached now, as if live. */
+  #handBackUnclaimed(session: Session): void {
+    const { unclaimed } = session;
+    if (unclaimed === undefined || session.attachments.size === 0) return;
+    session.unclaimed = undefined;
+    this.#publishQueue(session, unclaimed);
   }
 
   /** A queue left behind with no turn to send it: the reason it was held, or a restart's. */
@@ -1412,6 +1429,7 @@ export class Daemon {
       // A queue with no turn behind it was cut short by a restart. It is handed back now, after the
       // replay and the snapshot, so the client that attached is told while it is listening.
       this.#returnStale(session);
+      this.#handBackUnclaimed(session);
       // Which they are, so a client that had one before can tell it is not among them: answered elsewhere.
       return {
         configOptions: [],
@@ -1554,8 +1572,10 @@ export class Daemon {
       return {} as never;
     });
 
+    // The handler answers what the method's result schema says: a field the schema has and the handler leaves out
+    // (or one of another shape) does not compile.
     const cycle = <P extends z.ZodType, R extends z.ZodType>(
-      method: { name: `_cycle/${string}`; params: P },
+      method: CycleMethod<P, R>,
       handler: (params: z.output<P>) => Promise<z.input<R>> | z.input<R>,
     ) => {
       app.onRequest(
