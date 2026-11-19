@@ -42,6 +42,8 @@ export const fakeAgent = (
      * runs; `refuse`: it says it can, and refuses every one.
      */
     steer?: "take" | "refuse";
+    /** Says it reaches MCP servers over http (`capabilities.session.mcp.http`), so it is given connectors. */
+    mcpHttp?: boolean;
   } = {},
 ) => {
   const log = {
@@ -70,7 +72,7 @@ export const fakeAgent = (
       .onRequest(methods.agent.initialize, () => ({
         protocolVersion: 2,
         info: { name: "fake", version: "0" },
-        capabilities: {},
+        capabilities: options.mcpHttp === true ? { session: { mcp: { http: {} } } } : {},
       }))
       .onRequest(methods.agent.session.new, ({ params }) => {
         log.news.push(params as unknown as Record<string, unknown>);

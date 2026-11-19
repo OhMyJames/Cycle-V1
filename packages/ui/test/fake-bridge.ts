@@ -3,6 +3,7 @@ import type {
   AnalyticsStatus,
   AppEvent,
   ConnectionState,
+  ConnectorInfo,
   CycleBridge,
   EnvironmentConfig,
   SessionSnapshot,
@@ -50,7 +51,10 @@ export const fakeBridge = (
       folders: boolean;
       filesInFolder?: boolean;
       trust?: boolean;
+      connectors?: boolean;
     };
+    /** The connectors the daemon keeps. Changed in place by what the page asks. */
+    connectors?: ConnectorInfo[];
     /** The agent can take a message into a running turn. */
     steer?: boolean;
     /** More environments than the local one, and how each stands (by id; the local one's is `connected`). */
@@ -59,6 +63,7 @@ export const fakeBridge = (
   } = {},
 ) => {
   const calls: [string, ...unknown[]][] = [];
+  const connectors = options.connectors ?? [];
   let listener: ((event: AppEvent) => void) | undefined;
   const record =
     <A extends unknown[], R>(name: string, result: (...args: A) => R) =>
@@ -155,6 +160,53 @@ export const fakeBridge = (
     ]),
     agentDefaults: record("agentDefaults", async () => ({})),
     setAgentDefaults: record("setAgentDefaults", async () => {}),
+    listConnectors: record("listConnectors", async () => connectors.map((c) => ({ ...c }))),
+    addConnector: record("addConnector", async (_environment: string, draft) => {
+      const connector: ConnectorInfo = {
+        id: `c${connectors.length + 1}`,
+        name: draft.name,
+        enabled: draft.enabled ?? true,
+        transport: draft.transport,
+        auth: draft.auth,
+        secrets: {
+          headers: Object.keys(draft.secrets?.headers ?? {}),
+          env: Object.keys(draft.secrets?.env ?? {}),
+        },
+        authorized: false,
+        status: { state: draft.auth.type === "oauth" ? "needs_auth" : "ready" },
+      };
+      connectors.push(connector);
+      return { connector };
+    }),
+    updateConnector: record("updateConnector", async (_environment: string, id: string, change) => {
+      const at = connectors.findIndex((c) => c.id === id);
+      const before = connectors[at];
+      if (before === undefined) return { problem: "not_found" as const };
+      const { secrets: _secrets, ...rest } = change;
+      const connector: ConnectorInfo = { ...before, ...rest };
+      connectors[at] = connector;
+      return { connector };
+    }),
+    removeConnector: record("removeConnector", async (_environment: string, id: string) => {
+      const at = connectors.findIndex((c) => c.id === id);
+      if (at >= 0) connectors.splice(at, 1);
+      return { removed: true as const };
+    }),
+    authorizeConnector: record("authorizeConnector", async (_environment: string, id: string) => {
+      const connector = connectors.find((c) => c.id === id);
+      if (connector === undefined) return { problem: "not_found" as const };
+      connector.authorized = true;
+      connector.status = { state: "ready" };
+      return { connector: { ...connector } };
+    }),
+    cancelConnectorAuth: record("cancelConnectorAuth", async () => {}),
+    signOutConnector: record("signOutConnector", async (_environment: string, id: string) => {
+      const connector = connectors.find((c) => c.id === id);
+      if (connector === undefined) return { problem: "not_found" as const };
+      connector.authorized = false;
+      connector.status = { state: "needs_auth" };
+      return { connector: { ...connector } };
+    }),
     chooseDirectory: record("chooseDirectory", async () => "/chosen"),
     updateState: record(
       "updateState",

@@ -171,6 +171,17 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - **测试**:DOM 测试(happy-dom 没有 Lexical 要用的选区和输入事件)通过编辑器自己的命令驱动;真实的敲键和粘贴只在 Electron 冒烟测试里走(`smoke-main.ts` 敲 `**bold**` 并检查渲染,再粘贴一段带星号的文字,检查它按原样放入);**输入法组合(IME)没有验证过**:代码里 Enter 在组合中不发送,但没有在真实的输入法上试过。
 - **没做**:@ 提及没有 chip 节点(是普通文字加一个记在草稿里的链接),所以从存储恢复的草稿里文字还在、结构化的链接没有;提及里没有别的 session;输入历史只读当前对话里的消息;Lexical 对撤销/重做、拖选等的行为没有逐项验证。
 
+## Connector
+
+侧栏顶部的 **Connectors** 打开一个面板,管理某个环境的 daemon 替所有 agent 保管的 MCP 服务器(protocol.md §14)。只列已连接、并且声明了能力 `connectors` 的环境;一个都没有时就这样说。
+
+- **列表**:每行是名字、去哪里(http 的主机,或 stdio 的命令)、状态(Ready、Needs sign-in、Off,出错时按 `reason` 写成固定的句子)、开关,需要登录的 OAuth 服务器有 Sign in;编辑、退出登录、删除在行尾的菜单里。删除前先确认,因为它的登录和密钥会一起永久删掉。
+- **表单**:名字;远程 URL 或本地命令(参数一行一个、可选的工作目录);远程的可以选 OAuth,并可填 client id(给不支持动态注册的服务器)。密钥是 http 的请求头或 stdio 的环境变量,**只写不读**:页面送出值,之后只看到名字和"已设置",能替换或删除,看不到值。
+- **凭证上线路的方向**:这是 `config.json` 那条"不让凭证上线路"之外唯一有意的例外,而且只有一个方向。页面把用户填的密钥经主进程送给 daemon;daemon 从不回传。OAuth 的授权码不经过页面:主进程在 `127.0.0.1` 的随机端口开回调,把这个地址交给 `auth/start`,用 `shell.openExternal` 打开 daemon 给的地址(只开 https,或指向本机的 http),拿到回调后把 `code`、`state` 交给 `auth/finish`。PKCE 的 verifier 在 daemon,授权码单独拿到没有用。同一时间只有一个登录在等浏览器,新的会取消旧的;最多等十分钟;回调服务器在每条路径上都会关掉(`connector-auth.ts`,`test/connector-auth.test.ts`)。
+- **错误**:daemon 的拒绝(`data.reason`)在主进程变成固定的词(`connectorProblemOf`),页面按词显示整句,并写在出问题的那一行或表单下面。
+- **埋点**:`connector_added`(传输、登录方式、密钥个数)、`connector_changed`、`connector_removed`、`connector_authorized`(`ok`/`failed`/`cancelled`)、`connector_signed_out`,打开面板是 `panel_opened` 的 `connectors`。不发名字、URL、命令和密钥(`test/manager-connectors.test.ts`)。
+- **没验证**:真实的授权服务器(测试里是假的 daemon 和假的浏览器);真实窗口里的样子和深色模式。
+
 ## 还没做
 
 - **远端 daemon 的升级**:应用只更新自己和自带的本地 daemon;远端的 daemon 由用户决定何时升。应用带一个 `MIN_DAEMON_VERSION`(`src/shared/release.ts`),**远端 daemon 低于它**才在标题栏下面出现一行提示和一个"Update to x.y.z"按钮;高于或等于它就不提示,即使比应用旧(多数版本只改界面,不动 daemon)。`dev`(从源码运行)和读不出版本的不提示,本地的也不提示。

@@ -45,6 +45,8 @@ export type EnvironmentStatus = {
     filesInFolder?: boolean;
     /** Folder trust can be read and set (docs/protocol.md §8 "信任文件夹"). */
     trust?: boolean;
+    /** It keeps connectors: MCP servers for every agent (docs/protocol.md §14). */
+    connectors?: boolean;
   };
   /** What the daemon on the environment says it is. Not for the local one, which the app carries. */
   daemon?: {
@@ -124,6 +126,69 @@ export type FolderListing = {
  */
 export type FolderTrust = { path: string; trusted: boolean | null; from: string | null };
 
+/** How a connector is reached: streamable HTTP, or a process the daemon starts on its machine. */
+export type ConnectorTransport =
+  | { type: "http"; url: string }
+  | { type: "stdio"; command: string; args: string[]; cwd?: string | undefined };
+
+/** How a connector signs in. `clientId` only for a server that does not register clients itself. */
+export type ConnectorAuth =
+  | { type: "none" }
+  | { type: "oauth"; clientId?: string | undefined; scopes?: string[] | undefined };
+
+/**
+ * An MCP server the daemon keeps for every agent (docs/protocol.md §14). `secrets` names what has a value: the values
+ * never leave the daemon.
+ */
+export type ConnectorInfo = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  transport: ConnectorTransport;
+  auth: ConnectorAuth;
+  secrets: { headers: string[]; env: string[] };
+  authorized: boolean;
+  status: {
+    state: "ready" | "needs_auth" | "disabled" | "error";
+    reason?: "unreachable" | "auth_failed" | "spawn_failed" | "protocol" | undefined;
+  };
+};
+
+/** Secrets to write: a value sets it, null removes it, a name not given keeps its value. */
+export type ConnectorSecrets = {
+  headers?: Record<string, string | null>;
+  env?: Record<string, string | null>;
+};
+
+export type ConnectorDraft = {
+  name: string;
+  enabled?: boolean;
+  transport: ConnectorTransport;
+  auth: ConnectorAuth;
+  secrets?: ConnectorSecrets;
+};
+
+export type ConnectorChange = Partial<ConnectorDraft>;
+
+/** Why a connector could not be saved or signed in to: a fixed word the page has a sentence for. */
+export type ConnectorProblem =
+  | "invalid_name"
+  | "name_taken"
+  | "insecure_url"
+  | "state_mismatch"
+  | "no_registration"
+  | "auth_rejected"
+  | "unreachable"
+  | "not_found"
+  | "invalid"
+  | "unsupported"
+  | "failed";
+
+/** What an action on a connector came to. `message`: only with `failed`, what went wrong as main has it. */
+export type ConnectorAnswer =
+  | { connector: ConnectorInfo }
+  | { problem: ConnectorProblem; message?: string };
+
 /** Lists the folders of one environment's folder (the environment is already chosen). */
 export type ListFolders = (path?: string, hidden?: boolean) => Promise<FolderListing>;
 
@@ -193,6 +258,8 @@ export type AppEvent =
       version: number;
     }
   | { type: "agent-defaults"; environmentId: string; agent: string }
+  /** The environment's connectors changed, here or elsewhere: read them again. */
+  | { type: "connectors"; environmentId: string }
   /** A session was deleted elsewhere while the connection was away: nothing of it is kept. */
   | { type: "session-gone"; environmentId: string; sessionId: string }
   | { type: "app-update"; state: UpdateState }
@@ -277,6 +344,32 @@ export type AppApi = {
     config: Record<string, string>,
   ): Promise<void>;
 
+  /** The environment's connectors. Fails when it is not connected or its daemon is too old. */
+  listConnectors(environmentId: string): Promise<ConnectorInfo[]>;
+  addConnector(environmentId: string, draft: ConnectorDraft): Promise<ConnectorAnswer>;
+  updateConnector(
+    environmentId: string,
+    id: string,
+    change: ConnectorChange,
+  ): Promise<ConnectorAnswer>;
+  /** Removes a connector and its credentials for good. The page asks the person first. */
+  removeConnector(
+    environmentId: string,
+    id: string,
+  ): Promise<{ removed: true } | { problem: ConnectorProblem; message?: string }>;
+  /**
+   * Signs in to a connector in the person's browser. Resolves when it is done, refused, or cancelled (by the person in
+   * the browser, by `cancelConnectorAuth`, by another sign-in starting, or after ten minutes).
+   */
+  authorizeConnector(
+    environmentId: string,
+    id: string,
+  ): Promise<ConnectorAnswer | { cancelled: true }>;
+  /** Stops the sign-in that is waiting for the browser, if there is one. */
+  cancelConnectorAuth(): Promise<void>;
+  /** Forgets the connector's token. */
+  signOutConnector(environmentId: string, id: string): Promise<ConnectorAnswer>;
+
   /** A directory chosen by the user, or undefined if they cancelled. */
   chooseDirectory(): Promise<string | undefined>;
 
@@ -329,6 +422,13 @@ export const API_METHODS = [
   "agents",
   "agentDefaults",
   "setAgentDefaults",
+  "listConnectors",
+  "addConnector",
+  "updateConnector",
+  "removeConnector",
+  "authorizeConnector",
+  "cancelConnectorAuth",
+  "signOutConnector",
   "chooseDirectory",
   "updateState",
   "checkForUpdate",

@@ -5,6 +5,7 @@ import {
   type AgentContext,
   agent as acpAgent,
   type ClientApp,
+  type McpServer,
   methods,
   type SessionUpdate,
   type Stream,
@@ -13,9 +14,17 @@ import {
   agentDefaultsRead,
   agentDefaultsSet,
   agentsList,
+  CONNECTORS_CHANGED,
   CYCLE_PROTOCOL_VERSION,
   CycleErrorCode,
   checkPrompt,
+  connectorsAdd,
+  connectorsAuthClear,
+  connectorsAuthFinish,
+  connectorsAuthStart,
+  connectorsList,
+  connectorsRemove,
+  connectorsUpdate,
   filesSearch,
   foldersList,
   META,
@@ -38,6 +47,7 @@ import {
 import type { z } from "zod";
 import { AgentLink } from "./agent-link.ts";
 import type { AgentDefinition } from "./agents.ts";
+import { ConnectorService } from "./connectors/service.ts";
 import { blobsDir, defaultsPath, indexPath, sessionsDir, trustPath } from "./data-dir.ts";
 import { AgentDefaults } from "./defaults-file.ts";
 import {
@@ -76,6 +86,8 @@ export type DaemonOptions = {
   store?: LogStore;
   /** What this build is, told to every client that connects. Default `dev`: not a release. */
   version?: string;
+  /** For tests: replaces the connectors kept in `$CYCLE_HOME/connectors/` (docs/protocol.md §14). */
+  connectors?: ConnectorService;
 };
 
 const SESSION_UPDATE = methods.client.session.update;
@@ -140,6 +152,7 @@ export class Daemon {
   readonly #index: SessionIndex;
   readonly #defaults: AgentDefaults;
   readonly #trust: FolderTrust;
+  readonly #connectors: ConnectorService;
   readonly #sessions = new Map<string, Session>();
   /** Sessions being loaded, so a second request for one waits for the first load. */
   readonly #loading = new Map<string, Promise<Session>>();
@@ -152,6 +165,7 @@ export class Daemon {
     index: SessionIndex,
     defaults: AgentDefaults,
     trust: FolderTrust,
+    connectors: ConnectorService,
   ) {
     this.#version = options.version ?? "dev";
     this.#agents = new Map(options.agents.map((a) => [a.id, a]));
@@ -164,6 +178,12 @@ export class Daemon {
     this.#index = index;
     this.#defaults = defaults;
     this.#trust = trust;
+    this.#connectors = connectors;
+    connectors.onChanged(() => {
+      for (const conn of this.#conns) {
+        void conn.notify(CONNECTORS_CHANGED, {}).catch(() => {});
+      }
+    });
   }
 
   /** Reads the index, and refuses to start if it is there and cannot be read. */
@@ -173,6 +193,7 @@ export class Daemon {
       await SessionIndex.load(indexPath(options.dataDir)),
       await AgentDefaults.load(defaultsPath(options.dataDir)),
       await FolderTrust.load(trustPath(options.dataDir)),
+      options.connectors ?? (await ConnectorService.load(options.dataDir)),
     );
   }
 
@@ -215,6 +236,7 @@ export class Daemon {
       await session.log.close();
     }
     this.#sessions.clear();
+    this.#connectors.close();
     // What the sessions noted as they went (an unread mark, a usage) is written by now, not dropped.
     await this.#index.flush();
   }
@@ -355,9 +377,22 @@ export class Daemon {
     });
     session.link = link;
     try {
+      // Cycle's connectors, each through the gateway (docs/protocol.md §14). A session's own servers keep their names.
+      const own = ((mode === "new" ? create?.mcpServers : undefined) ??
+        session.entry.mcpServers ??
+        []) as McpServer[];
+      const connectors = link.mcpHttp
+        ? await this.#connectors.serversFor(
+            session.id,
+            session.entry.cwd,
+            new Set(own.map((server) => (server as { name: string }).name)),
+          )
+        : [];
+      const mcpServers = [...own, ...connectors];
       if (mode === "new") {
         const created = await link.agent.request(methods.agent.session.new, {
           ...(create as object),
+          ...(mcpServers.length > 0 ? { mcpServers } : {}),
           _meta: {
             ...((create as { _meta?: object })?._meta ?? {}),
             ...trust,
@@ -370,12 +405,12 @@ export class Daemon {
       let resumed: unknown;
       try {
         // What the session was made with goes again: the agent does not keep it across a restart.
-        const { additionalDirectories, mcpServers, systemPrompt } = session.entry;
+        const { additionalDirectories, systemPrompt } = session.entry;
         resumed = await link.agent.request(methods.agent.session.resume, {
           sessionId: session.entry.agentSessionId,
           cwd: session.entry.cwd,
           ...(additionalDirectories !== undefined ? { additionalDirectories } : {}),
-          ...(mcpServers !== undefined ? { mcpServers } : {}),
+          ...(mcpServers.length > 0 ? { mcpServers } : {}),
           ...(systemPrompt !== undefined ? { systemPrompt } : {}),
           _meta: {
             ...trust,
@@ -415,6 +450,7 @@ export class Daemon {
       return { link, created: undefined };
     } catch (error) {
       session.link = undefined;
+      this.#connectors.release(session.id);
       link.kill();
       throw error;
     }
@@ -902,6 +938,8 @@ export class Daemon {
     if (session.link !== link && link !== undefined) return;
     const wasWorking = session.agentState !== "idle";
     session.link = undefined;
+    // Its key to the gateway goes with it, and the connector processes it had.
+    this.#connectors.release(session.id);
     for (const pending of [...session.pending.values()]) {
       pending.settled = true;
       session.pending.delete(pending.requestId);
@@ -1051,6 +1089,7 @@ export class Daemon {
             folders: true,
             filesInFolder: true,
             trust: true,
+            connectors: true,
           },
         },
       } as never;
@@ -1462,6 +1501,24 @@ export class Daemon {
       await this.#applyTrust(real);
       return trust;
     });
+    cycle(connectorsList, async () => ({ connectors: await this.#connectors.list() }));
+    cycle(connectorsAdd, async (params) => ({ connector: await this.#connectors.add(params) }));
+    cycle(connectorsUpdate, async (params) => ({
+      connector: await this.#connectors.update(params),
+    }));
+    cycle(connectorsRemove, async (params) => {
+      await this.#connectors.remove(params.id);
+      return {};
+    });
+    cycle(connectorsAuthStart, (params) =>
+      this.#connectors.authStart(params.id, params.redirectUri),
+    );
+    cycle(connectorsAuthFinish, async (params) => ({
+      connector: await this.#connectors.authFinish(params),
+    }));
+    cycle(connectorsAuthClear, async (params) => ({
+      connector: await this.#connectors.authClear(params.id),
+    }));
     cycle(sessionArchive, (params) =>
       change(async (session) => {
         if (session.status() === "running" || session.status() === "requires_action")

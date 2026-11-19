@@ -22,11 +22,19 @@ export type LinkHandlers = {
 /** A live connection to one agent process, as ACP v2 sees it: the daemon is the client. */
 export class AgentLink {
   readonly agent: ClientContext;
+  /** The agent said it can reach MCP servers over http (`capabilities.session.mcp.http`): connectors go that way. */
+  readonly mcpHttp: boolean;
   readonly #close: () => void;
   readonly #kill: (() => void) | undefined;
 
-  private constructor(agent: ClientContext, close: () => void, kill: (() => void) | undefined) {
+  private constructor(
+    agent: ClientContext,
+    mcpHttp: boolean,
+    close: () => void,
+    kill: (() => void) | undefined,
+  ) {
     this.agent = agent;
+    this.mcpHttp = mcpHttp;
     this.#close = close;
     this.#kill = kill;
   }
@@ -48,8 +56,9 @@ export class AgentLink {
         ? app.connect(launched.target)
         : app.connect(launched.target as Stream);
     void connection.closed.then(handlers.closed, handlers.closed);
+    let initialized: unknown;
     try {
-      await connection.agent.request(methods.agent.initialize, {
+      initialized = await connection.agent.request(methods.agent.initialize, {
         protocolVersion: 2,
         info: { name: "cycle", version: "0.0.0" },
         // Forms only: whether there is anyone to ask is the daemon's to decide, per request.
@@ -60,7 +69,10 @@ export class AgentLink {
       launched.kill?.();
       throw error;
     }
-    return new AgentLink(connection.agent, () => connection.close(), launched.kill);
+    const mcpHttp =
+      (initialized as { capabilities?: { session?: { mcp?: { http?: unknown } } } } | undefined)
+        ?.capabilities?.session?.mcp?.http != null;
+    return new AgentLink(connection.agent, mcpHttp, () => connection.close(), launched.kill);
   }
 
   kill(): void {

@@ -15,6 +15,11 @@ import {
   type Attention,
   applyUpdate,
   attentionOf,
+  type ConnectorAnswer,
+  type ConnectorChange,
+  type ConnectorDraft,
+  type ConnectorInfo,
+  type ConnectorProblem,
   type Conversation,
   type EnvironmentConfig,
   type EnvironmentStatus,
@@ -29,6 +34,7 @@ import {
   type SessionSummary,
 } from "@cycle/ui";
 import { daemonTooOld, daemonUpgradeCommand } from "../shared/release.ts";
+import { authorizeInBrowser, type OpenBrowser } from "./connector-auth.ts";
 import { environmentOf, LOCAL_ENVIRONMENT, type Settings } from "./settings.ts";
 
 export type ManagerOptions = {
@@ -51,6 +57,10 @@ export type ManagerOptions = {
   attention?: (notice: AttentionNotice) => void;
   /** What the person does, for product analytics (docs/analytics.md). Without it, nothing is reported. */
   track?: Tracker;
+  /** Opens a connector's sign-in page in the person's browser. Without it, signing in fails. */
+  openBrowser?: OpenBrowser;
+  /** How long a sign-in waits for the browser. Default ten minutes. */
+  authTimeoutMs?: number;
 };
 
 /** Reports one event of the dictionary in @cycle/analytics. */
@@ -97,6 +107,31 @@ type Connection = {
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+const PROBLEMS: readonly ConnectorProblem[] = [
+  "invalid_name",
+  "name_taken",
+  "insecure_url",
+  "state_mismatch",
+  "no_registration",
+  "auth_rejected",
+  "unreachable",
+];
+
+/** What the daemon's error says, as a word the page has a sentence for (docs/protocol.md §14). */
+export const connectorProblemOf = (
+  error: unknown,
+): { problem: ConnectorProblem; message?: string } => {
+  const { code, data } = (error ?? {}) as { code?: unknown; data?: { reason?: unknown } };
+  const reason = data?.reason;
+  if (typeof reason === "string" && (PROBLEMS as readonly string[]).includes(reason))
+    return { problem: reason as ConnectorProblem };
+  if (code === -32002) return { problem: "not_found" };
+  if (code === -32017) return { problem: "unreachable" };
+  if (code === -32602) return { problem: "invalid" };
+  if (messageOf(error).includes("too old to keep connectors")) return { problem: "unsupported" };
+  return { problem: "failed", message: messageOf(error) };
+};
+
 /**
  * The main process's half of the app: the connections to daemons, and the state of every session
  * being watched. It is the whole of what the renderer can ask for (`AppApi`) and knows nothing of
@@ -124,6 +159,8 @@ export class ConnectionManager
   readonly #lastSessions = new Map<string, SessionSummary[]>();
   /** Why the last attempt to connect to an environment failed, for a renderer that asks after the event went by. */
   readonly #lastError = new Map<string, string>();
+  /** The sign-in waiting for the browser: one at a time, a new one stops it. */
+  #signIn: AbortController | undefined;
 
   constructor(options: ManagerOptions) {
     this.#options = options;
@@ -147,6 +184,7 @@ export class ConnectionManager
   }
 
   async close(): Promise<void> {
+    this.#signIn?.abort();
     for (const connection of this.#connections.values()) await connection.client.close();
     this.#connections.clear();
   }
@@ -240,6 +278,7 @@ export class ConnectionManager
           void this.#refreshSessions(environmentId, connection).catch(() => undefined),
         defaultsChanged: (agent) =>
           this.#options.emit({ type: "agent-defaults", environmentId, agent }),
+        connectorsChanged: () => this.#options.emit({ type: "connectors", environmentId }),
         gone: (sessionId) => this.#onGone(environmentId, connection, sessionId),
         connection: (state, error) => {
           // A connection that came back asks for the list again: it may have changed while away.
@@ -261,6 +300,7 @@ export class ConnectionManager
                     folders: connection.client.capabilities.folders === true,
                     filesInFolder: connection.client.capabilities.filesInFolder === true,
                     trust: connection.client.capabilities.trust === true,
+                    connectors: connection.client.capabilities.connectors === true,
                   },
                 }
               : state === "reconnecting" && connection.status.capabilities !== undefined
@@ -788,6 +828,122 @@ export class ConnectionManager
   ): Promise<void> {
     await this.#connection(environmentId).client.setAgentDefaults(agent, config);
     this.#track("agent_defaults_saved", { agent: agentOf(agent) });
+  }
+
+  // ---- connectors (docs/protocol.md §14) ----
+
+  async listConnectors(environmentId: string): Promise<ConnectorInfo[]> {
+    return this.#connection(environmentId).client.listConnectors();
+  }
+
+  async addConnector(environmentId: string, draft: ConnectorDraft): Promise<ConnectorAnswer> {
+    try {
+      const connector = await this.#connection(environmentId).client.addConnector(draft);
+      this.#track("connector_added", {
+        transport: connector.transport.type,
+        auth: connector.auth.type,
+        secrets: connector.secrets.headers.length + connector.secrets.env.length,
+      });
+      return { connector };
+    } catch (error) {
+      return connectorProblemOf(error);
+    }
+  }
+
+  async updateConnector(
+    environmentId: string,
+    id: string,
+    change: ConnectorChange,
+  ): Promise<ConnectorAnswer> {
+    try {
+      const connector = await this.#connection(environmentId).client.updateConnector({
+        id,
+        ...change,
+      });
+      const onlyEnabled = Object.keys(change).every((key) => key === "enabled");
+      this.#track("connector_changed", {
+        change:
+          onlyEnabled && change.enabled !== undefined
+            ? change.enabled
+              ? "enabled"
+              : "disabled"
+            : "edited",
+      });
+      return { connector };
+    } catch (error) {
+      return connectorProblemOf(error);
+    }
+  }
+
+  async removeConnector(
+    environmentId: string,
+    id: string,
+  ): Promise<{ removed: true } | { problem: ConnectorProblem; message?: string }> {
+    try {
+      const client = this.#connection(environmentId).client;
+      const transport = (await client.listConnectors()).find((c) => c.id === id)?.transport.type;
+      await client.removeConnector(id);
+      if (transport !== undefined) this.#track("connector_removed", { transport });
+      return { removed: true };
+    } catch (error) {
+      return connectorProblemOf(error);
+    }
+  }
+
+  /**
+   * Signs in to a connector: a loopback callback here, the page in the browser, the code to the daemon (which keeps the
+   * PKCE verifier). The code never reaches the page. A sign-in already waiting is stopped first.
+   */
+  async authorizeConnector(
+    environmentId: string,
+    id: string,
+  ): Promise<ConnectorAnswer | { cancelled: true }> {
+    this.#signIn?.abort();
+    const signIn = new AbortController();
+    this.#signIn = signIn;
+    try {
+      const client = this.#connection(environmentId).client;
+      const open = this.#options.openBrowser;
+      if (open === undefined) throw new Error("This app cannot open a browser");
+      const outcome = await authorizeInBrowser({
+        start: (redirectUri) => client.startConnectorAuth(id, redirectUri),
+        finish: (params) => client.finishConnectorAuth(params),
+        open,
+        signal: signIn.signal,
+        ...(this.#options.authTimeoutMs !== undefined
+          ? { timeoutMs: this.#options.authTimeoutMs }
+          : {}),
+      });
+      if (outcome.kind === "cancelled") {
+        this.#track("connector_authorized", { result: "cancelled" });
+        return { cancelled: true };
+      }
+      if (outcome.kind === "refused") {
+        this.#track("connector_authorized", { result: "failed" });
+        return { problem: "auth_rejected" };
+      }
+      this.#track("connector_authorized", { result: "ok" });
+      return { connector: outcome.value };
+    } catch (error) {
+      this.#track("connector_authorized", { result: "failed" });
+      return connectorProblemOf(error);
+    } finally {
+      if (this.#signIn === signIn) this.#signIn = undefined;
+    }
+  }
+
+  async cancelConnectorAuth(): Promise<void> {
+    this.#signIn?.abort();
+  }
+
+  async signOutConnector(environmentId: string, id: string): Promise<ConnectorAnswer> {
+    try {
+      const connector = await this.#connection(environmentId).client.clearConnectorAuth(id);
+      this.#track("connector_signed_out", {});
+      return { connector };
+    } catch (error) {
+      return connectorProblemOf(error);
+    }
   }
 
   chooseDirectory(): Promise<string | undefined> {
