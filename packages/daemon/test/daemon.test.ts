@@ -250,6 +250,7 @@ test("with a limit on agents started ahead of a prompt, a new session lets go of
   await until(() => fake.log.prompts.length === 4, "every prompt to reach an agent");
   // The two that were let go were started again for theirs; the two kept were not.
   expect(fake.log.launches).toBe(6);
+  expect(fake.log.resumes.map((r) => r.sessionId).sort()).toEqual([ids[0], ids[1]].sort());
 });
 
 test("a cancel answers pending requests as cancelled and reaches the agent", async () => {
