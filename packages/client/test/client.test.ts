@@ -2,13 +2,14 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { appendFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SessionUpdate } from "@cycle/acp";
-import { Daemon } from "@cycle/daemon";
-import { type Channel, commandChannel, connectUnix } from "@cycle/transport/client";
-import { listenUnix } from "@cycle/transport/server";
-import { fakeAgent } from "../../daemon/test/fake-agent.ts";
+import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
+import { Daemon, listenUnix } from "@cycle/daemon";
+import { fakeAgent } from "../../../apps/daemon/test/fake-agent.ts";
 import {
+  type Channel,
   CycleClient,
+  commandChannel,
+  connectUnix,
   type ElicitationAnswer,
   type PermissionAnswer,
   ProtocolMismatchError,

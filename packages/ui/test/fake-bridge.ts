@@ -1,4 +1,4 @@
-import type { SessionUpdate } from "@cycle/acp";
+import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
 import type {
   AnalyticsStatus,
   AppEvent,

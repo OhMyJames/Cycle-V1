@@ -4,7 +4,7 @@ import {
   type ContentBlock,
   methods,
   type SessionUpdate,
-} from "@cycle/acp";
+} from "@agentclientprotocol/sdk/experimental/v2";
 import {
   agentDefaultsRead,
   agentDefaultsSet,
@@ -41,7 +41,7 @@ import {
   trustRead,
   trustSet,
 } from "@cycle/protocol";
-import type { Channel } from "@cycle/transport/client";
+import type { Channel } from "./transport.ts";
 
 /** ACP's "resource not found": the daemon has no such session. */
 const RESOURCE_NOT_FOUND = -32002;

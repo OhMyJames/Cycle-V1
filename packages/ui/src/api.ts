@@ -3,7 +3,7 @@
 // The main process holds the connections and, for every session being watched, its conversation. The
 // renderer asks, and is told of changes. A renderer that reloads asks again and is given the state
 // whole: it does not depend on having been there for what came before.
-import type { SessionUpdate } from "@cycle/acp";
+import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
 import type { Conversation } from "./model/index.ts";
 
 /**

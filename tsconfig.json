@@ -3,8 +3,8 @@
   "include": [
     "packages/*/src",
     "packages/*/test",
-    "packages/adapters/*/src",
-    "packages/adapters/*/test",
+    "harness/*/src",
+    "harness/*/test",
     "apps/*/src",
     "apps/*/test",
     "scripts"

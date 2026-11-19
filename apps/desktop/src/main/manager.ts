@@ -7,12 +7,12 @@ import {
   sizeOf,
 } from "@cycle/analytics/events";
 import {
+  type Channel,
   CycleClient,
   type ElicitationAnswer,
   type PermissionAnswer,
   ProtocolMismatchError,
 } from "@cycle/client";
-import type { Channel } from "@cycle/transport/client";
 import {
   type AgentInfo,
   type AppApi,

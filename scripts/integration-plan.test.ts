@@ -34,16 +34,16 @@ describe("the list of suites", () => {
 
 describe("the workspace graph", () => {
   test("reads who depends on whom, devDependencies too", () => {
-    expect(graph.get("apps/daemon")).toContain("packages/adapters/claude");
+    expect(graph.get("apps/daemon")).toContain("harness/claude");
     expect(graph.get("apps/desktop")).toContain("packages/ui");
-    expect(graph.get("apps/desktop")).toContain("packages/daemon");
-    expect(graph.get("packages/acp")).toEqual([]);
+    expect(graph.get("apps/desktop")).toContain("apps/daemon");
+    expect(graph.get("packages/protocol")).toEqual([]);
   });
 });
 
 // [what changed, the suites that must run, the ones that must not]
 const table: [string, string[], string[], string[]][] = [
-  ["an adapter source file", ["packages/adapters/claude/src/index.ts"], ["adapter", "backend"], []],
+  ["a harness source file", ["harness/claude/src/index.ts"], ["adapter", "backend", "smoke"], []],
   [
     "the protocol package",
     ["packages/protocol/src/index.ts"],
@@ -51,16 +51,16 @@ const table: [string, string[], string[], string[]][] = [
     ["adapter"],
   ],
   [
-    "the daemon library",
-    ["packages/daemon/src/daemon.ts"],
-    ["node", "backend", "ssh"],
+    "the daemon",
+    ["apps/daemon/src/daemon.ts"],
+    ["node", "ssh", "backend", "package", "smoke"],
     ["adapter"],
   ],
   [
-    "the daemon app",
+    "the daemon entry",
     ["apps/daemon/src/main.ts"],
-    ["ssh", "backend", "package", "smoke"],
-    ["node", "adapter"],
+    ["node", "ssh", "backend", "package", "smoke"],
+    ["adapter"],
   ],
   [
     "the interface",
@@ -89,7 +89,7 @@ const table: [string, string[], string[], string[]][] = [
   ],
   [
     "a helper another package's suite imports",
-    ["packages/daemon/test/fake-agent.ts"],
+    ["apps/daemon/test/fake-agent.ts"],
     ["node"],
     ["adapter"],
   ],
@@ -103,16 +103,11 @@ const table: [string, string[], string[], string[]][] = [
   ],
   [
     "a suite that is run on purpose",
-    ["packages/adapters/claude/test/integration/real-model.integration.ts"],
+    ["harness/claude/test/integration/real-model.integration.ts"],
     [],
     ALL,
   ],
-  [
-    "two changes together",
-    ["docs/a.md", "packages/adapters/claude/src/x.ts"],
-    ["adapter", "backend"],
-    ["node"],
-  ],
+  ["two changes together", ["docs/a.md", "harness/claude/src/x.ts"], ["adapter", "backend"], []],
 ];
 
 describe("which suites a change selects", () => {
@@ -148,18 +143,19 @@ describe("a change that cannot be placed runs everything", () => {
 
 describe("the reasons", () => {
   test("say which file reached the suite and how", () => {
-    const result = plan(["packages/adapters/claude/src/x.ts"], graph);
-    expect(result.selected.get("backend")?.[0]).toContain("packages/adapters/claude/src/x.ts");
+    const result = plan(["harness/claude/src/x.ts"], graph);
+    expect(result.selected.get("backend")?.[0]).toContain("harness/claude/src/x.ts");
     expect(result.selected.get("backend")?.[0]).toContain("imported by apps/daemon");
     expect(plan(["apps/desktop/src/main/app.ts"], graph).selected.get("smoke")?.[0]).toContain(
       "its own package",
     );
   });
 
-  test("a suite the desktop app starts as a process is reached through launches, not imports", () => {
-    // apps/daemon is not in apps/desktop's package.json.
-    expect(graph.get("apps/desktop")).not.toContain("apps/daemon");
-    const result = plan(["apps/daemon/src/main.ts"], graph);
+  test("a suite the desktop app starts as a process is reached through launches even without an import edge", () => {
+    const withoutImport: Graph = new Map(
+      [...graph].map(([dir, deps]) => [dir, deps.filter((d) => d !== "apps/daemon")]),
+    );
+    const result = plan(["apps/daemon/src/main.ts"], withoutImport);
     expect(result.selected.get("smoke")?.[0]).toContain("starts the daemon as a process");
   });
 
@@ -298,14 +294,14 @@ describe("the command line", () => {
     });
 
   test("--plan prints the choice and runs nothing", () => {
-    const out = cli("--plan", "--files", "packages/adapters/claude/src/x.ts", "docs/a.md");
+    const out = cli("--plan", "--files", "packages/ui/src/react/app.tsx", "docs/a.md");
     const text = out.stdout.toString();
     expect(out.exitCode).toBe(0);
-    expect(text).toContain("run   adapter");
-    expect(text).toContain("run   backend");
-    expect(text).toContain("skip  node: not selected");
+    expect(text).toContain("run   package");
+    expect(text).toContain("run   smoke");
+    expect(text).toContain("skip  adapter: not selected");
     expect(text).toContain("docs/a.md: a document");
-    expect(text).not.toContain("== adapter");
+    expect(text).not.toContain("== smoke");
   });
 
   test("a ref that cannot be compared selects everything, and says why", () => {

@@ -17,7 +17,7 @@ cycle-v1 是 ADE(agentic development environment),是 cycle 的重写。这是�
 
 - 三层:L1 客户端到 daemon(自有协议,稳定,zod schema)、L2 daemon 到 agent(以 ACP v2 为主要参考)、L3 agent 适配。
 - 不使用官方 `claude-agent-acp`;Claude 适配自己写,且必须自包含、传输可替换,为云端 sandbox 留路。
-- L1 的消息模型以 ACP v2 为蓝本,字段和语义保持一致,不另造事件模型。ACP 类型只从 `@cycle/acp` 导入(它固定 SDK 的精确版本,是唯一导入 `@agentclientprotocol/sdk` 的地方)。Cycle 自己的扩展用 `_cycle/*` 和 `_meta`,用 zod 定义在 `@cycle/protocol`。
+- L1 的消息模型以 ACP v2 为蓝本,字段和语义保持一致,不另造事件模型。ACP 类型直接从 `@agentclientprotocol/sdk/experimental/v2` 导入(精确版本固定在根目录 `package.json` 的 `workspaces.catalog`,门禁禁止导入 `unstable` 或其他入口,见 `.agents/notes/2026-11-19-workspace-layout-and-direct-acp-sdk.md`)。Cycle 自己的扩展用 `_cycle/*` 和 `_meta`,用 zod 定义在 `@cycle/protocol`。
 - daemon 自己保存会话历史(JSONL),不依赖 agent 重放。只管理 Cycle 自己创建的 session。
 - session 事件日志用 JSONL,放在存储接口后面。
 - L1 事件由 L2 的 ACP 更新映射而来,不原样透传,使客户端不受 ACP 变化和具体 agent 的影响。
@@ -29,7 +29,7 @@ cycle-v1 是 ADE(agentic development environment),是 cycle 的重写。这是�
 
 - `bun run check`:门禁,提交前必须通过(pre-commit 钩子会运行它)。依次检查边界、类型、lint、测试。
 - `bun run format`:格式化并修复可自动修复的 lint。
-- `bun run test:integration`(根目录):集成测试,串行跑 6 个套件(Node 下的客户端、Claude 适配、真实 ssh、整个后端、打包后的应用、Electron 冒烟),每个套件有自己的时限。`bun run test:integration --changed origin/main` 只跑这次改动能碰到的套件,`--plan` 只说明选了哪些、为什么,不运行(规则在 `scripts/integration-plan.ts`)。它们会启动真实进程(Claude、daemon、xvfb 下的 Electron),最重的约 1.5 GB,所以不在门禁里。`bun run test:integration smoke` 只跑名字里有 smoke 的。需要真实模型的运行必须显式开启:`CYCLE_REAL_MODEL_TOKEN=... bun run test:real`(在 `packages/adapters/claude` 和 `packages/daemon` 下),token 只给 Claude 进程,不要从环境里继承,不要进 CI。
+- `bun run test:integration`(根目录):集成测试,串行跑 6 个套件(Node 下的客户端、Claude 适配、真实 ssh、整个后端、打包后的应用、Electron 冒烟),每个套件有自己的时限。`bun run test:integration --changed origin/main` 只跑这次改动能碰到的套件,`--plan` 只说明选了哪些、为什么,不运行(规则在 `scripts/integration-plan.ts`)。它们会启动真实进程(Claude、daemon、xvfb 下的 Electron),最重的约 1.5 GB,所以不在门禁里。`bun run test:integration smoke` 只跑名字里有 smoke 的。需要真实模型的运行必须显式开启:`CYCLE_REAL_MODEL_TOKEN=... bun run test:real`(在 `harness/claude` 下;daemon 层的在 `apps/daemon` 下用 `test:real:daemon`),token 只给 Claude 进程,不要从环境里继承,不要进 CI。
 - `bun run build`(根目录):构建 daemon 的单文件可执行(约 40 秒,峰值内存约 0.25 GB,产出约 480 MB)和桌面端;`bun run start` 启动桌面端。真实模型的 `test:real` 在 `apps/daemon` 和 `apps/desktop` 下也有,要先 build。
 - 目标机器是 2 核 4 GB:门禁约 7 秒、峰值约 0.5 GB;不要把重的东西加进门禁,也不要并行跑集成套件。
 - 测试里的等待要有上限:单个测试的超时是它该有的时间,不是"够长就行"。挂住的测试几十秒内必须失败。

@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 import { join } from "node:path";
-import { runAdapter } from "@cycle/adapter-claude/run";
-import { AlreadyRunningError, isListening, NotASocketError } from "@cycle/transport/server";
-import { claudeEnv } from "./agents.ts";
+import { runAdapter } from "@cycle/harness-claude/run";
 import { parseCli } from "./args.ts";
+import { claudeEnv } from "./claude-agent.ts";
 import { defaultDataDir, loadConfig, pathsFor } from "./config.ts";
 import { proxy } from "./proxy.ts";
 import { claudeExecutable } from "./self.ts";
 import { serve } from "./serve.ts";
+import { AlreadyRunningError, isListening, NotASocketError } from "./transport/server.ts";
 import { VERSION } from "./version.ts";
 
 const USAGE = `cycle <command> [options]

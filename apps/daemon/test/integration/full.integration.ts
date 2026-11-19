@@ -6,15 +6,14 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SessionUpdate } from "@cycle/acp";
-import { CycleClient } from "@cycle/client";
-import { sshChannel } from "@cycle/transport/client";
-import { isListening } from "@cycle/transport/server";
+import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
+import { CycleClient, sshChannel } from "@cycle/client";
 import {
   startMock,
   textReply,
-} from "../../../../packages/adapters/claude/test/integration/mock-anthropic.ts";
-import { fakeSsh } from "../../../../packages/transport/test/support.ts";
+} from "../../../../harness/claude/test/integration/mock-anthropic.ts";
+import { isListening } from "../../src/transport/server.ts";
+import { fakeSsh } from "../fake-ssh.ts";
 
 // CYCLE_DAEMON_BIN: run the built single-file executable instead of the source (see `bun run build`).
 const MAIN = new URL("../../src/main.ts", import.meta.url).pathname;

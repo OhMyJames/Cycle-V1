@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import type { SessionUpdate } from "@cycle/acp";
+import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PermissionRequest, SessionSnapshot } from "../../src/api.ts";

@@ -16,7 +16,7 @@ await mkdir(out, { recursive: true });
 // The SDK's platform package holds the Claude Code binary. Find it where the SDK is installed.
 const sdkPackage = Bun.resolveSync(
   "@anthropic-ai/claude-agent-sdk/package.json",
-  join(root, "../../packages/adapters/claude"),
+  join(root, "../../harness/claude"),
 );
 const platformPackage = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
 const platformDir = dirname(

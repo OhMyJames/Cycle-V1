@@ -33,7 +33,7 @@ export const suites: Suite[] = [
   },
   {
     name: "adapter",
-    cwd: "packages/adapters/claude",
+    cwd: "harness/claude",
     file: "test/integration/adapter.integration.ts",
     seconds: 90,
   },
@@ -73,7 +73,7 @@ export type Graph = Map<string, string[]>;
 
 export const workspaceGraph = (root: string): Graph => {
   const dirs: string[] = [];
-  for (const parent of ["packages", "packages/adapters", "apps"]) {
+  for (const parent of ["packages", "harness", "apps"]) {
     if (!existsSync(join(root, parent))) continue;
     for (const entry of readdirSync(join(root, parent), { withFileTypes: true }))
       if (entry.isDirectory() && existsSync(join(root, parent, entry.name, "package.json")))

@@ -11,7 +11,7 @@ import {
   startMock,
   textReply,
   toolReply,
-} from "../../../../packages/adapters/claude/test/integration/mock-anthropic.ts";
+} from "../../../../harness/claude/test/integration/mock-anthropic.ts";
 import { canLaunch, launch } from "./launch.ts";
 
 const daemonMain = join(new URL("../..", import.meta.url).pathname, "../daemon/src/main.ts");

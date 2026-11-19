@@ -2,7 +2,7 @@
 
 状态:草稿。验证日期 2026-11-18。
 
-`packages/adapters/claude`:把 Claude Agent SDK 包装成 ACP v2 agent,通过 stdio 与 daemon 通信。决策见 [0001](../decisions/0001-claude-acp-adapter.md)。
+`harness/claude`:把 Claude Agent SDK 包装成 ACP v2 agent,通过 stdio 与 daemon 通信。决策见 [0001](../decisions/0001-claude-acp-adapter.md)。
 
 验证所用版本:`@anthropic-ai/claude-agent-sdk` 0.3.327,`@agentclientprotocol/sdk` 2.7.0,Bun 1.4.4。验证先用本地模拟的 Anthropic API,之后又用真实模型验证过(见文末)。
 
@@ -39,7 +39,7 @@
 
 ## 权限模式
 
-取值是 SDK `PermissionMode` 的原值,不改名(存进配置和索引的就是它);给人看的名字和说明只在 `CLAUDE_PERMISSION_MODES`(`packages/adapters/claude/src/agent.ts`)里写一次,ACP 的 `configOptions` 和 daemon 的 `configSchema`(`oneOf`)都从它生成。
+取值是 SDK `PermissionMode` 的原值,不改名(存进配置和索引的就是它);给人看的名字和说明只在 `CLAUDE_PERMISSION_MODES`(`harness/claude/src/agent.ts`)里写一次,ACP 的 `configOptions` 和 daemon 的 `configSchema`(`oneOf`)都从它生成。
 
 | 值                  | 名字               | 说明(界面上显示的英文原文)                                                                                                     |
 | ------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -85,7 +85,7 @@
 
 ## 验证结果
 
-`bun run test:integration`(在 `packages/adapters/claude` 下)把适配器作为独立进程启动,走真实的 SDK 和它自带的 Claude 二进制,对本地模拟 API 说话。`bun test` 和提交门禁不运行它。
+`bun run test:integration`(在 `harness/claude` 下)把适配器作为独立进程启动,走真实的 SDK 和它自带的 Claude 二进制,对本地模拟 API 说话。`bun test` 和提交门禁不运行它。
 
 | 问题                                                         | 结果                                                                                                                                                                                                                         |
 | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -111,7 +111,7 @@
 
 ## 真实模型验证(2026-11-18)
 
-Claude Agent SDK 0.3.327,模型 haiku,账号的 OAuth token(`CLAUDE_CODE_OAUTH_TOKEN`),只在 Claude 进程的环境里。测试:`packages/adapters/claude` 下的 `bun run test:real`,`packages/daemon` 下的 `test:real`(见 [testing.md](../testing.md))。
+Claude Agent SDK 0.3.327,模型 haiku,账号的 OAuth token(`CLAUDE_CODE_OAUTH_TOKEN`),只在 Claude 进程的环境里。测试:`harness/claude` 下的 `bun run test:real`,`apps/daemon` 下的 `test:real:daemon`(见 [testing.md](../testing.md))。
 
 | 问题                                     | 结果                                                                                                                                   |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |

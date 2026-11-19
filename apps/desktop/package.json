@@ -9,8 +9,6 @@
   "dependencies": {
     "@cycle/analytics": "workspace:*",
     "@cycle/client": "workspace:*",
-    "@cycle/protocol": "workspace:*",
-    "@cycle/transport": "workspace:*",
     "@cycle/ui": "workspace:*",
     "electron": "45.3.4",
     "react": "19.3.1",

@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { agent as acpAgent, methods, RequestError } from "@cycle/acp";
+import { agent as acpAgent, methods, RequestError } from "@agentclientprotocol/sdk/experimental/v2";
+import { listenUnix } from "@cycle/daemon";
 import {
   CONNECTORS_CHANGED,
   type Connector,
@@ -13,7 +14,6 @@ import {
   connectorsUpdate,
   META,
 } from "@cycle/protocol";
-import { listenUnix } from "@cycle/transport/server";
 
 /**
  * A daemon that only keeps connectors, as docs/protocol.md §14 says one answers: enough for the client and the desktop's

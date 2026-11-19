@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isUiEvent } from "@cycle/analytics/events";
-import { commandChannel, sshChannel, sshCommand } from "@cycle/transport/client";
+import { commandChannel, sshChannel, sshCommand } from "@cycle/client";
 import { createTranslator, enUS, SOURCE_LOCALE, type UpdateState } from "@cycle/ui";
 import {
   API_METHODS,

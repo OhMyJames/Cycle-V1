@@ -1,9 +1,9 @@
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Daemon } from "@cycle/daemon";
-import { listenUnix } from "@cycle/transport/server";
-import { agentsFor } from "./agents.ts";
+import { agentsFor } from "./claude-agent.ts";
 import { loadConfig, type Paths } from "./config.ts";
+import { Daemon } from "./daemon.ts";
+import { listenUnix } from "./transport/server.ts";
 import { VERSION } from "./version.ts";
 
 /** Runs the daemon until `close` is called. */

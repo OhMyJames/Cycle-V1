@@ -2,8 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectUnix } from "@cycle/transport/client";
-import { CycleClient } from "../src/index.ts";
+import { CycleClient, connectUnix } from "../src/index.ts";
 import { connectorsDaemon } from "./fake-connectors-daemon.ts";
 
 let dir: string;

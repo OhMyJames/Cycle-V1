@@ -2,11 +2,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Daemon } from "@cycle/daemon";
-import { type Channel, connectUnix } from "@cycle/transport/client";
-import { listenUnix } from "@cycle/transport/server";
+import { type Channel, connectUnix } from "@cycle/client";
+import { Daemon, listenUnix } from "@cycle/daemon";
 import { type AppEvent, applyUpdate, type EnvironmentConfig, emptyConversation } from "@cycle/ui";
-import { fakeAgent } from "../../../packages/daemon/test/fake-agent.ts";
+import { fakeAgent } from "../../daemon/test/fake-agent.ts";
 import {
   type AttentionNotice,
   ConnectionManager,

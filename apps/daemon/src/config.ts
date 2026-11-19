@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { defaultDataDir } from "@cycle/daemon";
 import { z } from "zod";
+import { defaultDataDir } from "./data-dir.ts";
 
 /**
  * `<dataDir>/config.json`. Everything an agent may see is written here or named here: the daemon

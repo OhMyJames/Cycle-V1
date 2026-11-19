@@ -12,8 +12,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CycleClient } from "@cycle/client";
-import { commandChannel } from "@cycle/transport/client";
+import { CycleClient, commandChannel } from "@cycle/client";
 
 const token = process.env.CYCLE_REAL_MODEL_TOKEN;
 const model = process.env.CYCLE_REAL_MODEL ?? "haiku";

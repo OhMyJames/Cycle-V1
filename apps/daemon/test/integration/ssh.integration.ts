@@ -8,13 +8,12 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
-import type { SessionUpdate } from "@cycle/acp";
-import { CycleClient } from "@cycle/client";
-import { sshChannel } from "@cycle/transport/client";
+import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
+import { CycleClient, sshChannel } from "@cycle/client";
 import {
   startMock,
   textReply,
-} from "../../../../packages/adapters/claude/test/integration/mock-anthropic.ts";
+} from "../../../../harness/claude/test/integration/mock-anthropic.ts";
 
 const sshd = ["/usr/sbin/sshd", "/usr/local/sbin/sshd"].find((p) => existsSync(p));
 const keygen = Bun.which("ssh-keygen");

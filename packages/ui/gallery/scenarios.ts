@@ -1,6 +1,6 @@
 // The gallery's scenarios: one state of the interface each, drawn by the real components over a scripted
 // bridge. DESIGN.md says what each is for. Add one when a surface gets a new state.
-import type { SessionUpdate } from "@cycle/acp";
+import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
 import type {
   AppEvent,
   EnvironmentConfig,
