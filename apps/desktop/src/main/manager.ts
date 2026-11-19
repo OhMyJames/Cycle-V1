@@ -61,6 +61,13 @@ type Connection = {
   sessions: SessionSummary[];
   watched: Map<string, Watched>;
   opening: Map<string, Promise<void>>;
+  /**
+   * The folders of the sessions made on this connection. A session is not in the daemon's list until its first message
+   * is on record (docs/protocol.md §6), and it is opened as that message goes: its folder is known from here meanwhile.
+   */
+  made: Map<string, string>;
+  /** A list has been read on this connection: what is in the first says nothing, what appears later is new. */
+  listed: boolean;
   /** Counts the rereads of the list, and the newest one applied: an older answer arriving late is not applied over it. */
   asked: number;
   applied: number;
@@ -164,6 +171,8 @@ export class ConnectionManager
       sessions: [],
       watched: new Map(),
       opening: new Map(),
+      made: new Map(),
+      listed: false,
       asked: 0,
       applied: 0,
     };
@@ -200,6 +209,7 @@ export class ConnectionManager
                     steer: connection.client.capabilities.steer === true,
                     files: connection.client.capabilities.files === true,
                     folders: connection.client.capabilities.folders === true,
+                    filesInFolder: connection.client.capabilities.filesInFolder === true,
                     trust: connection.client.capabilities.trust === true,
                   },
                 }
@@ -327,10 +337,12 @@ export class ConnectionManager
     // The environment may have been removed while the question was out: its list must not come back.
     if (this.#connections.get(environmentId) !== connection) return sessions;
     const before = new Map(connection.sessions.map((s) => [s.sessionId, s]));
+    const first = !connection.listed;
+    connection.listed = true;
     connection.sessions = sessions;
     this.#lastSessions.set(environmentId, sessions);
     this.#options.emit({ type: "sessions", environmentId, sessions });
-    this.#tell(environmentId, before, sessions, afterOutage);
+    this.#tell(environmentId, before, sessions, afterOutage, first);
     return sessions;
   }
 
@@ -340,13 +352,25 @@ export class ConnectionManager
     before: ReadonlyMap<string, SessionSummary>,
     sessions: readonly SessionSummary[],
     afterOutage: boolean,
+    first: boolean,
   ): void {
     const attention = this.#options.attention;
     if (attention === undefined) return;
     const environmentName =
       this.#environments.find((h) => h.id === environmentId)?.name ?? environmentId;
     for (const session of sessions) {
-      const kind = attentionOf(before.get(session.sessionId), session);
+      // A session enters the list with its first message (docs/protocol.md §6), already at work: after the first list,
+      // one that appears is taken to have been idle, so that one already waiting on the person is told; or, if a turn of
+      // it has ended unseen, to have been running, so that one that has finished by the time it is read is told too.
+      const was =
+        before.get(session.sessionId) ??
+        (first
+          ? undefined
+          : {
+              ...session,
+              state: session.unread === true ? ("running" as const) : ("idle" as const),
+            });
+      const kind = attentionOf(was, session);
       if (kind === undefined || (afterOutage && kind !== "needs-you")) continue;
       try {
         attention({ environmentId, environmentName, session, kind });
@@ -359,7 +383,8 @@ export class ConnectionManager
   async createSession(environmentId: string, params: NewSession): Promise<string> {
     const connection = this.#connection(environmentId);
     const sessionId = await connection.client.newSession(params);
-    await this.#refreshSessions(environmentId, connection);
+    // Not in the list until its first message (docs/protocol.md §6): the daemon announces it then, and it is read again.
+    connection.made.set(sessionId, params.cwd);
     return sessionId;
   }
 
@@ -384,15 +409,17 @@ export class ConnectionManager
 
   async #watch(connection: Connection, sessionId: string): Promise<void> {
     if (connection.watched.has(sessionId)) return;
-    const summary = connection.sessions.find((s) => s.sessionId === sessionId);
-    if (summary === undefined) throw new Error("No such session");
+    const cwd =
+      connection.sessions.find((s) => s.sessionId === sessionId)?.cwd ??
+      connection.made.get(sessionId);
+    if (cwd === undefined) throw new Error("No such session");
     connection.watched.set(sessionId, {
       conversation: { ...emptyConversation(), replaying: true },
       pending: new Map(),
       version: 0,
     });
     try {
-      await connection.client.watch(sessionId, summary.cwd);
+      await connection.client.watch(sessionId, cwd);
     } catch (error) {
       connection.watched.delete(sessionId);
       throw error;
@@ -461,8 +488,15 @@ export class ConnectionManager
     return this.#connection(environmentId).client.setTrust(path, trusted);
   }
 
-  async searchFiles(environmentId: string, sessionId: string, query: string): Promise<FileSearch> {
-    return this.#connection(environmentId).client.searchFiles(sessionId, query);
+  async searchFiles(
+    environmentId: string,
+    where: { sessionId: string } | { cwd: string },
+    query: string,
+  ): Promise<FileSearch> {
+    return this.#connection(environmentId).client.searchFiles(
+      "sessionId" in where ? where.sessionId : { cwd: where.cwd },
+      query,
+    );
   }
 
   async dequeue(environmentId: string, sessionId: string, queueId: string): Promise<PromptBlock[]> {

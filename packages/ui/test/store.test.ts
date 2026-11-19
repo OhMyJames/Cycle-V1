@@ -3,7 +3,7 @@ import type { SessionUpdate } from "@cycle/acp";
 import type { AppEvent, PermissionRequest, SessionSnapshot } from "../src/api.ts";
 import { DraftStore } from "../src/draft.ts";
 import { applyUpdate, emptyConversation, reduce } from "../src/model/index.ts";
-import { AppStore, viewKey } from "../src/store/index.ts";
+import { AppStore, BLANK_KEY, viewKey } from "../src/store/index.ts";
 
 import { fakeBridge, idle, summary as summaryOf, text } from "./fake-bridge.ts";
 
@@ -286,16 +286,132 @@ test("a session that cannot be opened is not left half-shown", async () => {
   expect(store.getState().views[viewKey("local", "gone")]).toBeUndefined();
 });
 
-test("creating a session opens it, and deleting one clears it", async () => {
-  const { store, named } = await opened();
-  await store.createSession("local", { cwd: "/work", agent: "fake" });
+test("a new session is a blank conversation until its first message, which makes the session and sends it", async () => {
+  const script = fakeBridge({ connected: true });
+  script.bridge.agentDefaults = async () => ({ mode: "plan" });
+  const { store, named } = await opened(script);
+  store.openBlank({ environmentId: "local", cwd: "/work" });
+  // Nothing is asked of the daemon to open it: it is only here until something is said.
+  expect(store.getState().selectedSession).toBeUndefined();
+  expect(named("createSession")).toEqual([]);
+  await Bun.sleep(1);
+  expect(store.getState().blank).toMatchObject({ cwd: "/work", config: { mode: "plan" } });
+  store.changeBlank({ setting: { key: "mode", value: "default" } });
+
+  store.drafts.setText(BLANK_KEY, "hi");
+  await store.send();
   expect(named("createSession")).toEqual([
-    ["createSession", "local", { cwd: "/work", agent: "fake" }],
+    ["createSession", "local", { cwd: "/work", agent: "fake", config: { mode: "default" } }],
   ]);
+  expect(named("prompt")).toEqual([["prompt", "local", "s2", [{ type: "text", text: "hi" }]]]);
+  // The session is open in its place, and the box it was written in is empty for the next one.
+  expect(store.getState().blank).toBeUndefined();
   expect(store.getState().selectedSession).toBe("s2");
+  expect(store.drafts.get(BLANK_KEY).text).toBe("");
+
   await store.deleteSession("s2");
   expect(store.getState().selectedSession).toBeUndefined();
   expect(store.getState().views[viewKey("local", "s2")]).toBeUndefined();
+});
+
+test("the first message is shown while the session is made, and comes back to the box if it cannot be", async () => {
+  const script = fakeBridge({ connected: true });
+  let fail: (error: Error) => void = () => {};
+  script.bridge.createSession = () =>
+    new Promise((_, reject) => {
+      fail = reject;
+    });
+  const { store, named } = await opened(script);
+  store.openBlank({ environmentId: "local", cwd: "/work" });
+  await Bun.sleep(1);
+  store.drafts.setText(BLANK_KEY, "hi");
+  const sending = store.send();
+  expect(store.getState().blank?.starting).toEqual([{ type: "text", text: "hi" }]);
+  // Nothing about it changes while it starts.
+  store.changeBlank({ cwd: "/elsewhere" });
+  expect(store.getState().blank?.cwd).toBe("/work");
+  fail(new Error("Error invoking remote method 'cycle:createSession': Error: No such folder"));
+  await sending;
+  expect(store.getState().error).toBe("No such folder");
+  expect(store.getState().blank?.starting).toBeUndefined();
+  expect(store.drafts.get(BLANK_KEY).text).toBe("hi");
+  expect(named("prompt")).toEqual([]);
+});
+
+test("a session that was made but whose first message could not go is opened, with the message in its box", async () => {
+  const script = fakeBridge({ connected: true });
+  script.bridge.prompt = async () => {
+    throw new Error("The agent cannot start");
+  };
+  const { store } = await opened(script);
+  store.openBlank({ environmentId: "local", cwd: "/work" });
+  await Bun.sleep(1);
+  store.drafts.setText(BLANK_KEY, "hi");
+  await store.send();
+  expect(store.getState().error).toBe("The agent cannot start");
+  expect(store.getState().selectedSession).toBe("s2");
+  expect(store.drafts.get(viewKey("local", "s2")).text).toBe("hi");
+  expect(store.drafts.get(BLANK_KEY).text).toBe("");
+});
+
+test("a blank conversation does not start until it has a folder and its agent's defaults, and refuses a form it could not read", async () => {
+  const script = fakeBridge({ connected: true });
+  script.bridge.agentDefaults = async () => {
+    throw new Error("cannot read");
+  };
+  const { store, named } = await opened(script);
+  store.openBlank({ environmentId: "local" });
+  await Bun.sleep(1);
+  expect(store.getState().blank?.unreadable).toBe(true);
+  store.changeBlank({ cwd: "/work" });
+  store.drafts.setText(BLANK_KEY, "hi");
+  await store.send();
+  expect(named("createSession")).toEqual([]);
+  expect(store.drafts.get(BLANK_KEY).text).toBe("hi");
+});
+
+test("@ in a blank conversation looks in its folder, only on a daemon that can", async () => {
+  const script = fakeBridge({
+    connected: true,
+    capabilities: { queue: true, files: true, folders: true, filesInFolder: true },
+  });
+  const { store, named } = await opened(script);
+  store.openBlank({ environmentId: "local" });
+  // No folder yet: nothing to look in.
+  expect(await store.searchFiles("a")).toBeUndefined();
+  store.changeBlank({ cwd: "/work" });
+  await store.searchFiles("a");
+  expect(named("searchFiles")).toEqual([["searchFiles", "local", { cwd: "/work" }, "a"]]);
+
+  const old = fakeBridge({ connected: true });
+  const before = await opened(old);
+  before.store.openBlank({ environmentId: "local", cwd: "/work" });
+  expect(await before.store.searchFiles("a")).toBeUndefined();
+  expect(old.named("searchFiles")).toEqual([]);
+  // In a session, as always.
+  await before.store.selectSession("local", "s1");
+  await before.store.searchFiles("a");
+  expect(old.named("searchFiles")).toEqual([["searchFiles", "local", { sessionId: "s1" }, "a"]]);
+});
+
+test("leaving a blank conversation while it starts does not pull the person back to it", async () => {
+  const script = fakeBridge({ connected: true });
+  let made: (id: string) => void = () => {};
+  script.bridge.createSession = () =>
+    new Promise((resolve) => {
+      made = resolve;
+    });
+  const { store, named } = await opened(script);
+  store.openBlank({ environmentId: "local", cwd: "/work" });
+  await Bun.sleep(1);
+  store.drafts.setText(BLANK_KEY, "hi");
+  const sending = store.send();
+  await store.selectSession("local", "s1");
+  made("s2");
+  await sending;
+  expect(named("prompt")).toEqual([["prompt", "local", "s2", [{ type: "text", text: "hi" }]]]);
+  expect(store.getState().selectedSession).toBe("s1");
+  expect(store.getState().blank).toBeUndefined();
 });
 
 test("the update state is read at the start, follows main's events, and the user can ask for a check", async () => {
@@ -419,4 +535,41 @@ test("a session gone on another host does not close the one that is open here", 
   emit({ type: "session-gone", environmentId: "elsewhere", sessionId: "s1" });
   expect(store.getState().selectedSession).toBe("s1");
   expect(store.getState().views[viewKey("local", "s1")]).toBeDefined();
+});
+
+test("a blank conversation follows the agent's defaults when they change, under what was chosen on it", async () => {
+  const script = fakeBridge({ connected: true });
+  let defaults: Record<string, string> = { mode: "plan", model: "sonnet" };
+  script.bridge.agentDefaults = async () => defaults;
+  const { store } = await opened(script);
+  store.openBlank({ environmentId: "local", cwd: "/work" });
+  await Bun.sleep(1);
+  store.changeBlank({ setting: { key: "model", value: "opus" } });
+  defaults = { mode: "default", model: "haiku" };
+  script.emit({ type: "agent-defaults", environmentId: "local", agent: "fake" });
+  await Bun.sleep(1);
+  expect(store.getState().blank?.config).toEqual({ mode: "default", model: "opus" });
+});
+
+test("a first message that could not go after the person left is kept in the blank conversation's box", async () => {
+  const script = fakeBridge({ connected: true });
+  let made: (id: string) => void = () => {};
+  script.bridge.createSession = () =>
+    new Promise((resolve) => {
+      made = resolve;
+    });
+  script.bridge.prompt = async () => {
+    throw new Error("The agent cannot start");
+  };
+  const { store } = await opened(script);
+  store.openBlank({ environmentId: "local", cwd: "/work" });
+  await Bun.sleep(1);
+  store.drafts.setText(BLANK_KEY, "hi");
+  const sending = store.send();
+  await store.selectSession("local", "s1");
+  made("s2");
+  await sending;
+  expect(store.getState().selectedSession).toBe("s1");
+  expect(store.drafts.get(BLANK_KEY).text).toBe("hi");
+  expect(store.drafts.get(viewKey("local", "s2")).text).toBe("");
 });

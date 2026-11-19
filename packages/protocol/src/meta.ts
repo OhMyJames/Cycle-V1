@@ -42,6 +42,8 @@ export const META = {
   noClient: "cycle/noClient",
   /** On the answer to a `session/prompt` that was queued, not sent: the agent was still working. */
   queued: "cycle/queued",
+  /** On `session/list`: leave out the sessions nothing has been said in yet (docs/protocol.md §6). */
+  onlyPrompted: "cycle/onlyPrompted",
   /**
    * On a `session/prompt` (client to daemon, and daemon to agent): put it into the turn that is
    * running instead of queueing it (docs/protocol.md §8). Ignored when the session is not busy.
@@ -77,6 +79,8 @@ export const CapabilitiesSchema = z.object({
   files: z.boolean().optional(),
   /** `_cycle/folders/list` is there (docs/protocol.md §8). */
   folders: z.boolean().optional(),
+  /** `_cycle/files/search` also takes a `cwd` in place of a session (docs/protocol.md §8). */
+  filesInFolder: z.boolean().optional(),
   /** `_cycle/trust/read` and `_cycle/trust/set` are there (docs/protocol.md §8). */
   trust: z.boolean().optional(),
 });

@@ -40,6 +40,11 @@ export const SessionEntrySchema = z.object({
    * record of its own, which a restarted agent must find. Sent to it as `cycle/hadTurn`.
    */
   hadTurn: z.boolean().optional(),
+  /**
+   * True once the person's first message is in the log: only then is the session in the list (docs/protocol.md §6).
+   * False from creation until then. Absent from an entry written before the list asked: read from the log once.
+   */
+  prompted: z.boolean().optional(),
   /** What was asked of the agent with `session/set_config_option`, applied again when it is restarted. */
   config: z.record(z.string(), z.string()).optional(),
   createdAt: z.string(),

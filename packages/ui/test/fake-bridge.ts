@@ -43,6 +43,7 @@ export const fakeBridge = (
       steer?: boolean;
       files: boolean;
       folders: boolean;
+      filesInFolder?: boolean;
       trust?: boolean;
     };
     /** The agent can take a message into a running turn. */

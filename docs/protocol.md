@@ -48,6 +48,7 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
   "steer": true,
   "files": true,
   "folders": true,
+  "filesInFolder": true,
   "trust": true
 }
 ```
@@ -136,7 +137,11 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 ### 列表
 
-`session/list` 只返回 Cycle 自己创建的 session(决策 0006),带 ACP 的 `SessionInfo` 字段,其中 `updatedAt`(ISO 8601)是 session 最后一条非 `meta` 记录的 `ts`;还没有这类记录时是创建时间。列表按它排序和按日分组。再在 `_meta` 里加:
+`session/list` 只返回 Cycle 自己创建的 session(决策 0006)。请求的 `_meta["cycle/onlyPrompted"]` 为 `true` 时,只返回**已经收到过用户消息**的:新建 session 在客户端是一个空白对话,首条消息发出时才 `session/new` 加 `session/prompt`(`.agents/notes/2026-11-19-session-starts-at-first-message.md`),所以一个 session 从 daemon **接下**它的第一条 prompt 起才出现在这样的列表里(通过了内容检查,不论之后是直接发给 agent、排队,还是 agent 起不来而失败),此时 daemon 发 `_cycle/session_list_changed`。不带这个标记的请求(旧客户端:它们靠在列表里找到刚建的 session 来打开它)照旧列出全部。还没有用户消息的 session 仍然存在:可以 `session/resume`、`session/prompt`、删除。daemon 不会自动删除它们。历史不可用的 session(`cycle/historyFailed`,写不进去或读不了)照旧列出,好让人能删除它。
+
+daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有它,daemon 在列表时读一次该 session 的日志(按存储的样子,不读回图片),有 `user_message` 就算,补上之后不再读。
+
+列表里每一项带 ACP 的 `SessionInfo` 字段,其中 `updatedAt`(ISO 8601)是 session 最后一条非 `meta` 记录的 `ts`;还没有这类记录时是创建时间。列表按它排序和按日分组。再在 `_meta` 里加:
 
 - `cycle/archived`:布尔。
 - `cycle/agent`:agent id。
@@ -147,7 +152,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 - `cycle/background`:整数,仍在运行的后台子 agent 数(`subagent_update` 里 `_meta["cycle/subagent"].background` 为 true 且 `state` 还不是终态,见 §9)。为 0 时省略。它只记在内存里:daemon 重启后 agent 进程不在了,归 0,不写进索引。
 - `cycle/usage`:最近一次 `usage_update`,`{used, size, cost?: {amount, currency}}`:已用的上下文 token、窗口大小、累计费用。daemon 存在索引里,列表不用重放日志就能显示;还没有过 `usage_update` 的 session 没有这个字段。
 
-列表变化(新建、删除、归档、`cycle/state` 改变、`cycle/unread` 改变、`cycle/background` 的值改变)通过通知 `_cycle/session_list_changed` 告诉所有客户端,通知里不带内容,客户端收到后重新拉列表。
+列表变化(出现第一条用户消息、删除、归档、`cycle/state` 改变、`cycle/unread` 改变、`cycle/background` 的值改变)通过通知 `_cycle/session_list_changed` 告诉所有客户端,通知里不带内容,客户端收到后重新拉列表。
 
 一个等待中的请求被回答(session 不再是 `requires_action`)也发这个通知。
 
@@ -283,15 +288,16 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 
 ### 提及(@)文件与文件夹
 
-客户端在输入框里用 `@` 引用 session 的 `cwd` 下的文件或文件夹。
+客户端在输入框里用 `@` 引用 session 的 `cwd` 下的文件或文件夹。还没有 session 的空白对话(§6 列表)引用它选好的 `cwd` 下的。
 
-**搜索**:`_cycle/files/search`(客户端 → daemon),参数 `{sessionId, query, limit?}`,响应 `{root, entries: [{path, kind}], truncated}`:
+**搜索**:`_cycle/files/search`(客户端 → daemon),参数 `{sessionId, query, limit?}` 或 `{cwd, query, limit?}`(两者恰好给一个),响应 `{root, entries: [{path, kind}], truncated}`:
 
 - `root` 是 `cwd` 的绝对路径;`path` 是相对 `root` 的路径,用 `/` 分隔;`kind` 是 `"file"` 或 `"folder"`。
 - 排序:名字以 `query` 开头的在前,名字包含的次之,路径包含的最后;`query` 含 `/` 时只匹配路径。`query` 为空时给顶层的文件夹和文件。`limit` 缺省 20,最大 50。
 - **只在 `cwd` 内**:daemon 对每个候选取 `realpath`,不在 `cwd` 的 `realpath` 之内的丢掉;符号链接不跟随,也不列出。`cwd` 不存在时返回空列表,不是错误。
 - **有上限**:最多检查 50,000 个条目、最多走 2 秒;到了上限就带 `truncated: true` 返回已找到的。跳过 `.git` 和 `node_modules`;名字以 `.` 开头的文件,只有 `query` 里含 `.` 时才给。
 - 这是 daemon 读本机文件系统的新入口:不返回文件内容,只返回路径;只在 loopback、unix socket 或 SSH 通道上服务,不放宽。session 不存在以 `-32002` 拒绝。
+- **按 `cwd` 搜**:给空白对话用,那时还没有 session。`cwd` 必须是绝对路径,否则以 `-32602` 拒绝;同时给 `sessionId` 和 `cwd`,或都不给,也是 `-32602`。规则和按 session 搜完全一样,`root` 是给的 `cwd`;不存在时同样返回空列表。它不比按 session 搜多暴露什么:谁能连上 daemon,谁就能用任意 `cwd` 新建 session 再搜。能力 `filesInFolder` 为 `true` 才有;旧 daemon 没有时,客户端在空白对话里不提供 @ 搜索,有了 session 之后照常。
 
 ### 选文件夹
 
@@ -320,7 +326,7 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 - `path` 必须是绝对路径,否则 `-32602`;不存在,`-32002`;不是文件夹或看不了,`-32602`,`data.reason` 是 `not_a_folder` 或 `unreadable`(和 `_cycle/folders/list` 一致)。
 - **交给 agent**(L2):daemon 每次启动 agent(`session/new`,以及恢复时的 `session/resume`)都按 session 的 `cwd` 查一次,有决定就在 `_meta["cycle/trusted"]` 里带上 `true` 或 `false`,没有决定就不带。没有决定时 agent 保持它自己原有的状态,不改。Claude 适配的做法见 [docs/adapters/claude.md](adapters/claude.md)。
 - **对已有 session 何时生效**:决定在 agent 进程启动时交给它,agent 之后每次起自己的子进程都按它来。所以 `_cycle/trust/set` 之后,daemon 结束这个文件夹(含子文件夹)里每个 session 的 agent 进程:空闲的(没有在跑的 turn、没有排队的 prompt、没有等待回答的请求、没有后台子 agent)立即结束;正在工作或正在启动的,等它下一次这样空闲时结束(turn 结束、最后一个后台子 agent 结束)。下一条 prompt 以新的决定恢复它。
-- **客户端**:新建 session 时,`cwd` 没有决定就先问用户(信任并开始、不信任也开始、取消),答案用 `_cycle/trust/set` 记下;不要默认替用户信任。workspace 的菜单里可以改这个决定。
+- **客户端**:新建 session 时(空白对话发出第一条消息、`session/new` 之前),`cwd` 没有决定就先问用户(信任并开始、不信任也开始、取消),答案用 `_cycle/trust/set` 记下;不要默认替用户信任。workspace 的菜单里可以改这个决定。
 - 能力 `trust` 为 `true` 才有这两个方法。旧 daemon 没有:客户端不问,也不显示。
 
 **发送**:composer 里的 `@路径` 在发送时变成两样东西:

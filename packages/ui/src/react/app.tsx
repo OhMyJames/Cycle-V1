@@ -30,18 +30,13 @@ import {
   sessionList,
   workspacesOf,
 } from "../sessions.ts";
-import { viewKey } from "../store/index.ts";
+import { BLANK_KEY, viewKey } from "../store/index.ts";
 import { thinking } from "../thinking.ts";
+import { BlankConversationView } from "./blank.tsx";
 import { Composer } from "./composer.tsx";
 import { ConfigForm } from "./config-form.tsx";
 import { ConversationView } from "./conversation.tsx";
-import {
-  AgentDefaultsDialog,
-  ConfirmDialog,
-  EnvironmentDialog,
-  NewSessionDialog,
-  RenameDialog,
-} from "./dialogs.tsx";
+import { AgentDefaultsDialog, ConfirmDialog, EnvironmentDialog, RenameDialog } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
 import { ErrorCircleIcon, MoreIcon, WarningIcon } from "./icons.tsx";
 import { useDay, useInFront } from "./in-front.ts";
@@ -55,7 +50,6 @@ import { DaemonBanner, UpdateBanner, UpdateFooter } from "./update.tsx";
 
 type Panel =
   | "none"
-  | "new-session"
   | "add-environment"
   | "defaults"
   | "rename"
@@ -116,6 +110,7 @@ export function App() {
   const sessionsByEnvironment = useAppState((s) => s.sessions);
   const agentsByEnvironment = useAppState((s) => s.agents);
   const views = useAppState((s) => s.views);
+  const blank = useAppState((s) => s.blank);
   const error = useAppState((s) => s.error);
   const [panel, setPanel] = useState<Panel>("none");
   const [showArchived, setShowArchived] = useState(false);
@@ -158,10 +153,6 @@ export function App() {
   const connected = environmentState === "connected";
   const environmentError =
     selectedEnvironment !== undefined ? status[selectedEnvironment]?.error : undefined;
-  const readDefaults = useCallback(
-    (environmentId: string, agent: string) => store.readAgentDefaults(environmentId, agent),
-    [store],
-  );
   const close = () => setPanel("none");
   const [layout] = useState(createResizableController);
   // The workspaces, and the one the sidebar shows; the list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
@@ -179,10 +170,12 @@ export function App() {
       }),
     [sessions, environmentLabels, awayEnvironments, showArchived],
   );
-  const openKey = session !== undefined ? sessionKey(session) : undefined;
+  // A blank conversation is open in place of a session: the sidebar shows its folder, if it has sessions there.
+  const openKey =
+    session !== undefined ? sessionKey(session) : blank !== undefined ? BLANK_KEY : undefined;
   const current = currentWorkspace(workspaces, {
     chosen: chosen !== undefined && chosen.on === openKey ? chosen.workspace : undefined,
-    open: session,
+    open: session ?? blank,
   });
   // A new session starts in the workspace that is shown, if its environment can have one started.
   const startOn =
@@ -190,6 +183,23 @@ export function App() {
       ? current
       : undefined;
   const elsewhere = useMemo(() => elsewhereOf(workspaces, current), [workspaces, current]);
+  /**
+   * Opens a blank conversation: a new session that is made by its first message. It starts in the workspace that is
+   * shown, else on the environment that is open, else on the first that is connected.
+   */
+  const newSession = () => {
+    // One is open already: it stays as it is, with what was chosen and written on it.
+    if (blank !== undefined) return store.openBlank({ environmentId: blank.environmentId });
+    const environmentId =
+      startOn?.environmentId ??
+      (connected ? selectedEnvironment : undefined) ??
+      connectedEnvironments[0]?.id;
+    if (environmentId === undefined) return;
+    store.openBlank({
+      environmentId,
+      cwd: startOn?.environmentId === environmentId ? startOn.cwd : undefined,
+    });
+  };
   // Whether the shown workspace's folder is trusted, when its daemon can say. Read again as a dialog closes: it may have been decided there.
   const trustEnvironment =
     current !== undefined &&
@@ -274,7 +284,7 @@ export function App() {
         action();
       };
       if (key === "k") run(() => setPanel("search"));
-      else if (key === "n" && connectedEnvironments.length > 0) run(() => setPanel("new-session"));
+      else if (key === "n" && connectedEnvironments.length > 0) run(newSession);
       else if (key === "b")
         run(() =>
           layout.isCollapsed("sidebar") ? layout.expand("sidebar") : layout.collapse("sidebar"),
@@ -339,7 +349,7 @@ export function App() {
             onSelectSession={(chosen) =>
               void store.selectSession(chosen.environmentId, chosen.sessionId)
             }
-            onNewSession={() => setPanel("new-session")}
+            onNewSession={newSession}
             onSearch={() => setPanel("search")}
             onAddEnvironment={() => setPanel("add-environment")}
             onRemoveEnvironment={(id) => void store.removeEnvironment(id)}
@@ -398,7 +408,16 @@ export function App() {
                 })}
               </div>
             ) : null}
-            {session !== undefined ? (
+            {blank !== undefined ? (
+              <BlankConversationView
+                blank={blank}
+                environments={connectedEnvironments}
+                connected={connected}
+                follow={sent}
+                onSent={() => setSent((n) => n + 1)}
+              />
+            ) : null}
+            {blank === undefined && session !== undefined ? (
               <header data-slot="session-header">
                 <div data-slot="stack">
                   <h1>{sessionTitle(session)}</h1>
@@ -444,7 +463,7 @@ export function App() {
                 </div>
               </header>
             ) : null}
-            {view !== undefined ? (
+            {blank !== undefined ? null : view !== undefined ? (
               <ConversationView
                 key={viewKey(view.environmentId, view.sessionId)}
                 sessionKey={viewKey(view.environmentId, view.sessionId)}
@@ -528,22 +547,10 @@ export function App() {
           setChosen(undefined);
           await store.selectSession(environmentId, sessionId);
         }}
-        onNewSession={() => setPanel("new-session")}
-      />
-      <NewSessionDialog
-        open={panel === "new-session"}
-        onOpenChange={(open) => !open && close()}
-        environments={connectedEnvironments}
-        defaultEnvironment={startOn?.environmentId ?? selectedEnvironment}
-        defaultCwd={startOn?.cwd}
-        agents={agentsByEnvironment}
-        readDefaults={readDefaults}
-        chooseDirectory={store.chooseDirectory}
-        listFolders={store.listFolders}
-        status={status}
-        readTrust={store.readTrust}
-        setTrust={store.setTrust}
-        onCreate={store.createSession}
+        onNewSession={() => {
+          close();
+          newSession();
+        }}
       />
       {trustEnvironment !== undefined && trustCwd !== undefined ? (
         <ConfirmDialog

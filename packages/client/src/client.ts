@@ -165,8 +165,14 @@ export class CycleClient {
     await this.#request("_cycle/agent_defaults/set", { agent, config });
   }
 
+  /**
+   * The sessions, without those nothing has been said in yet: a new session is a blank conversation until its first
+   * message (docs/protocol.md §6). An older daemon lists them all.
+   */
   async listSessions(): Promise<SessionRow[]> {
-    const answer = (await this.#request(methods.agent.session.list, {})) as {
+    const answer = (await this.#request(methods.agent.session.list, {
+      _meta: { [META.onlyPrompted]: true },
+    })) as {
       sessions: SessionRow[];
     };
     return answer.sessions;
@@ -234,9 +240,12 @@ export class CycleClient {
     return answer.prompt;
   }
 
-  /** Finds files and folders in the session's folder on the daemon's machine (docs/protocol.md §8). */
+  /**
+   * Finds files and folders in the session's folder on the daemon's machine, or in a folder given for a conversation that
+   * has no session yet: that needs a daemon that says `filesInFolder` (docs/protocol.md §8).
+   */
   async searchFiles(
-    sessionId: string,
+    where: string | { cwd: string },
     query: string,
     limit?: number,
   ): Promise<{
@@ -245,7 +254,7 @@ export class CycleClient {
     truncated: boolean;
   }> {
     return (await this.#request("_cycle/files/search", {
-      sessionId,
+      ...(typeof where === "string" ? { sessionId: where } : { cwd: where.cwd }),
       query,
       ...(limit !== undefined ? { limit } : {}),
     })) as {

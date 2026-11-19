@@ -9,7 +9,6 @@ import type {
   FileSearch,
   FolderListing,
   FolderTrust,
-  NewSession,
   PermissionRequest,
   PromptBlock,
   SessionSnapshot,
@@ -21,6 +20,37 @@ import { applyUpdate, type Conversation, emptyConversation } from "../model/inde
 
 export const viewKey = (environmentId: string, sessionId: string): string =>
   `${environmentId}:${sessionId}`;
+
+/**
+ * The key of what the blank conversation's box holds. One for every blank conversation, whatever environment it is on:
+ * what was written stays when the environment or folder is changed, and when the person goes away and comes back.
+ */
+export const BLANK_KEY = "blank";
+
+/**
+ * A new session before its first message: only here, in the client. The daemon hears of it when that message is sent
+ * (`session/new`, then `session/prompt`), and only then is it in the list (docs/protocol.md §6).
+ */
+export type BlankConversation = {
+  environmentId: string;
+  /** Where the agent will work, on the environment's machine. Empty until it is chosen. */
+  cwd: string;
+  /** The agent chosen; undefined: the first that is available on the environment. */
+  agent: string | undefined;
+  /** What the session starts with: the agent's defaults, then what was chosen here. Undefined until they are read. */
+  config: Record<string, string> | undefined;
+  /** The settings the person chose here: they stay over the agent's defaults when those are read again. */
+  chosen?: Record<string, string>;
+  /** The agent's defaults could not be read: it does not start from a form that may not be what the person set. */
+  unreadable?: true;
+  /** The first message, on its way: the session is being made. Nothing here can change meanwhile. */
+  starting?: PromptBlock[];
+  /**
+   * The folder (its real path) nobody has decided whether to trust: asked when the first message is sent, before the
+   * session is made (docs/protocol.md §8 "信任文件夹"). `failed`: why the answer could not be kept.
+   */
+  asking?: { path: string; failed?: string };
+};
 
 export type SessionView = {
   environmentId: string;
@@ -42,6 +72,8 @@ export type AppState = {
   defaultsRevision: Record<string, number>;
   selectedEnvironment: string | undefined;
   selectedSession: string | undefined;
+  /** The blank conversation that is open, in place of a session: `selectedSession` is undefined while it is. */
+  blank: BlankConversation | undefined;
   views: Record<string, SessionView>;
   /** The last thing that went wrong, for the user to read and dismiss. */
   error: string | undefined;
@@ -58,6 +90,7 @@ const initial = (): AppState => ({
   defaultsRevision: {},
   selectedEnvironment: undefined,
   selectedSession: undefined,
+  blank: undefined,
   views: {},
   error: undefined,
   update: undefined,
@@ -76,6 +109,8 @@ export class AppStore {
   /** Events about a session that is still being opened, held until its snapshot is in. */
   readonly #held = new Map<string, AppEvent[]>();
   #stop: (() => void) | undefined;
+  /** The blank conversation's folder is being looked up for trust: a second send waits for the first. */
+  #checkingTrust = false;
   /** What each session's box holds, written and not sent. */
   readonly drafts: DraftStore;
 
@@ -163,6 +198,9 @@ export class AppStore {
             [event.environmentId]: (s.defaultsRevision[event.environmentId] ?? 0) + 1,
           },
         }));
+        // A blank conversation starts from the defaults as they are now, under what was chosen on it.
+        if (this.#state.blank?.environmentId === event.environmentId)
+          void this.#readBlankDefaults(true);
         return;
       case "app-update":
         this.#set({ update: event.state });
@@ -288,6 +326,213 @@ export class AppStore {
       const agents = await this.#bridge.agents(environmentId);
       this.#set((s) => ({ agents: { ...s.agents, [environmentId]: agents } }));
     });
+    // A blank conversation on it was waiting to know which agent it starts.
+    if (this.#state.blank?.environmentId === environmentId) void this.#readBlankDefaults();
+  }
+
+  // ---- the blank conversation ----
+
+  /** The agent a blank conversation starts: the one chosen, if the environment has it, else its first available. */
+  blankAgent = (blank: BlankConversation): AgentInfo | undefined => {
+    const available = (this.#state.agents[blank.environmentId] ?? []).filter((a) => a.available);
+    return available.find((a) => a.id === blank.agent) ?? available[0];
+  };
+
+  /**
+   * Opens a blank conversation: a new session that does not exist until its first message. One already open stays as it
+   * is (what was chosen on it is kept), unless another environment or folder is asked for.
+   */
+  openBlank = (where: { environmentId: string; cwd?: string | undefined }): void => {
+    const open = this.#state.blank;
+    const same =
+      open !== undefined &&
+      open.environmentId === where.environmentId &&
+      (where.cwd === undefined || where.cwd === open.cwd);
+    const blank: BlankConversation =
+      same || open?.starting !== undefined
+        ? open
+        : {
+            environmentId: where.environmentId,
+            cwd: where.cwd ?? "",
+            agent: undefined,
+            config: undefined,
+          };
+    this.#set({ blank, selectedEnvironment: blank.environmentId, selectedSession: undefined });
+    if (blank.config === undefined && blank.unreadable === undefined)
+      void this.#readBlankDefaults();
+  };
+
+  /** Changes what the blank conversation will start as. Not while it is starting. */
+  changeBlank = (change: {
+    environmentId?: string;
+    cwd?: string;
+    agent?: string;
+    setting?: { key: string; value: string };
+    /** Every setting at once, as the settings form hands them back. */
+    config?: Record<string, string>;
+  }): void => {
+    const blank = this.#state.blank;
+    if (blank === undefined || blank.starting !== undefined) return;
+    let next: BlankConversation = { ...blank };
+    if (change.environmentId !== undefined && change.environmentId !== blank.environmentId) {
+      // A folder and an agent of one environment mean nothing on another.
+      next = { environmentId: change.environmentId, cwd: "", agent: undefined, config: undefined };
+    }
+    if (change.cwd !== undefined) next.cwd = change.cwd;
+    if (change.agent !== undefined && change.agent !== next.agent) {
+      // Another agent has other settings: what was chosen for this one is not for it.
+      next = { ...next, agent: change.agent, config: undefined };
+      delete next.unreadable;
+      delete next.chosen;
+    }
+    if (change.setting !== undefined && next.config !== undefined) {
+      const { key, value } = change.setting;
+      next.config = { ...next.config, [key]: value };
+      next.chosen = { ...next.chosen, [key]: value };
+    }
+    if (change.config !== undefined && next.config !== undefined) {
+      const before = next.config;
+      const changed = Object.entries(change.config).filter(([key, value]) => before[key] !== value);
+      next.config = change.config;
+      next.chosen = { ...next.chosen, ...Object.fromEntries(changed) };
+    }
+    this.#set({ blank: next, selectedEnvironment: next.environmentId });
+    if (next.config === undefined && next.unreadable === undefined) void this.#readBlankDefaults();
+  };
+
+  /**
+   * Answers whether to trust the blank conversation's folder, and then sends its first message. Undefined: neither, the
+   * question is left and the message stays in the box. If the answer cannot be kept, nothing is started and it says why.
+   */
+  answerTrust = async (trusted: boolean | undefined): Promise<void> => {
+    const blank = this.#state.blank;
+    const asking = blank?.asking;
+    if (blank === undefined || asking === undefined) return;
+    const { asking: _asked, ...rest } = blank;
+    if (trusted === undefined) {
+      this.#set({ blank: rest });
+      return;
+    }
+    try {
+      await this.#bridge.setTrust(blank.environmentId, asking.path, trusted);
+    } catch (error) {
+      if (this.#state.blank === blank)
+        this.#set({ blank: { ...blank, asking: { path: asking.path, failed: messageOf(error) } } });
+      return;
+    }
+    if (this.#state.blank !== blank) return;
+    this.#set({ blank: rest });
+    await this.#sendBlank(rest, true);
+  };
+
+  /** Reads the agent's defaults again, after a read that failed. */
+  retryBlank = (): void => {
+    const blank = this.#state.blank;
+    if (blank?.unreadable === undefined) return;
+    const { unreadable: _failed, ...rest } = blank;
+    this.#set({ blank: rest });
+    void this.#readBlankDefaults();
+  };
+
+  /**
+   * Reads the defaults of the agent the blank conversation starts, on its environment: what its session starts with,
+   * under what was chosen on it. `again`: they have changed, and are read even though there are some already.
+   */
+  async #readBlankDefaults(again = false): Promise<void> {
+    const blank = this.#state.blank;
+    if (blank === undefined || blank.starting !== undefined) return;
+    if (blank.config !== undefined && !again) return;
+    const agent = this.blankAgent(blank);
+    if (agent === undefined) return;
+    let config: Record<string, string> | undefined;
+    try {
+      config = (await this.#bridge.agentDefaults(blank.environmentId, agent.id)) ?? {};
+    } catch {
+      config = undefined;
+    }
+    // Only for the conversation and agent it was read for: another may be open by now, or it may be starting.
+    const now = this.#state.blank;
+    if (
+      now === undefined ||
+      now.environmentId !== blank.environmentId ||
+      now.starting !== undefined
+    )
+      return;
+    if (now.config !== undefined && !again) return;
+    if (this.blankAgent(now)?.id !== agent.id) return;
+    if (config === undefined) {
+      // A read again that fails leaves what was read before.
+      if (now.config === undefined) this.#set({ blank: { ...now, unreadable: true } });
+      return;
+    }
+    this.#set({ blank: { ...now, config: { ...config, ...now.chosen } } });
+  }
+
+  /**
+   * Sends the blank conversation's first message, which is what makes its session: `session/new`, then `session/prompt`.
+   * The message is shown in the blank conversation while that goes on. If the session cannot be made, the message comes
+   * back to the box; if it is made and the message cannot go, the session is opened with the message back in its box.
+   */
+  async #sendBlank(blank: BlankConversation, trustAnswered = false): Promise<void> {
+    const agent = this.blankAgent(blank);
+    const cwd = blank.cwd.trim();
+    if (
+      blank.starting !== undefined ||
+      blank.asking !== undefined ||
+      this.#checkingTrust ||
+      agent === undefined ||
+      blank.config === undefined ||
+      cwd === ""
+    )
+      return;
+    if (promptBlocks(this.drafts.get(BLANK_KEY)) === undefined) return;
+    const { environmentId } = blank;
+    // A folder nobody has decided on is asked about before anything of its own can run. One that cannot be looked at
+    // is not: making the session there fails with the daemon's reason.
+    if (!trustAnswered && this.#state.status[environmentId]?.capabilities?.trust === true) {
+      this.#checkingTrust = true;
+      const trust = await this.#bridge.readTrust(environmentId, cwd).catch(() => undefined);
+      this.#checkingTrust = false;
+      const now = this.#state.blank;
+      // Changed meanwhile (another folder, another environment): the person sends again.
+      if (now === undefined || now.environmentId !== environmentId || now.cwd.trim() !== cwd)
+        return;
+      if (trust?.trusted === null) {
+        this.#set({ blank: { ...now, asking: { path: trust.path } } });
+        return;
+      }
+      blank = now;
+    }
+    const content = promptBlocks(this.drafts.get(BLANK_KEY));
+    if (content === undefined) return;
+    this.drafts.clear(BLANK_KEY);
+    const starting: BlankConversation = { ...blank, cwd, starting: content };
+    this.#set({ blank: starting });
+    const sessionId = await this.#attempt(() =>
+      this.#bridge.createSession(environmentId, {
+        cwd,
+        agent: agent.id,
+        config: blank.config ?? {},
+      }),
+    );
+    if (sessionId === undefined) {
+      this.drafts.restore(BLANK_KEY, [content]);
+      if (this.#state.blank === starting) this.#set({ blank: { ...blank, cwd } });
+      return;
+    }
+    const sent = await this.#attempt(async () => {
+      await this.#bridge.prompt(environmentId, sessionId, content);
+      return true;
+    });
+    const stayed = this.#state.blank === starting;
+    // What could not go comes back where the person can find it: the session's box if they are still here (it opens),
+    // else the blank conversation's, since a session nothing was said in is not in the list.
+    if (sent !== true)
+      this.drafts.restore(stayed ? viewKey(environmentId, sessionId) : BLANK_KEY, [content]);
+    // The person may have gone elsewhere meanwhile: nothing is taken from them.
+    if (!stayed) return;
+    this.#set({ blank: undefined });
+    await this.selectSession(environmentId, sessionId);
   }
 
   /** Shows a session of any environment: a notification about it was pressed. */
@@ -311,13 +556,8 @@ export class AppStore {
       this.#set({ error: `${name} is not connected, so this session cannot be opened.` });
       return;
     }
-    this.#set({ selectedEnvironment: environmentId, selectedSession: sessionId });
+    this.#set({ selectedEnvironment: environmentId, selectedSession: sessionId, blank: undefined });
     if (state === "connected") await this.#attempt(() => this.#load(environmentId, sessionId));
-  };
-
-  createSession = async (environmentId: string, params: NewSession): Promise<void> => {
-    const sessionId = await this.#attempt(() => this.#bridge.createSession(environmentId, params));
-    if (sessionId !== undefined) await this.selectSession(environmentId, sessionId);
   };
 
   /**
@@ -326,7 +566,8 @@ export class AppStore {
    * agent works, into the turn that is running instead of the queue.
    */
   send = async (options: { steer?: boolean } = {}): Promise<void> => {
-    const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
+    const { selectedEnvironment: environmentId, selectedSession: sessionId, blank } = this.#state;
+    if (blank !== undefined) return this.#sendBlank(blank);
     if (environmentId === undefined || sessionId === undefined) return;
     const key = viewKey(environmentId, sessionId);
     const content: PromptBlock[] | undefined = promptBlocks(this.drafts.get(key));
@@ -343,10 +584,21 @@ export class AppStore {
 
   /** What fits an @ in the selected session's box. Quiet when it cannot say: a menu that is not there is enough. */
   searchFiles = async (query: string): Promise<FileSearch | undefined> => {
-    const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
-    if (environmentId === undefined || sessionId === undefined) return undefined;
+    const { selectedEnvironment: environmentId, selectedSession: sessionId, blank } = this.#state;
+    // A blank conversation has no session yet: it looks in the folder it has chosen, if the daemon can.
+    const where =
+      blank !== undefined
+        ? blank.cwd.trim() !== "" &&
+          this.#state.status[blank.environmentId]?.capabilities?.filesInFolder === true
+          ? { cwd: blank.cwd.trim() }
+          : undefined
+        : sessionId !== undefined
+          ? { sessionId }
+          : undefined;
+    const on = blank?.environmentId ?? environmentId;
+    if (on === undefined || where === undefined) return undefined;
     try {
-      return await this.#bridge.searchFiles(environmentId, sessionId, query);
+      return await this.#bridge.searchFiles(on, where, query);
     } catch {
       return undefined;
     }
@@ -473,6 +725,7 @@ export class AppStore {
         );
         const open = s.selectedEnvironment === environmentId;
         return {
+          ...(s.blank?.environmentId === environmentId ? { blank: undefined } : {}),
           sessions,
           agents,
           status,

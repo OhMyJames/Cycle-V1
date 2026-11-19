@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
 import { fakeBridge } from "../fake-bridge.ts";
+import { boxText, press, ready, write } from "./box.ts";
 
 afterEach(cleanup);
 
@@ -36,40 +37,54 @@ const mount = async (trusted: boolean | null) => {
   return { user, ...script };
 };
 
+/** Opens a blank conversation in `path` and sends its first message: what makes the session, and so what asks. */
 const startIn = async (user: ReturnType<typeof userEvent.setup>, path: string) => {
   await user.click(await screen.findByRole("button", { name: "New session" }));
-  const dialog = await screen.findByRole("dialog");
-  const directory = within(dialog).getByRole("textbox", { name: "Directory" });
-  await user.clear(directory);
-  await user.type(directory, path);
-  await user.click(within(dialog).getByRole("button", { name: "Start" }));
-  return dialog;
+  const folder = await screen.findByRole("textbox", { name: "Folder" });
+  await user.clear(folder);
+  await user.type(folder, path);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "Fix the build");
+  await press(box, "Enter");
+  return box;
 };
+const question = () => screen.findByRole("dialog", { name: "Trust this folder?" });
 
 test("a folder nobody has decided on is asked about before the session starts, and the answer is kept first", async () => {
   const { user, named, calls } = await mount(null);
-  const dialog = await startIn(user, "/srv/app");
-  expect(await within(dialog).findByText("Trust this folder?")).toBeTruthy();
+  await startIn(user, "/srv/app");
+  const dialog = await question();
   expect(within(dialog).getByText("/srv/app", { selector: "code" })).toBeTruthy();
   expect(named("createSession")).toHaveLength(0);
   await user.click(within(dialog).getByRole("button", { name: "Trust and start" }));
   await waitFor(() => expect(named("createSession")).toHaveLength(1));
-  const order = calls.map((c) => c[0]).filter((n) => n === "setTrust" || n === "createSession");
-  expect(order).toEqual(["setTrust", "createSession"]);
+  await waitFor(() => expect(named("prompt")).toHaveLength(1));
+  const order = calls
+    .map((c) => c[0])
+    .filter((n) => n === "setTrust" || n === "createSession" || n === "prompt");
+  expect(order).toEqual(["setTrust", "createSession", "prompt"]);
   expect(named("setTrust")[0]).toEqual(["setTrust", "local", "/srv/app", true]);
 });
 
 test("the question can be left, and a session can start without trusting the folder", async () => {
   const { user, named } = await mount(null);
-  const dialog = await startIn(user, "/srv/app");
-  await user.click(await within(dialog).findByRole("button", { name: "Back" }));
-  // Back in the form, with what was typed, and nothing started or decided.
-  expect(
-    (within(dialog).getByRole("textbox", { name: "Directory" }) as HTMLInputElement).value,
-  ).toBe("/srv/app");
+  const box = await startIn(user, "/srv/app");
+  await user.click(await within(await question()).findByRole("button", { name: "Back" }));
+  // Back in the blank conversation, with the folder and the message, and nothing started or decided.
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Trust this folder?" })).toBeNull(),
+  );
+  expect((screen.getByRole("textbox", { name: "Folder" }) as HTMLInputElement).value).toBe(
+    "/srv/app",
+  );
+  expect(boxText(box)).toBe("Fix the build");
   expect(named("setTrust")).toHaveLength(0);
-  await user.click(within(dialog).getByRole("button", { name: "Start" }));
-  await user.click(await within(dialog).findByRole("button", { name: "Start without trusting" }));
+  expect(named("createSession")).toHaveLength(0);
+  await press(box, "Enter");
+  await user.click(
+    await within(await question()).findByRole("button", { name: "Start without trusting" }),
+  );
   await waitFor(() => expect(named("createSession")).toHaveLength(1));
   expect(named("setTrust")[0]).toEqual(["setTrust", "local", "/srv/app", false]);
 });
@@ -104,7 +119,8 @@ test("an answer that cannot be kept says why, starts nothing, and can be given a
   bridge.setTrust = async () => {
     throw new Error("disk full");
   };
-  const dialog = await startIn(user, "/srv/app");
+  await startIn(user, "/srv/app");
+  const dialog = await question();
   await user.click(await within(dialog).findByRole("button", { name: "Trust and start" }));
   expect((await within(dialog).findByRole("alert")).textContent).toContain("disk full");
   expect(named("createSession")).toHaveLength(0);

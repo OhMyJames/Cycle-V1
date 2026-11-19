@@ -21,7 +21,22 @@ export const enUS = {
   "defaults.unreadable":
     "The saved settings of this agent could not be read, so they are not shown. Close this and open it again.",
   "newSession.environment": "Environment",
-  "newSession.onEnvironment": "The agent works in this directory, on {environment}.",
+
+  // A new session before its first message: the blank conversation
+  "blank.title": "New session",
+  "blank.where": "Where the session runs",
+  "blank.folder": "Folder",
+  "blank.folder.placeholder": "/path/to/project",
+  "blank.agent": "Agent",
+  "blank.lead": "The session starts when you send the first message.",
+  "blank.chooseFolder": "Choose a folder for the agent to work in.",
+  "blank.noAgent": "No agent is available on {environment}.",
+  "blank.unreadable":
+    "The saved settings of this agent could not be read, so the session cannot start from them.",
+  "blank.retry": "Read settings again",
+  "blank.starting": "Starting the session…",
+  "blank.settings": "Settings for the new session",
+  "blank.settings.lead": "The session starts with these. You can change them later.",
 
   // Images in a conversation
   "image.open": "Open image: {name}",
@@ -165,6 +180,7 @@ export const enUS = {
   "trust.untrust": "Stop trusting this folder",
   "trust.failed": "The answer could not be kept, so nothing was started: {reason}",
   "common.cancel": "Cancel",
+  "common.close": "Close",
 
   // The workspace switcher: a workspace is a folder on one environment
   "workspace.label": "Workspace",

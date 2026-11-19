@@ -41,6 +41,8 @@ export type EnvironmentStatus = {
     steer?: boolean;
     files: boolean;
     folders: boolean;
+    /** `_cycle/files/search` also takes a folder: @ works in a blank conversation. */
+    filesInFolder?: boolean;
     /** Folder trust can be read and set (docs/protocol.md §8 "信任文件夹"). */
     trust?: boolean;
   };
@@ -219,8 +221,15 @@ export type AppApi = {
     options?: { steer?: boolean },
   ): Promise<void>;
   cancel(environmentId: string, sessionId: string): Promise<void>;
-  /** Files and folders of the session's folder, on the machine of the daemon, that fit what was typed after an @. */
-  searchFiles(environmentId: string, sessionId: string, query: string): Promise<FileSearch>;
+  /**
+   * Files and folders of the session's folder, on the machine of the daemon, that fit what was typed after an @. A blank
+   * conversation has no session yet and gives its folder: only a daemon with `filesInFolder` takes that.
+   */
+  searchFiles(
+    environmentId: string,
+    where: { sessionId: string } | { cwd: string },
+    query: string,
+  ): Promise<FileSearch>;
   /**
    * The folders in a folder on that environment's machine, for choosing where a session works. Without a path: its
    * home. Fails with the daemon's reason (not a folder, cannot be read) or when the daemon is too old.

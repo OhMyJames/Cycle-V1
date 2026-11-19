@@ -44,12 +44,15 @@ export type EnvironmentLabel = { id: string; name: string; local: boolean };
 export const sessionKey = (session: SessionSummary): string =>
   viewKey(session.environmentId, session.sessionId);
 
+/** Where something runs: a session, or a blank conversation that has no session yet. */
+export type Place = Pick<SessionSummary, "environmentId" | "cwd">;
+
 /** A workspace is a folder on one environment (an environment's id has no "|" in it, so the first one ends it). */
-export const workspaceKey = (session: SessionSummary): string =>
+export const workspaceKey = (session: Place): string =>
   `${session.environmentId}|${folderOf(session)}`;
 
 /** The folder a session works in, without a trailing slash (`/a/app` and `/a/app/` are one). */
-export const folderOf = (session: SessionSummary): string => {
+export const folderOf = (session: Place): string => {
   const trimmed = session.cwd.replace(/\/+$/, "");
   return trimmed === "" ? (session.cwd.startsWith("/") ? "/" : "") : trimmed;
 };
@@ -215,7 +218,7 @@ const namesOf = (
  */
 export const currentWorkspace = (
   workspaces: readonly Workspace[],
-  { chosen, open }: { chosen?: string | undefined; open?: SessionSummary | undefined },
+  { chosen, open }: { chosen?: string | undefined; open?: Place | undefined },
 ): Workspace | undefined => {
   const named = (key: string | undefined) =>
     key === undefined ? undefined : workspaces.find((w) => w.key === key);

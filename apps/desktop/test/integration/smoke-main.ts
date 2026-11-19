@@ -162,24 +162,20 @@ const main = async () => {
     };
     await run(`window.cycle.setAgentDefaults("local", "claude", ${JSON.stringify(defaults)})`);
 
-    // A new session, started by clicking and typing.
+    // A new session: a blank conversation, whose folder is typed. Its session is made by the first message below.
     await click(byText("button", "New session"));
-    await waitFor("the dialog", `document.querySelector('[role="dialog"]')`);
-    await click(`document.querySelector('[role="dialog"] input')`);
-    await type(env.SMOKE_CWD as string);
-    await click(byText('[role="dialog"] button', "Start"));
-    // A folder nobody has decided on is asked about first (docs/protocol.md §8 "信任文件夹").
     await waitFor(
-      "the folder trust question",
-      `[...document.querySelectorAll('[role="dialog"] button')].some((b) => b.textContent === "Trust and start")`,
+      "the blank conversation",
+      `document.querySelector('[data-slot="blank-where"] input')`,
     );
-    await click(byText('[role="dialog"] button', "Trust and start"));
+    await click(`document.querySelector('[data-slot="blank-where"] input')`);
+    await type(env.SMOKE_CWD as string);
     await waitFor(
       "the composer to be ready",
       `document.querySelector('[data-slot="composer"] [data-slot="composer-input"]')?.getAttribute('contenteditable') === 'true'`,
     );
     out({
-      step: "session",
+      step: "blank",
       title: await run(`document.querySelector('[data-slot="session-header"] h1')?.textContent`),
     });
 
@@ -235,6 +231,13 @@ const main = async () => {
       ),
     });
     await press("Enter");
+    // The first message makes the session; a folder nobody has decided on is asked about first (docs/protocol.md §8
+    // "信任文件夹").
+    await waitFor(
+      "the folder trust question",
+      `[...document.querySelectorAll('[role="dialog"] button')].some((b) => b.textContent === "Trust and start")`,
+    );
+    await click(byText('[role="dialog"] button', "Trust and start"));
     // Sent: the box is emptied. (This was a fixed wait of 1.5 s, then a look at the page for the log.)
     await waitFor(
       "the message to leave the box",

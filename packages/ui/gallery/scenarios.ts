@@ -30,6 +30,11 @@ export type Scenario = {
   trust?: boolean | null;
   /** Presses Tab this many times with real input events, so :focus-visible shows as it does for a keyboard. */
   tabs?: number;
+  /**
+   * A blank conversation is opened, in this folder. `starting`: this first message is sent, and the session it makes is
+   * never answered, so that the page stays as it is while a session is being made.
+   */
+  blank?: { cwd?: string; starting?: string };
   /** Runs once the page has drawn: open a dialog, press a key, or send an event as the app's main process would. */
   after?: (root: HTMLElement, emit: (event: AppEvent) => void) => Promise<void>;
 };
@@ -769,28 +774,38 @@ export const scenarios: Record<string, Scenario> = {
       await new Promise((r) => setTimeout(r, 300));
     },
   },
-  "dialog-new-session": {
-    title: "New session dialog",
+  "new-session": {
+    title: "New session: a blank conversation, with no workspace yet",
     sessions: [],
     after: (root) => click(root, "New session"),
   },
-  "dialog-trust": {
-    title: "New session in a folder nobody has decided on: asked whether to trust it",
+  "new-session-workspace": {
+    title: "New session in the workspace that is shown: its folder, the agent's defaults",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    attach: true,
+    blank: { cwd: "/Users/me/work/app" },
+  },
+  "new-session-starting": {
+    title: "The first message is sent, and the session is being made",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    blank: {
+      cwd: "/Users/me/work/app",
+      starting: "Find why the remote session drops after a minute, and fix it.",
+    },
+  },
+  "new-session-trust": {
+    title: "The first message, in a folder nobody has decided on: asked whether to trust it",
     sessions: [session("s1", { title: "Fix the remote session" })],
     trust: null,
-    after: async (root) => {
-      await click(root, "New session");
-      const start = () =>
-        Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
-          (b) => b.textContent?.trim() === "Start",
-        );
-      await until(() => start()?.disabled === false, "Start to be ready");
-      start()?.click();
-      await until(
+    blank: {
+      cwd: "/Users/me/work/app",
+      starting: "Find why the remote session drops after a minute, and fix it.",
+    },
+    after: () =>
+      until(
         () => document.querySelector('[role="dialog"] [data-slot="decision-path"]') !== null,
         "the trust question",
-      );
-    },
+      ),
   },
   "menu-trust": {
     title: "The environment menu offers to trust the shown workspace's folder",

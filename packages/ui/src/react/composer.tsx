@@ -51,6 +51,15 @@ export type ComposerProps = {
   onSetting?: (key: string, value: string) => void;
   /** Opens every setting of the session, the ones that are not a choice too. */
   onOpenSettings?: () => void;
+  /**
+   * Why nothing can be sent yet, though the box takes what is written (a blank conversation with no folder): said above
+   * the box, and Send waits.
+   */
+  blocked?: string | undefined;
+  /** What the empty box says, in place of what it says for a session's state. */
+  placeholder?: string | undefined;
+  /** A blank conversation: @ looks in its folder, which needs a daemon that says `filesInFolder`. */
+  blank?: boolean;
 };
 
 /** What a box with no conversation behind it has of a list: one array, so that reading it twice is the same value. */
@@ -89,6 +98,9 @@ export function Composer({
   settings,
   onSetting,
   onOpenSettings,
+  blocked,
+  placeholder: told,
+  blank = false,
 }: ComposerProps) {
   const { t, number } = useI18n();
   const store = useAppStore();
@@ -103,7 +115,8 @@ export function Composer({
   const canQueue = capabilities?.queue === true;
   // While it works, Enter puts the message into the running turn where the agent and the daemon can; Shift+Enter queues it.
   const steers = working && canQueue && canSteer && capabilities?.steer === true;
-  const canFind = connected && capabilities?.files === true;
+  const canFind =
+    connected && (blank ? capabilities?.filesInFolder === true : capabilities?.files === true);
   const recalled = useRef<Recall>(NOT_RECALLING);
   const [problem, setProblem] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
@@ -213,21 +226,24 @@ export function Composer({
   const canSend =
     enabled &&
     connected &&
+    blocked === undefined &&
     (!working || canQueue) &&
     (text.trim() !== "" || attachments.length > 0);
-  const placeholder = !enabled
-    ? t("conversation.loading")
-    : activity === "requires_action"
-      ? t("step.approval")
-      : working
-        ? t(
-            steers
-              ? "composer.placeholder.steer"
-              : canQueue
-                ? "composer.placeholder.working"
-                : "composer.placeholder.busy",
-          )
-        : t("composer.placeholder.idle");
+  const placeholder =
+    told ??
+    (!enabled
+      ? t("conversation.loading")
+      : activity === "requires_action"
+        ? t("step.approval")
+        : working
+          ? t(
+              steers
+                ? "composer.placeholder.steer"
+                : canQueue
+                  ? "composer.placeholder.working"
+                  : "composer.placeholder.busy",
+            )
+          : t("composer.placeholder.idle"));
 
   const megabytes = (bytes: number) =>
     number(bytes / 1048576, { style: "unit", unit: "megabyte", maximumFractionDigits: 0 });
@@ -389,6 +405,11 @@ export function Composer({
       {!connected && enabled ? (
         <span data-slot="hint" role="status">
           {t("composer.offline")}
+        </span>
+      ) : null}
+      {blocked !== undefined && blocked !== "" && connected ? (
+        <span data-slot="hint" role="status">
+          {blocked}
         </span>
       ) : null}
       {dropping ? <div data-slot="drop-hint">{t("composer.drop")}</div> : null}
