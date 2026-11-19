@@ -9,8 +9,8 @@ import {
   type ToolItem,
 } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
-import { ErrorCircleIcon, ToolIcon, WarningIcon } from "./icons.tsx";
-import { ToolCard, ToolStatus, toolSummary, useOpenOnFailure } from "./tool.tsx";
+import { ChevronRightIcon, CloseIcon, ErrorCircleIcon, ToolIcon, WarningIcon } from "./icons.tsx";
+import { ToolCard, toolSummary, toolVerb, useOpenOnFailure } from "./tool.tsx";
 
 /** A notice from the daemon or the agent, in the conversation. */
 export function Notice({ severity, title }: { severity: string; title: string }) {
@@ -59,23 +59,39 @@ function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }
       onOpenChange={setOpen}
     >
       <CollapsibleTrigger>
-        <ToolIcon size={14} data-slot="tool-icon" />
-        <span data-slot="work-summary">{summary}</span>
-        <span data-slot="tool-summary">{going !== undefined ? toolSummary(going) : ""}</span>
-        <ToolStatus status={mark} />
-        {going !== undefined ? <span data-slot="tool-status">{t("work.running")}</span> : null}
+        <span data-slot="tool-lead">
+          {going !== undefined ? (
+            <span data-slot="spinner" aria-hidden="true" />
+          ) : failed > 0 ? (
+            <CloseIcon size={14} data-slot="tool-mark" data-tone="danger" />
+          ) : (
+            <ToolIcon size={14} data-slot="tool-icon" />
+          )}
+        </span>{" "}
+        <span data-slot="tool-verb">{summary}</span>{" "}
+        {going !== undefined ? (
+          <>
+            <span data-slot="visually-hidden">{t("work.running")}</span>
+            <span data-slot="tool-summary">
+              {toolVerb(t, going)} {toolSummary(going)}
+            </span>
+          </>
+        ) : (
+          <span data-slot="tool-summary" />
+        )}{" "}
         {failed > 0 ? (
           <span data-slot="tool-status" data-tone="danger">
             {t("work.failed", { count: failed })}
           </span>
-        ) : null}
+        ) : null}{" "}
         {going === undefined && failed === 0 ? (
           mark === "pending" ? (
             <span data-slot="tool-status">{t("work.unfinished")}</span>
           ) : (
             <span data-slot="visually-hidden">{t("work.done")}</span>
           )
-        ) : null}
+        ) : null}{" "}
+        <ChevronRightIcon size={12} data-slot="tool-chevron" aria-hidden="true" />
       </CollapsibleTrigger>
       <CollapsiblePanel>
         {tools.map((tool) => (
@@ -99,7 +115,7 @@ export function EndBlock({ stop }: { stop: StopReason }) {
   if (stop.stopReason === "error") {
     const message = stop.error?.message;
     return (
-      <div data-slot="notice" data-severity="error" role="alert">
+      <div data-slot="notice" data-kind="turn-end" data-severity="error" role="alert">
         <ErrorCircleIcon size={14} />
         <span>{message ? t("turn.end.errorWith", { message }) : t("turn.end.error")}</span>
       </div>
@@ -107,7 +123,7 @@ export function EndBlock({ stop }: { stop: StopReason }) {
   }
   const key = ENDS[stop.stopReason];
   return (
-    <div data-slot="notice" data-severity="warning" role="status">
+    <div data-slot="notice" data-kind="turn-end" data-severity="warning" role="status">
       <WarningIcon size={14} />
       <span>{key !== undefined ? t(key) : t("turn.end.other", { reason: stop.stopReason })}</span>
     </div>

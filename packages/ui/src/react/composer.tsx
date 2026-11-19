@@ -19,12 +19,12 @@ import {
   sentTexts,
 } from "../draft.ts";
 import { mentionQuery, mentionRow } from "../mention.ts";
-import type { Status } from "../model/conversation.ts";
+import { type Status, type Usage, usageLabel } from "../model/conversation.ts";
 import { type QueuedPrompt, textOf } from "../model/index.ts";
 import { commandText, filterCommands, slashQuery } from "../slash.ts";
 import { propertiesOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
-import { AttachIcon, CloseIcon, SettingsIcon } from "./icons.tsx";
+import { AttachIcon, CloseIcon, SendIcon, SettingsIcon, StopIcon } from "./icons.tsx";
 import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
 import { optionId, PickerMenu, type PickerRow } from "./picker-menu.tsx";
 import { SettingChips, type SettingsOf } from "./setting-chips.tsx";
@@ -60,6 +60,8 @@ export type ComposerProps = {
   placeholder?: string | undefined;
   /** A blank conversation: @ looks in its folder, which needs a daemon that says `filesInFolder`. */
   blank?: boolean;
+  /** How full the session's context is, shown in the toolbar beside Send. */
+  usage?: Usage | undefined;
 };
 
 /** What a box with no conversation behind it has of a list: one array, so that reading it twice is the same value. */
@@ -101,6 +103,7 @@ export function Composer({
   blocked,
   placeholder: told,
   blank = false,
+  usage,
 }: ComposerProps) {
   const { t, number } = useI18n();
   const store = useAppStore();
@@ -401,6 +404,7 @@ export function Composer({
     };
   }, [canAttach]);
 
+  const sendName = t(steers ? "composer.steer" : "composer.send");
   return (
     <div data-slot="composer" data-dropping={dropping || undefined} ref={root}>
       {!connected && enabled ? (
@@ -549,29 +553,131 @@ export function Composer({
             </Button>
           ) : null}
           <span data-slot="composer-spacer" />
-          {working ? (
-            <Button
-              data-variant="outline"
-              disabled={!connected}
-              onClick={() => void store.cancel()}
-            >
-              {t("composer.stop")}
-            </Button>
-          ) : null}
-          {steers ? (
-            <Button data-variant="outline" disabled={!canSend} onClick={() => void send()}>
+          {usage !== undefined ? <ContextMeter usage={usage} /> : null}
+          {working && canQueue ? (
+            <Button data-kind="queue" disabled={!canSend} onClick={() => void send()}>
               {t("composer.queue")}
             </Button>
           ) : null}
-          <Button data-variant="solid" disabled={!canSend} onClick={() => void send(steers)}>
-            {steers
-              ? t("composer.steer")
-              : working && canQueue
-                ? t("composer.queue")
-                : t("composer.send")}
-          </Button>
+          {/* Send is there unless Queue takes its place; while the agent works and nothing can wait, it is there and off. */}
+          {!working || steers || !canQueue ? (
+            <Button
+              data-variant="solid"
+              data-kind="round"
+              disabled={!canSend}
+              aria-label={sendName}
+              title={sendName}
+              onClick={() => void send(steers)}
+            >
+              <SendIcon size={16} />
+            </Button>
+          ) : null}
+          {working ? (
+            <Button
+              data-variant="outline"
+              data-kind="round"
+              disabled={!connected}
+              aria-label={t("composer.stop")}
+              title={t("composer.stopKey", { key: STOP_KEY })}
+              onClick={() => void store.cancel()}
+            >
+              <StopIcon size={12} />
+            </Button>
+          ) : null}
         </div>
       </div>
+      {enabled ? (
+        <KeyHints
+          keys={keysFor({
+            working,
+            canQueue,
+            steers,
+            mentions: canFind,
+            commands: commands.length > 0,
+          })}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/** How the key that stops a turn is written here: ⌘. on a Mac, Ctrl+. elsewhere. */
+const STOP_KEY = /Mac/.test(globalThis.navigator?.userAgent ?? "") ? "⌘." : "Ctrl+.";
+
+/** The keys of the box and what they do now. The keys are symbols, the same in every language; the words are messages. */
+type KeyHint = { key: string; does: string };
+const keysFor = ({
+  working,
+  canQueue,
+  steers,
+  mentions,
+  commands,
+}: {
+  working: boolean;
+  canQueue: boolean;
+  steers: boolean;
+  /** @ finds files here: the daemon says it can look. */
+  mentions: boolean;
+  /** / offers something: the agent has said which commands it takes. */
+  commands: boolean;
+}): KeyHint[] => {
+  if (steers)
+    return [
+      { key: "↵", does: "composer.keys.steer" },
+      { key: "⇧↵", does: "composer.keys.queue" },
+      { key: "⌥↵", does: "composer.keys.newline" },
+    ];
+  if (working && canQueue)
+    return [
+      { key: "↵", does: "composer.keys.queue" },
+      { key: "⇧↵", does: "composer.keys.newline" },
+    ];
+  if (working) return [];
+  return [
+    { key: "↵", does: "composer.keys.send" },
+    { key: "⇧↵", does: "composer.keys.newline" },
+    ...(mentions ? [{ key: "@", does: "composer.keys.mention" }] : []),
+    ...(commands ? [{ key: "/", does: "composer.keys.command" }] : []),
+  ];
+};
+
+/** One line under the box, always the same height so the box does not move when what it says changes. */
+function KeyHints({ keys }: { keys: KeyHint[] }) {
+  const { t } = useI18n();
+  return (
+    <ul data-slot="key-hints" aria-label={t("composer.keys.label")}>
+      {keys.map((k) => (
+        <li key={k.does}>
+          <kbd>{k.key}</kbd>
+          <span>{t(k.does)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** How full the context is: a ring that fills, and the number. The whole sentence is its name and its tooltip. */
+function ContextMeter({ usage }: { usage: Usage }) {
+  const { number } = useI18n();
+  const share = usage.size > 0 ? Math.min(1, usage.used / usage.size) : 0;
+  const label = usageLabel(usage);
+  const tone = share > 0.9 ? "danger" : share > 0.7 ? "attention" : undefined;
+  const r = 5.25;
+  const around = 2 * Math.PI * r;
+  return (
+    <span data-slot="context-meter" data-tone={tone} role="img" aria-label={label} title={label}>
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+        <circle cx="7" cy="7" r={r} data-slot="context-track" />
+        <circle
+          cx="7"
+          cy="7"
+          r={r}
+          data-slot="context-fill"
+          strokeDasharray={`${share * around} ${around}`}
+          transform="rotate(-90 7 7)"
+        />
+      </svg>
+      <span aria-hidden="true">{number(share, { style: "percent" })}</span>
+    </span>
   );
 }

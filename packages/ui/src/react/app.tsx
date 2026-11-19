@@ -22,7 +22,6 @@ import {
   ResizablePanel,
 } from "@ui-sdk/react/resizable";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { usageLabel } from "../model/index.ts";
 import {
   currentWorkspace,
   elsewhere as elsewhereOf,
@@ -442,12 +441,11 @@ export function App() {
             ) : null}
             {blank === undefined && session !== undefined ? (
               <header data-slot="session-header">
-                <div data-slot="stack">
+                <div data-slot="session-heading">
                   <h1>{sessionTitle(session)}</h1>
-                  <span data-slot="hint">{session.cwd}</span>
-                  {view?.conversation.usage !== undefined ? (
-                    <span data-slot="usage">{usageLabel(view.conversation.usage)}</span>
-                  ) : null}
+                  <span data-slot="session-where" title={session.cwd}>
+                    {session.cwd}
+                  </span>
                 </div>
                 <div data-slot="row">
                   <Menu
@@ -550,6 +548,7 @@ export function App() {
                 enabled={!view.loading}
                 connected={connected}
                 activity={activity}
+                usage={view.conversation.usage}
                 onSent={() => setSent((n) => n + 1)}
               />
             ) : null}

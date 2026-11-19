@@ -60,6 +60,17 @@ const pluginFor = (id: CodeThemeId) => {
   return plugin;
 };
 
+/**
+ * Code keeps one control, Copy, shown when the block is hovered or focused. Tables keep none: the full-screen view and the
+ * CSV download were a toolbar over every table, louder than the table. Diagrams are not drawn (no mermaid plugin).
+ */
+const CONTROLS = {
+  code: { copy: true, download: false },
+  table: false,
+  mermaid: false,
+  image: false,
+};
+
 export function Markdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
   const theme = useSyncExternalStore(codeTheme.subscribe, codeTheme.get, codeTheme.get);
   return (
@@ -69,6 +80,8 @@ export function Markdown({ text, streaming = false }: { text: string; streaming?
       skipHtml
       components={components}
       plugins={{ code: pluginFor(theme) }}
+      controls={CONTROLS}
+      lineNumbers={false}
       shikiTheme={[...themesOf(theme)] as never}
     >
       {text}
