@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { appendFile, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { methods } from "@cycle/acp";
 import { CycleErrorCode } from "@cycle/protocol";
@@ -1117,6 +1118,29 @@ test("a session whose history is damaged is listed with a marker; the others are
     prompt: text("more"),
   });
   await until(() => c.ended() >= 1, "the healthy session to take a turn");
+});
+
+test("a session whose history file is gone is listed as unreadable, and no empty file is made in its place", async () => {
+  const [good, lost] = (await seedSessions(2)) as [string, string];
+  const file = join(dir, "sessions", `${lost}.jsonl`);
+  await rm(file);
+
+  const { daemon } = await start();
+  const c = await connectClient(daemon);
+  const listed = (await c.agent.request(methods.agent.session.list, {})).sessions;
+  const meta = (id: string | undefined) =>
+    (listed.find((s) => s.sessionId === id)?._meta ?? {}) as Record<string, unknown>;
+  expect(meta(lost)["cycle/historyFailed"]).toBe(true);
+  expect(meta(good)["cycle/historyFailed"]).toBeUndefined();
+  expect(existsSync(file)).toBe(false);
+  await expect(
+    c.agent.request(methods.agent.session.resume, { sessionId: lost, cwd: "/tmp" }),
+  ).rejects.toMatchObject({ code: CycleErrorCode.LogUnavailable });
+  expect(existsSync(file)).toBe(false);
+  // The way out: it can still be deleted.
+  await c.agent.request(methods.agent.session.delete, { sessionId: lost });
+  const after = (await c.agent.request(methods.agent.session.list, {})).sessions;
+  expect(after.map((s) => s.sessionId)).toEqual([good]);
 });
 
 test("a half line left by a crash is not damage: the session is listed and opens as before", async () => {

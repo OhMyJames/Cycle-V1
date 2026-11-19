@@ -300,7 +300,7 @@ export class Daemon {
     const entry = this.#index.get(sessionId);
     if (entry === undefined) return Promise.reject(sessionNotFound(sessionId));
     const load = (async () => {
-      const log = await this.#store.open(sessionId);
+      const log = await this.#store.open(sessionId, "existing");
       const session = new Session(sessionId, entry, log);
       // The queue is the last snapshot in the log; the index says whether there is anything to look for.
       if (entry.queued === true) session.queue = await this.#queueIn(log);

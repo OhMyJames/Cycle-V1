@@ -43,8 +43,12 @@ export interface SessionLog {
 }
 
 export interface LogStore {
-  /** Opens a session's log, creating it if there is none. Opening it twice is a bug. */
-  open(sessionId: string): Promise<SessionLog>;
+  /**
+   * Opens a session's log. "create" (the default) makes one if there is none, for a new session;
+   * "existing" is for a session already on record and fails with LogUnavailable if its log is
+   * gone. Opening it twice is a bug.
+   */
+  open(sessionId: string, mode?: "create" | "existing"): Promise<SessionLog>;
   /** Removes a session's history for good. The session must not be open. */
   remove(sessionId: string): Promise<void>;
   exists(sessionId: string): Promise<boolean>;
