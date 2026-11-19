@@ -36,6 +36,8 @@ export const META = {
   hadTurn: "cycle/hadTurn",
   /** In a `subagent_update`: what the adapter says of the task beyond ACP's fields (decision 0014). */
   subagent: "cycle/subagent",
+  /** In a finished `tool_call_update`: what the call amounts to in numbers, never contents (docs/protocol.md §9, `ToolResultSchema`). */
+  toolResult: "cycle/toolResult",
   /** In a `session/list` row: the context the session uses and what it has cost (`SessionUsageSchema`). */
   usage: "cycle/usage",
   /** On a permission request sent to a client: the daemon's id for it, as `_cycle/request_resolved` names it. */
@@ -118,3 +120,28 @@ export const seqOf = (meta: unknown): number | undefined => {
   const value = (meta as Record<string, unknown>)[META.seq];
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 };
+
+/** `_meta["cycle/toolResult"]` of a finished tool call: counts and flags only (docs/protocol.md §9 "工具调用的结果"). */
+const count = z.number().int().nonnegative();
+export const ToolResultSchema = z.union([
+  z.object({
+    edit: z.object({
+      additions: count,
+      deletions: count,
+      created: z.literal(true).optional(),
+      staged: z.literal(true).optional(),
+    }),
+  }),
+  z.object({
+    read: z.object({ startLine: count, numLines: count, totalLines: count.optional() }),
+  }),
+  z.object({
+    search: z.object({
+      files: count,
+      matches: count.optional(),
+      lines: count.optional(),
+      more: z.literal(true).optional(),
+    }),
+  }),
+]);
+export type ToolResult = z.infer<typeof ToolResultSchema>;

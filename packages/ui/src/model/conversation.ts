@@ -38,6 +38,11 @@ export type ToolItem = InTurn & {
   rawInput?: unknown;
   rawOutput?: unknown;
   locations?: { path: string; line?: number | null }[];
+  /**
+   * `_meta["cycle/toolResult"]` of the call's result: what it amounts to in numbers (docs/protocol.md §9). The daemon
+   * keeps it only when it matches the protocol's schema; the model still reads it field by field (`toolFacts`).
+   */
+  result?: unknown;
 };
 export type PlanEntry = { content: string; priority: string; status: string };
 export type Usage = { used: number; size: number; cost?: { amount: number; currency: string } };
@@ -220,6 +225,9 @@ const toolUpdate = (c: Conversation, update: Fields): Conversation => {
   const rawInput = update.rawInput === undefined ? old?.rawInput : update.rawInput;
   const rawOutput = update.rawOutput === undefined ? old?.rawOutput : update.rawOutput;
   const locations = patch(old?.locations, update.locations);
+  // The counts belong to the content they came with: new content without them clears them.
+  const said = (update._meta as Record<string, unknown> | null | undefined)?.["cycle/toolResult"];
+  const result = said !== undefined ? said : update.content !== undefined ? undefined : old?.result;
   if (name !== undefined) next.name = name;
   if (toolKind !== undefined) next.toolKind = toolKind;
   if (status !== undefined) next.status = status;
@@ -227,6 +235,7 @@ const toolUpdate = (c: Conversation, update: Fields): Conversation => {
   if (rawInput !== undefined) next.rawInput = rawInput;
   if (rawOutput !== undefined) next.rawOutput = rawOutput;
   if (locations !== undefined) next.locations = locations;
+  if (result !== undefined) next.result = result;
   return { ...c, items: upsert(c.items, next) };
 };
 

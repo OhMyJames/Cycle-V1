@@ -1,0 +1,360 @@
+// What a finished tool call says, for the tools whose result the SDK also gives as structured data (`tool_use_result`):
+// an edit as a `diff` of this one call, a read with the lines it read, a search with how much it found. In ACP's own
+// fields where ACP has one (`diff` content, `locations`), and the counts in `_meta["cycle/toolResult"]`
+// (docs/protocol.md §9 "工具调用的结果"), which a client that does not know it ignores. The structured data itself never
+// goes on: it holds whole files (`originalFile`, `content`, `base64`). docs/conversation-content.md has the table.
+
+type Json = Record<string, unknown>;
+
+/** The `_meta` key of a finished call's counts. `@cycle/protocol`'s `META.toolResult`; the adapter stays self-contained. */
+export const TOOL_RESULT_META = "cycle/toolResult";
+
+/** What `_meta["cycle/toolResult"]` holds: one of these, all numbers and flags, never contents. */
+export type ToolResultMeta =
+  | { edit: { additions: number; deletions: number; created?: true; staged?: true } }
+  | { read: { startLine: number; numLines: number; totalLines?: number } }
+  | { search: { files: number; matches?: number; lines?: number; more?: true } };
+
+/** ACP v2 tool call content, as far as this file makes it. */
+export type Content =
+  | {
+      type: "content";
+      content: { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+    }
+  | {
+      type: "diff";
+      changes: { operation: "add" | "modify"; path: string }[];
+      patch?: { format: "git_patch"; text: string } | null;
+    };
+
+export type Result = {
+  content: Content[];
+  meta: ToolResultMeta;
+  locations?: { path: string; line?: number }[];
+};
+
+type Hunk = {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: string[];
+};
+
+const isObject = (value: unknown): value is Json =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const num = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+
+const hunksOf = (value: unknown): Hunk[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const hunks: Hunk[] = [];
+  for (const hunk of value) {
+    if (!isObject(hunk) || !Array.isArray(hunk.lines)) return undefined;
+    const [oldStart, oldLines, newStart, newLines] = [
+      num(hunk.oldStart),
+      num(hunk.oldLines),
+      num(hunk.newStart),
+      num(hunk.newLines),
+    ];
+    if (
+      oldStart === undefined ||
+      oldLines === undefined ||
+      newStart === undefined ||
+      newLines === undefined
+    )
+      return undefined;
+    hunks.push({ oldStart, oldLines, newStart, newLines, lines: hunk.lines.map(String) });
+  }
+  return hunks;
+};
+
+/** A patch bigger than this is not sent: the counts and the path still are. A file written whole can be any size. */
+export const MAX_PATCH = 100_000;
+
+const header = (path: string, created: boolean): string => {
+  const at = path.startsWith("/") ? path : `/${path}`;
+  return [`diff --git a${at} b${at}`, created ? "--- /dev/null" : `--- a${at}`, `+++ b${at}`].join(
+    "\n",
+  );
+};
+
+/** The patch of hunks, in git's form. */
+const patchOf = (path: string, hunks: Hunk[], created: boolean): string => {
+  const parts = [header(path, created)];
+  for (const hunk of hunks) {
+    parts.push(`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`);
+    parts.push(...hunk.lines);
+  }
+  return `${parts.join("\n")}\n`;
+};
+
+const count = (hunks: Hunk[], sign: string): number =>
+  hunks.reduce((n, hunk) => n + hunk.lines.filter((line) => line.startsWith(sign)).length, 0);
+
+/** The lines of a text, without the empty one after its last newline. */
+const linesOf = (text: string): string[] => {
+  if (text === "") return [];
+  const lines = text.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+};
+
+/** How many lines a text has, without splitting it: a file written whole can be any size. */
+const lineCount = (text: string): number => {
+  if (text === "") return 0;
+  let n = 0;
+  for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) n++;
+  return text.endsWith("\n") ? n : n + 1;
+};
+
+const flags = (out: Json, created: boolean) => ({
+  ...(created ? { created: true as const } : {}),
+  // Held for the machine's owner to review, not written: the file is as it was.
+  ...(out.staged === true ? { staged: true as const } : {}),
+});
+
+/** A change to a file that has hunks to show. With none (nothing changed, or the SDK's diff gave up) there is no diff. */
+const changed = (path: string, hunks: Hunk[], out: Json): Result | undefined => {
+  // Held for review with no diff to show: the file is unchanged, and that is what the line must say.
+  if (hunks.length === 0 && out.staged === true) {
+    return {
+      content: [{ type: "diff", changes: [{ operation: "modify", path }], patch: null }],
+      meta: { edit: { additions: 0, deletions: 0, staged: true } },
+      locations: [{ path }],
+    };
+  }
+  if (hunks.length === 0) return undefined;
+  const text = patchOf(path, hunks, false);
+  return {
+    content: [
+      {
+        type: "diff",
+        changes: [{ operation: "modify", path }],
+        patch: text.length <= MAX_PATCH ? { format: "git_patch", text } : null,
+      },
+    ],
+    meta: {
+      edit: { additions: count(hunks, "+"), deletions: count(hunks, "-"), ...flags(out, false) },
+    },
+    locations: [{ path, line: Math.max(1, hunks[0]?.newStart ?? 1) }],
+  };
+};
+
+const edit = (out: Json): Result | undefined => {
+  const hunks = hunksOf(out.structuredPatch);
+  if (typeof out.filePath !== "string" || hunks === undefined) return undefined;
+  return changed(out.filePath, hunks, out);
+};
+
+const write = (out: Json): Result | undefined => {
+  if (typeof out.filePath !== "string") return undefined;
+  if (out.type === "update") {
+    const hunks = hunksOf(out.structuredPatch);
+    return hunks === undefined ? undefined : changed(out.filePath, hunks, out);
+  }
+  if (out.type !== "create" || typeof out.content !== "string") return undefined;
+  const path = out.filePath;
+  // A file too large to send is counted, never split or copied.
+  const small = out.content.length <= MAX_PATCH;
+  const lines = small ? linesOf(out.content) : undefined;
+  const additions = lines?.length ?? lineCount(out.content);
+  const text =
+    lines !== undefined && lines.length > 0
+      ? patchOf(
+          path,
+          [
+            {
+              oldStart: 0,
+              oldLines: 0,
+              newStart: 1,
+              newLines: lines.length,
+              lines: lines.map((l) => `+${l}`),
+            },
+          ],
+          true,
+        )
+      : undefined;
+  return {
+    content: [
+      {
+        type: "diff",
+        changes: [{ operation: "add", path }],
+        patch:
+          text !== undefined && text.length <= MAX_PATCH ? { format: "git_patch", text } : null,
+      },
+    ],
+    meta: { edit: { additions, deletions: 0, ...flags(out, true) } },
+    locations: [{ path }],
+  };
+};
+
+/** One cell's source before and after, as one hunk: a cell has no line numbers in the file worth giving. */
+const notebook = (out: Json): Result | undefined => {
+  if (typeof out.notebook_path !== "string" || out.error !== undefined) return undefined;
+  const mode = out.edit_mode;
+  // A replace that does not say what was there cannot be drawn as one: it would read as an insert.
+  if (mode !== "insert" && mode !== "delete" && typeof out.old_source !== "string")
+    return undefined;
+  const before =
+    mode === "insert" ? [] : linesOf(typeof out.old_source === "string" ? out.old_source : "");
+  const after =
+    mode === "delete" ? [] : linesOf(typeof out.new_source === "string" ? out.new_source : "");
+  if (before.length === 0 && after.length === 0) return undefined;
+  const hunk: Hunk = {
+    // An empty side starts at 0, as git writes it.
+    oldStart: before.length > 0 ? 1 : 0,
+    oldLines: before.length,
+    newStart: after.length > 0 ? 1 : 0,
+    newLines: after.length,
+    lines: [...before.map((l) => `-${l}`), ...after.map((l) => `+${l}`)],
+  };
+  const result = changed(out.notebook_path, [hunk], out);
+  return result === undefined ? undefined : { ...result, locations: [{ path: out.notebook_path }] };
+};
+
+const read = (out: Json, text: Content[]): Result | undefined => {
+  const file = out.file;
+  if (out.type !== "text" || !isObject(file)) return undefined;
+  const [startLine, numLines, totalLines] = [
+    num(file.startLine),
+    num(file.numLines),
+    num(file.totalLines),
+  ];
+  if (typeof file.filePath !== "string" || startLine === undefined || numLines === undefined)
+    return undefined;
+  return {
+    content: text,
+    meta: {
+      read: {
+        startLine: Math.max(1, startLine),
+        numLines,
+        ...(totalLines !== undefined ? { totalLines } : {}),
+      },
+    },
+    locations: [{ path: file.filePath, line: Math.max(1, startLine) }],
+  };
+};
+
+const more = (yes: boolean) => (yes ? { more: true as const } : {});
+
+/**
+ * Glob: the total when it is exact, else what it found and "more". `totalMatches` is a floor when `countIsComplete` is
+ * false; without it, `truncated` says there were more than the 100 given.
+ */
+const glob = (out: Json, text: Content[]): Result | undefined => {
+  const found = num(out.numFiles);
+  if (found === undefined) return undefined;
+  const total = num(out.totalMatches);
+  const floor = out.countIsComplete === false || out.timedOut === true;
+  const files = total ?? found;
+  return {
+    content: text,
+    meta: { search: { files, ...more(floor || (total === undefined && out.truncated === true)) } },
+  };
+};
+
+/** Grep: files, and matches or lines as its mode counts them. A limit or a timeout means there may be more. */
+const grep = (out: Json, text: Content[]): Result | undefined => {
+  const files = num(out.numFiles);
+  if (files === undefined) return undefined;
+  const [matches, lines] = [num(out.numMatches), num(out.numLines)];
+  return {
+    content: text,
+    meta: {
+      search: {
+        files,
+        ...(out.mode === "count" && matches !== undefined ? { matches } : {}),
+        ...(out.mode === "content" && lines !== undefined ? { lines } : {}),
+        ...more(out.timedOut === true || num(out.appliedLimit) !== undefined),
+      },
+    },
+  };
+};
+
+/**
+ * A `tool_result`'s own content as ACP content: its text as one block, each image as an image. Every tool's result
+ * goes through here, so a Read of a picture or an MCP tool's screenshot is no longer lost.
+ */
+export const contentOf = (content: unknown): Content[] => {
+  if (typeof content === "string")
+    return [{ type: "content", content: { type: "text", text: content } }];
+  if (!Array.isArray(content)) {
+    const text = content === undefined ? "" : JSON.stringify(content);
+    return [{ type: "content", content: { type: "text", text } }];
+  }
+  const texts: string[] = [];
+  const images: Content[] = [];
+  for (const part of content) {
+    if (!isObject(part)) continue;
+    if (part.type === "image" && isObject(part.source) && part.source.type === "base64") {
+      const { data, media_type: mimeType } = part.source;
+      if (
+        typeof data === "string" &&
+        typeof mimeType === "string" &&
+        mimeType.startsWith("image/")
+      ) {
+        images.push({ type: "content", content: { type: "image", data, mimeType } });
+      }
+    } else if ("text" in part) texts.push(String(part.text ?? ""));
+  }
+  const text: Content[] =
+    texts.length > 0 || images.length === 0
+      ? [{ type: "content", content: { type: "text", text: texts.join("") } }]
+      : [];
+  return [...text, ...images];
+};
+
+/** An image `contentOf` carries into the content: base64, of an image type. */
+const carried = (part: Json): boolean =>
+  part.type === "image" &&
+  isObject(part.source) &&
+  part.source.type === "base64" &&
+  typeof part.source.data === "string" &&
+  typeof part.source.media_type === "string" &&
+  part.source.media_type.startsWith("image/");
+
+/**
+ * The result as `rawOutput`, only for what the content does not already hold: a result of text and images is all in
+ * the content (a Read's file would be sent and logged twice), so it has none. Any other part keeps the whole result,
+ * as it came, with only the carried images' bytes left out.
+ */
+export const rawOutputOf = (content: unknown): unknown => {
+  if (!Array.isArray(content)) return undefined;
+  const plain = content.every((part) => isObject(part) && (part.type === "text" || carried(part)));
+  if (plain) return undefined;
+  return content.map((part) =>
+    isObject(part) && carried(part) && isObject(part.source)
+      ? { ...part, source: { ...part.source, data: "" } }
+      : part,
+  );
+};
+
+/**
+ * What a finished call says, from its structured result when there is one this file knows; `undefined` leaves the
+ * result as it was (its text). A failed call keeps its text: the message is what matters.
+ */
+export const resultOf = (
+  name: string,
+  structured: unknown,
+  content: unknown,
+): Result | undefined => {
+  if (!isObject(structured)) return undefined;
+  switch (name) {
+    case "Edit":
+      return edit(structured);
+    case "Write":
+      return write(structured);
+    case "NotebookEdit":
+      return notebook(structured);
+    case "Read":
+      return read(structured, contentOf(content));
+    case "Glob":
+      return glob(structured, contentOf(content));
+    case "Grep":
+      return grep(structured, contentOf(content));
+    default:
+      return undefined;
+  }
+};

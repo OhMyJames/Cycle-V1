@@ -8,6 +8,7 @@ import {
   NOTIFICATIONS,
   PROMPT_LIMITS,
   seqOf,
+  ToolResultSchema,
 } from "../src/index.ts";
 
 test("Cycle's error codes do not collide with ACP's or each other", () => {
@@ -143,4 +144,18 @@ test("a link counts by the size of its name and uri, so it cannot carry what the
     reason: "block_too_large",
     index: 0,
   });
+});
+
+test("a tool call's result is counts and flags only", () => {
+  for (const ok of [
+    { edit: { additions: 2, deletions: 1 } },
+    { edit: { additions: 0, deletions: 0, created: true, staged: true } },
+    { read: { startLine: 20, numLines: 40, totalLines: 212 } },
+    { search: { files: 3, matches: 5, more: true } },
+  ]) {
+    expect(ToolResultSchema.safeParse(ok).success).toBe(true);
+  }
+  for (const bad of [{ edit: { additions: -1, deletions: 0 } }, { search: { files: "3" } }, {}]) {
+    expect(ToolResultSchema.safeParse(bad).success).toBe(false);
+  }
 });

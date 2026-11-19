@@ -1,5 +1,6 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { SessionUpdate } from "@cycle/acp";
+import { contentOf, rawOutputOf, resultOf, TOOL_RESULT_META } from "./results.ts";
 
 /** What a Claude turn ended with, as ACP's idle `state_update` names it. */
 export type StopReason =
@@ -59,6 +60,8 @@ export class TurnTranslator {
   readonly #streamed = new Set<string>();
   /** Task calls waiting for their results: a created task's id is only in the result. */
   readonly #calls = new Map<string, { name: string; input: Record<string, unknown> }>();
+  /** Which tool each call is, for reading its result. */
+  readonly #names = new Map<string, string>();
   /** Tool calls that were shown starting and have had no result yet, in the order they started. */
   readonly #open = new Set<string>();
 
@@ -100,6 +103,7 @@ export class TurnTranslator {
       if (block.type === "tool_use") {
         const name = String(block.name);
         this.#open.add(String(block.id));
+        this.#names.set(String(block.id), name);
         return [
           {
             sessionUpdate: "tool_call_update",
@@ -131,6 +135,9 @@ export class TurnTranslator {
       if (block.type === "tool_use") {
         const name = String(block.name);
         this.#open.add(String(block.id));
+        this.#names.set(String(block.id), name);
+        const input = (block.input ?? {}) as Record<string, unknown>;
+        const where = locationOf(name, input);
         updates.push({
           sessionUpdate: "tool_call_update",
           toolCallId: String(block.id),
@@ -138,8 +145,8 @@ export class TurnTranslator {
           kind: toolKind(name),
           status: "in_progress",
           rawInput: block.input,
+          ...(where !== undefined ? { locations: [where] } : {}),
         } as SessionUpdate);
-        const input = (block.input ?? {}) as Record<string, unknown>;
         if (name === "TodoWrite" && Array.isArray(input.todos)) {
           this.plan.replace(input.todos as { content?: unknown; status?: unknown }[]);
           updates.push(this.plan.toUpdate());
@@ -225,34 +232,60 @@ export class TurnTranslator {
           status: "cancelled",
         }) as SessionUpdate,
     );
+    for (const id of this.#open) this.#names.delete(id);
     this.#open.clear();
     return updates;
   }
 
   #toolResults(message: { content: unknown }, structured: unknown): SessionUpdate[] {
     if (!Array.isArray(message.content)) return [];
+    const blocks = (message.content as Block[]).filter((block) => block.type === "tool_result");
     const updates: SessionUpdate[] = [];
-    for (const block of message.content as Block[]) {
-      if (block.type !== "tool_result") continue;
-      this.#open.delete(String(block.tool_use_id));
-      const planned = this.#planned(
-        String(block.tool_use_id),
-        block.is_error === true,
-        structured,
-        asText(block.content),
-      );
+    for (const block of blocks) {
+      const id = String(block.tool_use_id);
+      const failed = block.is_error === true;
+      this.#open.delete(id);
+      const name = this.#names.get(id);
+      this.#names.delete(id);
+      const planned = this.#planned(id, failed, structured, asText(block.content));
       if (planned !== undefined) updates.push(planned);
+      // The structured result is the message's, not a block's: with more than one result in it, whose it is is not known.
+      const read =
+        !failed && blocks.length === 1 && name !== undefined
+          ? resultOf(name, structured, block.content)
+          : undefined;
+      const raw = rawOutputOf(block.content);
       updates.push({
         sessionUpdate: "tool_call_update",
-        toolCallId: String(block.tool_use_id),
-        status: block.is_error === true ? "failed" : "completed",
-        content: [{ type: "content", content: { type: "text", text: asText(block.content) } }],
-        rawOutput: block.content,
+        toolCallId: id,
+        status: failed ? "failed" : "completed",
+        content: read?.content ?? contentOf(block.content),
+        ...(raw !== undefined ? { rawOutput: raw } : {}),
+        ...(read?.locations !== undefined ? { locations: read.locations } : {}),
+        ...(read !== undefined ? { _meta: { [TOOL_RESULT_META]: read.meta } } : {}),
       } as SessionUpdate);
     }
     return updates;
   }
 }
+
+/** Where a file tool works, as soon as it is called: its path, and the line a read starts at. */
+const locationOf = (
+  name: string,
+  input: Record<string, unknown>,
+): { path: string; line?: number } | undefined => {
+  const path =
+    name === "Read" || name === "Edit" || name === "Write"
+      ? input.file_path
+      : name === "NotebookEdit"
+        ? input.notebook_path
+        : undefined;
+  if (typeof path !== "string" || path === "") return undefined;
+  const offset = input.offset;
+  return name === "Read" && typeof offset === "number" && offset >= 1
+    ? { path, line: Math.floor(offset) }
+    : { path };
+};
 
 type TaskStatus = "pending" | "in_progress" | "completed";
 const statusOf = (value: unknown): TaskStatus =>
