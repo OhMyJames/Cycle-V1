@@ -453,3 +453,67 @@ test("a delete the daemon refuses leaves the session watched, so a reconnect sti
     "the turn to end, as seen after the reconnect",
   );
 });
+
+/** A client whose dials wait for the test to let them through. */
+const gated = async () => {
+  await setup();
+  const socket = join(dir, "d.sock");
+  const gates: (() => void)[] = [];
+  let hold = false;
+  const channels: Channel[] = [];
+  const states: string[] = [];
+  const client = new CycleClient({
+    connect: async () => {
+      if (hold) await new Promise<void>((resolve) => gates.push(resolve));
+      const channel = await connectUnix(socket);
+      channels.push(channel);
+      return channel;
+    },
+    events: { connection: (s) => states.push(s) },
+    backoff: { first: 10, max: 50 },
+  });
+  cleanup.push(() => client.close());
+  return {
+    client,
+    states,
+    hold: (on: boolean) => {
+      hold = on;
+    },
+    release: () => {
+      for (const open of gates.splice(0)) open();
+    },
+    dialling: () => gates.length,
+    /** Cuts the line the client is on. */
+    cut: () => channels.at(-1)?.close(),
+  };
+};
+
+test("closing a client that is still dialling leaves it closed", async () => {
+  const g = await gated();
+  g.hold(true);
+  const starting = g.client.start();
+  starting.catch(() => undefined);
+  await until(() => g.dialling() === 1, "the dial to be waiting");
+  await g.client.close();
+  g.release();
+  await expect(starting).rejects.toThrow();
+  await Bun.sleep(50);
+  expect(g.client.state).toBe("closed");
+  expect(g.states).not.toContain("connected");
+  await expect(g.client.listSessions()).rejects.toThrow("Not connected");
+});
+
+test("closing a client that is reconnecting leaves it closed", async () => {
+  const g = await gated();
+  await g.client.start();
+  g.hold(true);
+  g.cut();
+  await until(() => g.dialling() === 1, "the reconnect to be dialling");
+  await g.client.close();
+  g.release();
+  await Bun.sleep(100);
+  expect(g.client.state).toBe("closed");
+  expect(g.states.at(-1)).toBe("closed");
+  expect(g.states.filter((s) => s === "connected")).toHaveLength(1);
+  await expect(g.client.listSessions()).rejects.toThrow("Not connected");
+});
