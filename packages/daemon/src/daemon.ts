@@ -79,6 +79,19 @@ const SESSION_UPDATE = methods.client.session.update;
 const REQUEST_PERMISSION = methods.client.session.requestPermission;
 const ELICITATION = methods.client.elicitation.create;
 
+/** The value each of an agent's `configOptions` has now, as a configuration. */
+const currentValues = (options: unknown): Record<string, string> => {
+  const config: Record<string, string> = {};
+  if (Array.isArray(options)) {
+    for (const option of options as { configId?: unknown; currentValue?: unknown }[]) {
+      if (typeof option?.configId === "string" && typeof option.currentValue === "string") {
+        config[option.configId] = option.currentValue;
+      }
+    }
+  }
+  return config;
+};
+
 const stringConfig = (value: unknown): Record<string, string> => {
   const config: Record<string, string> = {};
   if (typeof value === "object" && value !== null) {
@@ -593,12 +606,7 @@ export class Daemon {
       this.#remember(session, { hadTurn: true }, false);
     } else if (u.sessionUpdate === "config_option_update" && Array.isArray(u.configOptions)) {
       // The agent changed a setting itself (a plan approved, say): on record, so a restart keeps it.
-      const config = { ...(session.entry.config ?? {}) };
-      for (const option of u.configOptions) {
-        if (typeof option.configId === "string" && typeof option.currentValue === "string") {
-          config[option.configId] = option.currentValue;
-        }
-      }
+      const config = { ...(session.entry.config ?? {}), ...currentValues(u.configOptions) };
       this.#remember(session, { config });
     } else if (u.sessionUpdate === "usage_update") {
       const usage = SessionUsageSchema.safeParse(update);
@@ -992,9 +1000,12 @@ export class Daemon {
             );
           }
         }
-        if (Object.keys(config).length > 0) {
-          session.entry = { ...session.entry, config };
-          await this.#index.update(id, { config });
+        // On record with what the agent started in, not only what was set: a resume sends it again,
+        // so a session keeps its mode even if the agent's default for new ones changes.
+        const recorded = { ...currentValues(answer.configOptions), ...config };
+        if (Object.keys(recorded).length > 0) {
+          session.entry = { ...session.entry, config: recorded };
+          await this.#index.update(id, { config: recorded });
         }
         this.#changed();
         return { sessionId: id, configOptions: answer.configOptions ?? [] } as never;

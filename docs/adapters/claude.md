@@ -29,11 +29,30 @@
 | 权限审批             | 做了 | `canUseTool` 对应 `session/request_permission`,选项为允许一次和拒绝一次                                                                                                                                                                                                                                                        |
 | `session/cancel`     | 做了 | `interrupt` 当前回合(进程保留)、取消待决的权限请求,以 `cancelled` 结束;3 秒内没停就杀进程                                                                                                                                                                                                                                      |
 | `session/resume`     | 做了 | 不重放(daemon 管历史);响应前先发状态快照;用 SDK 的 `getSessionInfo` 看 Claude 有没有这个 session 的记录:有就恢复;没有且 daemon 没说有过被回答的 turn(`cycle/hadTurn`)就当新 session 开始(创建后没发过消息的 session,Claude 不会写记录);没有但说有过,就以错误回应(记录丢了,不悄悄开新对话);没给配置目录或查看失败时按有记录处理 |
-| 权限模式配置         | 做了 | `session/set_config_option` 的 `mode`:default、acceptEdits、plan                                                                                                                                                                                                                                                               |
+| 权限模式配置         | 做了 | `session/set_config_option` 的 `mode`:SDK 的全部六种,每个选项带 `name` 和 `description`(见下)                                                                                                                                                                                                                                  |
 | 模型配置             | 部分 | 能通过 `set_config_option` 设 `model`,但没有可选模型列表                                                                                                                                                                                                                                                                       |
 | `session/close`      | 做了 |                                                                                                                                                                                                                                                                                                                                |
 | 计划(`plan_update`)  | 做了 | Claude 的任务列表:`TaskCreate`/`TaskUpdate`(以及启用时的 `TodoWrite`)。每次变化发整张列表,列表属于 session,跨回合保留;适配进程重启后,之前建的任务不记得,但再更新其中一个仍会显示                                                                                                                                               |
 | 用量(`usage_update`) | 做了 | 每个回合结束前发一条:已用的上下文(主线程最后一次调用的 token 总和,子 agent 不算)、窗口大小、累计费用(USD)                                                                                                                                                                                                                      |
+
+## 权限模式
+
+取值是 SDK `PermissionMode` 的原值,不改名(存进配置和索引的就是它);给人看的名字和说明只在 `CLAUDE_PERMISSION_MODES`(`packages/adapters/claude/src/agent.ts`)里写一次,ACP 的 `configOptions` 和 daemon 的 `configSchema`(`oneOf`)都从它生成。
+
+| 值                  | 名字               | 说明(界面上显示的英文原文)                                                                                       |
+| ------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `auto`(默认、推荐)  | Auto               | A model reviews each action and allows or denies it, and asks you when it cannot tell. Not every account has it. |
+| `default`           | Ask before acting  | Asks you before Claude edits a file or runs a command. Reading is allowed without asking.                        |
+| `acceptEdits`       | Accept edits       | Edits to files in the working folder are allowed without asking. Commands still ask.                             |
+| `plan`              | Plan mode          | Claude reads and writes a plan but changes nothing. It starts work only after you approve the plan.              |
+| `dontAsk`           | Don't ask          | Never asks. Anything not already allowed in settings is denied.                                                  |
+| `bypassPermissions` | Bypass permissions | Every edit and command runs without asking. Use only where Claude can do no harm, such as a sandbox.             |
+
+新 session 从 `auto` 起(`DEFAULT_PERMISSION_MODE`),它的选项带 `_meta["cycle/recommended"]`,列表里排第一。恢复一个没有记下 mode 的 session 时仍按 `default`:那是 auto 成为默认之前建的，当时就是先问再做，恢复不能把它放宽。daemon 从这次起会把新 session 的初始值记下(见协议 §10),所以以后的 session 恢复时按记下的值。
+
+起进程时总是带 `allowDangerouslySkipPermissions: true`:它只允许这个模式,不打开它;不带的话,运行中切到 `bypassPermissions` 会被拒,进程被释放。为什么全部提供,见 [笔记](../../.agents/notes/2026-11-19-offer-every-claude-permission-mode.md)。
+
+未验证:在没有 auto 的账号上显式传 `auto`,SDK 会怎样(猜测是退回 default 并经 `system/status` 报告,适配器会把它当成 `config_option_update` 转发;如果是报错，新 session 的第一个 prompt 就会失败。auto 是默认，所以这一点要先在真实账号上确认);`dontAsk` 和 `bypassPermissions` 只有单元测试(假的 query),没有在真实模型上跑过。
 
 ## 未做(显式列出,不要悄悄补)
 
@@ -42,7 +61,6 @@
 - 子 agent 的对话:`subagent_update` 只通告(开始、进度、结束),不转发它的内容,也不能当 session 打开(决策 0014)。
 - 压缩的摘要内容:`compaction_update` 只报开始、完成、失败,不带摘要。
 - 命令列表:`warmStart` 关着时(默认),`available_commands_update` 在 session 的 Claude 进程启动后(第一个 prompt)才有;桌面端的 daemon 开着它,`session/new` 就起进程(决策 0014)。
-- `bypassPermissions` 模式:有意不提供。
 - `terminal`。
 - 凭证注入和真实模型的验证(需要登录或密钥,见下)。
 

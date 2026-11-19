@@ -181,6 +181,9 @@ export const enUS = {
   "attention.finished": "Waiting for your next message",
   "attention.stopped": "The agent stopped unexpectedly",
 
+  // A setting the agent offers: the choice it suggests
+  "config.recommended": "Recommended",
+
   // The code colours choice
   "codeTheme.label": "Code colours",
 } as const satisfies Messages;

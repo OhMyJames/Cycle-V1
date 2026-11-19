@@ -28,7 +28,11 @@ export type Turn = {
  */
 export const fakeAgent = (
   script: Script = {},
-  options: { promptCapabilities?: Record<string, unknown> } = {},
+  options: {
+    promptCapabilities?: Record<string, unknown>;
+    /** What `session/new` answers with: the settings a new session starts with. */
+    configOptions?: unknown[];
+  } = {},
 ) => {
   const log = {
     news: [] as Record<string, unknown>[],
@@ -60,7 +64,7 @@ export const fakeAgent = (
         const proposed = (params._meta as Record<string, unknown> | null)?.["cycle/sessionId"];
         const id = typeof proposed === "string" ? proposed : randomUUID();
         sessions.add(id);
-        return { sessionId: id, configOptions: [] };
+        return { sessionId: id, configOptions: (options.configOptions ?? []) as never };
       })
       .onRequest(methods.agent.session.resume, async ({ params, client }) => {
         log.resumes.push(params as unknown as Record<string, unknown>);

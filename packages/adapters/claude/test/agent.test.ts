@@ -231,7 +231,8 @@ test("resuming in a new process sends the state before it answers, and no replay
     });
     await idle;
   });
-  expect(fake.calls[0]?.options).toMatchObject({ resume: ID });
+  // Nothing on record says otherwise: it was made when new sessions asked first, so it still does.
+  expect(fake.calls[0]?.options).toMatchObject({ resume: ID, permissionMode: "default" });
 });
 
 test("refuses to replay: the daemon owns the history", async () => {
@@ -288,7 +289,7 @@ test("changes the permission mode, and refuses one it does not know", async () =
         sessionId: ID,
         configId: "mode",
         type: "id",
-        value: "bypassPermissions",
+        value: "alwaysAsk",
       } as never),
     ).rejects.toMatchObject({ code: -32602 });
     const idle = waitForIdle();
@@ -299,6 +300,75 @@ test("changes the permission mode, and refuses one it does not know", async () =
     await idle;
   });
   expect(fake.calls[0]?.options.permissionMode).toBe("plan");
+});
+
+test("a new session starts in auto, the suggested mode", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  await connect(fake.run, async ({ agent, waitForIdle }) => {
+    const created = await agent.request(methods.agent.session.new, {
+      cwd: "/work",
+      _meta: { "cycle/sessionId": ID },
+    });
+    const mode = (
+      created.configOptions as {
+        configId: string;
+        currentValue: string;
+        options: { value: string; _meta?: Record<string, unknown> }[];
+      }[]
+    ).find((o) => o.configId === "mode");
+    expect(mode?.currentValue).toBe("auto");
+    expect(mode?.options.filter((o) => o._meta?.["cycle/recommended"] === true)).toEqual([
+      expect.objectContaining({ value: "auto" }),
+    ]);
+    const idle = waitForIdle();
+    await agent.request(methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "x" }],
+    });
+    await idle;
+  });
+  expect(fake.calls[0]?.options.permissionMode).toBe("auto");
+});
+
+test("offers every SDK permission mode, each with a name and a description", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  await connect(fake.run, async ({ agent, waitForIdle }) => {
+    const created = await agent.request(methods.agent.session.new, {
+      cwd: "/work",
+      _meta: { "cycle/sessionId": ID },
+    });
+    const mode = (created.configOptions as { configId: string; options: unknown[] }[]).find(
+      (o) => o.configId === "mode",
+    );
+    const options = mode?.options as { value: string; name: string; description: string }[];
+    expect(options.map((o) => o.value)).toEqual([
+      "auto",
+      "default",
+      "acceptEdits",
+      "plan",
+      "dontAsk",
+      "bypassPermissions",
+    ]);
+    for (const o of options) {
+      expect(o.name.length).toBeGreaterThan(0);
+      expect(o.description.length).toBeGreaterThan(0);
+    }
+    await agent.request(methods.agent.session.setConfigOption, {
+      sessionId: ID,
+      configId: "mode",
+      type: "id",
+      value: "bypassPermissions",
+    } as never);
+    const idle = waitForIdle();
+    await agent.request(methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "x" }],
+    });
+    await idle;
+  });
+  // The SDK refuses bypassPermissions without its guard flag.
+  expect(fake.calls[0]?.options.permissionMode).toBe("bypassPermissions");
+  expect(fake.calls[0]?.options.allowDangerouslySkipPermissions).toBe(true);
 });
 
 test("a second prompt right after the first is refused: the turn exists before anything is awaited", async () => {

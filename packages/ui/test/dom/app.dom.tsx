@@ -305,6 +305,57 @@ test("starts a session from the defaults of the agent, in the directory typed", 
   ]);
 });
 
+test("a choice the agent names and describes shows its name and what it does, and sends its value", async () => {
+  const { user, named } = await mount({
+    configure: (script) => {
+      script.bridge.agentDefaults = async () => ({ mode: "plan" });
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          configSchema: {
+            type: "object",
+            properties: {
+              mode: {
+                type: "string",
+                title: "Permission mode",
+                oneOf: [
+                  {
+                    const: "auto",
+                    title: "Auto",
+                    description: "Decides for you.",
+                    _meta: { "cycle/recommended": true },
+                  },
+                  { const: "default", title: "Ask before acting", description: "Asks first." },
+                  { const: "plan", title: "Plan mode", description: "Changes nothing." },
+                ],
+              },
+            },
+          },
+        },
+      ];
+    },
+  });
+  await user.click(await screen.findByRole("button", { name: "New session" }));
+  const dialog = await screen.findByRole("dialog");
+  const trigger = within(dialog).getByRole("combobox", { name: "Permission mode" });
+  await waitFor(() => expect(trigger.textContent).toContain("Plan mode"));
+  expect(within(dialog).getByText("Changes nothing.")).toBeTruthy();
+  await user.click(trigger);
+  const option = await screen.findByRole("option", { name: /Ask before acting/ });
+  expect(option.textContent).toContain("Asks first.");
+  // The suggested one says so; the others do not.
+  expect(option.textContent).not.toContain("Recommended");
+  expect(screen.getByRole("option", { name: /Auto/ }).textContent).toContain("Recommended");
+  await user.click(option);
+  await waitFor(() => expect(within(dialog).getByText("Asks first.")).toBeTruthy());
+  await user.type(within(dialog).getByRole("textbox", { name: "Directory" }), "/work/new");
+  await user.click(within(dialog).getByRole("button", { name: "Start" }));
+  await waitFor(() => expect(named("createSession")).toHaveLength(1));
+  expect(named("createSession")[0]?.[2]).toMatchObject({ config: { mode: "default" } });
+});
+
 test("deleting a session asks first", async () => {
   const { user, named } = await mount();
   await openFirstSession(user);
