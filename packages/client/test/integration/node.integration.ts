@@ -8,15 +8,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Daemon } from "@cycle/daemon";
 import { listenUnix } from "@cycle/transport/server";
+import { electronBinary } from "../../../../scripts/electron-binary.ts";
 import { fakeAgent } from "../../../daemon/test/fake-agent.ts";
 
-const electron = (() => {
-  const pnpmLike = new URL("../../../../node_modules/.bun", import.meta.url).pathname;
-  const found = Array.from(
-    new Bun.Glob("electron@*/node_modules/electron/dist/electron").scanSync(pnpmLike),
-  );
-  return found[0] === undefined ? undefined : join(pnpmLike, found[0]);
-})();
+const electron = electronBinary(new URL("../../../../node_modules/.bun", import.meta.url).pathname);
 
 let cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {

@@ -79,8 +79,38 @@ export function DaemonBanner({ environmentId }: { environmentId: string }) {
   const { t } = useI18n();
   const daemon = useAppState((s) => s.status[environmentId]?.daemon);
   const name = useAppState((s) => s.environments.find((e) => e.id === environmentId)?.name);
+  const incompatible = useAppState((s) => s.status[environmentId]?.incompatible);
   const [confirming, setConfirming] = useState(false);
   const upgrade = daemon?.upgrade;
+  if (incompatible !== undefined) {
+    // The daemon speaks another protocol: nothing is connected, so there is no version to show, only why and what to do.
+    const environment = name ?? environmentId;
+    const said = {
+      environment,
+      supported: incompatible.supported.join(", "),
+      requested: incompatible.requested,
+    };
+    return (
+      <div data-slot="banner" data-kind="incompatible" data-severity="error" role="alert">
+        <ErrorCircleIcon />
+        <span data-slot="update-line">
+          {t(
+            incompatible.with === "daemon"
+              ? "daemon.protocolOlder"
+              : incompatible.with === "app"
+                ? "daemon.protocolNewer"
+                : "daemon.protocolOther",
+            said,
+          )}
+        </span>
+        {incompatible.command !== undefined ? (
+          <code data-slot="command" title={t("daemon.byHand", { environment })}>
+            {incompatible.command}
+          </code>
+        ) : null}
+      </div>
+    );
+  }
   if (daemon === undefined || upgrade === undefined) return null;
   const failed = upgrade.error !== undefined;
   const environment = name ?? environmentId;

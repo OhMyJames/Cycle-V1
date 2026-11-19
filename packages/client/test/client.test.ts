@@ -7,7 +7,12 @@ import { Daemon } from "@cycle/daemon";
 import { type Channel, commandChannel, connectUnix } from "@cycle/transport/client";
 import { listenUnix } from "@cycle/transport/server";
 import { fakeAgent } from "../../daemon/test/fake-agent.ts";
-import { CycleClient, type ElicitationAnswer, type PermissionAnswer } from "../src/index.ts";
+import {
+  CycleClient,
+  type ElicitationAnswer,
+  type PermissionAnswer,
+  ProtocolMismatchError,
+} from "../src/index.ts";
 
 let dir: string;
 let cleanup: (() => void | Promise<void>)[] = [];
@@ -516,4 +521,49 @@ test("closing a client that is reconnecting leaves it closed", async () => {
   expect(g.states.at(-1)).toBe("closed");
   expect(g.states.filter((s) => s === "connected")).toHaveLength(1);
   await expect(g.client.listSessions()).rejects.toThrow("Not connected");
+});
+
+test("a daemon that speaks another major version of the protocol is refused with what it speaks, and a client that is connected stays reconnecting and says so", async () => {
+  await setup();
+  const socket = join(dir, "d.sock");
+  // A client from the future: it asks for protocol 1.0 of a daemon that speaks 0.x.
+  const future = new CycleClient({
+    connect: () => connectUnix(socket),
+    protocolVersion: "1.0",
+    backoff: { first: 10, max: 50 },
+  });
+  cleanup.push(() => future.close());
+  const failure = await future.start().then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  expect(failure).toBeInstanceOf(ProtocolMismatchError);
+  expect(failure).toMatchObject({ code: -32022, supported: ["0.2"], requested: "1.0" });
+  expect(future.state).toBe("closed");
+
+  // One that was connected and meets it on reconnecting (the daemon was replaced by another build): the connection event
+  // carries the same error, once per attempt, and it keeps trying, so the next daemon is found.
+  const errors: unknown[] = [];
+  const channels: Channel[] = [];
+  const options: ConstructorParameters<typeof CycleClient>[0] = {
+    connect: async () => {
+      const channel = await connectUnix(socket);
+      channels.push(channel);
+      return channel;
+    },
+    events: { connection: (_state, error) => error !== undefined && errors.push(error) },
+    backoff: { first: 10, max: 50 },
+  };
+  const a = new CycleClient(options);
+  cleanup.push(() => a.close());
+  await a.start();
+  options.protocolVersion = "1.0";
+  for (const channel of channels) channel.close();
+  await until(
+    () => errors.some((e) => e instanceof ProtocolMismatchError),
+    "the mismatch to be said",
+  );
+  expect(a.state).toBe("reconnecting");
+  delete options.protocolVersion;
+  await until(() => a.state === "connected", "the right protocol to be found again");
 });

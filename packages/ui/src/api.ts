@@ -48,6 +48,19 @@ export type EnvironmentStatus = {
     /** It keeps connectors: MCP servers for every agent (docs/protocol.md §14). */
     connectors?: boolean;
   };
+  /**
+   * The daemon on the environment speaks another major version of Cycle's protocol, so the app cannot use it
+   * (docs/protocol.md §3). Present while that is why the connection is not up; gone once it connects.
+   */
+  incompatible?: {
+    /** Which has to change: the daemon is older than the app, or newer (the app is the one to update). */
+    with: "daemon" | "app" | "unknown";
+    /** The protocol versions the daemon says it speaks, and the one this app asked for. */
+    supported: string[];
+    requested: string;
+    /** What to run on that machine to put this app's daemon there, when the daemon is the older one and remote. */
+    command?: string;
+  };
   /** What the daemon on the environment says it is. Not for the local one, which the app carries. */
   daemon?: {
     version: string;
@@ -94,9 +107,15 @@ export type AgentInfo = {
   /** JSON Schema of the agent's settings. The UI draws a form from it. */
   configSchema: Record<string, unknown>;
   /** What the agent takes in a prompt beyond text (ACP `PromptCapabilities`). Absent from a daemon that does not say. */
-  promptCapabilities?: { image?: object | null | undefined } | undefined;
+  promptCapabilities?:
+    | {
+        image?: object | null | undefined;
+        audio?: object | null | undefined;
+        embeddedContext?: object | null | undefined;
+      }
+    | undefined;
   /** It can take a message into the turn that is running (docs/protocol.md §8). Absent: it cannot. */
-  steer?: boolean;
+  steer?: boolean | undefined;
 };
 
 /** What a message to an agent is made of: text, and images as ACP carries them (base64). */
