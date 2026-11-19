@@ -6,6 +6,9 @@ import {
   type SessionUpdate,
 } from "@cycle/acp";
 import {
+  agentDefaultsRead,
+  agentDefaultsSet,
+  agentsList,
   CONNECTORS_CHANGED,
   type Connector,
   type ConnectorAuth,
@@ -13,11 +16,30 @@ import {
   type ConnectorTransport,
   CYCLE_PROTOCOL_VERSION,
   CycleErrorCode,
+  type CycleMethod,
+  connectorsAdd,
+  connectorsAuthClear,
+  connectorsAuthFinish,
+  connectorsAuthStart,
+  connectorsList,
+  connectorsRemove,
+  connectorsUpdate,
   type FolderList,
+  filesSearch,
+  foldersList,
   META,
   NOTIFICATIONS,
+  type ParamsOf,
+  promptDequeue,
+  type ResultOf,
   seqOf,
+  sessionArchive,
+  sessionMarkRead,
+  sessionSetTitle,
+  sessionUnarchive,
   type Trust,
+  trustRead,
+  trustSet,
 } from "@cycle/protocol";
 import type { Channel } from "@cycle/transport/client";
 
@@ -166,27 +188,17 @@ export class CycleClient {
 
   // ---- what to ask the daemon ----
 
-  async agents() {
-    return (await this.#request("_cycle/agents/list", {})) as {
-      agents: {
-        id: string;
-        name: string;
-        available: boolean;
-        configSchema: Record<string, unknown>;
-      }[];
-    };
+  async agents(): Promise<ResultOf<typeof agentsList>> {
+    return this.#call(agentsList, {});
   }
 
   /** What new sessions of an agent start with. */
   async agentDefaults(agent: string): Promise<Record<string, string>> {
-    const answer = (await this.#request("_cycle/agent_defaults/read", { agent })) as {
-      config: Record<string, string>;
-    };
-    return answer.config;
+    return (await this.#call(agentDefaultsRead, { agent })).config;
   }
 
   async setAgentDefaults(agent: string, config: Record<string, string>): Promise<void> {
-    await this.#request("_cycle/agent_defaults/set", { agent, config });
+    await this.#call(agentDefaultsSet, { agent, config });
   }
 
   /**
@@ -258,10 +270,7 @@ export class CycleClient {
 
   /** Takes a queued prompt back (docs/protocol.md §8). Rejects if it was sent, or handed back, meanwhile. */
   async dequeue(sessionId: string, queueId: string): Promise<unknown[]> {
-    const answer = (await this.#request("_cycle/prompt/dequeue", { sessionId, queueId })) as {
-      prompt: unknown[];
-    };
-    return answer.prompt;
+    return (await this.#call(promptDequeue, { sessionId, queueId })).prompt;
   }
 
   /**
@@ -272,20 +281,12 @@ export class CycleClient {
     where: string | { cwd: string },
     query: string,
     limit?: number,
-  ): Promise<{
-    root: string;
-    entries: { path: string; kind: "file" | "folder" }[];
-    truncated: boolean;
-  }> {
-    return (await this.#request("_cycle/files/search", {
+  ): Promise<ResultOf<typeof filesSearch>> {
+    return this.#call(filesSearch, {
       ...(typeof where === "string" ? { sessionId: where } : { cwd: where.cwd }),
       query,
       ...(limit !== undefined ? { limit } : {}),
-    })) as {
-      root: string;
-      entries: { path: string; kind: "file" | "folder" }[];
-      truncated: boolean;
-    };
+    });
   }
 
   /**
@@ -295,10 +296,10 @@ export class CycleClient {
   async listFolders(path?: string, hidden?: boolean): Promise<FolderList> {
     if (this.#capabilities.folders !== true)
       throw new Error("This daemon is too old to list its folders");
-    return (await this.#request("_cycle/folders/list", {
+    return this.#call(foldersList, {
       ...(path !== undefined ? { path } : {}),
       ...(hidden === true ? { hidden } : {}),
-    })) as FolderList;
+    });
   }
 
   /**
@@ -308,14 +309,14 @@ export class CycleClient {
   async readTrust(path: string): Promise<Trust> {
     if (this.#capabilities.trust !== true)
       throw new Error("This daemon is too old to keep folder trust");
-    return (await this.#request("_cycle/trust/read", { path })) as Trust;
+    return this.#call(trustRead, { path });
   }
 
   /** Records whether a folder on the daemon's machine may run its own configuration's commands. */
   async setTrust(path: string, trusted: boolean): Promise<Trust> {
     if (this.#capabilities.trust !== true)
       throw new Error("This daemon is too old to keep folder trust");
-    return (await this.#request("_cycle/trust/set", { path, trusted })) as Trust;
+    return this.#call(trustSet, { path, trusted });
   }
 
   // ---- connectors (docs/protocol.md §14) ----
@@ -328,8 +329,7 @@ export class CycleClient {
   /** The daemon's connectors. Secrets are named, never given. */
   async listConnectors(): Promise<Connector[]> {
     this.#connectors();
-    return ((await this.#request("_cycle/connectors/list", {})) as { connectors: Connector[] })
-      .connectors;
+    return (await this.#call(connectorsList, {})).connectors;
   }
 
   async addConnector(params: {
@@ -340,8 +340,7 @@ export class CycleClient {
     secrets?: ConnectorSecrets;
   }): Promise<Connector> {
     this.#connectors();
-    return ((await this.#request("_cycle/connectors/add", params)) as { connector: Connector })
-      .connector;
+    return (await this.#call(connectorsAdd, params)).connector;
   }
 
   /** What is not given stays as it is; a secret given as null is removed. */
@@ -354,26 +353,22 @@ export class CycleClient {
     secrets?: ConnectorSecrets;
   }): Promise<Connector> {
     this.#connectors();
-    return ((await this.#request("_cycle/connectors/update", params)) as { connector: Connector })
-      .connector;
+    return (await this.#call(connectorsUpdate, params)).connector;
   }
 
   /** Removes a connector and its credentials for good. The caller asks the user first. */
   async removeConnector(id: string): Promise<void> {
     this.#connectors();
-    await this.#request("_cycle/connectors/remove", { id });
+    await this.#call(connectorsRemove, { id });
   }
 
   /** Starts signing in: the daemon keeps the PKCE verifier and gives the URL to open. */
   async startConnectorAuth(
     id: string,
     redirectUri: string,
-  ): Promise<{ flowId: string; authorizationUrl: string }> {
+  ): Promise<ResultOf<typeof connectorsAuthStart>> {
     this.#connectors();
-    return (await this.#request("_cycle/connectors/auth/start", { id, redirectUri })) as {
-      flowId: string;
-      authorizationUrl: string;
-    };
+    return this.#call(connectorsAuthStart, { id, redirectUri });
   }
 
   /** Ends signing in with what the browser brought back. */
@@ -384,17 +379,13 @@ export class CycleClient {
     error?: string;
   }): Promise<Connector> {
     this.#connectors();
-    return (
-      (await this.#request("_cycle/connectors/auth/finish", params)) as { connector: Connector }
-    ).connector;
+    return (await this.#call(connectorsAuthFinish, params)).connector;
   }
 
   /** Forgets the connector's token. */
   async clearConnectorAuth(id: string): Promise<Connector> {
     this.#connectors();
-    return (
-      (await this.#request("_cycle/connectors/auth/clear", { id })) as { connector: Connector }
-    ).connector;
+    return (await this.#call(connectorsAuthClear, { id })).connector;
   }
 
   async cancel(sessionId: string): Promise<void> {
@@ -411,7 +402,7 @@ export class CycleClient {
   }
 
   async rename(sessionId: string, title: string): Promise<void> {
-    await this.#request("_cycle/session/set_title", { sessionId, title });
+    await this.#call(sessionSetTitle, { sessionId, title });
   }
 
   /**
@@ -421,13 +412,12 @@ export class CycleClient {
   async markRead(sessionId: string, seq: number): Promise<void> {
     const ops = this.#capabilities.sessionOps;
     if (!Array.isArray(ops) || !ops.includes("markRead")) return;
-    await this.#request("_cycle/session/mark_read", { sessionId, seq });
+    await this.#call(sessionMarkRead, { sessionId, seq });
   }
 
   async archive(sessionId: string, archived = true): Promise<void> {
-    await this.#request(archived ? "_cycle/session/archive" : "_cycle/session/unarchive", {
-      sessionId,
-    });
+    if (archived) await this.#call(sessionArchive, { sessionId });
+    else await this.#call(sessionUnarchive, { sessionId });
   }
 
   /** Removes a session's history for good. The caller asks the user first. */
@@ -450,6 +440,11 @@ export class CycleClient {
       throw new Error("Not connected to the daemon");
     }
     return this.#agent;
+  }
+
+  /** A method Cycle defines: what it takes and what it answers are what its definition says. */
+  async #call<M extends CycleMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M>> {
+    return (await this.#request(method.name, params)) as ResultOf<M>;
   }
 
   async #request(method: string, params: unknown): Promise<unknown> {

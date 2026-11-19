@@ -17,6 +17,7 @@ import {
   CONNECTORS_CHANGED,
   CYCLE_PROTOCOL_VERSION,
   CycleErrorCode,
+  type CycleMethod,
   checkPrompt,
   connectorsAdd,
   connectorsAuthClear,
@@ -1554,8 +1555,10 @@ export class Daemon {
       return {} as never;
     });
 
+    // The handler answers what the method's result schema says: a field the schema has and the handler leaves out
+    // (or one of another shape) does not compile.
     const cycle = <P extends z.ZodType, R extends z.ZodType>(
-      method: { name: `_cycle/${string}`; params: P },
+      method: CycleMethod<P, R>,
       handler: (params: z.output<P>) => Promise<z.input<R>> | z.input<R>,
     ) => {
       app.onRequest(
