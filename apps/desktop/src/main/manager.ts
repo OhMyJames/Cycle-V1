@@ -282,8 +282,8 @@ export class ConnectionManager
           this.#options.emit({ type: "agent-defaults", environmentId, agent }),
         connectorsChanged: () => this.#options.emit({ type: "connectors", environmentId }),
         gone: (sessionId) => this.#onGone(environmentId, connection, sessionId),
-        // A history that cannot be read after a reconnect: the view goes, the list row says why.
-        unreadable: (sessionId) => this.#onGone(environmentId, connection, sessionId),
+        // A history that cannot be read after a reconnect: nothing more comes to it, the list row says why.
+        unreadable: (sessionId) => this.#onUnreadable(connection, sessionId),
         connection: (state, error) => {
           // A connection that came back asks for the list again: it may have changed while away.
           const was = connection.status.state;
@@ -585,6 +585,14 @@ export class ConnectionManager
       connection.watched.delete(sessionId);
       throw error;
     }
+  }
+
+  /** A watched session's history could not be read on reconnecting: it is not watched, and nothing waits on it. */
+  #onUnreadable(connection: Connection, sessionId: string): void {
+    const watched = connection.watched.get(sessionId);
+    if (watched === undefined) return;
+    for (const pending of watched.pending.values()) pending.answer({ outcome: "cancelled" });
+    connection.watched.delete(sessionId);
   }
 
   /** A watched session was deleted elsewhere while the connection was away: nothing is waiting on it any more. */

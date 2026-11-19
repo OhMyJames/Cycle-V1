@@ -12,6 +12,7 @@ import {
   type ConnectorSecrets,
   type ConnectorTransport,
   CYCLE_PROTOCOL_VERSION,
+  CycleErrorCode,
   type FolderList,
   META,
   NOTIFICATIONS,
@@ -22,7 +23,6 @@ import type { Channel } from "@cycle/transport/client";
 
 /** ACP's "resource not found": the daemon has no such session. */
 const RESOURCE_NOT_FOUND = -32002;
-const LOG_UNAVAILABLE = -32015;
 
 const isSessionGone = (error: unknown): boolean =>
   typeof error === "object" &&
@@ -32,7 +32,7 @@ const isSessionGone = (error: unknown): boolean =>
 const isLogUnavailable = (error: unknown): boolean =>
   typeof error === "object" &&
   error !== null &&
-  (error as { code?: unknown }).code === LOG_UNAVAILABLE;
+  (error as { code?: unknown }).code === CycleErrorCode.LogUnavailable;
 
 export type ConnectionState = "connecting" | "connected" | "reconnecting" | "closed";
 
