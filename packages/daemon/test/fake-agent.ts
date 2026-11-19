@@ -55,11 +55,18 @@ export const fakeAgent = (
     blocks: [] as unknown[][],
     cancels: 0,
     launches: 0,
+    /** Launches asked for, including one still held. */
+    launchRequests: 0,
     configs: [] as Record<string, unknown>[],
   };
   const connections: AgentConnection[] = [];
   /** What a test may switch: the next launch fails. */
-  const control = { failLaunch: false, failInitialize: false };
+  const control: {
+    failLaunch: boolean;
+    failInitialize: boolean;
+    /** While set, a launch waits for it: the agent is slow to start. */
+    holdLaunch: Promise<void> | undefined;
+  } = { failLaunch: false, failInitialize: false, holdLaunch: undefined };
   const cancelResolvers: (() => void)[] = [];
 
   const build = () => {
@@ -203,6 +210,8 @@ export const fakeAgent = (
       : {}),
     ...(options.steer !== undefined ? { steer: true } : {}),
     launch: async () => {
+      log.launchRequests++;
+      await control.holdLaunch;
       if (control.failLaunch) throw new Error("The agent cannot start");
       log.launches++;
       return { target: build() };

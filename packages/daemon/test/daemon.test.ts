@@ -1162,6 +1162,35 @@ test("an agent that fails to initialize fails that one session; the daemon and t
   expect(fresh.sessionId).toBeDefined();
 });
 
+test("a stop that comes while the agent is starting means the prompt is not given to it", async () => {
+  const [id] = (await seedSessions(1)) as [string];
+  const { daemon, fake } = await start();
+  const c = await connectClient(daemon);
+  await c.agent.request(methods.agent.session.resume, { sessionId: id, cwd: "/tmp" });
+  const promptsBefore = fake.log.prompts.length;
+  const endedBefore = c.ended();
+
+  let release: () => void = () => {};
+  fake.control.holdLaunch = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const sent = c.agent.request(methods.agent.session.prompt, {
+    sessionId: id,
+    prompt: text("do it"),
+  });
+  await until(() => fake.log.launchRequests >= 1, "the agent to be starting");
+  await c.agent.notify(methods.agent.session.cancel, { sessionId: id });
+  // A request after the stop is answered after the stop has been taken.
+  await c.agent.request(methods.agent.session.list, {});
+  release();
+
+  await sent;
+  await until(() => c.ended() > endedBefore, "the turn to be ended");
+  expect(fake.log.prompts.length).toBe(promptsBefore);
+  const row = (await c.agent.request(methods.agent.session.list, {})).sessions[0];
+  expect(stateOf(row)).toBe("idle");
+});
+
 test("a half line left by a crash is not damage: the session is listed and opens as before", async () => {
   const [id] = (await seedSessions(1)) as [string];
   await appendFile(join(dir, "sessions", `${id}.jsonl`), '{"seq": 99, "kind":"upd');

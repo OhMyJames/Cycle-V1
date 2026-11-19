@@ -63,6 +63,11 @@ export class Session {
    */
   resuming = false;
   /**
+   * How many stops have come in while the agent was still starting. A prompt that was waiting for
+   * the agent compares it before and after: a stop in between means it is not to be handed over.
+   */
+  startingCancels = 0;
+  /**
    * The sub-agents the agent has announced and not ended, by id, and whether each runs in the
    * background. In memory only: when the agent process goes, so do they.
    */
