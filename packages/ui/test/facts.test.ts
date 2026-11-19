@@ -119,3 +119,22 @@ test("facts follow what the agent sent, not the tool's name; the result stays th
   const tool = conversation.items.find((item) => item.kind === "tool") as ToolItem;
   expect(toolFacts(tool).search).toEqual({ files: 3, more: true });
 });
+
+test("new content without counts clears the old ones; counts from the daemon are kept as they came", () => {
+  const start = {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "x",
+    name: "Edit",
+    status: "completed",
+  };
+  const toolAfter = (...updates: object[]) =>
+    (updates as SessionUpdate[])
+      .reduce(applyUpdate, emptyConversation())
+      .items.find((item) => item.kind === "tool") as ToolItem;
+  const counted = {
+    ...start,
+    _meta: { "cycle/toolResult": { edit: { additions: 2, deletions: 1 } } },
+  };
+  expect(toolAfter(start, counted).result).toEqual({ edit: { additions: 2, deletions: 1 } });
+  expect(toolAfter(start, counted, { ...start, content: [] }).result).toBeUndefined();
+});

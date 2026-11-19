@@ -38,7 +38,10 @@ export type ToolItem = InTurn & {
   rawInput?: unknown;
   rawOutput?: unknown;
   locations?: { path: string; line?: number | null }[];
-  /** `_meta["cycle/toolResult"]` of the call's result: what it amounts to in numbers (docs/protocol.md §9). */
+  /**
+   * `_meta["cycle/toolResult"]` of the call's result: what it amounts to in numbers (docs/protocol.md §9). The daemon
+   * keeps it only when it matches the protocol's schema; the model still reads it field by field (`toolFacts`).
+   */
   result?: unknown;
 };
 export type PlanEntry = { content: string; priority: string; status: string };
@@ -222,8 +225,9 @@ const toolUpdate = (c: Conversation, update: Fields): Conversation => {
   const rawInput = update.rawInput === undefined ? old?.rawInput : update.rawInput;
   const rawOutput = update.rawOutput === undefined ? old?.rawOutput : update.rawOutput;
   const locations = patch(old?.locations, update.locations);
-  const meta = update._meta as Record<string, unknown> | null | undefined;
-  const result = meta?.["cycle/toolResult"] !== undefined ? meta["cycle/toolResult"] : old?.result;
+  // The counts belong to the content they came with: new content without them clears them.
+  const said = (update._meta as Record<string, unknown> | null | undefined)?.["cycle/toolResult"];
+  const result = said !== undefined ? said : update.content !== undefined ? undefined : old?.result;
   if (name !== undefined) next.name = name;
   if (toolKind !== undefined) next.toolKind = toolKind;
   if (status !== undefined) next.status = status;

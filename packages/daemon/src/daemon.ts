@@ -77,6 +77,7 @@ import {
   type Pending,
   Session,
 } from "./session.ts";
+import { checkToolResult } from "./tool-result.ts";
 import { FolderTrust, realFolder, within } from "./trust-file.ts";
 
 export type DaemonOptions = {
@@ -777,7 +778,8 @@ export class Daemon {
     if (session.historyError !== undefined || session.closed) return false;
     try {
       // What is kept, and so what clients see, is what has been through this (docs/protocol.md §12).
-      await session.log.append({ ...record, data: redactRecord(record.kind, record.data) });
+      const data = checkToolResult(record.kind, redactRecord(record.kind, record.data));
+      await session.log.append({ ...record, data });
       return true;
     } catch (error) {
       // A log that was closed on purpose (the session is deleted, the daemon stops) is not a failure.

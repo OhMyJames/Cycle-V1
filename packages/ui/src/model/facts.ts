@@ -70,7 +70,7 @@ export const diffLines = (patch: string): DiffLine[] => {
   return lines;
 };
 
-/** One part of `_meta["cycle/toolResult"]` (docs/protocol.md §9), when it is there and an object. */
+/** One part of the call's `_meta["cycle/toolResult"]` (docs/protocol.md §9), when it is there and an object. */
 const resultPart = (tool: ToolItem, part: "edit" | "read" | "search"): Record<string, unknown> => {
   const result = tool.result;
   return isObject(result) && isObject(result[part]) ? result[part] : {};

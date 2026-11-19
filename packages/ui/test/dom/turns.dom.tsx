@@ -337,6 +337,24 @@ test("a new file is Created; a read says its lines; a search what it found; a pi
       content: [{ type: "text", text: "next" }],
     }),
     ...finished(
+      "z",
+      "Write",
+      { file_path: "__init__.py", content: "" },
+      {
+        content: [
+          { type: "diff", changes: [{ operation: "add", path: "/r/__init__.py" }], patch: null },
+        ],
+        _meta: {
+          "cycle/toolResult": { edit: { additions: 0, deletions: 0, created: true, staged: true } },
+        },
+      },
+    ),
+    u({
+      sessionUpdate: "agent_message",
+      messageId: "m1b",
+      content: [{ type: "text", text: "next" }],
+    }),
+    ...finished(
       "r",
       "Read",
       { file_path: "a.ts" },
@@ -373,10 +391,12 @@ test("a new file is Created; a read says its lines; a search what it found; a pi
     ),
     state({ state: "idle", stopReason: "end_turn" }),
   );
-  const created = await screen.findByRole("button", { name: /Created/ });
+  const created = await screen.findByRole("button", { name: /Created README/ });
   await user.click(created);
   expect(log.textContent).toContain("The change is too large to show here.");
   expect(log.textContent).toContain("lines 20–59 of 212");
+  // An empty new file held for review says both.
+  expect(log.textContent).toContain("empty file held for review");
   expect(log.textContent).toContain("5 matches in 2 files");
   await user.click(screen.getByRole("button", { name: /a\.png/ }));
   await waitFor(() => expect(log.querySelector('[data-kind="tool"] img')).toBeTruthy());

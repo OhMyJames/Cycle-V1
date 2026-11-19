@@ -254,12 +254,13 @@ export class TurnTranslator {
         !failed && blocks.length === 1 && name !== undefined
           ? resultOf(name, structured, block.content)
           : undefined;
+      const raw = rawOutputOf(block.content);
       updates.push({
         sessionUpdate: "tool_call_update",
         toolCallId: id,
         status: failed ? "failed" : "completed",
         content: read?.content ?? contentOf(block.content),
-        rawOutput: rawOutputOf(block.content),
+        ...(raw !== undefined ? { rawOutput: raw } : {}),
         ...(read?.locations !== undefined ? { locations: read.locations } : {}),
         ...(read !== undefined ? { _meta: { [TOOL_RESULT_META]: read.meta } } : {}),
       } as SessionUpdate);

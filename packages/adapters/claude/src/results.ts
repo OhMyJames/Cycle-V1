@@ -117,6 +117,14 @@ const flags = (out: Json, created: boolean) => ({
 
 /** A change to a file that has hunks to show. With none (nothing changed, or the SDK's diff gave up) there is no diff. */
 const changed = (path: string, hunks: Hunk[], out: Json): Result | undefined => {
+  // Held for review with no diff to show: the file is unchanged, and that is what the line must say.
+  if (hunks.length === 0 && out.staged === true) {
+    return {
+      content: [{ type: "diff", changes: [{ operation: "modify", path }], patch: null }],
+      meta: { edit: { additions: 0, deletions: 0, staged: true } },
+      locations: [{ path }],
+    };
+  }
   if (hunks.length === 0) return undefined;
   const text = patchOf(path, hunks, false);
   return {
@@ -148,19 +156,26 @@ const write = (out: Json): Result | undefined => {
   }
   if (out.type !== "create" || typeof out.content !== "string") return undefined;
   const path = out.filePath;
-  const additions = lineCount(out.content);
-  // Too large to send: counted, never split or copied.
-  const small = additions > 0 && out.content.length <= MAX_PATCH;
-  const hunk: Hunk | undefined = small
-    ? {
-        oldStart: 0,
-        oldLines: 0,
-        newStart: 1,
-        newLines: additions,
-        lines: linesOf(out.content).map((line) => `+${line}`),
-      }
-    : undefined;
-  const text = hunk !== undefined ? patchOf(path, [hunk], true) : undefined;
+  // A file too large to send is counted, never split or copied.
+  const small = out.content.length <= MAX_PATCH;
+  const lines = small ? linesOf(out.content) : undefined;
+  const additions = lines?.length ?? lineCount(out.content);
+  const text =
+    lines !== undefined && lines.length > 0
+      ? patchOf(
+          path,
+          [
+            {
+              oldStart: 0,
+              oldLines: 0,
+              newStart: 1,
+              newLines: lines.length,
+              lines: lines.map((l) => `+${l}`),
+            },
+          ],
+          true,
+        )
+      : undefined;
   return {
     content: [
       {
@@ -179,6 +194,9 @@ const write = (out: Json): Result | undefined => {
 const notebook = (out: Json): Result | undefined => {
   if (typeof out.notebook_path !== "string" || out.error !== undefined) return undefined;
   const mode = out.edit_mode;
+  // A replace that does not say what was there cannot be drawn as one: it would read as an insert.
+  if (mode !== "insert" && mode !== "delete" && typeof out.old_source !== "string")
+    return undefined;
   const before =
     mode === "insert" ? [] : linesOf(typeof out.old_source === "string" ? out.old_source : "");
   const after =
@@ -288,15 +306,30 @@ export const contentOf = (content: unknown): Content[] => {
   return [...text, ...images];
 };
 
-/** The result as `rawOutput`: as it came, but an image's bytes once only (they are in the content). */
-export const rawOutputOf = (content: unknown): unknown =>
-  Array.isArray(content)
-    ? content.map((part) =>
-        isObject(part) && part.type === "image" && isObject(part.source)
-          ? { ...part, source: { ...part.source, data: "" } }
-          : part,
-      )
-    : content;
+/** An image `contentOf` carries into the content: base64, of an image type. */
+const carried = (part: Json): boolean =>
+  part.type === "image" &&
+  isObject(part.source) &&
+  part.source.type === "base64" &&
+  typeof part.source.data === "string" &&
+  typeof part.source.media_type === "string" &&
+  part.source.media_type.startsWith("image/");
+
+/**
+ * The result as `rawOutput`, only for what the content does not already hold: a result of text and images is all in
+ * the content (a Read's file would be sent and logged twice), so it has none. Any other part keeps the whole result,
+ * as it came, with only the carried images' bytes left out.
+ */
+export const rawOutputOf = (content: unknown): unknown => {
+  if (!Array.isArray(content)) return undefined;
+  const plain = content.every((part) => isObject(part) && (part.type === "text" || carried(part)));
+  if (plain) return undefined;
+  return content.map((part) =>
+    isObject(part) && carried(part) && isObject(part.source)
+      ? { ...part, source: { ...part.source, data: "" } }
+      : part,
+  );
+};
 
 /**
  * What a finished call says, from its structured result when there is one this file knows; `undefined` leaves the

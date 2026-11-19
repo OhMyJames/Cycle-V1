@@ -187,24 +187,30 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
 function Facts({ facts }: { facts: ToolFacts }) {
   const { t } = useI18n();
   const { edit, read, search } = facts;
-  if (edit !== undefined && edit.created && edit.additions === 0) {
-    return <span data-slot="tool-facts">{t("tool.facts.empty")}</span>;
-  }
   if (edit !== undefined) {
     const label = t("tool.facts.diff", { added: edit.additions, removed: edit.deletions });
+    const counted = edit.additions + edit.deletions > 0;
+    const empty = edit.created && edit.additions === 0;
+    const tip = counted ? label : undefined;
     return (
-      <span data-slot="tool-facts" title={label}>
-        <span data-tone="add">{t("tool.facts.added", { count: edit.additions })}</span>
-        {edit.deletions > 0 ? (
+      <span data-slot="tool-facts" title={tip}>
+        {empty ? t("tool.facts.empty") : null}
+        {counted ? (
           <>
-            {" "}
-            <span data-tone="del">{t("tool.facts.removed", { count: edit.deletions })}</span>
+            <span data-tone="add">{t("tool.facts.added", { count: edit.additions })}</span>
+            {edit.deletions > 0 ? (
+              <>
+                {" "}
+                <span data-tone="del">{t("tool.facts.removed", { count: edit.deletions })}</span>
+              </>
+            ) : null}
+            <span data-slot="visually-hidden">{label}</span>
           </>
         ) : null}
-        <span data-slot="visually-hidden">{label}</span>
+        {/* Held for review: the file is as it was, whatever the counts say. */}
         {edit.staged ? (
           <>
-            {" "}
+            {empty || counted ? " " : null}
             <span>{t("tool.facts.staged")}</span>
           </>
         ) : null}

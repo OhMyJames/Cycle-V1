@@ -374,7 +374,9 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 - `{read: {startLine, numLines, totalLines?}}`:从第几行起读了几行,文件共几行。
 - `{search: {files, matches?, lines?, more?}}`:找到几个文件,按匹配数或行数计时带上那个数;`more` 为 `true` 是可能还有(被截断、超时、到了上限)。
 
-daemon 原样转发(照常脱敏,§12)。客户端按 ACP 的 `kind` 和这些字段画,不看工具名;没有这个字段(旧日志、别的 agent)就照旧显示文字。`rawOutput` 仍是原样的结果,只是图片的字节不再重复(已在 `content` 里)。
+daemon 原样转发(照常脱敏,§12)。客户端按 ACP 的 `diff` 和这些字段画,不看工具名;daemon 在写进日志时按 `ToolResultSchema`(`@cycle/protocol`)检查,不符合的去掉(和脱敏在同一处,客户端看到的都已检查过),没有这个字段(旧日志、别的 agent)就照旧显示文字。同一个调用后来又发了新的 `content` 而没带这个字段,旧的数量作废。改动被留下等人审、又给不出差异时,是一个 `patch` 为 `null` 的 `diff` 加 `{edit: {additions: 0, deletions: 0, staged: true}}`。
+
+`rawOutput` 只放 `content` 没装下的东西:结果只有文字和图片时不带(读一个文件不必发两遍、记两遍);有别的部分时是原样的结果,已放进 `content` 的图片不重复字节。
 
 ## 10. agent 与配置
 

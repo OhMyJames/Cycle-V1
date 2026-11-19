@@ -82,8 +82,8 @@ test("an edit becomes the diff of that one call, with its counts and where it is
     },
   ]);
   expect(meta(done)).toEqual({ edit: { additions: 2, deletions: 1 } });
-  // The text stays as it came, for a client that knows no diff.
-  expect(typeof done.rawOutput).toBe("string");
+  // The result's text is in nothing but the content: no copy in rawOutput.
+  expect(done.rawOutput).toBeUndefined();
   expect(done.locations).toEqual([{ path: "/repo/src/a.ts", line: 10 }]);
   expect(JSON.stringify(updates)).not.toContain("SECRET WHOLE FILE");
 });
@@ -174,9 +174,7 @@ test("a read picture comes through as an image; its bytes are not repeated in ra
   expect(read?.content).toEqual([
     { type: "content", content: { type: "image", data: "iVBOR", mimeType: "image/png" } },
   ]);
-  expect(read?.rawOutput).toEqual([
-    { type: "image", source: { type: "base64", media_type: "image/png", data: "" } },
-  ]);
+  expect(read?.rawOutput).toBeUndefined();
 });
 
 test("searches say how much they found", () => {
@@ -208,10 +206,9 @@ test("a failed call, an unknown shape, or a message with two results keeps the t
   expect(failed).toMatchObject({
     status: "failed",
     content: [{ type: "content", content: { type: "text", text: "String not found" } }],
-    rawOutput: "String not found",
   });
   const [, odd] = run(call("e", "Edit", {}), result("e", "ok", { filePath: 3 }));
-  expect(odd?.rawOutput).toBe("ok");
+  expect(odd?.content).toEqual([{ type: "content", content: { type: "text", text: "ok" } }]);
   expect(odd?._meta).toBeUndefined();
 
   const translator = new TurnTranslator();
@@ -230,7 +227,10 @@ test("a failed call, an unknown shape, or a message with two results keeps the t
       file: { filePath: "/a", content: "A", numLines: 1, startLine: 1 },
     },
   } as unknown as SDKMessage) as unknown as Record<string, unknown>[];
-  expect(both.map((u) => u.rawOutput)).toEqual(["A", "B"]);
+  expect(both.map((u) => (u.content as { content: { text: string } }[])[0]?.content.text)).toEqual([
+    "A",
+    "B",
+  ]);
   expect(both.map((u) => u._meta)).toEqual([undefined, undefined]);
 });
 
@@ -262,7 +262,9 @@ test("a change with nothing to show is not a diff: an update the SDK could not d
       originalFile: null,
     }),
   );
-  expect(nothing?.rawOutput).toBe("The file /r/a has been updated.");
+  expect(nothing?.content).toEqual([
+    { type: "content", content: { type: "text", text: "The file /r/a has been updated." } },
+  ]);
   expect(nothing?._meta).toBeUndefined();
   const [, empty] = run(
     call("w", "Write", { file_path: "/r/__init__.py" }),
@@ -329,7 +331,36 @@ test("a search that may have found more says so; an exact total is not marked", 
   });
 });
 
-test("rawOutput keeps a result as it came, but not an image's bytes twice", () => {
-  expect(rawOutputOf("x")).toBe("x");
-  expect(rawOutputOf([{ type: "text", text: "a" }])).toEqual([{ type: "text", text: "a" }]);
+test("rawOutput is only for what the content does not hold, and never repeats a carried image's bytes", () => {
+  expect(rawOutputOf("x")).toBeUndefined();
+  expect(rawOutputOf([{ type: "text", text: "a" }])).toBeUndefined();
+  const png = { type: "image", source: { type: "base64", media_type: "image/png", data: "P" } };
+  expect(rawOutputOf([{ type: "text", text: "a" }, png])).toBeUndefined();
+  // An image the content could not carry keeps its bytes; one it did carry does not repeat them.
+  const tiff = { type: "image", source: { type: "url", url: "http://x/a.tiff" } };
+  expect(rawOutputOf([png, tiff])).toEqual([
+    { type: "image", source: { type: "base64", media_type: "image/png", data: "" } },
+    tiff,
+  ]);
+  expect(rawOutputOf([{ type: "resource", uri: "x" }])).toEqual([{ type: "resource", uri: "x" }]);
+});
+
+test("a held write the SDK could not diff still says it was held; a replace without the old cell is not a diff", () => {
+  const [, held] = run(
+    call("w", "Write", { file_path: "/r/a" }),
+    result("w", "held", {
+      type: "update",
+      filePath: "/r/a",
+      content: "x",
+      structuredPatch: [],
+      originalFile: null,
+      staged: true,
+    }),
+  );
+  expect(meta(held)).toEqual({ edit: { additions: 0, deletions: 0, staged: true } });
+  const [, replaced] = run(
+    call("n", "NotebookEdit", {}),
+    result("n", "ok", { notebook_path: "/r/n.ipynb", edit_mode: "replace", new_source: "x\ny" }),
+  );
+  expect(replaced?._meta).toBeUndefined();
 });
