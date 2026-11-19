@@ -46,6 +46,28 @@ import type { Channel } from "@cycle/transport/client";
 /** ACP's "resource not found": the daemon has no such session. */
 const RESOURCE_NOT_FOUND = -32002;
 
+/** ACP's "unsupported protocol version" (-32022): the daemon refused `initialize` because the major version differs. */
+const UNSUPPORTED_VERSION = -32022;
+
+/**
+ * The daemon speaks another major version of Cycle's protocol, so nothing can be asked of it (docs/protocol.md §3).
+ * `supported` is what it said it speaks, `requested` what this client asked for.
+ */
+export class ProtocolMismatchError extends Error {
+  readonly code = UNSUPPORTED_VERSION;
+  constructor(
+    readonly supported: string[],
+    readonly requested: string,
+    options?: { cause?: unknown },
+  ) {
+    super(
+      `The daemon speaks Cycle protocol ${supported.join(" or ") || "an unknown version"}; this client speaks ${requested}.`,
+      options,
+    );
+    this.name = "ProtocolMismatchError";
+  }
+}
+
 const isSessionGone = (error: unknown): boolean =>
   typeof error === "object" &&
   error !== null &&
@@ -118,6 +140,8 @@ export type ClientOptions = {
   /** Makes a new connection to the daemon. Called again after each loss. */
   connect: () => Promise<Channel>;
   events?: ClientEvents;
+  /** The protocol version asked for in `initialize`. Default: this build's. Another is for tests. */
+  protocolVersion?: string;
   /** Waits between attempts to reconnect, in ms. */
   backoff?: { first: number; max: number };
   name?: string;
@@ -542,7 +566,7 @@ export class CycleClient {
         protocolVersion: 2,
         info: { name: this.#options.name ?? "cycle-client", version: "0.0.0" },
         capabilities: this.#events.elicitation !== undefined ? { elicitation: { form: {} } } : {},
-        _meta: { [META.protocolVersion]: CYCLE_PROTOCOL_VERSION },
+        _meta: { [META.protocolVersion]: this.#options.protocolVersion ?? CYCLE_PROTOCOL_VERSION },
       } as never);
       const info = (answer as { info?: { version?: unknown } }).info;
       this.#serverVersion = typeof info?.version === "string" ? info.version : undefined;
@@ -552,6 +576,22 @@ export class CycleClient {
           unknown
         >) ?? {};
     } catch (error) {
+      // The daemon answered, and said what protocol it does speak: that is the reason, whole. A refusal that names
+      // none (ACP's own, of the integer version) is not about Cycle's protocol, and is told as any other.
+      if ((error as { code?: unknown } | null)?.code === UNSUPPORTED_VERSION) {
+        const data = (error as { data?: { supported?: unknown } }).data;
+        const supported = Array.isArray(data?.supported)
+          ? data.supported.filter((v): v is string => typeof v === "string")
+          : [];
+        if (supported.length > 0) {
+          channel.close();
+          throw new ProtocolMismatchError(
+            supported,
+            this.#options.protocolVersion ?? CYCLE_PROTOCOL_VERSION,
+            { cause: error },
+          );
+        }
+      }
       // Whatever the far side said is the reason; the protocol's own error is only that it hung up.
       await new Promise((resolve) => setTimeout(resolve, 100));
       const said = channel.diagnostics?.() ?? "";

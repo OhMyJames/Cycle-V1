@@ -1012,3 +1012,52 @@ test("a request answered by another client while this one was offline is closed 
   );
   expect((await mine.m.openSession("local", id)).permissions).toEqual([]);
 });
+
+test("a daemon that speaks another major version of the protocol is refused with which side has to change, and the refusal clears when it connects", async () => {
+  const { manager } = await setup();
+  const box: EnvironmentConfig = {
+    id: "box",
+    name: "Box",
+    kind: "remote",
+    transport: { type: "ssh", host: "me@box" },
+  };
+  // An app from the future: the daemon is the older one, and it is on another machine, so its update is given.
+  const future = await manager("future", "9.9.9", undefined, undefined, { protocolVersion: "1.0" });
+  await future.m.saveEnvironment(box);
+  await expect(future.m.connect("box")).rejects.toThrow(/protocol/);
+  const refused = of(future.events, "environment-status").at(-1);
+  expect(refused).toMatchObject({
+    environmentId: "box",
+    state: "closed",
+    incompatible: { with: "daemon", supported: ["0.2"], requested: "1.0" },
+  });
+  expect(refused?.incompatible?.command).toContain("9.9.9");
+  // A renderer that asks later is told the same.
+  expect(
+    (await future.m.environments()).status.find((s) => s.environmentId === "box"),
+  ).toMatchObject({ incompatible: { with: "daemon" } });
+
+  // An app from the past, which a daemon that speaks a newer protocol refuses: the app is what to update, and the
+  // daemon is not offered a downgrade.
+  const past = await manager("past", "0.0.1", undefined, undefined, { protocolVersion: "-1.0" });
+  await past.m.saveEnvironment(box);
+  await expect(past.m.connect("box")).rejects.toThrow();
+  const newer = of(past.events, "environment-status").at(-1);
+  expect(newer?.incompatible).toEqual({ with: "app", supported: ["0.2"], requested: "-1.0" });
+
+  // The local daemon is not one the app can update by command.
+  await expect(future.m.connect("local")).rejects.toThrow();
+  expect(of(future.events, "environment-status").at(-1)?.incompatible).toEqual({
+    with: "daemon",
+    supported: ["0.2"],
+    requested: "1.0",
+  });
+
+  // Right again: it connects, and nothing is said of the old refusal.
+  const fixed = await manager("fixed", "9.9.9");
+  await fixed.m.saveEnvironment(box);
+  await fixed.m.connect("box");
+  const status = (await fixed.m.environments()).status.find((s) => s.environmentId === "box");
+  expect(status?.state).toBe("connected");
+  expect(status?.incompatible).toBeUndefined();
+});

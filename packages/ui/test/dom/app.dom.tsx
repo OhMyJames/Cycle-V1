@@ -845,6 +845,39 @@ test("a daemon too old for the app says so in one line with a button, and updati
   expect(screen.queryByText(/too old for this app/)).toBeNull();
 });
 
+test("a daemon on another protocol says why it cannot be used and what to update, and the line goes when it connects", async () => {
+  const { emit } = await mount();
+  await emit({
+    type: "environment-status",
+    environmentId: "local",
+    state: "reconnecting",
+    error: "The daemon speaks Cycle protocol 0.2; this client speaks 1.0.",
+    incompatible: {
+      with: "daemon",
+      supported: ["0.2"],
+      requested: "1.0",
+      command: "sh install.sh",
+    },
+  });
+  expect(screen.getByText(/speaks protocol 0\.2, older than the 1\.0 this app needs/)).toBeTruthy();
+  // Not a button that would act on a daemon that is not connected: the command, to run on that machine.
+  expect(screen.getByText("sh install.sh")).toBeTruthy();
+
+  await emit({
+    type: "environment-status",
+    environmentId: "local",
+    state: "reconnecting",
+    error: "x",
+    incompatible: { with: "app", supported: ["2.0"], requested: "1.0" },
+  });
+  // The app is the one to update: the daemon is not offered a downgrade.
+  expect(screen.getByText(/newer than the 1\.0 this app has\. Update this app/)).toBeTruthy();
+  expect(screen.queryByText("sh install.sh")).toBeNull();
+
+  await emit({ type: "environment-status", environmentId: "local", state: "connected" });
+  expect(screen.queryByText(/this app needs|this app has|cannot use/)).toBeNull();
+});
+
 test("a daemon update that did not work says why and shows the command to run by hand", async () => {
   const { emit } = await mount();
   await emit({

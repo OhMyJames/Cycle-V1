@@ -329,6 +329,13 @@ export const enUS = {
   "app.checkForUpdates": "Check for updates",
   // A remote environment whose Cycle is too old for this app
   "daemon.tooOld": "Cycle on {environment} is {version}, too old for this app.",
+  // The daemon speaks another major version of the protocol: the app cannot use it at all
+  "daemon.protocolOlder":
+    "Cycle on {environment} speaks protocol {supported}, older than the {requested} this app needs. Update Cycle on that machine:",
+  "daemon.protocolNewer":
+    "Cycle on {environment} speaks protocol {supported}, newer than the {requested} this app has. Update this app to connect.",
+  "daemon.protocolOther":
+    "Cycle on {environment} speaks protocol {supported}, which this app ({requested}) cannot use.",
   "daemon.update": "Update to {to}",
   "daemon.updating": "Updating…",
   "daemon.tryAgain": "Try again",
