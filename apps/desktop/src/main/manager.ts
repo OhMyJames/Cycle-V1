@@ -74,7 +74,14 @@ export type AttentionNotice = {
   kind: Attention;
 };
 
-type Pending = { request: PermissionRequest; answer: (answer: PermissionAnswer) => void };
+type Pending = {
+  request: PermissionRequest;
+  /** The daemon's id for it, when it said (an older daemon does not). */
+  requestId: string | undefined;
+  answer: (answer: PermissionAnswer) => void;
+  /** Asked before the connection was lost and not asked again since: the daemon may have had it answered elsewhere. */
+  stale: boolean;
+};
 
 /** What main holds for a session being watched, so a renderer that reloads can be given it whole. */
 type Watched = {
@@ -302,6 +309,8 @@ export class ConnectionManager
         gone: (sessionId) => this.#onGone(environmentId, connection, sessionId),
         // A history that cannot be read after a reconnect: nothing more comes to it, the list row says why.
         unreadable: (sessionId) => this.#onUnreadable(connection, sessionId),
+        resumed: (sessionId, pending) =>
+          this.#dropStale(environmentId, connection, sessionId, pending),
         connection: (state, error) => {
           // A connection that came back asks for the list again: it may have changed while away.
           const was = connection.status.state;
@@ -332,6 +341,10 @@ export class ConnectionManager
           this.#options.emit({ type: "environment-status", ...connection.status });
           if (state !== "connecting")
             this.#track("environment_connection", { kind: this.#kindOf(environmentId), state });
+          if (state === "reconnecting") {
+            for (const watched of connection.watched.values())
+              for (const pending of watched.pending.values()) pending.stale = true;
+          }
           if (state === "connected" && was === "reconnecting") {
             void this.#refreshSessions(environmentId, connection, true).catch(() => undefined);
           }
@@ -782,7 +795,7 @@ export class ConnectionManager
         subject: request.subject,
         options: (request.options as PermissionRequest["options"]) ?? [],
       };
-      watched.pending.set(key, { request: built, answer: resolve });
+      watched.pending.set(key, { request: built, requestId, answer: resolve, stale: false });
       if (old === undefined) {
         watched.version += 1;
         this.#options.emit({ type: "permission", request: built, version: watched.version });
@@ -816,6 +829,27 @@ export class ConnectionManager
         this.#closePermission(environmentId, sessionId, watched, key);
         return;
       }
+    }
+  }
+
+  /**
+   * A session was attached again and the daemon said which requests it still waits on (asking each again). One this
+   * client had from before the loss and is not among them was answered by another client while it was away: its card
+   * is closed. One asked since the loss is not touched, nor is any when the daemon does not say.
+   */
+  #dropStale(
+    environmentId: string,
+    connection: Connection,
+    sessionId: string,
+    waiting: string[] | undefined,
+  ): void {
+    const watched = connection.watched.get(sessionId);
+    if (watched === undefined || waiting === undefined) return;
+    for (const [key, pending] of [...watched.pending]) {
+      if (!pending.stale || pending.requestId === undefined) continue;
+      if (waiting.includes(pending.requestId)) continue;
+      pending.answer({ outcome: "cancelled" });
+      this.#closePermission(environmentId, sessionId, watched, key);
     }
   }
 

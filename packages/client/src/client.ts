@@ -84,6 +84,11 @@ export type ClientEvents = {
    * connection is up. Opening the session says what is wrong with it.
    */
   unreadable?: (sessionId: string, error: unknown) => void;
+  /**
+   * A watched session was attached again after a reconnect. `pending` is the `requestId` of every request
+   * the daemon still waits on, asked of this client again; undefined from a daemon that does not say.
+   */
+  resumed?: (sessionId: string, pending: string[] | undefined) => void;
   connection?: (state: ConnectionState, error?: unknown) => void;
 };
 
@@ -460,12 +465,26 @@ export class CycleClient {
     const replayFrom = entry.replayed
       ? { type: "_cycle.seq", after: entry.lastSeq }
       : { type: "start" };
-    await api.request(methods.agent.session.resume, {
+    const answer = (await api.request(methods.agent.session.resume, {
       sessionId,
       cwd: entry.cwd,
       replayFrom,
-    } as never);
+    } as never)) as { _meta?: Record<string, unknown> | null } | undefined;
+    const waiting = answer?._meta?.[META.pending];
+    const wasAttached = entry.replayed;
     entry.replayed = true;
+    if (wasAttached) {
+      // A list that is not all ids is not read: closing a card on a half-read list would lose one still waited on.
+      const ids =
+        Array.isArray(waiting) && waiting.every((id) => typeof id === "string")
+          ? (waiting as string[])
+          : undefined;
+      try {
+        this.#events.resumed?.(sessionId, ids);
+      } catch {
+        // The consumer's bookkeeping failing is not the attach failing: the daemon took the resume.
+      }
+    }
   }
 
   async #connectOnce(): Promise<void> {

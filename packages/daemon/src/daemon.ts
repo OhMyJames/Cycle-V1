@@ -1382,7 +1382,15 @@ export class Daemon {
       // A queue with no turn behind it was cut short by a restart. It is handed back now, after the
       // replay and the snapshot, so the client that attached is told while it is listening.
       this.#returnStale(session);
-      return { configOptions: [] } as never;
+      // Which they are, so a client that had one before can tell it is not among them: answered elsewhere.
+      return {
+        configOptions: [],
+        _meta: {
+          [META.pending]: [...session.pending.values()]
+            .filter((pending) => pending.asked.has(attachment))
+            .map((pending) => pending.requestId),
+        },
+      } as never;
     });
 
     app.onRequest(methods.agent.session.prompt, async ({ params }) => {

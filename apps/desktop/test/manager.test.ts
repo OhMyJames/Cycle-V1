@@ -962,3 +962,53 @@ test("two environments saved at once are both kept, and a save and a removal tha
   await again.init();
   expect((await again.environments()).environments.map((e) => e.id)).toEqual(["local", "b", "c"]);
 });
+
+test("a request answered by another client while this one was offline is closed when it is back", async () => {
+  const outcomes: unknown[] = [];
+  const { manager, held, drop } = await setup(
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        outcomes.push(await ask());
+      },
+    }),
+  );
+  const mine = await manager("mine");
+  const theirs = await manager("theirs");
+  await mine.m.connect("local");
+  await theirs.m.connect("local");
+  const id = await mine.m.createSession("local", { cwd: "/tmp" });
+  await mine.m.openSession("local", id);
+  await mine.m.prompt("local", id, "ask");
+  await until(() => of(mine.events, "permission").length === 1, "the request");
+  const started = Date.now();
+  while (!(await theirs.m.sessions("local")).some((s) => s.sessionId === id)) {
+    if (Date.now() - started > 3_000) throw new Error("timed out waiting for the list");
+    await Bun.sleep(10);
+  }
+  await theirs.m.openSession("local", id);
+  await until(() => of(theirs.events, "permission").length === 1, "the other client to be asked");
+
+  // This one cannot get back for now; the other one does, and is asked again, and answers.
+  held.add("mine");
+  drop();
+  await until(
+    () => of(mine.events, "environment-status").some((e) => e.state === "reconnecting"),
+    "the loss to be noticed",
+  );
+  await until(
+    () => of(theirs.events, "environment-status").at(-1)?.state === "connected",
+    "the other client to be back",
+  );
+  const asked = of(theirs.events, "permission").at(-1)?.request;
+  if (asked === undefined) throw new Error("the other client was not asked");
+  await theirs.m.answerPermission(asked.key, "deny");
+  await until(() => outcomes.length === 1, "the answer to reach the agent");
+
+  held.delete("mine");
+  await until(
+    () => of(mine.events, "permission-closed").length === 1,
+    "the card to be closed here",
+    5_000,
+  );
+  expect((await mine.m.openSession("local", id)).permissions).toEqual([]);
+});
