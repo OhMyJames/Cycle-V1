@@ -679,7 +679,8 @@ export class Daemon {
     if (session.attachments.size === 0)
       session.unclaimed = {
         returned: [...(session.unclaimed?.returned ?? []), ...returned],
-        reason,
+        // The first reason stands for what was kept first: it is the oldest that no one has taken.
+        reason: session.unclaimed?.reason ?? reason,
       };
     this.#publishQueue(session, { returned, reason });
   }
