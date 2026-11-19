@@ -247,7 +247,7 @@ const main = async () => {
     await waitFor("the answer", has(hello), 60_000);
     await waitFor(
       "the turn to end",
-      `!!document.querySelector('[data-slot="composer"]') && [...document.querySelectorAll('[data-slot="composer"] button')].some((b) => b.textContent.trim() === "Send")`,
+      `!!document.querySelector('[data-slot="composer"]') && [...document.querySelectorAll('[data-slot="composer"] button')].some((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === "Send")`,
       60_000,
     );
     out({ step: "answer", text: await run(conversationText()) });
@@ -274,7 +274,7 @@ const main = async () => {
     await waitFor("the card to go", `!document.querySelector('[data-slot="permission"]')`);
     await waitFor(
       "the turn to end",
-      `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => b.textContent.trim() === "Send")`,
+      `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === "Send")`,
       60_000,
     );
     out({ step: "allowed", text: await run(conversationText()) });
@@ -288,11 +288,11 @@ const main = async () => {
       await press("Enter");
       await waitFor(
         "the turn to start",
-        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => b.textContent.trim() === "Stop")`,
+        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === "Stop")`,
       );
       await waitFor(
         "the turn to end",
-        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => b.textContent.trim() === "Send")`,
+        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === "Send")`,
         90_000,
       );
       out({
@@ -323,11 +323,11 @@ const main = async () => {
       await press("Enter");
       await waitFor(
         "the turn to start",
-        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => b.textContent.trim() === "Stop")`,
+        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === "Stop")`,
       );
       await waitFor(
         "the turn to end",
-        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => b.textContent.trim() === "Send")`,
+        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === "Send")`,
         90_000,
       );
       out({

@@ -9,8 +9,8 @@ import {
   type ToolItem,
 } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
-import { ChevronRightIcon, CloseIcon, ErrorCircleIcon, ToolIcon, WarningIcon } from "./icons.tsx";
-import { ToolCard, toolSummary, toolVerb, useOpenOnFailure } from "./tool.tsx";
+import { ChevronRightIcon, ErrorCircleIcon, ToolIcon, WarningIcon } from "./icons.tsx";
+import { Lead, ToolCard, toolSummary, toolVerb, useOpenOnFailure } from "./tool.tsx";
 
 /** A notice from the daemon or the agent, in the conversation. */
 export function Notice({ severity, title }: { severity: string; title: string }) {
@@ -28,7 +28,7 @@ export function Notice({ severity, title }: { severity: string; title: string })
  */
 export function WorkBlock({ tools, live }: { tools: readonly ToolItem[]; live: boolean }) {
   const only = tools[0];
-  if (tools.length === 1 && only !== undefined) return <ToolCard tool={only} />;
+  if (tools.length === 1 && only !== undefined) return <ToolCard tool={only} live={live} />;
   return <WorkCard tools={tools} live={live} />;
 }
 
@@ -59,26 +59,15 @@ function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }
       onOpenChange={setOpen}
     >
       <CollapsibleTrigger>
-        <span data-slot="tool-lead">
-          {going !== undefined ? (
-            <span data-slot="spinner" aria-hidden="true" />
-          ) : failed > 0 ? (
-            <CloseIcon size={14} data-slot="tool-mark" data-tone="danger" />
-          ) : (
-            <ToolIcon size={14} data-slot="tool-icon" />
-          )}
-        </span>{" "}
+        <Lead
+          mark={going !== undefined ? "going" : failed > 0 ? "failed" : "other"}
+          icon={ToolIcon}
+        />{" "}
         <span data-slot="tool-verb">{summary}</span>{" "}
-        {going !== undefined ? (
-          <>
-            <span data-slot="visually-hidden">{t("work.running")}</span>
-            <span data-slot="tool-summary">
-              {toolVerb(t, going)} {toolSummary(going)}
-            </span>
-          </>
-        ) : (
-          <span data-slot="tool-summary" />
-        )}{" "}
+        {/* While one goes, the line says which, in its tense: that is also what a screen reader is told. */}
+        <span data-slot="tool-summary">
+          {going !== undefined ? `${toolVerb(t, going, true)} ${toolSummary(going)}` : ""}
+        </span>{" "}
         {failed > 0 ? (
           <span data-slot="tool-status" data-tone="danger">
             {t("work.failed", { count: failed })}
@@ -95,7 +84,7 @@ function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }
       </CollapsibleTrigger>
       <CollapsiblePanel>
         {tools.map((tool) => (
-          <ToolCard key={tool.id} tool={tool} />
+          <ToolCard key={tool.id} tool={tool} live={live} />
         ))}
       </CollapsiblePanel>
     </Collapsible>

@@ -28,6 +28,7 @@ import { AttachIcon, CloseIcon, SendIcon, SettingsIcon, StopIcon } from "./icons
 import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
 import { optionId, PickerMenu, type PickerRow } from "./picker-menu.tsx";
 import { SettingChips, type SettingsOf } from "./setting-chips.tsx";
+import { MOD } from "./sidebar.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 
 export type ComposerProps = {
@@ -586,23 +587,30 @@ export function Composer({
           ) : null}
         </div>
       </div>
-      {enabled ? (
-        <KeyHints
-          keys={keysFor({
-            working,
-            canQueue,
-            steers,
-            mentions: canFind,
-            commands: commands.length > 0,
-          })}
-        />
-      ) : null}
+      {/* Always there, so the box does not move; it lists keys only when they do what it says. */}
+      <KeyHints
+        keys={
+          enabled && connected && blocked === undefined
+            ? keysFor({
+                working,
+                canQueue,
+                steers,
+                mentions: canFind,
+                commands: commands.length > 0,
+              })
+            : []
+        }
+      />
     </div>
   );
 }
 
-/** How the key that stops a turn is written here: ⌘. on a Mac, Ctrl+. elsewhere. */
-const STOP_KEY = /Mac/.test(globalThis.navigator?.userAgent ?? "") ? "⌘." : "Ctrl+.";
+/** How the key that stops a turn is written here: ⌘. on a Mac, Ctrl+. elsewhere (the same test as the handler's). */
+const STOP_KEY = `${MOD}.`;
+/** Shift and Option on a Mac, as its keys are labelled; Shift+ and Alt+ elsewhere. */
+const MAC = MOD === "⌘";
+const SHIFT_ENTER = MAC ? "⇧↵" : "Shift+↵";
+const ALT_ENTER = MAC ? "⌥↵" : "Alt+↵";
 
 /** The keys of the box and what they do now. The keys are symbols, the same in every language; the words are messages. */
 type KeyHint = { key: string; does: string };
@@ -624,18 +632,18 @@ const keysFor = ({
   if (steers)
     return [
       { key: "↵", does: "composer.keys.steer" },
-      { key: "⇧↵", does: "composer.keys.queue" },
-      { key: "⌥↵", does: "composer.keys.newline" },
+      { key: SHIFT_ENTER, does: "composer.keys.queue" },
+      { key: ALT_ENTER, does: "composer.keys.newline" },
     ];
   if (working && canQueue)
     return [
       { key: "↵", does: "composer.keys.queue" },
-      { key: "⇧↵", does: "composer.keys.newline" },
+      { key: SHIFT_ENTER, does: "composer.keys.newline" },
     ];
   if (working) return [];
   return [
     { key: "↵", does: "composer.keys.send" },
-    { key: "⇧↵", does: "composer.keys.newline" },
+    { key: SHIFT_ENTER, does: "composer.keys.newline" },
     ...(mentions ? [{ key: "@", does: "composer.keys.mention" }] : []),
     ...(commands ? [{ key: "/", does: "composer.keys.command" }] : []),
   ];
@@ -678,6 +686,15 @@ function ContextMeter({ usage }: { usage: Usage }) {
         />
       </svg>
       <span aria-hidden="true">{number(share, { style: "percent" })}</span>
+      {usage.cost !== undefined ? (
+        <span aria-hidden="true">
+          {number(usage.cost.amount, {
+            style: "currency",
+            currency: usage.cost.currency,
+            maximumFractionDigits: usage.cost.amount < 0.1 ? 3 : 2,
+          })}
+        </span>
+      ) : null}
     </span>
   );
 }
