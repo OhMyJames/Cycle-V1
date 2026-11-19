@@ -89,16 +89,6 @@ export const MoreIcon = ({ size = 16, ...rest }: IconProps) => (
   </Svg>
 );
 
-/** iconmcp: edit */
-export const RenameIcon = ({ size = 16, ...rest }: IconProps) => (
-  <Svg size={size} {...rest}>
-    <g>
-      <path d="M10.957 3.457 L12.543 5.043 C12.933 5.433 12.933 6.067 12.543 6.457 L5.793 13.207 C5.605 13.395 5.351 13.5 5.086 13.5 L2.5 13.5 L2.5 10.914 C2.5 10.649 2.605 10.395 2.793 10.207 L9.543 3.457 C9.933 3.067 10.567 3.067 10.957 3.457 Z" />
-      <line x1="8.75" y1="4.25" x2="11.75" y2="7.25" />
-    </g>
-  </Svg>
-);
-
 /** iconmcp: sliders */
 export const SettingsIcon = ({ size = 16, ...rest }: IconProps) => (
   <Svg size={size} {...rest}>
@@ -109,30 +99,6 @@ export const SettingsIcon = ({ size = 16, ...rest }: IconProps) => (
       <line x1="2.25" y1="11.25" x2="4.25" y2="11.25" />
       <circle cx="6.25" cy="11.25" r="2" />
       <line x1="8.25" y1="11.25" x2="13.75" y2="11.25" />
-    </g>
-  </Svg>
-);
-
-/** iconmcp: trash */
-export const TrashIcon = ({ size = 16, ...rest }: IconProps) => (
-  <Svg size={size} {...rest}>
-    <g>
-      <path d="M3.5 4.25 L4.105 11.907 C4.187 12.948 5.055 13.75 6.098 13.75 L9.902 13.75 C10.945 13.75 11.813 12.948 11.895 11.907 L12.5 4.25" />
-      <line x1="2.25" y1="4.25" x2="13.75" y2="4.25" />
-      <path d="M6 4.25 L6 3.25 C6 2.698 6.448 2.25 7 2.25 L9 2.25 C9.552 2.25 10 2.698 10 3.25 L10 4.25" />
-      <line x1="6.75" y1="7" x2="6.75" y2="11" />
-      <line x1="9.25" y1="7" x2="9.25" y2="11" />
-    </g>
-  </Svg>
-);
-
-/** iconmcp: archive */
-export const ArchiveIcon = ({ size = 16, ...rest }: IconProps) => (
-  <Svg size={size} {...rest}>
-    <g>
-      <rect x="1.75" y="2.75" width="12.5" height="3.5" rx="1" />
-      <path d="M2.75 6.25 L2.75 11.25 C2.75 12.355 3.645 13.25 4.75 13.25 L11.25 13.25 C12.355 13.25 13.25 12.355 13.25 11.25 L13.25 6.25" />
-      <line x1="6.5" y1="9" x2="9.5" y2="9" />
     </g>
   </Svg>
 );
@@ -255,35 +221,11 @@ export const ThoughtIcon = ({ size = 16, ...rest }: IconProps) => (
   </Svg>
 );
 
-/** iconmcp: ai-task */
-export const PlanIcon = ({ size = 16, ...rest }: IconProps) => (
-  <Svg size={size} {...rest}>
-    <g>
-      <path d="M4 2 C4.175 3.138 4.612 3.575 5.75 3.75 C4.612 3.925 4.175 4.362 4 5.5 C3.825 4.362 3.388 3.925 2.25 3.75 C3.388 3.575 3.825 3.138 4 2 Z" />
-      <line x1="8" y1="3.75" x2="13.75" y2="3.75" />
-      <path d="M2.25 8.25 L3.5 9.5 L5.75 7" />
-      <line x1="8" y1="8.25" x2="13.75" y2="8.25" />
-      <path d="M2.25 12.5 L3.5 13.75 L5.75 11.25" />
-      <line x1="8" y1="12.5" x2="13.75" y2="12.5" />
-    </g>
-  </Svg>
-);
-
 /** iconmcp: wrench */
 export const ToolIcon = ({ size = 16, ...rest }: IconProps) => (
   <Svg size={size} {...rest}>
     <g>
       <path d="M8.63 9.13 A3.75 3.75 0 0 0 13.7 4.28 L11.42 6.56 L9.44 4.58 L11.72 2.3 A3.75 3.75 0 0 0 6.87 7.37 L2.83 11.41 A1.25 1.25 0 0 0 4.59 13.17 Z" />
-    </g>
-  </Svg>
-);
-
-/** iconmcp: sidebar-left */
-export const SidebarIcon = ({ size = 16, ...rest }: IconProps) => (
-  <Svg size={size} {...rest}>
-    <g>
-      <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="2" />
-      <line x1="6" y1="2.75" x2="6" y2="13.25" />
     </g>
   </Svg>
 );
@@ -299,33 +241,11 @@ export const DownloadIcon = ({ size = 16, ...rest }: IconProps) => (
   </Svg>
 );
 
-/** iconmcp: copy */
-export const CopyIcon = ({ size = 16, ...rest }: IconProps) => (
-  <Svg size={size} {...rest}>
-    <g>
-      <rect x="5.25" y="5.25" width="8.5" height="8.5" rx="2" />
-      <path d="M3.5 10.75 L2.875 10.75 C2.53 10.75 2.25 10.47 2.25 10.125 L2.25 4.25 C2.25 3.145 3.145 2.25 4.25 2.25 L10.125 2.25 C10.47 2.25 10.75 2.53 10.75 2.875 L10.75 3.5" />
-    </g>
-  </Svg>
-);
-
 /** iconmcp: paperclip */
 export const AttachIcon = ({ size = 16, ...rest }: IconProps) => (
   <Svg size={size} {...rest}>
     <g transform="rotate(45 8 8)">
       <path d="M5.5 4.75 V11.25 A2.5 2.5 0 0 0 10.5 11.25 V3.5 A1.25 1.25 0 0 0 8 3.5 V9.75" />
-    </g>
-  </Svg>
-);
-
-/** iconmcp: image */
-export const ImageIcon = ({ size = 16, ...rest }: IconProps) => (
-  <Svg size={size} {...rest}>
-    <g>
-      <rect x="2" y="2.75" width="12" height="10.5" rx="2" />
-      <circle cx="5.625" cy="5.875" r="1" />
-      <path d="M2.25 12.25 L6 8.5 L9.25 11.75" />
-      <path d="M8.25 10.75 L10.25 8.75 L13.75 12.25" />
     </g>
   </Svg>
 );
