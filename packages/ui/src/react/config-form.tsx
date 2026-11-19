@@ -30,10 +30,12 @@ export type Option = {
   label: string;
   description?: string | undefined;
   recommended?: boolean;
+  danger?: boolean;
 };
 
-/** Marks the choice the agent suggests, in a choice's `_meta`. Mirrors `META.recommended` of `@cycle/protocol`, which the page may not import. */
+/** Marks the choice the agent suggests or warns on, in `_meta`. Mirrors `META` of `@cycle/protocol`. */
 const RECOMMENDED = "cycle/recommended";
+const DANGER = "cycle/danger";
 
 /** A property's values, with a name and a line on each when the schema gives them (`oneOf`). */
 export const optionsOf = (property: Property): Option[] | undefined => {
@@ -45,6 +47,7 @@ export const optionsOf = (property: Property): Option[] | undefined => {
         label: c.title ?? c.const,
         description: c.description,
         recommended: c._meta?.[RECOMMENDED] === true,
+        danger: c._meta?.[DANGER] === true,
       }));
   }
   return property.enum?.map((v) => ({ value: v, label: v }));
@@ -64,6 +67,11 @@ export function OptionLabel({ option }: { option: Option }) {
       <span data-slot="option-name">
         {option.label}
         {option.recommended ? <span data-slot="option-tag">{t("config.recommended")}</span> : null}
+        {option.danger ? (
+          <span data-slot="option-tag" data-tone="attention">
+            {t("config.caution")}
+          </span>
+        ) : null}
       </span>
       {option.description ? <span data-slot="option-description">{option.description}</span> : null}
     </span>

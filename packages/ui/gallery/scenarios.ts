@@ -26,6 +26,8 @@ export type Scenario = {
   update?: UpdateState;
   /** The agent takes images: the composer shows how to attach them. */
   attach?: boolean;
+  /** The environment has no available agent: the blank view explains why and offers a re-check. */
+  noAgents?: boolean;
   /** Folder trust: the daemon keeps it, and this is the decision for every folder (null: nobody has decided). */
   trust?: boolean | null;
   /** Presses Tab this many times with real input events, so :focus-visible shows as it does for a keyboard. */
@@ -790,7 +792,28 @@ export const scenarios: Record<string, Scenario> = {
         state: "connected",
         daemon: {
           version: "0.1.0",
-          upgrade: "cycle stop; curl -fsSL https://example.invalid/install.sh | sh",
+          upgrade: {
+            to: "0.1.1",
+            command: "cycle stop; curl -fsSL https://example.invalid/install.sh | sh",
+          },
+        },
+      },
+      UP("local"),
+    ],
+    sessions: [],
+  },
+  "daemon-incompatible": {
+    title: "The remote daemon speaks an incompatible protocol major version",
+    environments: [BUILD, LOCAL],
+    status: [
+      {
+        environmentId: "build",
+        state: "reconnecting",
+        incompatible: {
+          with: "daemon",
+          supported: ["0.2"],
+          requested: "1.0",
+          command: "cycle stop; curl -fsSL https://example.invalid/install.sh | sh",
         },
       },
       UP("local"),
@@ -958,6 +981,46 @@ export const scenarios: Record<string, Scenario> = {
     title: "Agent defaults dialog",
     sessions: [],
     after: (root) => hostAction(root, "Agent defaults"),
+  },
+  "new-session-no-agent": {
+    title: "New session with no available agent: explains why and offers to check again",
+    sessions: [],
+    noAgents: true,
+    blank: {},
+  },
+  "dialog-edit-host": {
+    title: "Edit environment dialog",
+    environments: [BUILD, LOCAL],
+    sessions: [],
+    after: (root) => hostAction(root, "Edit build-1"),
+  },
+  "dialog-delete-session": {
+    title: "Destructive confirmation dialog for deleting a session",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    history: conversation,
+    after: async (root) => {
+      await clickByLabel(root, "Session actions");
+      await new Promise((r) => setTimeout(r, 200));
+      await click(root.ownerDocument.body, "Delete");
+      await until(
+        () => document.querySelector('[role="alertdialog"], [role="dialog"]') !== null,
+        "the delete confirmation dialog",
+      );
+    },
+  },
+  "danger-setting": {
+    title: "High-risk permission mode chip and menu option marked with caution",
+    sessions: [
+      session("s1", {
+        title: "Fix the remote session",
+        config: { mode: "bypassPermissions", model: "default" },
+      }),
+    ],
+    history: conversation,
+    after: async (root) => {
+      await clickByLabel(root, "Permission mode: Bypass permissions");
+      await new Promise((r) => setTimeout(r, 200));
+    },
   },
 };
 

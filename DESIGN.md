@@ -1,477 +1,329 @@
 # DESIGN.md
 
-Cycle 界面的设计:**什么样子、为什么**。给人和 coding agent 读。怎么做事(流程、文案、检查)在
-[`.claude/skills/cycle-design-taste`](.claude/skills/cycle-design-taste/SKILL.md);界面的各个状态在**状态画廊**里画出来
-(`bun packages/ui/gallery/shoot.ts`,见末尾)。
+Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为界面实现的**单一事实源**。给人和 coding agent 读。
 
-> **状态:已定(2026-11-18)。** 8 个决定都按推荐,只有圆角从 6px 放宽到 8px。之后(同一天)参照 old-cycle 的设计系统加了 D9–D11:暖灰令牌、五档同心圆角、
-> 浅深不同的字重。强调色仍是靛蓝,D1 不变。第 11 节记着每个决定和理由。
-> 实现按阶段推进,每阶段用画廊对比;还没做到的在第 13 节列着。
+> **结构说明（2026-11-19 重整）**：本文按五层设计工程体系组织：**1. 色彩体系 → 2. 样式与材质体系 → 3. 组件体系 → 4. 设计范式 → 5. 语义决策体系**，后附状态画廊、代码配色、i18n 与实现追踪。
+>
+> - 执行流程、检查清单与自检脚本见 [`.claude/skills/cycle-design-taste`](.claude/skills/cycle-design-taste/SKILL.md)。
+> - 控件工程边界与无障碍底线见 [`packages/ui/AGENTS.md`](packages/ui/AGENTS.md)。
+> - 核心交互的背景取舍见 `.agents/notes/` 与 `docs/decisions/`。
 
-## 1. 现状(画廊的截图所见)
+## 定位与原则
 
-2026-11-18,默认窗口 1200×800 与 760×600,浅色和深色,64 张。
+**安静的工具。** 一个人每天开几个小时：盯着 agent 干活、批准它的操作、回看它做了什么。用户的注意力应该在 agent 正在做的事上；界面本身不该被注意到，除非它出了问题——那时它要立刻说清楚出了什么问题、下一步能做什么。
 
-**整体**:纯黑白灰,直角(`--ui-radius: 0`),一档字重,没有强调色,没有图标。一眼看去是未上色的线框。
-这是 ui-sdk 默认外观的样子,不是有意的选择。
+- 中性色打底，**一个强调色**，只用来表示“这里可以操作”和“正在发生”。
+- 状态用**形状 + 颜色 + 文字**，不单独依赖颜色。
+- 层次靠**留白、表面明度差和细边框**，只有浮层（菜单、浮出列表、权限吸附卡、对话框）带阴影。
+- 小圆角、同心嵌套，不圆润、不锋利。
+- 没有渐变（应用图标除外）、毛玻璃、发光、装饰图案。
+- 对话是主角：内容列居中、限制行宽；侧栏与头部退后。
+- 参照感觉：Linear 的克制、Zed 的密度、macOS 原生应用的安静。
 
-**具体的问题**(都能在画廊里复现):
+---
 
-| 场景               | 问题                                                                                                                                        |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| host-down          | "Not connected to this environment." 和原因(ssh 原话)被隔在屏幕两端,读不成一句话;侧栏多出一个空的边框方块(空列表);输入框仍显示、Send 像可点 |
-| 所有               | 会话状态(working、needs you)是 11px 的小字;"needs you"是最需要人响应的状态,却最不显眼                                                       |
-| 所有               | 当前选中的会话在侧栏里看不出来                                                                                                              |
-| 所有               | "New session"是全屏最重的黑块,抢过了对话本身;一个视图里有多个同等分量的主按钮(Allow once、Allow always)                                     |
-| conversation       | 工具行是裸文本("Bash ls … completed"),没有图标、没有状态形状;失败只靠红字;计划没有勾选标记;思考是一个小三角                                 |
-| conversation       | 用户消息是灰块靠右,agent 回答铺满整行,长行宽(1000px 以上)难读                                                                               |
-| permission         | 权限卡片在输入框上方,边框是 `--ui-ring`(浅色下对比度 1.29:1,几乎看不见);卡片和对话的视觉分量一样                                            |
-| many-sessions @760 | 侧栏固定 18rem,窄窗口里主区被挤;头部的四个按钮占据一整行                                                                                    |
-| 所有               | 焦点环用 `--ui-ring`/`--ui-ring-border`:浅色下 1.29:1 和 2.68:1,都低于焦点指示要求的 3:1                                                    |
-| 深色               | 没有明显错误,但因为所有层都是灰,层次几乎靠边框维持                                                                                          |
+## 第 1 层：色彩体系（Color Tokens）
 
-没有出现:页面横向溢出(64 张均为 0)、控制台错误。
+全部颜色用 `light-dark()` 跟随系统深浅色，不做应用内主题开关（v1）。组件只引用语义名（`--cycle-*` 与重映射后的 `--ui-*`），不写散落十六进制值。
 
-## 2. 视觉方向
+### 1.1 中性表面、边框与文字（暖灰）
 
-**安静的工具。** 一个人每天开几小时,眼睛应该在 agent 的输出上。
+取自 old-cycle 的设计系统 v0.8 并按对比度重核。`app.css` 中将 ui-sdk 的中性令牌映射到它们（`--ui-background` → workspace、`--ui-muted` → message、`--ui-foreground` → ink、`--ui-muted-foreground` → ink-muted、`--ui-border` → border-default）。
 
-- 中性色打底,**一个强调色**,只用来表示"这里可以操作"和"正在发生"。
-- 状态用**形状加颜色加文字**,不只靠颜色。
-- 层次靠**留白和细边框**,不靠阴影;只有浮层(菜单、对话框)有阴影。
-- 小圆角,不圆润、不锋利。
-- 没有渐变、毛玻璃、发光、装饰图案。唯一的装饰是应用图标。
-- 对话是主角:内容区居中、限制行宽;侧栏和头部退后。
+| 令牌                        | 用途                                                          | 浅色      | 深色      |
+| --------------------------- | ------------------------------------------------------------- | --------- | --------- |
+| `--cycle-surface-workspace` | 对话和主区底色                                                | `#fcfcfb` | `#161615` |
+| `--cycle-surface-sidebar`   | 侧栏和窗口底色                                                | `#f7f7f5` | `#121211` |
+| `--cycle-surface-raised`    | 浮层与卡片底色（菜单、权限卡、代码/表格卡片、输入框、对话框） | `#ffffff` | `#1c1b1a` |
+| `--cycle-surface-message`   | 用户气泡、行内代码与下沉填充块（`--ui-muted`）                | `#f2f1ee` | `#262523` |
+| `--cycle-surface-hover`     | 行和控件的悬停                                                | `#f0efec` | `#2a2927` |
+| `--cycle-surface-selected`  | 选中和按下（选中的会话行等）                                  | `#e8e7e3` | `#33312e` |
+| `--cycle-border-subtle`     | 列表、卡片内部行与行的轻分隔                                  | `#efeeeb` | `#2a2927` |
+| `--cycle-border-default`    | 卡片、浮层、分隔线（`--ui-border`）                           | `#e5e4e0` | `#34322f` |
+| `--cycle-ink`               | 正文、标题                                                    | `#1c1b1a` | `#f2f1ee` |
+| `--cycle-ink-secondary`     | 标签、侧栏平时行、图标                                        | `#4f4c48` | `#c4c1bb` |
+| `--cycle-ink-muted`         | 元信息、时间、路径、占位（`--ui-muted-foreground`）           | `#6a6660` | `#9d9992` |
+| `--cycle-ink-disabled`      | 仅用于禁用控件，不承载关键信息                                | `#8b8780` | `#787570` |
 
-参照的感觉(用词描述,不抄):Linear 的克制、Zed 的密度、macOS 原生应用的安静。
+对比度底线：
 
-## 3. 颜色
+- **四档文字**：浅色下对 workspace 为 `16.8 / 8.3 / 5.6 / 3.5:1`；深色下为 `16.0 / 10.1 / 6.4 / 4.0:1`。
+- **`ink-muted` 在所有表面上 ≥ 4.5:1**（包括选中行：浅色 4.61、深色 4.57）。
+- **控件边框不用 `border-default`**：`border-default` 对 workspace 仅 1.24:1，只做分隔；输入控件边界用 `--cycle-input-border`（未聚焦时深浅色下均 ≥ 3:1）。
 
-中性色是下面"表面、边框和文字"一节的暖灰,ui-sdk 的 `--ui-*` 中性令牌指向它们(`--ui-input` 仍是 ui-sdk 自己的)。语义色是一组 `--cycle-*`,
-**组件只引用语义名**。全部用 `light-dark()` 跟随系统。
+### 1.2 强调色与功能色
 
-| 令牌                        | 用途                             | 浅色                   | 深色                 | 对比度(文字对背景) |
-| --------------------------- | -------------------------------- | ---------------------- | -------------------- | ------------------ |
-| `--cycle-accent`            | 主要操作、选中、焦点、"正在工作" | oklch(0.511 0.262 277) | oklch(0.68 0.19 277) | 6.44 / 6.41        |
-| `--cycle-accent-foreground` | 强调色底上的文字                 | oklch(1 0 0)           | oklch(0.145 0 0)     | 6.44 / 6.41        |
-| `--cycle-attention`         | "需要你"(等批准)、警告           | oklch(0.52 0.13 65)    | oklch(0.80 0.15 80)  | 5.69 / 10.44       |
-| `--cycle-success`           | 已连接、完成                     | oklch(0.48 0.12 150)   | oklch(0.76 0.16 150) | 6.18 / 9.80        |
-| `--ui-destructive`(沿用)    | 失败、断线、删除                 | 沿用                   | 沿用                 | 5.41 / 7.14        |
+| 令牌                        | 用途                                    | 浅色                                            | 深色                   | 对比度（字对底） |
+| --------------------------- | --------------------------------------- | ----------------------------------------------- | ---------------------- | ---------------- |
+| `--cycle-accent`            | 主要操作、选中焦点、正在工作            | `oklch(0.511 0.262 277)`                        | `oklch(0.68 0.19 277)` | 6.44 / 6.41      |
+| `--cycle-accent-foreground` | 强调色底上的文字                        | `oklch(1 0 0)`                                  | `oklch(0.145 0 0)`     | 6.44 / 6.41      |
+| `--cycle-attention`         | 等待批准（Needs you）、警告、高风险提示 | `oklch(0.52 0.13 65)`                           | `oklch(0.80 0.15 80)`  | 5.69 / 10.44     |
+| `--cycle-success`           | 已连接、完成                            | `oklch(0.48 0.12 150)`                          | `oklch(0.76 0.16 150)` | 6.18 / 9.80      |
+| `--ui-destructive`（沿用）  | 失败、断线、不可逆删除                  | 沿用 ui-sdk                                     | 沿用 ui-sdk            | 5.41 / 7.14      |
+| `--cycle-input-border`      | 输入框等需要可识别边界的控件边框        | 80% `--ui-muted-foreground` + `--ui-background` | 同左                   | ≥ 3:1            |
 
-- 强调色取应用图标的靛蓝(`#4f46e5` 一带),让图标和界面是一家人。
-- 上表每一对文字色都已核对 ≥ 4.5:1(WCAG AA)。中性文字的对比度见下一节。(状态色是针对旧的纯白底核对的;换成暖灰底后差别在 0.1 以内,画廊的对比度检查会再看。)
-- **焦点环用 `--cycle-accent`**,2px,偏移 2px。现有 `--ui-ring`(1.29:1)和 `--ui-ring-border`(2.68:1)都不够 3:1。
-- **消息框边框用 `--cycle-input-border`**,由现有的次要文字色和内容底色混合。未聚焦时在深浅色下都要与底色达到 3:1。
-- 底色层次:workspace(内容)、sidebar(侧栏)、message(代码、用户消息、工具行,即 `--ui-muted`)、raised(盖在上面的)。浮层用 raised 加 `--cycle-shadow-popover`。
-- **不新增别的颜色。** 要区分第四种状态时,先想能不能用形状或文字。
+约束：
 
-### 表面、边框和文字(2026-11-18,取自 old-cycle 的设计系统 v0.8,值按我们的对比度重新核对)
+- **不新增色相**。区分第四种状态时，优先使用形状或文字。
+- **功能色柔化填充**：出错块（如回合失败 `turn-end`）采用 `8%` 功能色底 + `40%` 功能色描边（`color-mix`），不把整块涂成实色块。
+- **焦点环**：统一为 `2px solid var(--cycle-accent)` + `2px` 偏移（侧栏列表内部行用 `-2px` 内偏移避免被滚动容器裁切）。ui-sdk 默认的 `--ui-ring`（浅色下仅 1.29:1）禁止用于焦点指示。
 
-ui-sdk 的中性令牌不再是浅灰和黑白,而是**暖灰**一套(表面 surface、边框 border、文字 ink 三组)。ui-sdk 自己的令牌在 `app.css` 里
-指向它们(`--ui-background` 是 workspace,`--ui-muted` 是 message,`--ui-foreground` 是 ink,`--ui-muted-foreground` 是 ink-muted,
-`--ui-border` 是 border-default),所以 ui-sdk 的控件跟着变,组件不用改。强调色不变,仍是靛蓝。
+---
 
-| 令牌                        | 用途                                              | 浅色    | 深色    |
-| --------------------------- | ------------------------------------------------- | ------- | ------- |
-| `--cycle-surface-workspace` | 对话和主区                                        | #fcfcfb | #161615 |
-| `--cycle-surface-sidebar`   | 侧栏和窗口                                        | #f7f7f5 | #121211 |
-| `--cycle-surface-raised`    | 盖在上面的:权限卡、候选列表                       | #ffffff | #1c1b1a |
-| `--cycle-surface-message`   | 用户消息、代码和一切下沉的填充(`--ui-muted`)      | #f2f1ee | #262523 |
-| `--cycle-surface-hover`     | 行和控件的悬停                                    | #f0efec | #2a2927 |
-| `--cycle-surface-selected`  | 选中和按下(为之后的控件状态预留)                  | #e8e7e3 | #33312e |
-| `--cycle-border-subtle`     | 卡片里行与行的分隔                                | #efeeeb | #2a2927 |
-| `--cycle-border-default`    | 卡片、分隔线(`--ui-border`)                       | #e5e4e0 | #34322f |
-| `--cycle-ink`               | 正文、标题                                        | #1c1b1a | #f2f1ee |
-| `--cycle-ink-secondary`     | 标签、侧栏的行、图标                              | #4f4c48 | #c4c1bb |
-| `--cycle-ink-muted`         | 元信息、时间、路径、占位(`--ui-muted-foreground`) | #6a6660 | #9d9992 |
-| `--cycle-ink-disabled`      | 只给禁用的控件,不承载信息                         | #8b8780 | #787570 |
+## 第 2 层：样式与材质体系（Style & Surface Tokens）
 
-- **文字四档,每档是不同的层级。** 浅色下对 workspace 为 16.8、8.3、5.6 和 3.5:1;深色下为 16.0、10.1、6.4 和 4.0:1。
-- **ink-muted 在上表每一个表面上都 ≥ 4.5:1**,包括选中(浅 4.61、深 4.57)。old-cycle 的同名一档在选中的行上只有 4.28 和 4.19,不够;这里把它加深一点(浅色 #6a6660,深色 #9d9992)。
-- **控件的边不用 `border-default`。** 它对 workspace 只有 1.24:1,只是分隔用;输入框等控件的边仍用 `--cycle-input-border`(≥ 3:1)。old-cycle 的 `border-control` 只有 1.5:1,我们不取。
-- 选中的会话行是 `surface-selected` 的填充,没有边和左条(2026-11-19,第 21 节);悬停是 `surface-hover`;侧栏的行平时是 `ink-secondary`,选中时是 `ink`。
-- 浮层的阴影和遮罩:`--cycle-shadow-popover`(菜单、权限卡、候选列表)、`--cycle-shadow-dialog`(对话框)、`--cycle-scrim`(模态的遮罩)。深色下阴影更深,因为浅色的阴影在深底上看不见。
-- 三个动效时长令牌和 `--cycle-surface-selected` 先定义在这里,等控件(Segmented、Tabs、Switch 的状态和展开收起)做的时候引用;现在 `app.css` 里还没有过渡动画,所以没有规则用到它们。
-- 主题跟随系统。`light-dark()` 只能装颜色;阴影和字重在 `@media (prefers-color-scheme: dark)` 里换。
+### 2.1 排版（Typography）
 
-### 其他令牌
+- **字体栈**：系统无衬线字体（`--ui-font-sans`）；等宽字体（`--ui-font-mono`）**仅用于代码、命令、路径、id、ssh 错误原话**。不加载网络字体，不打包字体。
+- **中文 PingFang 字重映射**：PingFang SC 为固定字重档，`420` 会落到 Medium 导致中文全粗。`app.css` 用 `Cycle PingFang`（4 个 `@font-face` + `local()`）把 Light/Regular/Medium/Semibold 映射到 1–349 / 350–449 / 450–549 / 550+，排在 `PingFang SC` 前面。
+- **字阶（仅四档，根字号 16px）**：
 
-除颜色外,`app.css` 的 `:root` 里还有这些 `--cycle-*`。组件只引用它们,不写散落的数值。
+| 档位    | 大小令牌             | 行高令牌                | 真实值             | 用在                                    |
+| ------- | -------------------- | ----------------------- | ------------------ | --------------------------------------- |
+| `meta`  | `--cycle-text-meta`  | `--cycle-leading-meta`  | 12px / 1.5 (18px)  | 状态文字、用量、按键提示、路径、时间    |
+| `ui`    | `--cycle-text-ui`    | `--cycle-leading-ui`    | 13px / 1.54 (20px) | 按钮、侧栏、表单、工具行（ui-sdk 基准） |
+| `body`  | `--cycle-text-body`  | `--cycle-leading-body`  | 14px / 1.57 (22px) | 对话正文、输入框正文                    |
+| `title` | `--cycle-text-title` | `--cycle-leading-title` | 16px / 1.5 (24px)  | 对话框标题、大区块标题                  |
 
-| 令牌                                                                                          | 值                     | 用途                                                       |
-| --------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------- |
-| `--cycle-gap`                                                                                 | 0.75rem                | 区块之间和内边距的基本间距                                 |
-| `--cycle-gap-turn`                                                                            | 2rem                   | 一个 turn 开头前的间距(块之间是 `--cycle-gap`)             |
-| `--cycle-text-meta`、`--cycle-text-ui`、`--cycle-text-body`、`--cycle-text-title`             | 12、13、14、16px       | 第 4 节的四档字阶                                          |
-| `--cycle-measure`                                                                             | 48rem                  | 对话内容列的最大宽度                                       |
-| `--cycle-column-pad`                                                                          | 由 measure 算出        | 让对话、权限卡、输入框共用同一条内容列(在各自的规则里定义) |
-| `--cycle-ease`                                                                                | ease-out 曲线          | 动效(见 skill 的 motion.md)                                |
-| `--cycle-motion-state`、`--cycle-motion-disclosure`、`--cycle-motion-enter`                   | 100ms、160ms、200ms    | 状态变化(悬停、按下)、展开收起、出现                       |
-| `--cycle-leading-meta`、`--cycle-leading-ui`、`--cycle-leading-body`、`--cycle-leading-title` | 1.5、1.54、1.57、1.5   | 第 4 节字阶的行高(18、20、22、24px)                        |
-| `--cycle-weight`                                                                              | 420(深色 400)          | 常规字重:浅底上的深字显得细,深底上的浅字显得粗             |
-| `--cycle-radius-sm`、`-card`、`-message`、`-composer`                                         | 4、12、16、20px        | 第 5 节的圆角档(控件是 `--ui-radius`,8px)                  |
-| `--cycle-fade-end`                                                                            | 末尾 1.5rem 的渐变遮罩 | 放不下的一行在末尾淡出,不用"…"(第 22 节)                   |
+- **字重与数字**：常规字重为 `--cycle-weight`（浅色 `420`，深色 `400`，避免浅字在深底显粗）；其余仅用 `500` 和 `600`（`600` 仅用于标题、`Needs you` / `Unread` 加重）。灰字保持常规字重。数字（用量、百分比、版本、价格）用 `tabular-nums`。
 
-### 状态到颜色和形状
+### 2.2 间距、尺度与同心圆角
 
-| 状态                      | 颜色                           | 形状(不依赖颜色)     | 文字            |
-| ------------------------- | ------------------------------ | -------------------- | --------------- |
-| 会话 working              | accent                         | 缓慢脉动的实心点     | "Working"       |
-| 会话 needs you            | attention                      | 实心方块点,不脉动    | "Needs you"     |
-| 会话 idle / stopped       | muted                          | 无                   | 无              |
-| 连接 connected            | success                        | 实心点               | "Connected"     |
-| 连接 reconnecting         | attention                      | 空心点               | "Reconnecting"  |
-| 连接 closed / error       | destructive                    | 叉                   | "Not connected" |
-| 工具 完成 / 失败 / 进行中 | success / destructive / accent | 勾 / 叉 / 转动的线   | 同名            |
-| 计划 完成 / 进行中 / 待办 | muted / accent / foreground    | 勾框 / 半实框 / 空框 | 无              |
+- **间距**：4px 网格（`--ui-spacing`），间距只取 1、2、3、4、6、8 倍；基本间距 `--cycle-gap` 为 `0.75rem`（12px），turn 之间 `--cycle-gap-turn` 为 `2rem`（32px）。
+- **内容列**：对话、权限区、输入框、空白页条件区共用同一条居中列宽：`--cycle-measure`（`48rem`，约 72 字符），水平内边距由 `--cycle-column-pad` 算出。
+- **圆角（五档同心，内圆角 = 外圆角 − 内边距）**：
+  - `--cycle-radius-sm`（`4px`）：徽标、计划勾框、行内代码、按键胶囊、缩略图
+  - `--ui-radius`（`8px`）：控件、按钮、侧栏行、菜单项、输入框控件、工具展开块
+  - `--cycle-radius-card`（`12px`）：菜单、下拉列表、工具/代码/表格/连接器卡片、权限卡
+  - `--cycle-radius-message`（`16px`）：用户消息气泡、对话框
+  - `--cycle-radius-composer`（`20px`）：主输入框外框（`padding: 12px` 内嵌 `8px` 控件）
 
-## 4. 字体
+### 2.3 阴影、遮罩与动效令牌
 
-- **字体栈**:系统字体(`--ui-font-sans`,mac 上是 SF),等宽用 `--ui-font-mono`(SF Mono)。不加载网络字体,不打包字体(包已经 319 MB)。
-- **字阶**,只有四档:
+- **阴影与遮罩**：`--cycle-shadow-popover`（菜单、权限卡、候选列表）、`--cycle-shadow-dialog`（对话框、搜索面板）、`--cycle-scrim`（模态遮罩）。深色模式下阴影更深，并配合更亮一档的 `surface-raised` 区分层次。
+- **长文末尾淡出**：`--cycle-fade-end`（末尾 `1.5rem` 线性透明遮罩），通过滚动驱动动画只在实际溢出时触发，`prefers-reduced-motion` 下仍保持静态显示。
+- **动效（三档时长 + 统一曲线）**：
+  - 曲线：`--cycle-ease`（`cubic-bezier(0.2, 0.8, 0.2, 1)`）
+  - `--cycle-motion-state`（`100ms`）：悬停底色、按钮/操作显隐
+  - `--cycle-motion-disclosure`（`160ms`）：展开/收起箭头旋转与面板过渡
+  - `--cycle-motion-enter`（`200ms`）：浮层、横幅、对话框进入
+  - `prefers-reduced-motion: reduce` 下所有过渡与动画静止（除 `--cycle-fade-end`）。
 
-| 档    | 大小 | 行高 | 用在                                    |
-| ----- | ---- | ---- | --------------------------------------- |
-| meta  | 12px | 1.5  | 状态文字、用量、时间、路径              |
-| ui    | 13px | 1.54 | 按钮、侧栏、表单、工具行(ui-sdk 的基准) |
-| body  | 14px | 1.57 | 对话的正文                              |
-| title | 16px | 1.5  | 会话标题、对话框标题                    |
+### 2.4 材质样式整合（Surface Styles）
 
-- 字重:常规是 `--cycle-weight`(浅色 420,深色 400),其余 500 和 600:600 只给标题和"Needs you"。灰色的字保持常规。
-- **PingFang 的字重是固定档位**,浅色的 420 会落到 Medium,中文就全变粗了。`app.css` 里的 `Cycle PingFang`(四个 `@font-face`,只用 `local()`,不打包字体)把 Light、Regular、Medium、Semibold 分别接到 1–349、350–449、450–549、550 以上的字重,字体栈里它排在 `PingFang SC` 前面。SF 是可变字体,直接取 420。
-- 等宽只给代码、命令、路径、id、ssh 原话。
-- 数字用 `font-variant-numeric: tabular-nums`(用量、百分比、版本)。
+所有界面容器必须归属于以下六种预设材质之一，不再在局部各自组合边框与阴影：
 
-## 5. 间距与布局
+| 材质名             | 底色                                  | 边框                                               | 圆角                             | 阴影                     | 适用对象                                                |
+| ------------------ | ------------------------------------- | -------------------------------------------------- | -------------------------------- | ------------------------ | ------------------------------------------------------- |
+| `Surface/Base`     | `workspace` / `sidebar`               | 无                                                 | 0                                | 无                       | 主区、侧栏背景                                          |
+| `Surface/Ghost`    | 透明（悬停 `hover`，选中 `selected`） | 无                                                 | 8px (`--ui-radius`)              | 无                       | 侧栏行、动作行、工具单行/折叠头、设置芯片               |
+| `Surface/Sunken`   | `surface-message`                     | 用户气泡用 `border-default`，内嵌块无边            | 4 / 8 / 16px                     | 无                       | 用户消息气泡、工具输入输出、行内代码、按键胶囊          |
+| `Surface/Card`     | `surface-raised`                      | `1px border-default`                               | 12px (`--cycle-radius-card`)     | 无                       | 代码块卡片、表格卡片、连接器列表                        |
+| `Surface/Popover`  | `surface-raised`                      | `1px border-default`（权限卡顶边 3px `attention`） | 12px (`--cycle-radius-card`)     | `--cycle-shadow-popover` | 下拉菜单、`Select` 列表、`PickerMenu`、`PermissionCard` |
+| `Surface/Dialog`   | `surface-raised`                      | `1px border-default`                               | 16px (`--cycle-radius-message`)  | `--cycle-shadow-dialog`  | 模态对话框、确认框、`⌘K` 搜索面板                       |
+| `Surface/Composer` | `surface-raised`                      | `1px --cycle-input-border`                         | 20px (`--cycle-radius-composer`) | 无                       | 主输入框整块                                            |
 
-- **单位 4px**(`--ui-spacing`),间距只取 1、2、3、4、6、8 倍。现有的 `--cycle-gap: 0.75rem` 改为 3 倍(12px)并保留。
-- **圆角五档,嵌套时同心**(内圆角 = 外圆角 − 内边距):4(徽标、勾框、行内小块,`--cycle-radius-sm`)、8(控件、行、输入框、菜单里的项,`--ui-radius`)、
-  12(卡片:工具行和工作行、权限卡、候选列表、菜单和选择列表,`--cycle-radius-card`)、16(用户消息和对话框,`--cycle-radius-message`)、
-  20(输入框所在的整块,`--cycle-radius-composer`,等做到那块时用)。例:12 的菜单留 4 的内边距,里面的项是 8。取自 old-cycle,它的依据是图标的圆角约是图标尺寸的四分之一。不再加别的值。
-- **窗口**:最小 720×480(BrowserWindow 的 `minWidth/minHeight`);默认 1200×800。
-- **侧栏**:默认 16rem(原 18rem);可拖动调宽(200–360px),宽度保存在本机;可折叠(⌘B,或聚焦分隔条按 Enter / 双击)。
-  原先写的"窄于 900px 自动收起成抽屉"没有做:最小窗口 720px 时侧栏最窄 200px、主区最窄 480px,两者都能用,不需要抽屉。
-- **短窗口**:平时只有会话列表滚动;列表至少留 10rem,固定的部分(断线的环境多、窗口矮)挤到这之下时,整个侧栏滚动,底部的 App settings 仍然够得到(2026-11-19,第 21 节)。
-- **对话**:内容列最大 48rem(≈ 72 个字符),在主区内水平居中;用户消息靠右最大 80%,agent 消息占满内容列。
-- **头部**:一行 42px:标题(13px、500)后面跟着等宽的路径(muted),放不下时路径先让,整行在末尾淡出;下面不画横线。操作全部收进一个"…"菜单;会话设置和用量不在头部,在输入框的工具条里(2026-11-19,第 21、22 节)。
-- **输入框**:固定在底部,与内容列同宽,是一个 20px 圆角的整块(第 21 节);发送和停止是圆形按钮,块下面一行按键提示(第 22 节)。新会话发出第一条消息之前,它在主区中间(第 22 节)。无会话时显示下一步说明。已打开的会话断线时仍可编辑草稿,发送和编辑队列、停止、权限操作在重连后恢复。
+---
 
-## 6. 组件
+## 第 3 层：组件体系（Components & Variants）
 
-按 `data-slot`。只写和现状不同的地方;没写的保持现状。
+基础控件优先使用 `@ui-sdk/react` 并映射为 Cycle 样式；业务通用件收口在 `packages/ui/src/react/`。**注意 ui-sdk 坑点**：`Collapsible`、`Command` 等会覆盖传给它的 `data-slot`，写样式优先用 `data-kind` 或 `data-palette`。
 
-- **host-bar**:主机选择加一个状态点(第 3 节);"Add environment"、"Remove"、"Agent defaults"收进选择器旁的"…"菜单。
-- **session row**:28px 高,左侧状态点,标题一行、放不下时末尾淡出,第二行 meta(路径末段、相对时间);选中行是 surface-selected 的填充(平时的行在 sidebar 底上,悬停是 surface-hover);
-  "Needs you"行加粗标题。归档的 60% 透明。
-- **New session**:侧栏顶部的一行(ghost:无边,图标、文字、右侧快捷键),和"Search sessions"并列,与会话行左对齐(2026-11-19,原为描边按钮)。**只有 Send 和权限卡的"Allow once"是 accent 实心按钮。**
-- **message**:用户消息 `--ui-muted` 底、1px `border-default` 的边、16px 圆角,最宽 75%;agent 消息无底无边,直接排版。代码块和表格各是一张卡片(第 22 节)。
-- **tool row**(只有一次调用的一段;两次以上见第 16 节):无边框的一行,28px:开头一格(完成是一个小灰点;在跑时是转动的线;失败是叉;不用工具图标,第 23 节)+ 动词(按时态:Running / Ran、Reading / Read…;没有动词的工具写名字)+ 等宽的 muted 摘要 + 展开箭头(悬停、聚焦、展开时才出现)。展开后输入输出是下沉的填充块,和文字对齐。失败行整行 destructive,并写出"failed",默认展开(第 22 节)。
-- **thought**:**默认不显示**(第 16 节);打开后是折叠的一行 muted "Thinking",展开后 muted 文字,左侧竖线。
-- **plan**:勾框列表(第 3 节),不用删除线表示完成,改用 muted 颜色加勾。
-- **permission**:吸附在输入框上方,和对话分开:accent 的 2px 上边条、`--ui-background` 加浮层阴影;标题写"Bash wants to run",
-  命令等宽、可滚动(最多 8 行);按钮顺序:Allow once(accent 实心)、Allow always(描边)、Deny(描边),Dismiss 放最右、文字按钮。
-  等待权限时对话和输入框都写明等待用户决定。多个请求的列表独立滚动,保留对话和输入框的空间。
-- **banner**(更新、daemon 版本、错误):一行,左侧图标,右侧一个主要动作和"Dismiss";更新用 accent,错误用 destructive,
-  不用整行染色,只用左侧竖条和图标。
-- **empty / loading / error 的屏**:图标、一句话、一个动作;错误的原因在同一块里,等宽,可选中。
-- **对话框**:16px 圆角,raised 底,`--cycle-shadow-dialog`,标题 16px;主要按钮在右,取消在左;首个输入自动聚焦;Esc 关闭并把焦点还回去。
+| 组件                     | 来源                                               | 允许变体 / 状态                                                                                          | 映射材质与规则                                                                                                                                                                                                         |
+| ------------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Button`                 | `@ui-sdk/react/button`                             | `solid`、`destructive`、`outline`、`ghost`、`data-kind="round"`、`data-kind="queue"`                     | `solid` 用 `--cycle-accent`；破坏性操作用 `destructive`（`--ui-destructive`）；`outline` 为默认描边按钮；`ghost` 无底无边（`Surface/Ghost`）                                                                           |
+| `Banner`                 | 自建（`app.tsx` / `update.tsx` / `analytics.tsx`） | `data-severity="info" \| "warning" \| "error"`                                                           | 全宽底栏 + `3px` 左侧语义竖条 + 16px 图标 + 单句事实 + 至多 1 个操作按钮 + `Dismiss`                                                                                                                                   |
+| `StatusDot` & `Badge`    | 自建（`status.tsx` / `workspace-switcher.tsx`）    | 点：`solid`、`pulse`、`square`、`ring`、`cross`；角标：`needs-you` / `running` / `background` / `unread` | 颜色 + 形状双通道：Working=accent 脉动圆点，Needs you=attention 实心方块，Background=accent 空心环，Unread=accent 实心圆点，Connected=success 圆点，Reconnecting=attention 空心环，Not connected=danger 叉             |
+| `SettingChip`            | 自建（`setting-chips.tsx`）                        | 正常、`data-unset`（`Not set`）、危险权限态（如免确认）                                                  | `Surface/Ghost`，点击弹出单选 `Menu`（带说明与 `Recommended` / `Caution` 标）；危险模式用 `--cycle-attention` 警示；带轻微下拉箭头线索避免误认为静态文本                                                               |
+| `ToolRow` & `WorkCard`   | 自建（`tool.tsx` / `turn.tsx`）                    | `pending` / `in_progress` / `completed` / `failed` / `cancelled`                                         | 单次调用为 `ToolRow`；连续两次以上聚合为 `WorkCard`（垂直细线串联子行）；左边一列只放状态（完成为 5px `--cycle-ink-disabled` 灰点、在跑为转圈、失败为红叉，**不用工具图标**）；失败行整行红色并写明 `failed`、默认展开 |
+| `Plan`                   | 自建（`conversation.tsx`）                         | `pending` / `in_progress` / `completed`                                                                  | 勾框列表（空框 / 半实框 / 绿色勾框），不用删除线                                                                                                                                                                       |
+| `PermissionCard`         | 自建（`permission.tsx`）                           | `disabled`                                                                                               | `Surface/Popover` + 3px 顶部 `attention` 边条；标题 + 可滚动等宽命令区（最多 8 行）+ `Allow once`（`solid`，标出快捷键）+ 其他 `outline` + 最右 `ghost` `Dismiss`                                                      |
+| `Dialog` / `AlertDialog` | `@ui-sdk/react` + `dialogs.tsx`                    | 表单弹窗 / 信息弹窗 / 破坏性确认弹窗                                                                     | `Surface/Dialog` + `--cycle-scrim`；非破坏性支持 Esc 关闭并将焦点还回触发源                                                                                                                                            |
+| `Icons`                  | `icons.tsx`（iconmcp 线性 16 单位网格）            | `size` 16（控件内）/ 20（空状态），`1.5px` 描边，`currentColor`                                          | 集中维护，禁止内联 SVG；仅图标按钮必须配 `aria-label` 与 `title`                                                                                                                                                       |
 
-## 7. 图标
+---
 
-iconmcp,线性,16 单位网格,1.5px 描边,`currentColor`,16px(控件内)和 20px(空状态)。集中在
-`packages/ui/src/react/icons.tsx`。清单(需要时再加):new-session、host、settings、more、archive、trash、rename、send、stop、
-chevron、check、x、warning、tool(按工具)、thought、plan。
+## 第 4 层：设计范式（Patterns）
 
-## 8. 层次与深度
+新增功能或调整页面时，必须优先套用以下最小任务范式，不在局部另起交互逻辑：
 
-**边,然后才是阴影。** 平的面(卡片、行、侧栏)只有 1px `--cycle-border-default`,没有阴影;浮起来的面有边,也有阴影,底是 raised:
+### 4.1 窗口与侧栏导航范式
 
-| 层                     | 边  | 阴影                     |
-| ---------------------- | --- | ------------------------ |
-| 页面、侧栏             | 无  | 无                       |
-| 卡片、工具行、通知     | 1px | 无                       |
-| 菜单、候选列表、权限卡 | 1px | `--cycle-shadow-popover` |
-| 对话框、搜索面板       | 1px | `--cycle-shadow-dialog`  |
+- **窗口尺寸**：默认 `1200×800`，最小 `720×480`。
+- **macOS 标题栏**：`titleBarStyle: "hiddenInset"`，红绿灯位于侧栏左上角；侧栏折叠时主区头部自动留出左侧避让（`5.5rem`）且可拖动。
+- **侧栏三段结构**（默认 `256px`，可拖动 `200–360px` 并记忆，`⌘B` 或按钮折叠）：
+  - **顶段（固定）**：`New session`（`⌘N`）与 `Search sessions`（`⌘K`）`ghost` 行、`Connectors` 入口、紧贴列表的 `WorkspaceSwitcher` + 环境 `"…"` 菜单；如有断线/重连环境，在此展示两行状态块（状态点+名称+`Retry` / 最多三行原因）。
+  - **中段（独立滚动，保底 `10rem`）**：当前选中 workspace 的会话列表，分组顺序固定为 **`Needs you` → `Running` → `Today` → `Yesterday` → `Earlier`**（本地日界线，按 `updatedAt` 排序）；每项目默认展示 20 条（有状态标记或当前打开的永远展示），底部附 `Show N more sessions`（切换 workspace/环境时重置）与 `Show archived`。窗口极矮时改为整栏滚动，确保底部不裁切。
+  - **底段（固定）**：当前版本号、更新状态、与 `App settings` 菜单（`Code colours`、`Usage statistics` 开关、`Check for updates`）。
+- **折叠恢复**：主区头部必须提供 `SidebarIcon` 开关按钮（或对应入口），确保折叠后无需快捷键也能用鼠标打开侧栏。
 
-深色下 raised 比 workspace 亮一档(#1c1b1a 对 #161615),因为深色里阴影看不见,层次靠这一档和边。
+### 4.2 会话切换与工作区范式
 
-## 9. 窗口与桌面(已定,macOS 为主)
+- **一次一个 workspace**：一个 workspace = `(environmentId, cwd)`。Switcher 按环境分组（本机在前，仅一个环境时不显示分组头），远程环境带 `ServerIcon` 与可访问名称；同名目录在不同环境或同环境多级重名时自动补全前缀/环境名区分。
+- **跨区提醒**：Switcher 右侧方块角标显示**其他 workspace** 中最紧急一类的计数（优先级：`needs-you > running > background > unread`），完整分布写入 `aria-label`。
+- **断线态**：断线环境的会话列表灰显并附 tooltip 说明原因；已打开过有缓存的会话仍可阅读并编辑草稿（断线横幅提示“重连后恢复”），无法新开未读会话。
 
-- 标题栏:`titleBarStyle: "hiddenInset"`,红绿灯留在侧栏顶部,头部整条可拖动(`-webkit-app-region: drag`,按钮区域 `no-drag`)。
-- 文字可选中(消息、命令、错误),界面控件不可选中;控件的光标是默认箭头,只有链接是手形。
-- 应用菜单:原生(Edit 菜单必须有,复制粘贴才工作);快捷键见第 10 节。
-- 字体平滑用系统默认,不覆盖。
-- 深浅色跟随系统;不做应用内的主题开关(v1)。
+### 4.3 新建空白会话与文件夹信任范式
 
-## 10. 键盘
+- **先写后建**：点击 `New session` 打开居中的 `BlankConversationView`，直到发出第一条消息才依次调用 `session/new` 与 `session/prompt`，未发出前不污染侧栏。
+- **草稿保留**：空白页草稿使用独立持久键（`BLANK_KEY`），切换环境或目录时不丢失已输入文字；若创建 session 失败，消息退回空白框并保留焦点；若 session 已建好但发送失败，打开该 session 并把消息退回该 session 的草稿框。
+- **文件夹信任前置**：发出首条消息前，若目标目录未做过信任决定且 daemon 支持 `trust` 能力，阻塞弹出 `Trust this folder?`（展示真实路径与风险说明），提供 `Back` / `Start without trusting` / `Trust and start`。
 
-| 键                  | 动作                          |
-| ------------------- | ----------------------------- |
-| ⌘N                  | 新会话                        |
-| ⌘K                  | 搜索会话(下一步功能,先留位置) |
-| ⌘[ / ⌘]             | 上一个 / 下一个会话           |
-| ⌘L                  | 聚焦输入框                    |
-| Esc                 | 关闭对话框;在输入框里不做事   |
-| Enter / Shift+Enter | 发送 / 换行(已有)             |
-| ⌘.                  | 停止当前回合                  |
-| ⌘Return             | 在权限卡上 Allow once         |
+### 4.4 对话阅读、流式输出与输入范式
 
-快捷键写在对应控件的提示里。
+- **头部**：固定 `42px` 一行，无底线，左侧会话标题（`13px / 500`）+ 等宽路径（路径优先保留末尾项目名），右侧 `"…"` 菜单（`Rename` / `Show thinking` / `Archive` / `Delete`）。
+- **Turn 切块与对话内容规则（CYCL-14，详见 [docs/conversation-content.md](docs/conversation-content.md)）**：
+  - 按 daemon 日志的 `stopReason` 切分 turn（`--cycle-gap-turn` 隔开问题起止）；思考默认折叠隐藏，不打断连续工具流；未正常结束的 turn 拎出末尾失败工具并附原因块（`turn-end`）。
+  - **工具行不用图标，左列只放状态**：完成为 5px 灰点（`--cycle-ink-disabled`，纯装饰，读屏给状态词），在跑为旋转线，失败为红叉；一段调用展开后细竖线串联各点。
+  - **有 `description` 优先展示**：Bash / Monitor / Agent 的单行短说明（≤ 160 字）用正文字体居前，后跟淡灰等宽命令/路径，放不下时先让摘要再让说明并在末尾淡出；没有时用“动词 + 摘要”。StepLine 与进行中卡片同步遵循。
+  - **`@` 提及不画两遍**：用户消息中带 `cycle/mention` 的 `resource_link` 当正文中仍含 `@path` 时不重复渲染；其余链接渲染为 `[名字]`。
+  - **文件工具（Edit / Write / Read / Glob / Grep）**：按 ACP `diff` 与 `_meta["cycle/toolResult"]`（协议 §9）渲染、不硬编码工具名——Edit 仅显示本次调用的增删计数（`+2 −1`，新建为 `Created +N`），展开显示带行号与浅绿/浅红底的 diff（省去首段 `@@`，段间 `⋯`，上限 400 行，不再重复输入 JSON，过大或空文件给出明确提示）；Read 写出行范围/总行数（含读取图片直接展示）；Glob/Grep 写出文件数与匹配数/行数（截断时带 `+`）；输入中仅含行上已显示的字段时展开不再重复。
+  - **工具折叠状态保持**：连续工具调用从 1 个变为 2 个以上时保留用户已手动展开的状态；展开态下的长输入/输出与代理消息支持快捷复制；turn 失败支持就地重试；`AskUserQuestion` 在 CYCL-14 后续批次做成表单。
+  - **StepLine**：turn 进行中且未开始输出文本时，在末尾展示实时步骤行（等待批准 / 思考中 / 运行中的工具摘要），防止“静默卡死感”。
+- **长会话窗口与滚动锚定**：
+  - 初次仅渲染最后 60 块；向上滚动至距顶 `< 800px` 或点击 `Show earlier` 时向上增量加载 60 块，通过首块位移修正保持视口不跳动；页面内存中记住最近 50 个会话的阅读锚点；用户向上翻阅时提供浮动的回到底部入口。
+- **Composer 与排队/插话**：
+  - `Surface/Composer` 整块：上方挂载排队消息列表（虚线边框，可 `Edit` 取回）与附件/离线提示；内部依次为附件缩略图、Lexical Markdown 所见即所得输入框、单行/窄屏自适应工具条（附件按钮[仅声明 `image` 能力时显示]、`SettingChips`、会话全量设置齿轮、右侧 `ContextMeter` 用量环、Queue/Send/Stop）；下方固定高度 `KeyHints` 行。
+  - **发送与草稿**：文本草稿持久化到 `localStorage`（按环境+会话键隔离），图片与 `@` 链接保持在内存；发送失败或被退回时自动放回输入框前端，不丢内容。
+  - **命令与提及**：行首 `/` 触发 agent 命令候选；`@` 触发工作区文件搜索，发送时附带 `resource_link`。
 
-## 11. 决定
+### 4.5 表单弹窗与破坏性确认范式
 
-2026-11-18 定下。
+- **表单弹窗（添加/编辑环境、重命名、添加连接器、Agent 默认设置）**：
+  - 必须包裹 `<form onSubmit>`，支持在输入框内按 `Enter` 提交；
+  - 打开时自动聚焦首个有效输入字段；
+  - 底部操作行右对齐，**取消在左，主确认按钮在右**；提交中禁用按钮并就地展示失败原因。
+- **破坏性确认弹窗（删除会话、移除连接器、移除远端环境、升级应用/Daemon 中断提示）**：
+  - 必须经由 `AlertDialog` 确认；
+  - 不可逆删除/移除操作的主确认按钮必须使用 `destructive` 语义样式（禁止使用 `solid` 靛蓝主按钮），且按钮文案采用“动词 + 对象”（如 `Delete session`、`Remove environment`）；
+  - 打开时默认焦点落在 `Cancel` 上，防止连续两次回车误删。
 
-| #   | 决定         | 推荐                             | 备选                                   |
-| --- | ------------ | -------------------------------- | -------------------------------------- |
-| D1  | 强调色       | 靛蓝,和图标一致                  | 中性(只用黑白,最安静);别的色相         |
-| D2  | 圆角         | 8px(推荐是 6px,你放宽到 8px)     | 保持直角(现状,更"工具味");10px(更圆润) |
-| D3  | 状态点和图标 | 加,按第 3、7 节                  | 只改文字和颜色,不加图标                |
-| D4  | 侧栏         | 16rem、可拖动、窄窗口收起        | 固定宽度                               |
-| D5  | 头部操作     | 收进"…"菜单,只留 Settings        | 保持四个按钮外露                       |
-| D6  | 权限卡       | 吸附在输入框上方,和对话分开      | 留在对话流里                           |
-| D7  | 标题栏       | hiddenInset,红绿灯在侧栏顶部     | 保持系统标题栏                         |
-| D8  | 对话内容列   | 48rem 居中                       | 占满主区                               |
-| D9  | 灰阶         | 暖灰一套令牌(2026-11-18)         | 保持 ui-sdk 的中性灰                   |
-| D10 | 圆角         | 五档同心:4、8、12、16、20        | 一个 8px(D2 的结果)                    |
-| D11 | 字重         | 浅色 420、深色 400,PingFang 映射 | 一档字重                               |
+### 4.6 空、加载、断线与错误反馈范式
 
-## 12. 状态画廊
+- 每一块界面必须完整覆盖 **空、加载、出错、断线/重连、超长内容、超多数量** 六态。
+- **错误三要素**：发生了什么 + 原样等宽可选择的系统/远端原因 + 下一步操作按钮（`Retry` / 编辑配置 / 重读）。错误发生就地展示，不依赖会自动消失的 toast。
+- **空状态有出口**：任何空状态（无会话、无环境、无可用 agent）都不能只有一句静态描述，必须写明原因/下一步并就地提供直接动作按钮（如 `New session` 或连接/排查指引）。
 
-```bash
-bun packages/ui/gallery/shoot.ts                                  # 所有场景,浅色和深色,1200x800 和 720x480
-bun packages/ui/gallery/shoot.ts permission --themes dark         # 指定场景和主题
-bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸,列出每张
+### 4.7 命令面板与全局搜索范式
+
+- `⌘K` 打开跨环境、跨 workspace 的会话搜索（匹配标题、文件夹、agent、环境名，含已归档会话），底部附新建会话快捷入口；全文内容搜索预留在 daemon 侧扩展。
+
+---
+
+## 第 5 层：语义决策体系（Decision Trees & Do / Don't）
+
+### 5.1 什么时候用什么组件 / 反馈层？
+
+```text
+需要打断用户或获得明确授权？
+├─ 是，且为不可逆破坏或中断正在运行的任务 ──▶ AlertDialog（ConfirmDialog，destructive 主按钮，焦点落 Cancel）
+├─ 是，agent 等待单次/永久工具权限批准   ──▶ PermissionCard（吸附在输入框上方，不遮挡最近对话）
+└─ 否，不阻断当前编辑：
+   ├─ 属于全局/环境/应用级状态（断线、更新、版本过旧、全局错误） ──▶ 顶部 Banner（带左竖条，不自动消失）
+   ├─ 属于某个输入或列表项的校验/执行失败（附件超限、连接器报错） ──▶ 就地 inline alert / hint
+   └─ 属于用户未注视的后台会话状态变化（Needs you / 完成 / 异常退出） ──▶ 系统桌面通知 + 侧栏/Switcher 角标
 ```
 
-画廊运行在 macOS Electron 或 Linux xvfb,每次使用临时配置。截图在 `packages/ui/gallery/shots/`(不进 git),可用 `--out` 留存前后对照。它检查根页面溢出、控制台错误、指定的焦点环、会话列表可见性和输入框边界对比度。
-场景定义在 `packages/ui/gallery/scenarios.ts`:界面加了新状态,就加一个场景。在浏览器里直接看:
-`bun packages/ui/gallery/build.ts` 后打开 `packages/ui/gallery/dist/index.html`(带 `?s=<场景>` 或 `?s=tokens`)。
+### 5.2 截断与溢出策略（区分文本语义）
 
-| 场景                                               | 看什么                                           |
-| -------------------------------------------------- | ------------------------------------------------ |
-| tokens                                             | 令牌的真实值、字阶、间距、控件                   |
-| empty, empty-conversation                          | 空状态                                           |
-| conversation                                       | 思考、三种工具状态、计划、表格、代码、列表、用量 |
-| streaming                                          | 流式中的半句话                                   |
-| permission, permission-queue                       | 等待决定,长命令和多个请求                        |
-| turn-error                                         | 回合以错误结束                                   |
-| host-down, host-reconnecting, session-reconnecting | 未连接、重连中、已打开会话重连时的草稿入口       |
-| many-sessions                                      | 800 个会话、长标题、各种状态                     |
-| update-available, update-failed, daemon-old        | 三种横幅                                         |
-| new-session                                        | 新建:空白对话(首条消息才建 session)              |
-| dialog-add-host, dialog-agent-defaults             | 对话框                                           |
+| 内容类型                                              | 策略                                                                                         | 理由                                                           |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **会话标题、环境名、连接器名、工具动词摘要**          | 单行，超长时末尾渐隐（`--cycle-fade-end`）+ `title` 悬停全称                                 | 最具辨识度的字词在开头                                         |
+| **文件路径（头部 `session-where`、连接器地址/命令）** | 优先保留尾部目录/文件名（中间省略或左端截断）+ `title` 悬停完整路径                          | 路径最有区别度的仓库名和文件名在末尾，末尾淡出反而抹掉关键信息 |
+| **代码块、表格、命令输入输出、错误原话**              | 代码块/表格独立横向滚动；错误原话与路径 `overflow-wrap: anywhere` 换行且 `user-select: text` | 绝不撑破 48rem 内容列或触发根页面横向滚动                      |
 
-## 13. 落实情况(2026-11-18)
+### 5.3 动作权重 Do / Don't
 
-已按本文做完,画廊里可以看到:颜色令牌与焦点环、字阶、8px 圆角、状态点与文字、图标(iconmcp)、会话行的选中态、
-工具行的状态形状、计划勾框、权限卡吸附在输入框上方、横幅、连不上时的整块说明加 Retry、操作收进菜单、居中的 48rem 内容列、
-可拖动可折叠可记忆宽度的侧栏、快捷键、最小窗口 720×480、macOS 隐藏标题栏。
+- **Do**：主工作区同一视图内至多保留一个 `solid` 主操作（`Send` 或 `Allow once`）；次要按钮用 `outline`；工具栏、行内、导航类用 `ghost`。
+- **Do**：空状态允许提供一个明确的引导按钮（`outline` 或轻量主动作），让用户就地开始，而不必四处找入口。
+- **Do**：模态确认弹窗的取消在左、主动作在右；不可逆删除用 `destructive`，常规确认/保存用 `solid`。
+- **Don't**：不要把危险设置（如免确认权限模式）画成毫无区别的普通灰字；必须有明确的警示色标记。
+- **Don't**：不要隐藏设置芯片的所有交互线索；保持无边框的安静感的同时，保留轻量悬停底色或极淡下拉指示。
 
-**没有验证的**(这台机器是 Linux,没有 Mac):
+### 5.4 键盘与焦点规范（Do / Don't）
 
-- macOS 的标题栏:红绿灯位置、拖动区域。画廊用 `--platform darwin` 模拟了 CSS,但 `hiddenInset` 本身只在 Mac 上才生效。
-- 应用菜单:没有自定义,用 Electron 的默认菜单(含 Edit,复制粘贴可用)。在 Mac 上要确认 ⌘N、⌘B 等没有和系统菜单冲突。
-- 字体:Linux 上是回退字体;Mac 上是 SF,行高和宽度会有差别。
+| 按键                                  | 动作与适用范围                                            | 边界条件                                                                                                           |
+| ------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `⌘N` / `Ctrl+N`                       | 打开空白新会话                                            | 至少有一个已连接环境时可用                                                                                         |
+| `⌘K` / `Ctrl+K`                       | 打开跨环境会话搜索                                        | 全局可用                                                                                                           |
+| `⌘B` / `Ctrl+B`                       | 展开/折叠侧栏                                             | 全局可用（主区头部同步提供可点击图标按钮）                                                                         |
+| `⌘L` / `Ctrl+L`                       | 聚焦主输入框                                              | 当前有打开会话或空白会话时可用                                                                                     |
+| `⌘[` / `⌘]`                           | 上一个 / 下一个会话                                       | 严格按侧栏可见列表顺序，自动跳过断线且未加载的会话                                                                 |
+| `⌘.` / `Ctrl+.`                       | 停止当前正在运行的回合                                    | 仅当前环境已连接且 `activity !== "idle"` 时                                                                        |
+| `⌘Return`                             | 批准当前第一张权限卡的 `Allow once`                       | **即使焦点在输入框中也应生效**（输入框不使用 `⌘Return` 发送/换行），仅在存在模态对话框时让位                       |
+| `Enter` / `Shift+Enter` / `Alt+Enter` | 发送（或排队/插话） / 换行 / 强制换行                     | **必须先检查 `@ui-sdk/core` 的 `isComposing(event)`**，禁止用原生 `event.isComposing`，确保中文 IME 选词回车不误发 |
+| `Esc`                                 | 逐层关闭：候选菜单 → 模态对话框（焦点归还触发处）         | 在纯输入状态且无弹窗/菜单时不清空草稿                                                                              |
+| `↑` / `↓`                             | 光标在首/末块时召回历史发送消息；候选菜单打开时切换候选项 | 候选菜单优先消费上下键                                                                                             |
 
-**之后又做的**(同一天):
+---
 
-- **⌘K 会话搜索**:在已读取的会话里按标题、文件夹、agent、主机搜,打开时会读取其他已连接主机的会话,所以跨主机。**不搜对话内容**:全文要在历史所在的地方(daemon)做。
-- **图片**:agent 或你发的图片(png、jpeg、gif、webp,不含 svg)显示在对话里,点开放大;从按钮、粘贴或拖放附加到消息里,上限和协议一致(单张 5 MiB、合计 12 MiB、最多 32 块,见 decision 0010)。**只有 agent 声明能收图片时才出现附加的控件**(`promptCapabilities.image`)。Markdown 里的远程图片仍然不加载(安全,见 docs/desktop.md)。
-- **代码配色**:见第 15 节。
+## 附录 A：状态画廊（Visual Regression）
 
-**还没做的**:agent 自己改的设置回显、通知、会话内容的全文搜索、存量文字迁入 i18n 目录(第 14 节)、从右到左的版式。
+```bash
+bun packages/ui/gallery/shoot.ts                                  # 所有场景，浅色和深色，1200x800 和 720x480
+bun packages/ui/gallery/shoot.ts permission --themes dark         # 指定场景和主题
+bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸，列出每张
+```
 
-## 14. 语言与 i18n(2026-11-18)
+画廊使用临时 profile 在 macOS Electron 或 Linux xvfb 中运行，检查根页面溢出、控制台错误、焦点环、列表首项可见性与输入框边界对比度。在浏览器中预览：`bun packages/ui/gallery/build.ts` 后打开 `packages/ui/gallery/dist/index.html`（`?s=<场景>` 或 `?s=tokens`）。
 
-界面的**源语言是 en-US**,以后要能支持别的语言。决定和理由见 [decision 0012](docs/decisions/0012-ui-language-en-us.md);写界面文字时的规矩:
+核心场景（定义在 `packages/ui/gallery/scenarios.ts`）：`tokens`、`empty`、`empty-conversation`、`conversation`、`streaming`、`permission`、`permission-queue`、`turn-error`、`host-down`、`host-reconnecting`、`session-reconnecting`、`many-sessions`、`update-available`、`update-failed`、`daemon-old`、`new-session`、`dialog-add-host`、`dialog-agent-defaults`、`long`、`long-back`、`session-focus` 等。
 
-- 文字写在 `packages/ui/src/messages/en-US.ts`,组件里用 `t("key")`,不在标记里写字面量。门禁的棘轮(`scan-copy.mjs --i18n`)不让新的字面量进来。
-- 整句,不拼句;变化的部分用 `{placeholder}`;数量用复数消息;数字和日期用 `Intl`(`t.number`、`t.date`)。
-- 键按位置命名(`search.placeholder`),不按内容命名。
-- 版式要经得起文字变长约 40%:不写死宽度,长文字省略并能看全。
-- 不翻译的:agent 的输出、daemon 和 agent 返回的原话、命令、路径、版本号。
-- 样式用逻辑属性(`padding-inline-start`)是将来支持从右到左的前提;现有的 `padding-left` 等要在那一步改。
+## 附录 B：代码配色（Shiki）
 
-## 15. 代码配色(2026-11-18)
+代码块由 `@streamdown/code`（Shiki JS 正则引擎，无需 WASM，CSP 不变）按需分包高亮。用户在侧栏底部 `App settings → Code colours` 中选择（即时生效且菜单不关闭）：
 
-代码块由 Shiki 着色,通过 Streamdown 的代码插件(`@streamdown/code`;Streamdown 自己不带高亮,没有插件时代码是纯文字)。插件用 Shiki 的 JavaScript 正则引擎,不需要 WebAssembly,页面的 CSP 不变。**语言和主题按需加载**(打包分包:启动时约 0.9 MB,全部约 12 MB 只在需要时读)。
+| 选择                 | 浅色 / 深色主题                                            | 最低文字对比度（浅 / 深） | 低于 4.5:1 的文字色个数（浅 / 深） |
+| -------------------- | ---------------------------------------------------------- | ------------------------- | ---------------------------------- |
+| GitHub（默认）       | `github-light-default` / `github-dark-default`             | 4.55 / 6.44               | 0 / 0                              |
+| GitHub high contrast | `github-light-high-contrast` / `github-dark-high-contrast` | 5.04 / 9.34               | 0 / 0                              |
+| VS Code              | `light-plus` / `dark-plus`                                 | 3.54 / 3.65               | 1 / 1                              |
+| One                  | `one-light` / `one-dark-pro`                               | 2.58 / 3.27               | 6 / 2                              |
+| Catppuccin           | `catppuccin-latte` / `catppuccin-mocha`                    | 2.62 / 7.01               | 12 / 0                             |
 
-你可以在侧栏底部的"Code colours"里选,保存在本机。五个选择都是 Shiki 自带的流行配对(深色用在系统为深色时):
+默认两套主题全部文字色均通过 WCAG AA（4.5:1）。
 
-| 选择                 | 浅色 / 深色主题                                        | 文字色里最低的对比度(浅 / 深) | 低于 4.5:1 的文字色个数(浅 / 深) |
-| -------------------- | ------------------------------------------------------ | ----------------------------- | -------------------------------- |
-| GitHub(默认)         | github-light-default / github-dark-default             | 4.55 / 6.44                   | 0 / 0                            |
-| GitHub high contrast | github-light-high-contrast / github-dark-high-contrast | 5.04 / 9.34                   | 0 / 0                            |
-| VS Code              | light-plus / dark-plus                                 | 3.54 / 3.65                   | 1 / 1                            |
-| One                  | one-light / one-dark-pro                               | 2.58 / 3.27                   | 6 / 2                            |
-| Catppuccin           | catppuccin-latte / catppuccin-mocha                    | 2.62 / 7.01                   | 12 / 0                           |
+## 附录 C：语言、文案与 i18n（decision 0012）
 
-对比度是各主题的文字色在我们的白色和近黑背景上算的(去掉了对比度低于 1.5 的,那些是背景色)。**默认的两个主题所有文字色都过 AA(4.5:1)**;其余几个有的颜色(多数是注释和浅色下的黄、橙)达不到,这是那些主题自己的设计,选它们是选了好看而不是可读性最好的,所以默认不是它们。
+- **源语言为 `en-US`**（句首大写，其余小写，不用 Title Case、感叹号、emoji、破折号或空话），新界面文字全部写入 `packages/ui/src/messages/en-US.ts`，组件使用 `t("key")`；门禁棘轮 `scan-copy.mjs --i18n` 只减不增。
+- **整句与复数**：变化参数用 `{placeholder}`，数量用复数消息，数字/日期/单位用 `Intl`（`t.number` / `t.date`）。
+- **术语统一**：统一用 `environment`（不用 `host`）、`session`、`agent`、`turn`、`permission`。
+- **不翻译的数据**：agent 输出、daemon/ssh 错误原话、命令、路径、版本号。
+- **版式弹性**：预留约 40% 的翻译变长空间；将来支持 RTL 时需把 `padding-left` 等迁为逻辑属性（`padding-inline-start`）。
 
-**没有 Vercel 的选项**:Shiki 没带 Vercel 的主题,也没有 Vercel 官方发布的可用配色(找到的只有社区仿制品,没有可靠的色值)。要加的话,需要有人提供色值,做成 Shiki 的自定义主题。
+## 附录 D：桌面端通知规则
 
-## 16. 对话的结构(2026-11-18)
+- 窗口不在前台时，主进程在每次读取会话列表后通过纯函数 `attentionOf(之前, 现在)` 对状态差发系统通知：_Waiting for your answer_（`requires_action`）、_Waiting for your next message_（从运行/等待变为 idle，或首次出现的未读已完成会话）、_The agent stopped unexpectedly_（运行/等待变为 stopped，静默释放的空闲会话不报）。
+- 断线重连后只报 `requires_action`，不误报历史完成或释放。点击通知激活应用并聚焦对应会话；若环境已断开或会话已删除则静默忽略。
 
-对话不再是一条一条平铺的 item,而是按 **turn** 切开、再排成**块**。规则取自 old-cycle 的 `acp/blocks.ts`(只取规则,没有拷贝代码),
-实现是 `packages/ui/src/model/blocks.ts` 里的纯函数 `blocksOf`,每条规则有测试(`packages/ui/test/blocks.test.ts`)。
+## 附录 E：当前实现状态与已知待办（单一追踪清单）
 
-**turn 从数据里读,不靠猜。** ACP v2 没有 turn(只有 `running` 和 `idle`)。我们的 daemon 把"带 `stopReason` 的 idle"记在日志里,所以回放时也知道每个 turn
-在哪里结束、怎么结束。reducer 给每个 item 记下它开始时的 turn 编号(此前已结束的 turn 数),`Conversation.stops[n]` 是第 n 个 turn 的结束。没有带原因的 idle(状态快照)不算结束。
-old-cycle 的 daemon 是透明代理,日志里没有这些,所以它要从文字里识别 Claude 写的中断记号;我们不需要。
+以下为当前设计规范已明确、但代码尚待补齐或真机尚未验证的项目（按 P0–P3 分级追踪）：
 
-排版规则:
+### P0：代码缺陷与关键防呆修复
 
-- **一段连续的工具调用共用一个块。** 用户消息、agent 的消息、计划、通知各自是一块,并把一段切开。一次调用显示成一行,两次以上显示成**卡片**:
-  一行摘要("Ran 2 commands, read 1 file"),展开才是各行;卡片里有失败时默认展开,有一次在跑时摘要后面显示它在做什么。
-- **思考不切段,默认不显示。** 会话右上的"…"菜单里有 "Show thinking",偏好存在本机。不显示时,turn 末尾的**步骤行**仍然说 agent 在想("Thinking…")。
-- **没有正常结束的 turn,最后一段里的失败被拎到卡片外面**(那可能就是它停下的原因);之后 agent 说了话、或 turn 正常结束,失败就留在卡片里。
-- **没有正常结束的 turn 在末尾说一句怎么结束的**:出错(红色、感叹号、原因)、被停止、达到长度上限、步数太多、被拒绝(琥珀色、警告图标)。正常结束不说话。
-- **步骤行**(turn 进行中,在末尾):在跑的工具、等你回答、在想、在做。agent 自己的文字正在出来时不显示,那已经是反馈。
-- **间距**:块之间 `--cycle-gap`,一个 turn 开头前 `--cycle-gap-turn`(2rem),让人找得到每个问题从哪里开始。
+- [x] **中文 IME 与 `@` 提及替换修复**：`markdown-input.tsx` 改用 `@ui-sdk/core` 的 `isComposing(event)`，并修复 `replaceBeforeCaret` 在非 TextNode 边界时的替换行为。
+- [x] **全局 `⌘Return` 批准权限**：去掉 `app.tsx` 中 `⌘Return` 的 `typing === null` 限制（仅模态弹窗开启时让位），并在 `Allow once` 按钮展示 `⌘↩` 提示。
+- [x] **macOS 折叠侧栏红绿灯避让与恢复按钮**：为折叠态下的主区顶部横幅与空状态补齐红绿灯避让空间，并在主区头部接入 `SidebarIcon` 恢复/折叠入口。
+- [x] **弹窗提交失败防丢 & ID 碰撞修复**：`saveEnvironment` / `renameSession` 失败时保留弹窗并就地展示原因（不关闭清空）；修复 `EnvironmentDialog` `id` 碰撞；`ConfirmDialog` 异步动作等待期间禁用防重；显式补齐 `connectors.tsx` 表单内非提交按钮的 `type="button"`。
+- [x] **Hooks 依赖与渲染性能修复**：补齐 `app.tsx` 键盘监听 `useEffect` 依赖、优化 `conversation.tsx` 滚底触发、`SearchDialog` 关闭时跳过全量分组计算；修复 `composer.tsx` 拖放子元素触发 `dragleave` 闪烁并提示不支持的非图片文件。
+- [x] **Banner 与 KeyHints 窄屏修复**：`app.tsx` 警告横幅文本包入 `<span>`；`key-hints` 在窄屏下避免折行后第二行被 `overflow: hidden` 腰斩。
 
-**约定和已知的局限**:
+### P1：落实第 3–5 层核心体验规范
 
-- 只有带 `stopReason` 的 idle 算 turn 的结束。**没有原因的 idle 是状态快照,前后的 item 属于同一个 turn**;daemon 和 Claude 适配器都不会发这样的 idle 来结束 turn(`daemon.ts`、`agent.ts` 里的 idle 都带原因),测试里有这一条。
-- 一个 turn 进行中发送的消息属于这个 turn,所以这个 turn 的结束提示排在它后面。
-- 一个 turn 里什么都没有、却有结束原因(比如一开始就失败),仍然显示结束提示。
-- 卡片和行的开合:含失败的开着;失败在界面上出现时自动打开;之后跟着人的点击。一段里从一次调用变成两次时,行变成卡片,会重新挂载,手动展开的状态不保留。
-- 一个 turn 没正常结束时,失败的调用从卡片挪到卡片下面:在 turn 结束那一刻会有一次布局变化。这是有意的(失败是它停下的原因)。
-- 卡片的摘要是把"ran 2 commands""read 1 file"这样的片段用 `Intl.ListFormat` 连起来,首字母大写。这对词序和英语相近的语言才成立;别的语言要重排时,改成每种组合一条消息或在那时换做法(decision 0012 说不要拼句,这里是已知的例外)。
+- [x] **破坏性与表单弹窗规范化**：`ConfirmDialog` 破坏性操作改用 `destructive` 按钮变体；移除远端环境增加二次确认并补充编辑远端环境能力；`EnvironmentDialog` / `RenameDialog` 包裹 `<form>` 支持回车提交、打开自动聚焦首项、所有弹窗底部按钮统一右对齐（取消在左、主动作在右）。
+- [x] **空状态与无 Agent 引导**：主区空状态提供就地引导按钮；无可用 agent 时说明可能原因（凭证/安装）并给出排查与重检按钮。
+- [x] **第 3 层基础组件与材质/动效收口**：补充 `UpdateBanner` 临时关闭、`Button[data-variant="destructive"]` 约定；将 `--cycle-motion-enter`（200ms）实际接入弹窗/浮层/横幅出现过渡，清理死 CSS `[data-slot="session-main"]`。（注：`Banner` / `EmptyBlock` 抽取与功能色柔化令牌统一可在后续重构中继续收口。）
+- [x] **路径截断与危险设置芯片**：路径类文本（头部 `session-where`、连接器路径）改为优先保留尾部的截断方式；`SettingChips` 补充轻量下拉线索与免确认模式的警示色（协议 `_meta["cycle/danger"]`）。
 
-**一个顺手修的缺陷**:ui-sdk 的 Collapsible 自己设 `data-slot`,盖掉我们写的,所以之前对工具行和思考写的 `[data-slot="tool"]` 规则一直没有生效(边框、失败的红边都没有)。
-现在这几个用 `data-kind`(`tool`、`work`、`thought`)。**以后给 ui-sdk 的部件写样式,先看渲染出来的 `data-slot` 是什么。**
+### P2：对话流与日常工作流质感打磨
 
-**没做、以后可以做的**:卡片里按文件名合并"Read 2 files"成具体文件;对话里的 diff;turn 的复制和重试。
+- [ ] **对话内高频操作**：消息、代理回复与工具输出快捷 Copy；回合失败（`turn-end` error）就地 Retry；长会话向上阅读时显示浮动“回到底部”按钮；思考内容走 `Markdown` 只读渲染；空白会话转正式会话时平滑衔接。
+- [ ] **工具调用与侧栏辨识度**：连续工具从 1 个升格为多个时保留手动展开态；会话行补充次要元信息（相对时间与未发送草稿标）；切换 workspace/环境时重置 `showAll`。
+- [ ] **窄视口与缓存治理**：720×480 下 `composer-toolbar` 折行/紧凑适配；为 `store.views` 增加 LRU 上限，为 `selectSession` 加并发加载保护。
+- [ ] **存量 i18n 迁移**：将剩余约 40 处 JSX 硬编码与 store/dialog 文案迁入 `packages/ui/src/messages/en-US.ts`。
 
-## 17. 长会话(2026-11-18)
+### P3：跨层能力与真机未验证项
 
-几百个 turn 的会话不一次画完。规则取自 old-cycle 的 `history-window.ts`,实现在 `conversation.tsx` 和 `model/blocks.ts` 的 `windowStart`、`earlierAnchor`。
-
-- **先画最后 60 个块**(`PAGE`)。滚到离顶部不足 800px 时再往上加 60 个;顶部也有一个 "Show earlier" 按钮(键盘、读屏可用)。加到最前面、按钮消失时,焦点移到对话区,不掉到页面上。
-- **读者在末尾时,窗口就是最后一页,随新块滑动;一离开末尾,窗口的起点就被钉在它的第一个块上**(用块的键,`anchor`),末尾来了新块,顶部不会被挤掉。回到末尾,钉子松开。钉子的块不见了(隐藏思考、一个 turn 重排)就退回最后一页。钉子不选思考块(它会随"隐藏思考"消失)。
-- **往上加块时,视图按"原来第一个块移动了多少"修正**,读的那一块留在原处。只量那一个块,所以此时正在流进末尾的文字不会被算进去。加块的那一帧里,浏览器自己的滚动锚定关掉(`data-prepending`),读屏的 `aria-live` 也关掉,免得把整页新块念出来;其余时候锚定照常,图片、代码高亮在读者上方加载完时它会保住位置。Chromium 有滚动锚定,WebKit 没有:我们自己修正,所以两边一样。
-- **每个会话记住读到哪里**:钉着的起点和滚动位置,或者"在末尾";只在页面内存里(重载就没了),只留最近 50 个。回来时在会话读完之后恢复;在末尾离开的,回来仍在末尾,不管期间多了多少块。
-- **发送的消息总是看得见**:发送时(composer 的发送动作,不是从块的种类里猜)视图回到末尾。别的客户端发来的用户消息不会把正在往上读的人拉下去。
-- 画廊的 `long`(240 个 turn,约 1200 个块)和 `long-back`(往上滚到画了第二页、再切走再切回)两个场景在真实 Electron 里量:最初画出的块数、往上加块后读的那一块没有跳、切回后位置和画出的块数都在。**`long` 里把浏览器的锚定关掉**,量的是我们自己的修正;**检查本身也验过**:去掉修正后报"跳了 3911px",去掉恢复后报"位置丢了"。
-
-**没做**:整个列表的虚拟化(窗口只往上长,不往下收);真实长会话在 Mac 上的帧率没量过;一次滚动快到 scrollTop 为 0 时浏览器的锚定不起作用,靠我们自己的修正。
-
-## 18. 会话列表(2026-11-18)
-
-按"谁在等你"分组,而不是一条平的列表。顺序和分组是 `packages/ui/src/sessions.ts` 里的纯函数 `sessionList`,有测试。侧栏画的是它,⌘[ 和 ⌘] 走的也是它的 `order`,所以**键盘走的就是屏幕上的顺序**(之前侧栏和快捷键各排一次)。
-
-- **Needs you**(等你回答的)→ **Working**(在跑的)→ **各个项目**,每组里按 `lastSeq` 新的在前,并列时按 id 和文件夹的字面顺序(不用 `localeCompare`,免得随地区变)。一个会话只在一组里。已归档的不算"等你"也不算"在跑",留在它的项目里(显示归档时才出现),状态点也不画。
-- **项目 = `cwd`**,末尾的斜杠不算(`/a/app` 和 `/a/app/` 是一个)。名字取文件夹的最后一段;两个项目最后一段相同就各自多取一段,直到没有重名(`a/x/app`、`b/x/app`、`y/app`)。项目按它最新的会话排。没有文件夹的会话,项目标题是 "No folder"。
-- **每个项目先显示 20 个**(`PER_PROJECT`),列表下面一行 "Show N more sessions" 展开全部(全局的一个,换主机时收回)。
-- **打开着的会话所在的项目至少展开到它**:它是第 50 个,就显示 50 个,不是全部。**这个数按它在这个文件夹所有会话里的位置算,不管它此刻在哪一组**:它在 Working 和回到项目之间来回时,项目列表不跳。从搜索里选一个排在后面的会话,它不会被选中却看不见。
-- **Needs you 和 Working 里的行**第二行写它在哪个项目(用上面的名字);项目里的行没有第二行。**状态用点的颜色和形状、加所在组的标题说出来**,行里不再重复一个词(也就不再有写死的英文 "Working")。
-- 一个 Listbox,组用 `ListboxGroup` 和标题:方向键走过整个列表,跨组。一个会话在组之间移动时(开始工作),行是另一个元素,但键盘焦点还在它上面(ui-sdk 的 Listbox 自己保住;画廊 `session-focus` 在真实 Electron 里量过,并且验过:我们自己写了一份恢复焦点的代码,关掉它这个场景仍然通过,所以删掉了)。
-- 打不开的会话(在另一个主机上、被归档藏起来的)不在 `order` 里:⌘] 从它出发去第一个,⌘[ 不动。**被"Show more"挡住的会话,⌘[ ⌘] 走不到**;走到它旁边的行时它所在的项目会因为"打开着的会话"而展开,但从头走过去不会。要到它,用 "Show more" 或 ⌘K。
-
-**没有 Pinned 和按天分组**:会话列表的一行没有"钉住"也没有时间,只有序号(`lastSeq`);要做,得 daemon 先给这两个字段(协议改动,在后端那边)。
-**没做**:worktree 归到仓库下(v1 范围外);每个项目单独的 "Show more"(放在 Listbox 里不合 ARIA,现在是一个全局的);选中的行在组之间移动后滚动到可见(没有测)。
-最小窗口(720×480)使用侧栏自己的滚动区,让优先分组完整显示。搜索结果也直接写出会话标记。
-
-## 19. 草稿(2026-11-18)
-
-每个会话输入框里写的字和附加的图片是这个会话的**草稿**,放在输入框外面(`packages/ui/src/draft.ts`,`AppStore.drafts`),切到别的会话再切回来不丢。
-
-- **文字存在渲染进程的 localStorage(键含主机和 session),图片只在内存里**:一张图可以有几兆(一个 prompt 最多 12 MiB),放不进 localStorage;文字很小,重载后要还在(负责人 2026-11-18 的决定,取代了这一节最初的"只在内存里"。写了一半的话落在本机的 localStorage 里,这是这个决定的代价)。因此不再只留最近 20 个:只要会话还在,文字就在;被别的客户端删掉的会话留下的文字不会被清。
-- **输入框是草稿的视图**(`useSyncExternalStore`),不再自己存状态;换会话时输入框重新做(`key`),所以对话框的"拖放""提示"这类局部状态不带过去。
-- **修改总是在草稿当前的样子上做**(`setAttachments` 前现读一次 `get`),不是在调用者早先读到的样子上:两张图一起在读时都留下;**一张图在读的时候人切到了别的会话,它落在它被加入的那个会话里**,不在当前打开的那个里。
-- **发送**清掉这个会话的草稿,并让还没读完的图知道"已经晚了"(`generation`),它们不会跑进下一条消息。
-- **发送失败时把写的东西放回输入框**(`store.send` 现在返回是否送出去了),放在这期间新写的内容前面,不丢。之前发送失败会丢掉文字和图片。
-- **删除会话、移除主机**清掉对应的草稿,并让还在读的图知道"已经晚了"(计数只增不重置;移除主机按主机计,也管那些还没有计数的会话),不会把一个已删除会话的草稿又写回来。主机 id 里没有冒号(`local` 或 `ssh-` 加字母数字和连字符,见 HostDialog),所以 `主机id:` 前缀只对应一个主机。
-- 新建会话先是一个**空白对话**,它的输入框用一个固定的键(`BLANK_KEY`),不分环境和文件夹:换环境或文件夹时写的字还在。首条消息发出时清空;session 建好、消息却发不出去时,消息放回**那个 session** 的输入框(2026-11-19,`.agents/notes/2026-11-19-session-starts-at-first-message.md`)。
-
-**没做**:会话列表里给有草稿的会话一个标记;重载后保留图片和 @ 提及的链接(文字里的 `@路径` 还在);被别的客户端删掉的会话(列表里消失)的草稿不会被清,也没有数量上限。
-
-## 20. 通知(2026-11-18)
-
-一个你没在看的会话需要你时,用系统通知告诉你。**判断是纯函数**(`packages/ui/src/attention.ts` 的 `attentionOf(之前, 现在)`),**显示在主进程**(`apps/desktop/src/main/attention.ts`,Electron 的窗口和 Notification 作为参数传进去,所以不用 Electron 就能测)。
-
-- **三种**:_等你回答_(`requires_action`,从别的状态来);_做完了_(在跑或在等你,变成 idle);_agent 没了_(在跑或在等你,变成 stopped;**空闲时被安静地释放不算**,decision 0007)。
-- **只告诉变化**:第一次读到的列表不告诉;已归档的不告诉;一直是那个状态的不重复。会话从第一条用户消息起才在列表里(协议 §6),出现时已经在跑,所以第一次之后新出现的会话按"之前是空闲"比较(已有未读的按"之前在跑"):一出现就在等你的告诉"等你回答",出现时已经做完的告诉"做完了"。一直空闲、未读从无到有的,也告诉"做完了":一个很短的 turn 可能没有一次列表看到它在跑(2026-11-19;之前是新出现的不告诉)。
-- **断线重连之后只告诉"等你回答"**:断线期间一个在跑的会话可能做完、又被安静地释放(idle 5 分钟后 stopped),重连后看到"在跑→stopped"会被误报成 agent 没了,"回到空闲"也是旧闻;等你回答的仍然要紧,仍然通知。
-- **答案乱序时不倒回去**:每次重读的列表带一个序号,晚到的旧答案不盖掉新的(否则一个过时的 requires_action 会误报)。
-- **通知失败不影响列表**:钩子抛错(比如 `Notification` 构造失败)被吞掉,列表照常发给界面。
-- **通知对象要留着**:Electron 说要保留引用,否则在 Linux 和 Windows 上点击可能永远不来;按下、关闭或失败之前一直持有。
-- **标题**:会话的标题是 agent 或 daemon 的话,压成一行、最长 80 个字符、全是空白就用文件夹名。
-- **点通知**:窗口最小化就还原,再 show、focus,并把整个应用拉到前面(`app.focus({ steal: true })`,Mac 上别的应用在前面时只 show 窗口不够)。界面收到 `focus-session` 之后,**主机没打开成功、期间换去了别的主机、会话已经不在了,就什么都不做**。
-- **在主进程里对列表做差**(`ConnectionManager` 每次重读会话列表时,和上一次比;daemon 在状态改变时发 `_cycle/session_list_changed`,协议第 134 行),所以不依赖界面在不在、在看哪个会话。
-- **应用窗口在前面时不显示**:侧栏已经显示了,通知只是重复。**这是一个简化**:窗口在前面但你在看另一个会话时也不通知。要做到"只对没在看的会话通知",主进程得知道界面选中了哪个会话,那是一个新的桥方法;没有做。
-- **通知的内容**:标题是会话的标题(没有就用文件夹名),不在本机时副标题是主机名,正文是一句话("Waiting for your answer"、"Finished"、"The agent stopped unexpectedly")。文字走消息目录(主进程用同一份,`createTranslator`)。
-- **点通知**:窗口回到前面,界面收到 `focus-session` 事件,切到那个主机和会话(`store.focusSession`)。
-- **不做**:声音和 Dock 角标的选择;开关(现在没有设置页可放);短时间里多个会话的合并(daemon 重启后每个在跑的会话各一条)。
-
-**没验证的(这台机器是 Linux,没有 Mac)**:macOS 上通知要应用已签名、用户在系统设置里允许才会出现;点击后窗口是否真的回到前面;勿扰模式。测试里 Notification 是假的,xvfb 里的 Electron 冒烟测试看不到原生通知。上线前要在 Mac 上手动看一次。
-
-## 21. 侧栏和输入框(2026-11-19)
-
-负责人说"核心难用的来源是侧栏和 composer 的交互和视觉"。画廊里看到的(改之前,1200×800 和 720×480,深浅色):
-
-| 处                          | 问题                                                                                                                                         |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| 侧栏顶部                    | workspace switcher、New session、Search 是三个一样大的描边方框,switcher 的名字居中,不像标题                                                  |
-| 所有 `data-variant="ghost"` | **ui-sdk 只认 `solid` 和 `destructive`**,我们写的 `ghost` 和 `outline` 没有样式:"…"、Show archived、Dismiss、Retry、附件按钮都画成了描边按钮 |
-| switcher                    | 传给 `MenuTrigger` 的 `data-slot="workspace-switcher"` 被 ui-sdk 盖掉(第 16 节说过的坑),所以它的样式(加粗、灰显断线的环境)一直没有生效       |
-| 侧栏中段                    | 会话列表在侧栏里**嵌套滚动**,下面又是全宽的 Show archived 按钮                                                                               |
-| 侧栏底部                    | Code colours 选择框和 Check for updates 常驻,约占 130px,都是很少用的                                                                         |
-| 选中的会话                  | 边加左条,点过之后又叠上焦点环,看起来像一个输入框                                                                                             |
-| 输入框                      | 一行高的单行框加框外的 Send、Stop、附件按钮;权限模式和模型要从头部的 Settings 打开对话框才能看到和改                                         |
-
-改成:
-
-- **`ghost` 按钮**(`app.css`):无边无底,`ink-secondary`;悬停和菜单打开时 `surface-hover`。`outline` 就是 ui-sdk 的默认外观,不另写。
-- **侧栏三段**:顶部(New session 和 Search 两行,其下是 switcher 和"…")不动;switcher 是下面会话列表的标题,所以紧贴列表,上面留 0.5rem 和两个动作分开(负责人 2026-11-19 的要求,原来在最顶上);**中段一个滚动区**,装会话列表、"Show N more"和"Show archived"(后两个是列表里的小字,不是按钮);底部一行:版本和更新状态,右边一个 **App settings** 菜单(Code colours 单选组,选了立即生效、菜单不关,画面上的代码就是预览;Check for updates)。720×480 时列表约有 300px;列表至少留 10rem,固定的部分把它挤到这之下时(比如几个环境都断了),整个侧栏改为滚动,什么都不会被裁掉。
-- **switcher** 改用 `data-kind`,样式生效:左对齐、600、名字后面是 chevron,像侧栏的标题。
-- **选中**:`surface-selected` 的填充,不再有边和左条,和焦点环分得开。
-- **New session、Search sessions** 的快捷键写在行的右边(`kbd`),不只在提示里;可访问名只是动作的名字。
-- **断线的环境**那一行改成两行:点、名字和状态、Retry 在第一行,原因在第二行,最多三行。原先三列挤在 200px 里。
-- **输入框是一个整块**(`composer-box`,`--cycle-radius-composer`,raised 底,`--cycle-input-border` 的边):附件、文字(正文字号 14px,至少两行高)、下面一行工具条:附件、**会话设置的选择**、右边 Stop 和 Send。焦点环画在整块上,不画在里面的文字上。排队的消息、断线提示、附件错误留在块的上面。
-- **会话设置在输入框下面**(`setting-chips.tsx`):agent 的 `configSchema` 里每个可选的属性(`enum` 或 `oneOf`)一个菜单按钮,显示当前值的名字,可访问名和提示是"设置名: 值";菜单里是单选,带说明和"Recommended"。**没有记录的值显示 "Not set"**,不显示今天的默认值(和 Session settings 一致,见决定笔记 `2026-11-19-offer-every-claude-permission-mode`)。选择后面是一个齿轮按钮(Session settings),打开全部设置的对话框,文本类的设置在那里;会话的设置都在输入框这一处,头部不再有(负责人 2026-11-19 的要求)。读的是 schema,所以不认识 Claude。
-- Claude 的模型选项改成 `oneOf` 带名字(`Default model`、`Sonnet`、`Opus`、`Haiku`;`CLAUDE_MODELS`),之前是只有值的 `enum`,按钮上会显示小写的 `default`。值不变。
-
-**画廊检查跟着改**:输入框边的对比度量 `composer-box` 的边;Tab 落到输入框时,焦点环量的是整块。顺手修了两个已经坏掉的场景:`session-focus` 等的是 `data-kind="working"`(分组早已改名 `running`),`dialog-new-session` 按按钮的字找 New session(现在按名字找)。
-
-**没做**:会话行的第二行(相对时间);附件按钮以外,工具条在很窄时(主区 480px、三个设置)会不会挤,只看了两个设置;`bypassPermissions` 在按钮上没有特别的颜色(那要认识 Claude 的值,或者协议里加一个"危险"的标记,没有决定)。
-
-## 22. 和 old-cycle 对齐(2026-11-19)
-
-负责人说"体验还是很粗犷",要求和 old-cycle 在组件和布局上再对齐一次。old-cycle 的做法来自它的 `packages/ui/src`(`styles.css`、`content/tool-row.tsx`、`thread.aui.tsx`、`composer-action.aui.tsx`)和 `.agents/designs/design-system.md` v0.8;只取规则,没有拷贝代码。颜色、圆角、字阶上次(第 3–5 节的 D9–D11)已经对齐,这次是**结构和密度**:满屏是框,old-cycle 只有输入框是一张卡片。
-
-负责人的决定(2026-11-19):权限请求**仍吸附在输入框上方**(D6 不变);新会话**按 old-cycle**,输入框在主区中间;长文字**不用"…",在末尾淡出**;下面几项一起做。
-
-- **代码块和表格**:Streamdown 默认画成"框里一个框",表格上还有一条复制、下载、全屏的工具条。现在各是一张卡片(12px、`border-default`、raised 底):代码卡片的头是语言名,右边一个 Copy,悬停或卡片里有焦点时才出现;不显示行号。表格没有工具条,行之间是 `border-subtle`,表头是 message 底。行内代码是 message 底、4px 圆角。还修了一个缺陷:一条通用规则给 `code` 加了底色和内边距,代码块的首行和末行两端因此各有一小条灰块。
-- **工具行**:见第 6 节。两次以上调用的卡片也不再有边框:摘要是和工具行一样的一行("Read 2 files, made 1 edit, and ran 1 command"),展开后各行挂在下面,行首的图标由一条细竖线连起来。完成的不再画勾:过去时的动词已经说了(old-cycle 的"只说一次")。状态仍是形状加颜色加文字:在跑是转动的线加现在时,失败是叉加红字加"failed"。
-- **回合失败**:红色淡底、红边的一块,原因可选中;被停止、到长度上限这类是一行 muted 字加琥珀色警告图标。
-- **头部**:见第 5 节。用量("21% of context")移到输入框。
-- **输入框**:Send 是 accent 的圆形箭头按钮,Stop 是带边的圆形方块按钮(名字和提示仍是"Send""Stop (⌘.)");agent 在做事时可以排队,"Queue" 是 hover 底上的文字按钮。会话设置的值后面不再有箭头(old-cycle:工具条上的控件是纯文字)。Send 左边是**用量环**:一个随用量填满的环加百分数,超过 70% 琥珀色、超过 90% 红色;有花费时百分数后面写出花费(原来在头部);完整的一句是它的名字和提示。块下面一行**按键提示**,高度固定,内容不同时块也不动:平时是"↵ Send · ⇧↵ New line · @ Mention a file · / Commands"(@ 和 / 只在能用时列出);能排队时"↵ Queue";能插话时"↵ Send now · ⇧↵ Queue · ⌥↵ New line"。Mac 以外写成 Shift+↵、Alt+↵。没连上、还不能发(比如没选文件夹)、正在打开时这一行是空的,但高度还在。按键符号各语言相同,文字在消息目录里。
-- **新会话**:在发出第一条消息之前,一行说明("The session starts when you send the first message.")、"在哪里跑"的一行(Folder 的名字和输入框、Browse…;多个环境时有 Environment,多个 agent 时有 Agent)和输入框一起在主区**垂直居中**。名字在控件左边,muted 的小字。发出之后,第一条消息显示成对话,"在哪里跑"那一行(此时禁用)和输入框回到底部;创建失败时它们原样回来,焦点和写的字都在(页面始终是同一棵树,只换布局)。
-- **侧栏**:会话行和 New session、Search 两行都是 28px;快捷键是行尾的 muted 文字,不再是键帽。
-- **不用"…"**:放不下的一行在末尾 1.5rem 淡出(`--cycle-fade-end`)。淡出是一个跟着元素自己横向溢出走的滚动驱动动画(`animation-timeline: scroll(self inline)`),只有真的溢出时才有,短标题不受影响;`prefers-reduced-motion` 下它照样在(它不是动效)。用到它的:会话标题、工作区名、环境名、搜索结果、更新状态、设置值、排队的消息、附件名、候选说明、输入框占位、连接器、工具摘要、步骤行、头部。
-
-**刻意不跟 old-cycle 的**:主按钮仍是靛蓝(D1;old-cycle 是墨黑主按钮,"在跑"用红);焦点环仍是 2px accent(old-cycle 是 1px 的 `border-focus`,对比度刚够);图标仍是 iconmcp;不打包 JetBrains Mono;选中的会话行仍是填充(old-cycle 让它和主区连成一片,我们的分隔条是 Resizable 的拖动柄,盖不住);v1 范围外的右侧面板、Overview、分支和 worktree 不做。
-
-**没做**:工具行和步骤行的计时(old-cycle 有;我们的 item 没有时间,要 daemon 记下开始时间,是协议改动);消息悬停时的复制和时间;回合失败的 Retry;终端输出和 diff 的专门样式(v1 范围外)。
-
-## 23. 对话内容逐类(2026-11-19,CYCL-14)
-
-对话里每一类内容从 SDK 到屏幕的映射、现状和打算在 [docs/conversation-content.md](docs/conversation-content.md);这里只写规则。负责人的决定(2026-11-19):
-
-- **工具行不用图标。** 动词已经说了做了什么("Ran""Read""Edited"),图标是第二遍;左边一列只留状态:完成是 5px 的灰点(`ink-disabled`,装饰,状态的文字给读屏),在跑是转动的线,失败是叉。一段调用展开后,细竖线把这些点连起来。不认识的工具也就不用找图标。
-- **有 description 就用它。** Bash、Monitor、Agent 的输入里有 agent 写的一句"在做什么"("Run the daemon tests"),这一行就是这句话(正文字体),后面跟淡灰的等宽命令或路径;没有才是"动词 + 摘要"。只认这几个工具,且只认一行、不超过 160 字的:MCP 工具的 `description` 常常是内容(一个 issue 的正文),不是目的。说明被截断时,提示里是全句。步骤行和卡片在跑时的那一句同样。放不下时先让摘要,再让这句话,末尾淡出。
-- **@ 提及不画两遍。** 用户消息里的 `resource_link` 带 `cycle/mention` 的,文字里已有 `@path`,不再画;只在文字里还写着 `@path` 时才省略(否则发出去的文件在消息里就看不见了);别的链接画成 `[名字]`,不再是 `[resource_link]`。
-- **Edit 只显示这一次调用的改动**(增删行),不做跨文件浏览的 Changes 面板(v1 范围外)。行上在路径后写 "+2 −1"(绿、红,读屏读"2 lines added, 1 removed");
-  新建文件动词是 "Created",只写 "+N"。展开是这一次的 diff:行号(新文件的,删掉的行用旧的)、正负号、淡绿淡红底,第一段的 "@@" 不画(行号已说明位置),
-  段与段之间一行 "⋯";最多画 400 行,其余写明行数。diff 已经说清了输入(old/new 字符串、整个文件),所以编辑展开后不再显示输入 JSON;
-  agent 只给了计数(很大的文件)时写一句"太大,这里不显示";新建的空文件写 "empty file"。
-  这些都按 ACP 的 `diff` 和 `_meta["cycle/toolResult"]` 画(协议 §9),不看工具名,换一个 agent 也一样。
-- **读和搜索写出数量。** Read 在路径后写 "lines 20–59 of 212",读了整个文件写 "212 lines";Glob 写 "12 files"(截断了写 "100+ files"),
-  Grep 按模式写 "5 matches in 2 files"、"34 lines" 或 "5 files";可能还有更多(截断、超时、到上限)时写 "100+ files"。
-  读到文件末尾之外(没读到行)写 "0 lines"。读到的图片在展开处显示,和消息里的图片同一个组件。
-  输入里只有行上已经显示的那个字段时(Read 一个路径),展开后不再重复它。
-- **AskUserQuestion 做成真正的表单**,在 CYCL-14 里做。
-
-分批:1 盘点和通用行(本节);2 Read/Edit/Write/Glob/Grep;3 Bash;4 表单、子 agent、压缩、计划;5 Web、MCP 和未知工具。每批先抓那几个工具的样本。
+- [ ] **macOS 真机验收**：`hiddenInset` 红绿灯与拖动区域、自定义原生应用菜单与系统快捷键冲突、系统通知与点击唤起（需签名）、中文输入法实测、SF 字体实际行高与长会话帧率。
+- [ ] **协议/后端协同项**：利用 `config_option_update` 补齐 agent 主动改设置的 UI 回显、工具执行耗时计时（需 daemon 记录开始时间）、会话内容全文搜索（daemon 侧）、多窗口与 VoiceOver 完整审查。

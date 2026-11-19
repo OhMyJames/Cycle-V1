@@ -11,6 +11,7 @@ import {
 } from "@ui-sdk/react/menu";
 import { OptionLabel, optionsOf, propertiesOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
+import { ChevronDownIcon } from "./icons.tsx";
 
 export type SettingsOf = {
   /** The agent's `configSchema`. */
@@ -34,11 +35,9 @@ export function SettingChips({
     if (options === undefined || options.length === 0) return null;
     const title = property.title ?? key;
     const current = settings.value[key];
+    const chosen = current === undefined ? undefined : options.find((o) => o.value === current);
     // A value the schema does not list (a model named in full, say) is still what the session runs on: it is shown as it is.
-    const label =
-      current === undefined
-        ? t("config.notSet")
-        : (options.find((o) => o.value === current)?.label ?? current);
+    const label = current === undefined ? t("config.notSet") : (chosen?.label ?? current);
     const name = t("composer.setting", { setting: title, value: label });
     return (
       <Menu key={key}>
@@ -46,11 +45,13 @@ export function SettingChips({
           data-variant="ghost"
           data-kind="setting-chip"
           data-unset={current === undefined || undefined}
+          data-danger={chosen?.danger || undefined}
           disabled={disabled}
           aria-label={name}
           title={name}
         >
           <span data-slot="setting-value">{label}</span>
+          <ChevronDownIcon size={12} data-slot="setting-chevron" aria-hidden="true" />
         </MenuTrigger>
         <MenuContent side="top" align="start">
           <MenuRadioGroup

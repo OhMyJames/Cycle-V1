@@ -16,7 +16,6 @@ import {
   type Conversation,
   earlierAnchor,
   type LaidBlock,
-  PAGE,
   textOf,
   windowStart,
 } from "../model/index.ts";
@@ -276,11 +275,13 @@ export function ConversationView({
     anchor.current = undefined;
   }, [follow]);
 
-  // After every render: the content may have grown.
+  // After every content growth while following the end: keep the end in view.
   useEffect(() => {
     const el = ref.current;
-    if (el !== null && stuck.current) el.scrollTop = el.scrollHeight;
-  });
+    if (el === null || loading || !stuck.current) return;
+    if (blocks.length === 0 && conversation.status === "idle" && follow === 0) return;
+    el.scrollTop = el.scrollHeight;
+  }, [blocks, conversation.status, follow, loading]);
 
   const onScroll = () => {
     const el = ref.current;

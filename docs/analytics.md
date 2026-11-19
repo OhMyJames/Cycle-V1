@@ -41,35 +41,36 @@ ConnectionManager(会话、环境、权限的动作) ─────────
 
 每一行对应 `packages/analytics/src/events.ts` 里的一个事件(门禁检查两边一致)。公共属性:`app_version`、`platform`、`arch`,以及每次启动一个随机的 `$session_id`。
 
-| 事件                     | 何时                                         | 属性                                                                                           | 发出处                       |
-| ------------------------ | -------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------- |
-| `app_launched`           | 应用启动                                     | `remote_environments` 个数,`first_run`                                                         | `app.ts`                     |
-| `analytics_toggled`      | 用户开或关统计                               | `enabled`                                                                                      | `analytics.ts`               |
-| `update_checked`         | 用户手动检查更新                             | `result`:`available`/`up_to_date`/`error`/`disabled`                                           | `app.ts`                     |
-| `update_install_started` | 用户开始安装更新                             | 无                                                                                             | `app.ts`                     |
-| `environment_saved`      | 保存了一个远程环境                           | `transport`:`ssh`                                                                              | `manager.ts`                 |
-| `environment_removed`    | 删除了一个环境                               | `kind`:`local`/`remote`                                                                        | `manager.ts`                 |
-| `daemon_upgraded`        | 点了"升级",应用在远端环境上更新了 daemon     | `ok`:是否成功(失败原因不报)                                                                    | `manager.ts`                 |
-| `environment_connection` | 环境连上、断开重连、关闭                     | `kind`,`state`:`connected`/`reconnecting`/`closed`                                             | `manager.ts`                 |
-| `session_created`        | 新建会话                                     | `agent`,`environment`,`configured`(是否改了设置)                                               | `manager.ts`                 |
-| `session_opened`         | 打开(选中)会话                               | `agent`,`environment`                                                                          | `manager.ts`                 |
-| `session_renamed`        | 重命名                                       | 无(标题是内容,不发)                                                                            | `manager.ts`                 |
-| `session_archived`       | 归档或取消归档                               | `archived`                                                                                     | `manager.ts`                 |
-| `session_deleted`        | 删除(客户端已确认)                           | 无                                                                                             | `manager.ts`                 |
-| `session_config_changed` | 改会话设置                                   | `setting`:`mode`/`model`/`other`(不发值)                                                       | `manager.ts`                 |
-| `agent_defaults_saved`   | 保存 agent 的默认设置                        | `agent`                                                                                        | `manager.ts`                 |
-| `session_attention`      | 会话完成、需要用户、停止                     | `kind`:`finished`/`needs-you`/`stopped`                                                        | `manager.ts`                 |
-| `prompt_sent`            | 发送消息                                     | `agent`,`environment`,`size`(三档),`images` 数,`mentions` 数,`steered`(直接插入正在进行的回合) | `manager.ts`                 |
-| `prompt_cancelled`       | 取消正在进行的回合                           | `agent`                                                                                        | `manager.ts`                 |
-| `permission_answered`    | 回答权限请求                                 | `outcome`:`allowed`/`rejected`/`cancelled`,`remembered`                                        | `manager.ts`                 |
-| `connector_added`        | 添加了一个 connector                         | `transport`:`http`/`stdio`,`auth`:`none`/`oauth`,`secrets` 个数(不发名字、URL、命令和密钥)     | `manager.ts`                 |
-| `connector_changed`      | 开关或编辑了一个 connector                   | `change`:`enabled`/`disabled`/`edited`                                                         | `manager.ts`                 |
-| `connector_removed`      | 删除 connector(客户端已确认)                 | `transport`                                                                                    | `manager.ts`                 |
-| `connector_authorized`   | 在浏览器里登录 connector 结束                | `result`:`ok`/`failed`/`cancelled`                                                             | `manager.ts`                 |
-| `connector_signed_out`   | 退出 connector 的登录                        | 无                                                                                             | `manager.ts`                 |
-| `panel_opened`           | 打开面板(搜索、新建会话、信任、connector 等) | `panel`,`via`:`click`/`shortcut`                                                               | 页面 `app.tsx`               |
-| `code_theme_changed`     | 换代码主题                                   | 无                                                                                             | 页面 `code-theme-picker.tsx` |
-| `slash_command_used`     | 从菜单选了斜杠命令                           | 无(命令名由 agent 给,不发)                                                                     | 页面 `composer.tsx`          |
+| 事件                     | 何时                                                     | 属性                                                                                           | 发出处                       |
+| ------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------- |
+| `app_launched`           | 应用启动                                                 | `remote_environments` 个数,`first_run`                                                         | `app.ts`                     |
+| `analytics_toggled`      | 用户开或关统计                                           | `enabled`                                                                                      | `analytics.ts`               |
+| `update_checked`         | 用户手动检查更新                                         | `result`:`available`/`up_to_date`/`error`/`disabled`                                           | `app.ts`                     |
+| `update_install_started` | 用户开始安装更新                                         | 无                                                                                             | `app.ts`                     |
+| `environment_saved`      | 保存了一个远程环境                                       | `transport`:`ssh`                                                                              | `manager.ts`                 |
+| `environment_removed`    | 删除了一个环境                                           | `kind`:`local`/`remote`                                                                        | `manager.ts`                 |
+| `daemon_upgraded`        | 点了"升级",应用在远端环境上更新了 daemon                 | `ok`:是否成功(失败原因不报)                                                                    | `manager.ts`                 |
+| `environment_connection` | 环境连上、断开重连、关闭                                 | `kind`,`state`:`connected`/`reconnecting`/`closed`                                             | `manager.ts`                 |
+| `session_created`        | 新建会话                                                 | `agent`,`environment`,`configured`(是否改了设置)                                               | `manager.ts`                 |
+| `session_opened`         | 打开(选中)会话                                           | `agent`,`environment`                                                                          | `manager.ts`                 |
+| `session_renamed`        | 重命名                                                   | 无(标题是内容,不发)                                                                            | `manager.ts`                 |
+| `session_archived`       | 归档或取消归档                                           | `archived`                                                                                     | `manager.ts`                 |
+| `session_deleted`        | 删除(客户端已确认)                                       | 无                                                                                             | `manager.ts`                 |
+| `session_config_changed` | 改会话设置                                               | `setting`:`mode`/`model`/`other`(不发值)                                                       | `manager.ts`                 |
+| `agent_defaults_saved`   | 保存 agent 的默认设置                                    | `agent`                                                                                        | `manager.ts`                 |
+| `session_attention`      | 会话完成、需要用户、停止                                 | `kind`:`finished`/`needs-you`/`stopped`                                                        | `manager.ts`                 |
+| `prompt_sent`            | 发送消息                                                 | `agent`,`environment`,`size`(三档),`images` 数,`mentions` 数,`steered`(直接插入正在进行的回合) | `manager.ts`                 |
+| `prompt_cancelled`       | 取消正在进行的回合                                       | `agent`                                                                                        | `manager.ts`                 |
+| `permission_answered`    | 回答权限请求                                             | `outcome`:`allowed`/`rejected`/`cancelled`,`remembered`                                        | `manager.ts`                 |
+| `connector_added`        | 添加了一个 connector                                     | `transport`:`http`/`stdio`,`auth`:`none`/`oauth`,`secrets` 个数(不发名字、URL、命令和密钥)     | `manager.ts`                 |
+| `connector_changed`      | 开关或编辑了一个 connector                               | `change`:`enabled`/`disabled`/`edited`                                                         | `manager.ts`                 |
+| `connector_removed`      | 删除 connector(客户端已确认)                             | `transport`                                                                                    | `manager.ts`                 |
+| `connector_authorized`   | 在浏览器里登录 connector 结束                            | `result`:`ok`/`failed`/`cancelled`                                                             | `manager.ts`                 |
+| `connector_signed_out`   | 退出 connector 的登录                                    | 无                                                                                             | `manager.ts`                 |
+| `panel_opened`           | 打开面板(搜索、新建会话、环境增改删、信任、connector 等) | `panel`,`via`:`click`/`shortcut`                                                               | 页面 `app.tsx`               |
+| `sidebar_toggled`        | 展开或折叠侧栏                                           | `open` 布尔值,`via`:`click`/`shortcut`                                                         | 页面 `app.tsx`               |
+| `code_theme_changed`     | 换代码主题                                               | 无                                                                                             | 页面 `code-theme-picker.tsx` |
+| `slash_command_used`     | 从菜单选了斜杠命令                                       | 无(命令名由 agent 给,不发)                                                                     | 页面 `composer.tsx`          |
 
 ## 加新功能时怎么埋点
 

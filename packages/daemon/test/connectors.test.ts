@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { stat, writeFile } from "node:fs/promises";
+import { realpath, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { methods } from "@cycle/acp";
 import { ConnectorFileUnreadableError, ConnectorService, Daemon } from "../src/index.ts";
@@ -536,7 +536,7 @@ process.stdin.on("data", (chunk) => {
   expect(answer.result.token).toBe("svc-secret");
   expect(answer.result.env).not.toContain("ANTHROPIC_API_KEY");
   expect(answer.result.env).toEqual(expect.arrayContaining(["HOME", "PATH", "SERVICE_TOKEN"]));
-  expect(answer.result.cwd).toBe(dir);
+  expect(answer.result.cwd).toBe(await realpath(dir));
 });
 
 test("a store file that cannot be read stops the daemon from starting, and is not replaced", async () => {

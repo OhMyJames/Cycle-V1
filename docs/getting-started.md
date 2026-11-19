@@ -77,7 +77,7 @@ cycle stop     # 停掉(会话中的回合会中断)
 
 ## 5. 用
 
-选主机,"New session",选工作目录,开始对话。Claude 要执行命令或改文件时会弹出确认卡片,Allow 或 Deny。头部显示上下文用量和累计费用;Claude 的任务列表显示在对话里。Settings 里可以改权限模式和模型,"Agent defaults" 设新会话的默认值。
+选环境,"New session",选工作目录,开始对话。Claude 要执行命令或改文件时会弹出确认卡片,Allow 或 Deny。输入框下方工具条显示上下文用量、累计费用以及权限模式和模型设置,点击可切换,齿轮按钮可改全部会话设置;"Agent defaults" 设新会话的默认值。
 
 ## 排障
 

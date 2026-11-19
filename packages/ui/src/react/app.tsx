@@ -37,9 +37,15 @@ import { Composer } from "./composer.tsx";
 import { ConfigForm } from "./config-form.tsx";
 import { ConnectorsDialog } from "./connectors.tsx";
 import { ConversationView } from "./conversation.tsx";
-import { AgentDefaultsDialog, ConfirmDialog, EnvironmentDialog, RenameDialog } from "./dialogs.tsx";
+import {
+  AgentDefaultsDialog,
+  ConfirmDialog,
+  EnvironmentDialog,
+  type RemoteEnvironment,
+  RenameDialog,
+} from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
-import { ErrorCircleIcon, MoreIcon, WarningIcon } from "./icons.tsx";
+import { ErrorCircleIcon, MoreIcon, SidebarIcon, WarningIcon } from "./icons.tsx";
 import { useDay, useInFront } from "./in-front.ts";
 import { PermissionCard } from "./permission.tsx";
 import { SearchDialog } from "./search.tsx";
@@ -52,6 +58,8 @@ import { DaemonBanner, UpdateBanner, UpdateFooter } from "./update.tsx";
 type Panel =
   | "none"
   | "add-environment"
+  | "edit-environment"
+  | "remove-environment"
   | "defaults"
   | "rename"
   | "delete"
@@ -64,6 +72,8 @@ type Panel =
 const PANEL_EVENT = {
   search: "search",
   "add-environment": "add_environment",
+  "edit-environment": "edit_environment",
+  "remove-environment": "remove_environment",
   defaults: "defaults",
   settings: "session_settings",
   rename: "rename",
@@ -104,7 +114,7 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
             }
           }}
         />
-        <div data-slot="row">
+        <div data-slot="row" data-dialog-footer="">
           <DialogClose>Close</DialogClose>
         </div>
       </DialogContent>
@@ -147,6 +157,9 @@ export function App() {
   );
   const agent = agents.find((a) => a.id === session?.agent);
   const [defaultsEnvironment, setDefaultsEnvironment] = useState<string | undefined>(undefined);
+  const [targetEnvironment, setTargetEnvironment] = useState<string | undefined>(undefined);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const appRef = useRef<HTMLDivElement>(null);
   const connectedEnvironments = environments.filter((h) => status[h.id]?.state === "connected");
   // An environment that is not connected: its sessions are the last it gave, and are shown greyed.
   const away = useMemo(() => {
@@ -167,6 +180,8 @@ export function App() {
   const connected = environmentState === "connected";
   const environmentError =
     selectedEnvironment !== undefined ? status[selectedEnvironment]?.error : undefined;
+  const environmentIncompatible =
+    selectedEnvironment !== undefined ? status[selectedEnvironment]?.incompatible : undefined;
   const close = () => setPanel("none");
   // Opens a panel, and counts that it was opened (which one, and whether by a key).
   const open = (next: Exclude<Panel, "none">, via: "click" | "shortcut" = "click") => {
@@ -196,6 +211,22 @@ export function App() {
     chosen: chosen !== undefined && chosen.on === openKey ? chosen.workspace : undefined,
     open: session ?? blank,
   });
+  const [shownWorkspace, setShownWorkspace] = useState(current?.key);
+  if (shownWorkspace !== current?.key) {
+    setShownWorkspace(current?.key);
+    if (showAll) setShowAll(false);
+  }
+  const environmentIds = useMemo(() => new Set(environments.map((h) => h.id)), [environments]);
+  const editingEnvironment = useMemo(() => {
+    const found = environments.find((h) => h.id === targetEnvironment);
+    return found !== undefined && found.kind === "remote"
+      ? (found as RemoteEnvironment)
+      : undefined;
+  }, [environments, targetEnvironment]);
+  const removingEnvironment = useMemo(() => {
+    const found = environments.find((h) => h.id === targetEnvironment);
+    return found !== undefined && found.kind !== "local" ? found : undefined;
+  }, [environments, targetEnvironment]);
   // A new session starts in the workspace that is shown, if its environment can have one started.
   const startOn =
     current !== undefined && connectedEnvironments.some((h) => h.id === current.environmentId)
@@ -287,65 +318,100 @@ export function App() {
     : (view?.conversation.status ?? "idle");
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
 
-  // Keyboard (DESIGN.md section 10). One handler, so every shortcut is in one place.
+  const toggleSidebar = useCallback(
+    (via: "click" | "shortcut") => {
+      const wasCollapsed = layout.isCollapsed("sidebar") || sidebarCollapsed;
+      if (wasCollapsed) layout.expand("sidebar");
+      else layout.collapse("sidebar");
+      setSidebarCollapsed(!wasCollapsed);
+      store.track("sidebar_toggled", { open: wasCollapsed, via });
+    },
+    [layout, sidebarCollapsed, store],
+  );
+
+  // Keep toggle button label synced with drag, double-click, keyboard and saved layout.
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      // ⌘ on a Mac (Ctrl+B and Ctrl+N are cursor keys in a text field there); Ctrl elsewhere.
-      const isMac = MOD === "⌘";
-      if (!(isMac ? event.metaKey : event.ctrlKey) || event.altKey || panel !== "none") return;
-      const key = event.key;
-      // Typing: a shortcut that decides something (allowing a command) must not fire from a habit of the hand.
-      const typing =
-        event.target instanceof Element
-          ? event.target.closest("textarea, input, [contenteditable]")
-          : null;
-      const run = (action: () => void) => {
-        event.preventDefault();
-        action();
-      };
-      if (key === "k") run(() => open("search", "shortcut"));
-      else if (key === "n" && connectedEnvironments.length > 0) run(() => newSession("shortcut"));
-      else if (key === "b")
-        run(() =>
-          layout.isCollapsed("sidebar") ? layout.expand("sidebar") : layout.collapse("sidebar"),
-        );
-      else if (key === "l")
-        run(() =>
-          document
-            .querySelector<HTMLElement>('[data-slot="composer"] [data-slot="composer-input"]')
-            ?.focus(),
-        );
-      else if (key === "." && connected && activity !== "idle") run(() => void store.cancel());
-      else if (
-        key === "Enter" &&
-        connected &&
-        typing === null &&
-        firstAllow !== undefined &&
-        view?.permissions[0] !== undefined
-      ) {
-        const request = view.permissions[0];
-        run(() => void store.answerPermission(request.key, firstAllow.optionId));
-      } else if (key === "[" || key === "]") {
-        const at = session === undefined ? -1 : list.order.indexOf(session);
-        // A row on an environment that is away and was never opened cannot be opened: the walk goes past it.
-        const step = key === "]" ? 1 : -1;
-        // The open session is not in the workspace that is shown: the walk starts at the end it is going from.
-        let to = at === -1 ? (step === 1 ? 0 : list.order.length - 1) : at + step;
-        while (list.order[to] !== undefined && away.has(list.order[to]?.environmentId ?? ""))
-          to += step;
-        const next = list.order[to];
-        if (next !== undefined)
-          run(() => void store.selectSession(next.environmentId, next.sessionId));
-      }
+    if (!ready) return;
+    const root = appRef.current;
+    if (root === null) return;
+    const sync = () => {
+      const panel = root.querySelector('[data-slot="resizable-panel"]#sidebar');
+      setSidebarCollapsed(panel?.hasAttribute("data-collapsed") === true);
     };
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-collapsed"],
+    });
+    return () => observer.disconnect();
+  }, [ready]);
+
+  // Keyboard (DESIGN.md §5.4). One handler bound once via ref, so every shortcut stays in one place.
+  const onKeyRef = useRef<(event: KeyboardEvent) => void>(() => {});
+  onKeyRef.current = (event: KeyboardEvent) => {
+    // ⌘ on a Mac (Ctrl+B and Ctrl+N are cursor keys in a text field there); Ctrl elsewhere.
+    const isMac = MOD === "⌘";
+    if (!(isMac ? event.metaKey : event.ctrlKey) || event.altKey || panel !== "none") return;
+    const key = event.key;
+    const run = (action: () => void) => {
+      event.preventDefault();
+      action();
+    };
+    if (key === "k") run(() => open("search", "shortcut"));
+    else if (key === "n" && connectedEnvironments.length > 0) run(() => newSession("shortcut"));
+    else if (key === "b") run(() => toggleSidebar("shortcut"));
+    else if (key === "l")
+      run(() =>
+        document
+          .querySelector<HTMLElement>('[data-slot="composer"] [data-slot="composer-input"]')
+          ?.focus(),
+      );
+    else if (key === "." && connected && activity !== "idle") run(() => void store.cancel());
+    else if (
+      key === "Enter" &&
+      connected &&
+      firstAllow !== undefined &&
+      view?.permissions[0] !== undefined
+    ) {
+      const request = view.permissions[0];
+      run(() => void store.answerPermission(request.key, firstAllow.optionId));
+    } else if (key === "[" || key === "]") {
+      const at = session === undefined ? -1 : list.order.indexOf(session);
+      // A row on an environment that is away and was never opened cannot be opened: the walk goes past it.
+      const step = key === "]" ? 1 : -1;
+      // The open session is not in the workspace that is shown: the walk starts at the end it is going from.
+      let to = at === -1 ? (step === 1 ? 0 : list.order.length - 1) : at + step;
+      while (list.order[to] !== undefined && away.has(list.order[to]?.environmentId ?? ""))
+        to += step;
+      const next = list.order[to];
+      if (next !== undefined)
+        run(() => void store.selectSession(next.environmentId, next.sessionId));
+    }
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => onKeyRef.current(event);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, []);
 
   if (!ready) return <div data-slot="starting">Starting…</div>;
 
+  const sidebarToggle = (
+    <Button
+      data-variant="ghost"
+      data-kind="sidebar-toggle"
+      aria-label={t(sidebarCollapsed ? "sidebar.show" : "sidebar.hide")}
+      title={`${t(sidebarCollapsed ? "sidebar.show" : "sidebar.hide")}  ${MOD}B`}
+      onClick={() => toggleSidebar("click")}
+    >
+      <SidebarIcon />
+    </Button>
+  );
+
   return (
-    <div data-slot="app">
+    <div data-slot="app" ref={appRef}>
       <Resizable controller={layout} autoSaveId="cycle-layout">
         <ResizablePanel
           id="sidebar"
@@ -372,8 +438,18 @@ export function App() {
             onNewSession={() => newSession()}
             onSearch={() => open("search")}
             onConnectors={() => open("connectors")}
-            onAddEnvironment={() => open("add-environment")}
-            onRemoveEnvironment={(id) => void store.removeEnvironment(id)}
+            onAddEnvironment={() => {
+              setTargetEnvironment(undefined);
+              open("add-environment");
+            }}
+            onEditEnvironment={(id) => {
+              setTargetEnvironment(id);
+              open("edit-environment");
+            }}
+            onRemoveEnvironment={(id) => {
+              setTargetEnvironment(id);
+              open("remove-environment");
+            }}
             onConnectEnvironment={(id) => void store.connectEnvironment(id)}
             onToggleArchived={() => setShowArchived((v) => !v)}
             onShowAll={() => setShowAll(true)}
@@ -407,10 +483,12 @@ export function App() {
                 </Button>
               </div>
             ) : null}
-            {environmentState === "reconnecting" ? (
+            {environmentState === "reconnecting" && environmentIncompatible === undefined ? (
               <div data-slot="banner" data-severity="warning" role="status">
                 <WarningIcon />
-                Connection lost. Reconnecting… what you miss will be shown when it is back.
+                <span>
+                  Connection lost. Reconnecting… what you miss will be shown when it is back.
+                </span>
               </div>
             ) : null}
             {view !== undefined &&
@@ -419,12 +497,14 @@ export function App() {
             environmentState !== "reconnecting" ? (
               <div data-slot="banner" data-severity="warning" role="status">
                 <WarningIcon />
-                {t("session.awayBanner", {
-                  environment:
-                    environments.find((h) => h.id === selectedEnvironment)?.name ??
-                    selectedEnvironment ??
-                    "",
-                })}
+                <span>
+                  {t("session.awayBanner", {
+                    environment:
+                      environments.find((h) => h.id === selectedEnvironment)?.name ??
+                      selectedEnvironment ??
+                      "",
+                  })}
+                </span>
               </div>
             ) : null}
             {(blank !== undefined || session === undefined) && selectedEnvironment !== undefined ? (
@@ -436,11 +516,13 @@ export function App() {
                 environments={connectedEnvironments}
                 connected={connected}
                 follow={sent}
+                sidebarToggle={sidebarToggle}
                 onSent={() => setSent((n) => n + 1)}
               />
             ) : null}
             {blank === undefined && session !== undefined ? (
               <header data-slot="session-header">
+                {sidebarToggle}
                 <div data-slot="session-heading">
                   <h1>{sessionTitle(session)}</h1>
                   <span data-slot="session-where" title={session.cwd}>
@@ -487,6 +569,11 @@ export function App() {
             {blank === undefined && session !== undefined ? (
               <DaemonBanner environmentId={session.environmentId} />
             ) : null}
+            {blank === undefined && session === undefined && sidebarCollapsed ? (
+              <header data-slot="session-header" data-empty-header="">
+                {sidebarToggle}
+              </header>
+            ) : null}
             {blank !== undefined ? null : view !== undefined ? (
               <ConversationView
                 key={viewKey(view.environmentId, view.sessionId)}
@@ -499,7 +586,14 @@ export function App() {
             ) : (
               <div data-slot="empty">
                 {environmentState === "connected" ? (
-                  <p>Choose a session, or start a new one.</p>
+                  <div data-slot="empty-block">
+                    <p data-slot="empty-title">{t("empty.chooseOrStart")}</p>
+                    {connectedEnvironments.length > 0 ? (
+                      <Button data-variant="outline" onClick={() => newSession()}>
+                        {t("empty.startSession")}
+                      </Button>
+                    ) : null}
+                  </div>
                 ) : environmentState === "connecting" || environmentState === "reconnecting" ? (
                   <p>Connecting to this environment…</p>
                 ) : (
@@ -602,10 +696,23 @@ export function App() {
         environmentId={selectedEnvironment}
       />
       <EnvironmentDialog
-        open={panel === "add-environment"}
+        open={panel === "add-environment" || panel === "edit-environment"}
         onOpenChange={(open) => !open && close()}
+        editing={panel === "edit-environment" ? editingEnvironment : undefined}
+        existingIds={environmentIds}
         onSave={store.saveEnvironment}
       />
+      {removingEnvironment !== undefined ? (
+        <ConfirmDialog
+          open={panel === "remove-environment"}
+          onOpenChange={(open) => !open && close()}
+          title={t("environment.removeTitle", { name: removingEnvironment.name })}
+          description={t("environment.removeDescription", { name: removingEnvironment.name })}
+          confirmLabel={t("environment.removeConfirm")}
+          destructive
+          onConfirm={() => store.removeEnvironment(removingEnvironment.id)}
+        />
+      ) : null}
       {defaultsEnvironment !== undefined ? (
         <DefaultsPanel
           open={panel === "defaults"}
@@ -628,6 +735,7 @@ export function App() {
             title="Delete this session?"
             description="Its whole history is removed for good. This cannot be undone."
             confirmLabel="Delete"
+            destructive
             onConfirm={() => store.deleteSession(session.sessionId)}
           />
           {panel === "settings" ? <SessionSettings onClose={close} /> : null}

@@ -119,6 +119,7 @@ export const CLAUDE_PERMISSION_MODES = [
     name: "Bypass permissions",
     description:
       "Every edit and command runs without asking. Use only where Claude can do no harm, such as a sandbox.",
+    _meta: { "cycle/danger": true },
   },
 ] as const;
 

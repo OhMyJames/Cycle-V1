@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@ui-sdk/react/select";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import type { EnvironmentConfig } from "../api.ts";
 import { applyUpdate, emptyConversation } from "../model/index.ts";
 import { BLANK_KEY, type BlankConversation } from "../store/index.ts";
@@ -28,6 +28,7 @@ import { ConfigForm, propertiesOf } from "./config-form.tsx";
 import { ConversationView } from "./conversation.tsx";
 import { FolderBrowser } from "./folder-browser.tsx";
 import { useI18n } from "./i18n.tsx";
+import { WarningIcon } from "./icons.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 
 /**
@@ -47,6 +48,7 @@ export function BlankConversationView({
   environments,
   connected,
   follow,
+  sidebarToggle,
   onSent,
 }: {
   blank: BlankConversation;
@@ -55,6 +57,7 @@ export function BlankConversationView({
   /** The blank conversation's environment is connected. */
   connected: boolean;
   follow: number;
+  sidebarToggle?: ReactNode;
   onSent: () => void;
 }) {
   const { t } = useI18n();
@@ -205,6 +208,7 @@ export function BlankConversationView({
   return (
     <>
       <header data-slot="session-header">
+        {sidebarToggle}
         <div data-slot="session-heading">
           <h1>{t("blank.title")}</h1>
         </div>
@@ -222,8 +226,27 @@ export function BlankConversationView({
           />
         ) : (
           <div data-slot="blank-lead">
-            {connected && agent === undefined && status?.state === "connected" ? (
-              <p>{t("blank.noAgent", { environment: environment?.name ?? blank.environmentId })}</p>
+            {connected &&
+            agents !== undefined &&
+            agent === undefined &&
+            status?.state === "connected" ? (
+              <div data-slot="empty-block" role="status">
+                <WarningIcon size={20} data-tone="attention" />
+                <p data-slot="empty-title">
+                  {t("blank.noAgent", { environment: environment?.name ?? blank.environmentId })}
+                </p>
+                <p data-slot="hint">
+                  {t("blank.noAgentHint", {
+                    environment: environment?.name ?? blank.environmentId,
+                  })}
+                </p>
+                <Button
+                  data-variant="outline"
+                  onClick={() => void store.reloadAgents(blank.environmentId)}
+                >
+                  {t("blank.retryAgents")}
+                </Button>
+              </div>
             ) : blank.unreadable === true ? (
               <div data-slot="empty-block" role="alert">
                 <p>{t("blank.unreadable")}</p>
@@ -260,7 +283,7 @@ export function BlankConversationView({
               {t("trust.failed", { reason: blank.asking.failed })}
             </p>
           ) : null}
-          <div data-slot="row">
+          <div data-slot="row" data-dialog-footer="">
             <Button
               data-variant="ghost"
               disabled={answering}
@@ -305,7 +328,7 @@ export function BlankConversationView({
               value={blank.config}
               onChange={(config) => store.changeBlank({ config })}
             />
-            <div data-slot="row">
+            <div data-slot="row" data-dialog-footer="">
               <DialogClose>{t("common.close")}</DialogClose>
             </div>
           </DialogContent>

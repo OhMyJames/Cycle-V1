@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AgentInfo } from "../../src/api.ts";
+import { ConfirmDialog } from "../../src/react/dialogs.tsx";
 import { AgentDefaultsDialog, EnvironmentDialog } from "../../src/react/index.ts";
 
 afterEach(cleanup);
@@ -87,4 +88,52 @@ test("agent defaults that cannot be read are not replaced by an empty form: they
   );
   expect(await screen.findByText(/could not be read/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+});
+
+test("environment dialog keeps user input on failure, avoids id collisions, and supports editing", async () => {
+  const user = userEvent.setup();
+  const saved: { id: string; name: string; host: string }[] = [];
+  let fail = true;
+  render(
+    <EnvironmentDialog
+      open
+      onOpenChange={() => {}}
+      existingIds={new Set(["ssh-me-box"])}
+      onSave={async (e) => {
+        if (fail) return "Disk full";
+        saved.push({ id: e.id, name: e.name, host: e.kind === "remote" ? e.transport.host : "" });
+        return undefined;
+      }}
+    />,
+  );
+  await user.type(await screen.findByLabelText("Address"), "me@box");
+  await user.click(screen.getByRole("button", { name: "Add" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("Disk full");
+  expect(((await screen.findByLabelText("Address")) as HTMLInputElement).value).toBe("me@box");
+  fail = false;
+  await user.click(screen.getByRole("button", { name: "Add" }));
+  expect(saved).toEqual([{ id: "ssh-me-box-2", name: "me@box", host: "me@box" }]);
+});
+
+test("destructive confirm dialog uses destructive variant and stays open on failure", async () => {
+  const user = userEvent.setup();
+  let closed = false;
+  render(
+    <ConfirmDialog
+      open
+      onOpenChange={(next) => {
+        if (!next) closed = true;
+      }}
+      title="Remove Build?"
+      description="Removes settings."
+      confirmLabel="Remove environment"
+      destructive
+      onConfirm={async () => "Still busy"}
+    />,
+  );
+  const button = await screen.findByRole("button", { name: "Remove environment" });
+  expect(button.getAttribute("data-variant")).toBe("destructive");
+  await user.click(button);
+  expect((await screen.findByRole("alert")).textContent).toContain("Still busy");
+  expect(closed).toBe(false);
 });

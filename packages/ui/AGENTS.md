@@ -16,8 +16,9 @@ The interface: React components, and the model of a conversation they draw. Buil
 
 ## Design
 
-- Interface work follows the project skill `.claude/skills/cycle-design-taste` (ours, not vendored): tokens only,
-  every state drawn, plain copy, motion only to show a change, one icon set (iconmcp). Run
+- Visual tokens, surface styles, component variants, interaction patterns, and semantic Do/Don't rules live in
+  root `DESIGN.md` (Layers 1–5). The execution workflow and copy/motion/check scripts live in
+  `.claude/skills/cycle-design-taste` (ours, not vendored). Run
   `bun .claude/skills/cycle-design-taste/scripts/scan-copy.mjs` on a change to the interface's text.
 
 ## Controls
@@ -31,12 +32,15 @@ The gate does not enforce them.
 - A key handler that acts on Enter asks `isComposing(event)` from `@ui-sdk/core` first, not the event's own
   `isComposing`: Safari reports the Enter that confirms an input method's text as not composing. Chinese input is the case.
 - A choice that runs without asking, like a mode that never asks for approval, is taken by a press, never by an
-  arrow key that happens to land on it.
+  arrow key that happens to land on it, and carries an attention/warning cue so it is never mistaken for safe.
 - A list whose rows can be added, removed or reordered is keyed by an id, not by its index.
 - Text has 4.5:1 against what is behind it, and a control's edge, focus ring and state fill 3:1, in both themes.
   jsdom cannot measure colour: measure in the browser (the gallery) when a token changes.
 - A choice list never shows a bare "Default" or "Recommended": it names the choice and marks it ("Auto (default)").
-- A destructive confirmation opens with the focus on Cancel, so a second Enter removes nothing.
+- Form dialogs submit on Enter (`<form onSubmit>`), autofocus the first input, and place Cancel on the left of the
+  primary action on the right.
+- A destructive confirmation opens with the focus on Cancel, so a second Enter removes nothing, and uses the
+  `destructive` button variant rather than `solid` accent.
 
 ## Rules for this package
 

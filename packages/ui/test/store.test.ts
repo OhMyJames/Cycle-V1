@@ -631,3 +631,34 @@ test("connectors: a change elsewhere is read again only where the panel has aske
     message: "Not connected to that environment",
   });
 });
+
+test("saveEnvironment, renameSession, and reloadAgents surface failures and refresh agents", async () => {
+  const script = fakeBridge({ connected: true });
+  script.bridge.saveEnvironment = async () => {
+    throw new Error("Could not write settings");
+  };
+  script.bridge.renameSession = async () => {
+    throw new Error("Session locked");
+  };
+  let calls = 0;
+  script.bridge.agents = async () => {
+    calls += 1;
+    return [{ id: "claude", name: "Claude", available: calls > 1, configSchema: {} }];
+  };
+  const store = new AppStore(script.bridge, new DraftStore(undefined));
+  await store.start();
+  expect(store.getState().agents.local?.[0]?.available).toBe(false);
+
+  expect(
+    await store.saveEnvironment({
+      id: "ssh-bad",
+      name: "Bad",
+      kind: "remote",
+      transport: { type: "ssh", host: "bad" },
+    }),
+  ).toBe("Could not write settings");
+  expect(await store.renameSession("s1", "New")).toBe("Session locked");
+
+  await store.reloadAgents("local");
+  expect(store.getState().agents.local?.[0]?.available).toBe(true);
+});

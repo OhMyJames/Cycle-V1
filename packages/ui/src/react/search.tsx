@@ -36,6 +36,16 @@ export type SearchDialogProps = {
  */
 export function SearchDialog(props: SearchDialogProps) {
   const { t } = useI18n();
+  if (!props.open) {
+    return (
+      <Dialog open={false} onOpenChange={props.onOpenChange}>
+        <DialogBackdrop />
+        <DialogContent data-palette="search">
+          <DialogTitle>{t("search.label")}</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    );
+  }
   // The sessions are found by workspace: a folder on one environment, as the switcher has them.
   const away = new Set(
     props.environments.filter((e) => props.status[e.id]?.state !== "connected").map((e) => e.id),

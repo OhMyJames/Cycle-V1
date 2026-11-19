@@ -21,6 +21,19 @@ export const enUS = {
   "defaults.unreadable":
     "The saved settings of this agent could not be read, so they are not shown. Close this and open it again.",
   "newSession.environment": "Environment",
+  "environment.edit": "Edit {name}",
+  "environment.editTitle": "Edit {name}",
+  "environment.save": "Save",
+  "environment.removeTitle": "Remove {name}?",
+  "environment.removeDescription":
+    "Its connection settings and unsent drafts on this device are removed. Sessions on {name} are not deleted.",
+  "environment.removeConfirm": "Remove environment",
+
+  // Empty state and sidebar toggle
+  "sidebar.show": "Show sidebar",
+  "sidebar.hide": "Hide sidebar",
+  "empty.chooseOrStart": "Choose a session, or start a new one.",
+  "empty.startSession": "Start a new session",
 
   // A new session before its first message: the blank conversation
   "blank.title": "New session",
@@ -31,6 +44,9 @@ export const enUS = {
   "blank.lead": "The session starts when you send the first message.",
   "blank.chooseFolder": "Choose a folder for the agent to work in.",
   "blank.noAgent": "No agent is available on {environment}.",
+  "blank.noAgentHint":
+    "Check that Claude is installed on {environment} and its credentials are configured.",
+  "blank.retryAgents": "Check again",
   "blank.unreadable":
     "The saved settings of this agent could not be read, so the session cannot start from them.",
   "blank.retry": "Read settings again",
@@ -59,6 +75,7 @@ export const enUS = {
     other: "You can attach {count} images at most.",
   },
   "composer.problem.unreadable": "{name} could not be read.",
+  "composer.problem.noImage": "Only PNG, JPEG, GIF or WebP images can be attached.",
 
   // The box a message is written in
   "composer.message": "Message",
@@ -333,10 +350,14 @@ export const enUS = {
   "attention.finished": "Waiting for your next message",
   "attention.stopped": "The agent stopped unexpectedly",
 
-  // A setting the agent offers: the choice it suggests
+  // A setting the agent offers: the choice it suggests, and high-risk options
   "config.recommended": "Recommended",
+  "config.caution": "Caution",
   // A session's setting the daemon has no record of yet: not today's default, which it may not have
   "config.notSet": "Not set",
+
+  // App update dismiss
+  "update.dismiss": "Later",
 
   // The code colours choice
   "codeTheme.label": "Code colours",

@@ -31,6 +31,7 @@ export type SidebarProps = {
   /** Opens the connectors: the MCP servers a daemon keeps for every agent. */
   onConnectors?: () => void;
   onAddEnvironment: () => void;
+  onEditEnvironment?: (environmentId: string) => void;
   onRemoveEnvironment: (environmentId: string) => void;
   onConnectEnvironment: (environmentId: string) => void;
   onToggleArchived: () => void;
@@ -100,14 +101,19 @@ export function Sidebar(props: SidebarProps) {
         />
         <Menu
           onAction={(value) => {
-            const [action, environmentId] = String(value).split(":");
-            if (value === "add-environment") props.onAddEnvironment();
+            const raw = String(value);
+            const sep = raw.indexOf(":");
+            const action = sep === -1 ? raw : raw.slice(0, sep);
+            const environmentId = sep === -1 ? undefined : raw.slice(sep + 1);
+            if (raw === "add-environment") props.onAddEnvironment();
+            else if (action === "edit-environment" && environmentId !== undefined)
+              props.onEditEnvironment?.(environmentId);
             else if (action === "remove-environment" && environmentId !== undefined)
               props.onRemoveEnvironment(environmentId);
             else if (action === "agent-defaults" && environmentId !== undefined)
               props.onAgentDefaults(environmentId);
-            else if (value === "trust") props.onTrust?.(true);
-            else if (value === "untrust") props.onTrust?.(false);
+            else if (raw === "trust") props.onTrust?.(true);
+            else if (raw === "untrust") props.onTrust?.(false);
           }}
         >
           <MenuTrigger
@@ -135,11 +141,18 @@ export function Sidebar(props: SidebarProps) {
             {props.environments.some((h) => h.kind !== "local") ? <MenuSeparator /> : null}
             {props.environments
               .filter((h) => h.kind !== "local")
-              .map((h) => (
-                <MenuItem key={h.id} value={`remove-environment:${h.id}`}>
+              .flatMap((h) => [
+                <MenuItem key={`edit:${h.id}`} value={`edit-environment:${h.id}`}>
+                  {t("environment.edit", { name: h.name })}
+                </MenuItem>,
+                <MenuItem
+                  key={`remove:${h.id}`}
+                  value={`remove-environment:${h.id}`}
+                  data-destructive
+                >
                   {`Remove ${h.name}`}
-                </MenuItem>
-              ))}
+                </MenuItem>,
+              ])}
           </MenuContent>
         </Menu>
       </div>
