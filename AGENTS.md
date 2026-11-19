@@ -66,3 +66,4 @@ Bun、TypeScript、Electron,均使用最新版本。包管理和脚本都用 Bun
 - 设计上的取舍记录成决定笔记,按 `agent-notes` 技能写(`.agents/skills/agent-notes`,`.claude/skills` 里有链接):什么情况才写、格式、怎么取代旧的。新笔记放 `.agents/notes/`,格式见它的 README。`docs/decisions/` 里已有的 0001–0014 是历史,保留原样、不改编号,新笔记不再往里加。
 - 协议变更先改 `docs/protocol.md`,再改实现。
 - 提交信息简短,说明做了什么和为什么。
+- **发版只改第三位版本号**(`0.3.0` → `0.3.1`),不允许改前两位;改前两位是负责人自己的决定,不随发版做。发版流程会用 `scripts/release-guard.ts --step` 检查 tag。
