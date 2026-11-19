@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { SessionUpdate } from "@cycle/acp";
+import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
 import type { ToolItem } from "../src/model/index.ts";
 import { applyUpdate, diffLines, emptyConversation, toolFacts } from "../src/model/index.ts";
 

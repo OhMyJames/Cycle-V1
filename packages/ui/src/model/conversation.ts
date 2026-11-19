@@ -5,7 +5,7 @@
 //
 // ACP v2's rules for updates (see the SDK's v2 header): an omitted field stays as it was, `null`
 // clears it, any other value replaces it, and chunks append. Entities are patched by their id.
-import type { SessionUpdate } from "@cycle/acp";
+import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
 
 /** A piece of content. Only `text` and `image` are drawn; anything else is kept and shown plainly. */
 export type Block = { type: string; [key: string]: unknown };

@@ -1,5 +1,5 @@
 {
-  "name": "@cycle/daemon-app",
+  "name": "@cycle/daemon",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,19 +10,18 @@
     "cycle": "./src/main.ts"
   },
   "dependencies": {
-    "@cycle/adapter-claude": "workspace:*",
-    "@cycle/daemon": "workspace:*",
-    "@cycle/transport": "workspace:*",
+    "@agentclientprotocol/sdk": "catalog:",
+    "@cycle/harness-claude": "workspace:*",
     "@cycle/protocol": "workspace:*",
-    "zod": "^4.6.7"
+    "zod": "catalog:"
   },
   "scripts": {
     "test:real": "bun test ./test/integration/real-binary.integration.ts",
+    "test:real:daemon": "bun test ./test/integration/real.integration.ts",
     "build": "bun scripts/build.ts",
     "test:integration": "bun test ./test/integration/full.integration.ts"
   },
   "devDependencies": {
-    "@cycle/client": "workspace:*",
-    "@cycle/acp": "workspace:*"
+    "@cycle/client": "workspace:*"
   }
 }

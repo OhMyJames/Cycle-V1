@@ -2,7 +2,7 @@
 
 状态:草稿。验证日期 2026-11-18。
 
-`packages/daemon`:L1 协议的实现(见 [protocol.md](protocol.md))。daemon 对客户端说 ACP v2,对 agent 也说 ACP v2。
+`apps/daemon`:L1 协议的实现(见 [protocol.md](protocol.md))、服务端传输与 CLI 入口。daemon 对客户端说 ACP v2,对 agent 也说 ACP v2。
 
 ## 结构
 
@@ -108,8 +108,8 @@ cycle claude auth status   # 用同样的环境跑 claude 的其他命令
 
 ## 客户端侧
 
-- `packages/transport`:unix socket 的监听和连接、stdio 到 socket 的桥接、ssh 通道(用系统的 `ssh`,`BatchMode=yes`,所以 `~/.ssh/config`、密钥和 known_hosts 都照常生效)。
-- `packages/client`:`CycleClient`,给 Electron 的主进程用。记住每个被观看的 session 看到的最大 `cycle/seq`;连接断了就按退避重连,重连后对每个 session 用 `_cycle.seq` 要回错过的部分,每条记录只交给调用方一次,按序,没有重复。重连期间发的请求立刻失败,不排队。
+- `packages/client`:`CycleClient` 与客户端侧传输(unix socket 连接、命令通道、ssh 通道——用系统的 `ssh`,`BatchMode=yes`,所以 `~/.ssh/config`、密钥和 known_hosts 都照常生效),给 Electron 的主进程用。记住每个被观看的 session 看到的最大 `cycle/seq`;连接断了就按退避重连,重连后对每个 session 用 `_cycle.seq` 要回错过的部分,每条记录只交给调用方一次,按序,没有重复。重连期间发的请求立刻失败,不排队。
+- 服务端侧传输(unix socket 监听与 stdio 桥接)在 `apps/daemon/src/transport/`。
 
 ## 验证
 
@@ -117,5 +117,5 @@ cycle claude auth status   # 用同样的环境跑 claude 的其他命令
 - `CYCLE_DAEMON_BIN=<构建出的 cycle> bun run test:integration`(在 `apps/daemon` 下)把同一个端到端测试换成跑构建出的可执行文件,通过。
 - `CYCLE_REAL_MODEL_TOKEN=… bun run test:real`(在 `apps/daemon` 下,先 `build`):只用构建出的可执行文件、**空的环境**(PATH 只有 `/usr/bin:/bin`,没有 bun、node、token,token 只写在 `config.json` 里),经 `proxy` 起 daemon,真实模型一轮带权限审批,再 `status`、`stop`。通过,约 7 秒。
 - `bun run test:integration`(在 `apps/daemon` 下):**整个后端**。客户端用 `CycleClient` 经过 ssh(用一个在本机执行命令的替身)连上;没有 daemon 在运行,`proxy` 把它启动起来;daemon 启动 Claude 适配进程,跑真实 SDK,对本地模拟 API。一个 turn 之后客户端断开,daemon 仍在运行且 pid 不变;新客户端再连上,拿到历史,继续对话,模型的请求里有前一个 turn 的上下文。
-- `packages/transport` 和 `packages/client` 的测试在门禁里:8MB 的消息、500 条消息保序、socket 权限、单实例、残留 socket、桥接、ssh 参数;客户端断线重连不丢不重、断线时错过的内容回来后补上、断线时挂起的权限请求在重连后重新问、`start` 失败、`close` 后不再重试。
+- 传输与 `packages/client` 的测试在门禁里:8MB 的消息、500 条消息保序、socket 权限、单实例、残留 socket、桥接、ssh 参数;客户端断线重连不丢不重、断线时错过的内容回来后补上、断线时挂起的权限请求在重连后重新问、`start` 失败、`close` 后不再重试。
 - 一个由测试发现的问题:agent 恢复时发的状态快照曾被当作历史记进日志,客户端会把它当成 turn 结束。现在丢弃,并有测试(把修复去掉,测试会失败)。

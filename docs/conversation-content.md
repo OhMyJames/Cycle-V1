@@ -3,14 +3,14 @@
 对话里会出现的每一类内容,每一层叫什么、保留了什么,现在怎么画,打算怎么画。样式规则在 [DESIGN.md](../DESIGN.md) 第 16、22、23 节;
 这里是**映射矩阵**,实现时以它为准,改了实现就改这里。
 
-基线:Claude Agent SDK **0.3.327**(`packages/adapters/claude/package.json`),类型取自它的 `sdk.d.ts` 和 `sdk-tools.d.ts`。
+基线:Claude Agent SDK **0.3.327**(`harness/claude/package.json`),类型取自它的 `sdk.d.ts` 和 `sdk-tools.d.ts`。
 "来源"一列:**类型** = 只见于 SDK 类型或文档;**测试** = 适配器或页面的测试里有;**样本** = 抓过真实会话(还没有,见文末)。
 
 ## 路径
 
 ```
 SDK 消息(assistant / stream_event / user / system / result)
-  → 适配器 TurnTranslator、aside(packages/adapters/claude/src)   ACP v2 的 session/update
+  → 适配器 TurnTranslator、aside(harness/claude/src)             ACP v2 的 session/update
   → daemon 写进 JSONL(脱敏,CYCL-7)、转给客户端                 L1 与 L2 同形
   → reducer(packages/ui/src/model/conversation.ts)             6 种 item:user agent thought tool plan notice
   → blocksOf(packages/ui/src/model/blocks.ts)                  布局块:user agent thought plan notice work failed end + 步骤行
@@ -19,7 +19,7 @@ SDK 消息(assistant / stream_event / user / system / result)
 
 Claude SDK 的类型只在适配器里;页面读的是 ACP 的字段(`name`、`kind`、`status`、`rawInput`、`content`、`locations`)。
 **结构化的结果**(`SDKUserMessage.tool_use_result`,每个工具一个 `*Output`,类型是 `unknown`)用于 TaskCreate / TaskUpdate(计划),
-以及 Read、Edit、Write、NotebookEdit、Glob、Grep(`packages/adapters/claude/src/results.ts`,PR2):翻成 ACP 自己的字段——编辑是 `diff` 内容,
+以及 Read、Edit、Write、NotebookEdit、Glob、Grep(`harness/claude/src/results.ts`,PR2):翻成 ACP 自己的字段——编辑是 `diff` 内容,
 文件位置是 `locations`,数量放进 `_meta["cycle/toolResult"]`(只有数和布尔,**不带文件内容**:结构化结果里有整个文件;协议 §9)。页面按这些字段画,不看工具名。一条消息里有几个结果时不知道结构化的是谁的,不用。
 `tool_result.content` 里的文字合成一段,图片作为 ACP 的 `image`(日志里大于 16 KiB 的照常存成 blob)。别的工具仍只有文字。
 

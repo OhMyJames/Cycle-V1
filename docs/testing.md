@@ -77,8 +77,8 @@ CI 的 `integration` 作业每次都生成这个记录,作为 `integration-timin
 `bun run test:integration` 全程用模拟的 API,不花额度。真实模型的测试要显式开启,凭证显式给:
 
 ```bash
-CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd packages/adapters/claude test:real   # 适配器层,4 项
-CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd packages/daemon test:real            # 经过 daemon,中间重启它
+CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd harness/claude test:real          # 适配器层,4 项
+CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd apps/daemon test:real:daemon      # 经过 daemon,中间重启它
 ```
 
 - token 只放进 Claude 进程的环境,不进适配器自己的环境、不进日志(跑完检查过日志里没有它)。没设 `CYCLE_REAL_MODEL_TOKEN` 时这些测试是跳过的。

@@ -80,7 +80,7 @@ describe("zones", () => {
     ["apps/desktop/src/renderer/main.tsx", ["renderer"]],
     ["apps/desktop/src/preload/preload.ts", ["preload"]],
     ["apps/desktop/src/main/app.ts", []],
-    ["packages/daemon/src/daemon.ts", []],
+    ["apps/daemon/src/daemon.ts", []],
     ["packages/ui/test/store.test.ts", []],
   ])("%s", (file, zones) => expect(zoneOf(file)).toEqual(zones as never));
 });
@@ -92,7 +92,11 @@ const cases: [string, string, boolean][] = [
   ["packages/ui/src/model/x.ts", 'import { a } from "node:fs";', true],
   ["packages/ui/src/model/x.ts", 'import { a } from "@cycle/daemon";', true],
   ["packages/ui/src/model/x.ts", 'import { a } from "lexical";', true],
-  ["packages/ui/src/model/x.ts", 'import type { U } from "@cycle/acp";', false],
+  [
+    "packages/ui/src/model/x.ts",
+    'import type { U } from "@agentclientprotocol/sdk/experimental/v2";',
+    false,
+  ],
   ["packages/ui/src/model/x.ts", 'import { a } from "./blocks.ts";', false],
   ["packages/ui/src/api.ts", 'import type { C } from "./model/index.ts";', false],
   ["packages/ui/src/api.ts", 'import { useState } from "react";', true],
@@ -115,11 +119,9 @@ const cases: [string, string, boolean][] = [
   ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/daemon";', true],
   ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/client";', true],
   ["apps/desktop/src/renderer/main.tsx", 'const m = await import("node:os");', true],
-  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/transport";', true],
   ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/protocol";', true],
   ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/desktop";', true],
-  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/adapter-claude";', true],
-  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/daemon-app";', true],
+  ["apps/desktop/src/renderer/main.tsx", 'import { x } from "@cycle/harness-claude";', true],
   ["apps/desktop/src/renderer/main.tsx", 'import { x } from "module";', true],
   ["apps/desktop/src/renderer/main.tsx", 'import { x } from "tty";', true],
   ["apps/desktop/src/renderer/main.tsx", 'import { x } from "vm";', true],
@@ -146,7 +148,7 @@ const cases: [string, string, boolean][] = [
   ],
   // Elsewhere is not these rules' business
   ["apps/desktop/src/main/app.ts", 'import { readFile } from "node:fs";', false],
-  ["packages/daemon/src/daemon.ts", 'import { x } from "node:fs";', false],
+  ["apps/daemon/src/daemon.ts", 'import { x } from "node:fs";', false],
 ];
 
 describe("import rules", () => {

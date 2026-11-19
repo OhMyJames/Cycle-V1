@@ -220,7 +220,7 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 
 已验证(2026-11-18,Claude Agent SDK 0.3.327,本地模拟 API):新进程、同一个 `CLAUDE_CONFIG_DIR`,不带 `replayFrom` 恢复后,模型收到的请求里包含之前的用户消息,上下文完整。恢复依赖 Claude 的 transcript 还在配置目录里,而 transcript 按 `cwd` 存放,所以恢复时必须用创建时的 `cwd`。细节见 [docs/adapters/claude.md](adapters/claude.md)。
 
-**agent 在恢复时发的状态快照不进日志。** ACP v2 要求 agent 在 `session/resume` 响应前发一条当前状态(`state_update`)。这是握手,不是历史:daemon 在等待 agent 的 resume 响应期间丢弃 agent 发来的更新。否则每次重启 agent 都会在历史里留下一条没有 `stopReason` 的 idle,客户端会把它当成一个 turn 的结束(实际测试中出现过,见 `packages/daemon` 的测试)。
+**agent 在恢复时发的状态快照不进日志。** ACP v2 要求 agent 在 `session/resume` 响应前发一条当前状态(`state_update`)。这是握手,不是历史:daemon 在等待 agent 的 resume 响应期间丢弃 agent 发来的更新。否则每次重启 agent 都会在历史里留下一条没有 `stopReason` 的 idle,客户端会把它当成一个 turn 的结束(实际测试中出现过,见 `apps/daemon` 的测试)。
 
 **怎么区分一个 turn 的结束和状态快照**:turn 结束的 `state_update` 是 idle 并带 `stopReason`;快照没有。客户端据此判断 turn 是否结束。
 

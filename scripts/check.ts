@@ -10,23 +10,23 @@ type Rule = { name: string; pattern: RegExp; allowed: (file: string) => boolean;
 
 const rules: Rule[] = [
   {
-    name: "ACP SDK only in packages/acp",
-    pattern: /@agentclientprotocol\//,
-    allowed: (f) => f.startsWith("packages/acp/"),
-    why: "ACP v2 is a draft; every other package imports `@cycle/acp` so a change lands in one place.",
+    name: "ACP SDK uses experimental/v2 only",
+    pattern: /(["'`])@agentclientprotocol\/(?!sdk\/experimental\/v2\1)/,
+    allowed: (f) => f === "scripts/check.ts" || f === "package.json" || f.endsWith("/package.json"),
+    why: "ACP v2 is a draft; import only `@agentclientprotocol/sdk/experimental/v2` (never unstable or v1).",
   },
   {
     name: "no Bun APIs where Node runs",
     pattern: /\bBun\./,
     allowed: (f) =>
       !(
+        f.startsWith("packages/protocol/src/") ||
+        f.startsWith("packages/analytics/src/") ||
         f.startsWith("packages/client/src/") ||
-        f === "packages/transport/src/client.ts" ||
-        f === "packages/transport/src/channel.ts" ||
         f.startsWith("packages/ui/src/") ||
         f.startsWith("apps/desktop/src/")
       ),
-    why: "Electron's main process is Node. Use node: modules there (see packages/transport/src/client.ts).",
+    why: "Electron's main process is Node. Use node: modules there (see packages/client/src/transport.ts).",
   },
   {
     name: "no suppressed checks",
@@ -36,7 +36,7 @@ const rules: Rule[] = [
   },
 ];
 
-const sources = new Glob("{packages,apps,scripts}/**/*.{ts,tsx,json}");
+const sources = new Glob("{packages,harness,apps,scripts}/**/*.{ts,tsx,json}");
 const failures: string[] = [];
 for await (const file of sources.scan({ cwd: root })) {
   if (file.includes("node_modules/")) continue;
@@ -47,6 +47,45 @@ for await (const file of sources.scan({ cwd: root })) {
     }
   }
   failures.push(...violations(file, text));
+}
+// The ACP SDK is pinned to one exact version in the root workspace catalog, and every workspace
+// package refers to it via `catalog:` so upgrades happen in one place.
+{
+  type Manifest = {
+    workspaces?: { catalog?: Record<string, string> };
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+  };
+  const sections = [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+  ] as const;
+  const rootPkg = (await Bun.file(`${root}package.json`).json()) as Manifest;
+  const pinned = rootPkg.workspaces?.catalog?.["@agentclientprotocol/sdk"];
+  if (pinned === undefined || !/^\d+\.\d+\.\d+$/.test(pinned)) {
+    failures.push(
+      `package.json: workspaces.catalog["@agentclientprotocol/sdk"] must be an exact semver version (got ${JSON.stringify(pinned)})`,
+    );
+  }
+  const manifests = [
+    "package.json",
+    ...Array.from(new Glob("{packages,harness,apps}/*/package.json").scanSync({ cwd: root })),
+  ];
+  for (const file of manifests) {
+    const pkg = (await Bun.file(root + file).json()) as Manifest;
+    for (const section of sections) {
+      const spec = pkg[section]?.["@agentclientprotocol/sdk"];
+      if (spec !== undefined && spec !== "catalog:") {
+        failures.push(
+          `${file}: ${section}["@agentclientprotocol/sdk"] must be "catalog:" (got ${JSON.stringify(spec)})`,
+        );
+      }
+    }
+  }
 }
 // DESIGN.md and the stylesheet agree on the --cycle-* tokens: one that is written and not defined is a promise
 // nothing keeps, and one that is defined and not written is a decision nobody can see.

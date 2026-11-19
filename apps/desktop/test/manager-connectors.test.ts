@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectUnix } from "@cycle/transport/client";
+import { connectUnix } from "@cycle/client";
 import type { AppEvent } from "@cycle/ui";
 import { connectorsDaemon } from "../../../packages/client/test/fake-connectors-daemon.ts";
 import { ConnectionManager } from "../src/main/manager.ts";

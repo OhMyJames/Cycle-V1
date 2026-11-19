@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { CLAUDE_PERMISSION_MODES } from "@cycle/adapter-claude";
+import { CLAUDE_PERMISSION_MODES } from "@cycle/harness-claude";
 import { META } from "@cycle/protocol";
-import { CLAUDE_CONFIG_SCHEMA } from "../src/agents.ts";
+import { CLAUDE_CONFIG_SCHEMA } from "../src/claude-agent.ts";
 
 test("Claude's settings list every mode the adapter takes, and leave the model open", () => {
   const { mode, model } = CLAUDE_CONFIG_SCHEMA.properties;

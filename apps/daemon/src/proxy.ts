@@ -1,8 +1,8 @@
 import { closeSync, mkdirSync, openSync, readFileSync, statSync, truncateSync } from "node:fs";
 import { join } from "node:path";
-import { bridgeStdio, isListening } from "@cycle/transport/server";
 import type { Paths } from "./config.ts";
 import { selfCommand } from "./self.ts";
+import { bridgeStdio, isListening } from "./transport/server.ts";
 
 const LOG_NAME = "daemon.log";
 const LOG_LIMIT = 1_000_000;

@@ -11,7 +11,7 @@ Desktop(Electron) ──L1──▶ Daemon ──L2(ACP)──▶ Agent 适配�
 
 ### L1:客户端到 daemon
 
-- 基于 JSON-RPC 2.0,与传输分离。消息模型以 ACP v2 为蓝本,字段和语义保持一致。ACP 的类型来自固定版本的 SDK(只经 `@cycle/acp` 使用),Cycle 的扩展用 zod 定义在 `@cycle/protocol`(见 [决策 0005](decisions/0005-acp-v2.md))。daemon 转发 agent 的消息并补充 Cycle 自己的能力,Cycle 的扩展放在 `_cycle/*` 方法和 `_meta` 里,不重复定义 ACP 已有的概念。
+- 基于 JSON-RPC 2.0,与传输分离。消息模型以 ACP v2 为蓝本,字段和语义保持一致。ACP 的类型来自固定版本的 `@agentclientprotocol/sdk/experimental/v2`(精确版本固定在根 `package.json` 的 `workspaces.catalog`,门禁禁止导入 `unstable` 或其他入口,见 [决定笔记](../.agents/notes/2026-11-19-workspace-layout-and-direct-acp-sdk.md) 与历史 [决策 0005](decisions/0005-acp-v2.md)),Cycle 的扩展用 zod 定义在 `@cycle/protocol`。daemon 转发 agent 的消息并补充 Cycle 自己的能力,Cycle 的扩展放在 `_cycle/*` 方法和 `_meta` 里,不重复定义 ACP 已有的概念。
 - daemon 长驻,支持多个客户端观察同一个 session;客户端断线后 session 继续运行。
 - **daemon 自己保存会话历史**(见 [决策 0002](decisions/0002-session-persistence.md)):JSONL,每个 session 一个文件,只追加,每条事件带单调递增的 `seq`。历史不依赖 agent 重放,因为云端 sandbox 销毁后 agent 侧的历史会丢。重连时按 `since=seq` 补发,或先取快照再接增量。
 - 会话内容沿用 ACP v2 的 item 模型:消息、tool call 等按稳定 id 打补丁。
@@ -23,7 +23,7 @@ Desktop(Electron) ──L1──▶ Daemon ──L2(ACP)──▶ Agent 适配�
 
 - 以 **ACP v2** 为主要参考(见 [决策 0005](decisions/0005-acp-v2.md))。daemon 充当 ACP client。
 - v2 的关键特性正好是我们需要的:`session/update` 可在会话任意时刻到达,消息、tool call 按稳定 id 打补丁,agent 可报告空闲,支持多个客户端观察同一个 session。
-- v2 仍是草案(alpha),所以 ACP 的 schema 只在 `packages/acp` 一处定义,版本固定。ACP 变化的影响限制在这个包和适配层。
+- v2 仍是草案(alpha),所以 `@agentclientprotocol/sdk` 在根 `package.json` 的 `workspaces.catalog` 一处固定精确版本,并由 `scripts/check.ts` 限制只用 `experimental/v2` 入口。
 - **传输不绑定 stdio。** L2 抽象为一个双向消息通道:v1 实现 stdio 子进程,后续可加 WebSocket 等,用于云端 sandbox。
 - v1 不使用 `fs/*`、`terminal/*` 等 client 能力。以后这些能力必须在 agent 所在的环境里执行,而不是在 daemon 的机器上。
 
@@ -42,16 +42,15 @@ Desktop(Electron) ──L1──▶ Daemon ──L2(ACP)──▶ Agent 适配�
 - 候选方式:`ssh -L` 转发,或 `ssh host <cmd> proxy`(stdio 桥接到 socket)。倾向后者。
 - 本地模式是同一个 daemon 加本地 socket,只有一条代码路径。
 
-## 规划中的仓库结构
+## 仓库结构
 
 ```
 packages/protocol          Cycle 对 ACP 的扩展:_cycle/* 方法、_meta 键、错误码(zod)
-packages/acp               ACP v2 类型和常量(固定 SDK 版本,唯一导入它的地方)
-packages/daemon            会话管理、事件日志(JSONL)、ACP client 调度
-packages/transport         unix socket、stdio 桥接、ssh 通道
-packages/client            给客户端用的 CycleClient:重连、按 seq 补发、去重
-apps/daemon                可运行的 daemon:serve 和 proxy
-packages/adapters/claude   Claude 适配进程(基于 Claude Agent SDK)和 manifest
+packages/client            纯 Node 客户端 CycleClient + 客户端传输(unix socket、stdio、ssh)
+packages/analytics         产品分析事件字典(zod)与 PostHog 客户端
+packages/ui                前端纯会话模型、Store、React UI、Gallery
+harness/claude             Claude 适配进程(基于 Claude Agent SDK)和配置定义(后续 codex、agy 等并列在此)
+apps/daemon                完整 daemon:会话管理、事件日志(JSONL)、服务端传输、serve 和 proxy
 apps/desktop               Electron(main:ssh 与 daemon 连接;renderer:UI)
 docs/
 ```

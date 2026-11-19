@@ -148,7 +148,7 @@ const isBuiltin = (name: string) => BUILTINS.some((m) => name === m || name.star
 // Packages that run in the daemon or the main process: the page has no business with them.
 // The analytics package may be reached for its dictionary (`@cycle/analytics/events`, for types), not for PostHog.
 const BACKEND =
-  /^@cycle\/(?:daemon|daemon-app|client|transport|protocol|desktop)(?:\/|$)|^@cycle\/adapter|^@cycle\/analytics(?:$|\/posthog)/;
+  /^@cycle\/(?:daemon|client|protocol|desktop)(?:\/|$)|^@cycle\/harness-|^@cycle\/analytics(?:$|\/posthog)/;
 
 const isRelative = (name: string) => name.startsWith(".");
 
@@ -159,12 +159,12 @@ const inModel = (resolved: string) =>
 
 const forbidden: Record<Zone, (name: string, file: string) => string | undefined> = {
   model: (name, file) => {
-    if (name === "@cycle/acp") return undefined;
+    if (name === "@agentclientprotocol/sdk/experimental/v2") return undefined;
     if (isRelative(name)) {
       if (inModel(posix.normalize(posix.join(posix.dirname(file), name)))) return undefined;
       return "the model may import only its own files (packages/ui/src/model, api.ts), not code that uses the page or the main process";
     }
-    return "the model is pure TypeScript: it may import only its own files and @cycle/acp";
+    return "the model is pure TypeScript: it may import only its own files and @agentclientprotocol/sdk/experimental/v2";
   },
   renderer: (name) => {
     if (NODE.test(name) || isBuiltin(name))

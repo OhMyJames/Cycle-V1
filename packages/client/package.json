@@ -7,9 +7,9 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@cycle/acp": "workspace:*",
+    "@agentclientprotocol/sdk": "catalog:",
     "@cycle/protocol": "workspace:*",
-    "@cycle/transport": "workspace:*"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@cycle/daemon": "workspace:*"

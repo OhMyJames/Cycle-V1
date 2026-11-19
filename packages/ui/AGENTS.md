@@ -47,7 +47,8 @@ The gate does not enforce them.
 - The reducer that turns `session/update` into a conversation (`src/model/`) is pure TypeScript. It must not
   import React or anything DOM: the Electron main process uses it too.
 - The gate keeps these boundaries (`scripts/boundaries.ts`, `tsconfig.model.json`, `tsconfig.renderer.json`): the model
-  (`src/model/`, `src/api.ts`) sees no DOM, Node or Bun globals and imports only relative files and `@cycle/acp`; the
+  (`src/model/`, `src/api.ts`) sees no DOM, Node or Bun globals and imports only relative files and
+  `@agentclientprotocol/sdk/experimental/v2`; the
   page (`src/`, `apps/desktop/src/renderer`) sees the DOM but no Node or Bun, and imports no Node, Electron or daemon-side
   package; the preload imports only `electron` and `@cycle/ui/api`. Anything the page needs from the main process goes
   through the bridge in `api.ts`.

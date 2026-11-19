@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { SessionUpdate } from "@cycle/acp";
+import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
 import type { AppEvent, PermissionRequest, SessionSnapshot } from "../src/api.ts";
 import { DraftStore } from "../src/draft.ts";
 import { applyUpdate, emptyConversation, reduce } from "../src/model/index.ts";

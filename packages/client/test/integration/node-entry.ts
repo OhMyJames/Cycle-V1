@@ -1,7 +1,6 @@
 // Runs under real Node (Electron's, with ELECTRON_RUN_AS_NODE), not Bun: the client half of the
 // transport and CycleClient must work where Electron's main process runs. Prints one JSON line.
-import { CycleClient } from "@cycle/client";
-import { connectUnix } from "@cycle/transport/client";
+import { CycleClient, connectUnix } from "@cycle/client";
 
 const socket = process.argv[2];
 if (socket === undefined) throw new Error("no socket path");

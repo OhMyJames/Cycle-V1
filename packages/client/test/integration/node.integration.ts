@@ -6,10 +6,9 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Daemon } from "@cycle/daemon";
-import { listenUnix } from "@cycle/transport/server";
+import { Daemon, listenUnix } from "@cycle/daemon";
+import { fakeAgent } from "../../../../apps/daemon/test/fake-agent.ts";
 import { electronBinary } from "../../../../scripts/electron-binary.ts";
-import { fakeAgent } from "../../../daemon/test/fake-agent.ts";
 
 const electron = electronBinary(new URL("../../../../node_modules/.bun", import.meta.url).pathname);
 
