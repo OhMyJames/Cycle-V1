@@ -172,9 +172,10 @@ export class Updater {
   }
 
   /**
-   * One request, with a deadline: GitHub not answering ends the check or the install with an error, and does not hold
-   * `#busy` for ever. The deadline is for the answer to begin; with `small` (the list, a manifest) it is for all of
-   * the body too, which is read here. How long an archive's body takes is the line's, and is not limited.
+   * One request, with a deadline: GitHub not answering ends the check or the install with an error, and does not
+   * hold `#busy` for ever. For what is small (`small`: the list, a manifest) the deadline is for all of the answer,
+   * which is read here. For an archive, or a range of one, it is for the answer to begin and then for each wait
+   * for more of the body: how long it takes in all is the line's, how long it goes quiet is not.
    */
   async #get(
     url: string,
@@ -184,10 +185,16 @@ export class Updater {
   ): Promise<Response> {
     const ms = this.#d.deadlineMs ?? DEADLINE_MS;
     const deadline = new AbortController();
-    const timer = setTimeout(
-      () => deadline.abort(new Error(`GitHub did not answer in ${ms / 1000} seconds.`)),
-      ms,
-    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(
+        () => deadline.abort(new Error(`GitHub did not answer in ${ms / 1000} seconds.`)),
+        ms,
+      );
+    };
+    arm();
+    let handedOver = false;
     try {
       const response = await this.#d.fetch(url, {
         headers: { "user-agent": "Cycle-updater", ...headers },
@@ -198,15 +205,40 @@ export class Updater {
       });
       if (response.status === 403 || response.status === 429)
         throw new Limited("GitHub is limiting requests from this network. Try again in a while.");
-      if (!small) return response;
-      const body = [101, 204, 205, 304].includes(response.status)
-        ? null
-        : await response.arrayBuffer();
-      return new Response(body, { status: response.status, headers: response.headers });
+      if (small) {
+        const body = [204, 205, 304].includes(response.status)
+          ? null
+          : await response.arrayBuffer();
+        return new Response(body, { status: response.status, headers: response.headers });
+      }
+      if (response.body === null) return response;
+      // The body is handed on, and goes on being watched: each wait for the next piece has its deadline.
+      const reader = response.body.getReader();
+      const watched = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          arm();
+          try {
+            const { done, value } = await reader.read();
+            if (done) {
+              clearTimeout(timer);
+              controller.close();
+            } else controller.enqueue(value);
+          } catch (error) {
+            clearTimeout(timer);
+            controller.error(deadline.signal.aborted ? deadline.signal.reason : error);
+          }
+        },
+        cancel(reason) {
+          clearTimeout(timer);
+          return reader.cancel(reason);
+        },
+      });
+      handedOver = true;
+      return new Response(watched, { status: response.status, headers: response.headers });
     } catch (error) {
       throw deadline.signal.aborted ? deadline.signal.reason : error;
     } finally {
-      clearTimeout(timer);
+      if (!handedOver) clearTimeout(timer);
     }
   }
 

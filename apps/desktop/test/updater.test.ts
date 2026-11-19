@@ -583,3 +583,51 @@ test("a manifest that GitHub does not send in time ends the check, and the next 
   stalledManifest = false;
   expect((await updater.check(true)).kind).toBe("available");
 });
+
+test("an archive that goes quiet part-way ends the install with an error, and the app can try again", async () => {
+  publish("0.2.0");
+  await mkdir(join(dir, "apps"), { recursive: true });
+  let stall = true;
+  const quiet = asFetch((input, init) => {
+    if (!stall || !String(input).includes("/dl/") || String(input).endsWith(".json"))
+      return fetch(input, init);
+    // The answer begins, one piece of the body comes, and then nothing, until the request is ended.
+    return Promise.resolve(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(3));
+            init?.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+  });
+  const { updater } = make({ fetch: quiet, deadlineMs: 50 });
+  await updater.check(false);
+  await expect(updater.install()).rejects.toThrow(/did not answer/);
+  // Not held: it can be asked again, and goes through.
+  stall = false;
+  await updater.install();
+});
+
+test("a release list that begins and then goes quiet ends the check", async () => {
+  publish("0.2.0");
+  const half = asFetch((input, init) => {
+    if (!String(input).includes("/releases")) return fetch(input, init);
+    return Promise.resolve(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("["));
+            init?.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+  });
+  const { updater } = make({ fetch: half, deadlineMs: 50 });
+  expect(await updater.check(true)).toMatchObject({ kind: "error" });
+});
