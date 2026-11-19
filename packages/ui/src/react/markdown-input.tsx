@@ -16,6 +16,7 @@ import {
   $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_HIGH,
+  INSERT_LINE_BREAK_COMMAND,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_UP_COMMAND,
   KEY_ENTER_COMMAND,
@@ -61,8 +62,9 @@ export type MarkdownInputProps = {
   label: string;
   placeholder: string;
   /**
-   * Asked first of the keys named in `InputKey`. True: the key was used, and nothing else happens. Enter is always used up
-   * (it sends, or does nothing): a new line is Shift+Enter.
+   * Asked first of the keys named in `InputKey`. True: the key was used, and nothing else happens. Enter, with or without
+   * a modifier, is asked too; one the parent does not use is a new line (a line break, as Shift+Enter makes in a
+   * plain editor), never a new paragraph.
    */
   onKey: (key: InputKey, event: KeyboardEvent) => boolean;
   /** Pictures pasted into the input. Other files are not taken. */
@@ -157,10 +159,12 @@ function Behaviour({ props }: { props: MarkdownInputProps }) {
       (event: KeyboardEvent | null): boolean => {
         if (event === null) return false;
         if (name === "enter") {
-          // Shift+Enter is a new line; Enter that confirms an IME composition is not a send.
-          if (event.shiftKey || event.isComposing) return false;
+          // Enter that confirms an IME composition is not a send.
+          if (event.isComposing) return false;
           event.preventDefault();
-          latest.current.onKey("enter", event);
+          // Not used by the parent: a new line, the one Shift+Enter makes, whichever modifier asked for it.
+          if (!latest.current.onKey("enter", event))
+            editor.dispatchCommand(INSERT_LINE_BREAK_COMMAND, false);
           return true;
         }
         if (event.isComposing) return false;

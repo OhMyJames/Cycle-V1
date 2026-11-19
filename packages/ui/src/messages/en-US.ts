@@ -51,8 +51,10 @@ export const enUS = {
   "composer.placeholder.idle": "Message the agent",
   "composer.placeholder.working": "Queue a message for when the agent is done",
   "composer.placeholder.busy": "The agent is working. Stop it to send a message now.",
+  "composer.placeholder.steer": "Enter to send now, Shift+Enter to queue",
   "composer.send": "Send",
   "composer.queue": "Queue",
+  "composer.steer": "Send now",
   "composer.stop": "Stop",
   "composer.setting": "{setting}: {value}",
 

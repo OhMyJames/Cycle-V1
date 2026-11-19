@@ -159,7 +159,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 
 ## 输入框(composer)
 
-- **Markdown 输入**(决策笔记 `2026-11-18-composer-text-is-markdown`):输入框是 Lexical 编辑器,文本即 Markdown,边写边渲染;发出去的是敲下的字(`composer-markdown.ts` 把 Lexical 会改写的字符换成私用区的占位再换回来,测试覆盖固定样例和随机文本)。Enter 发送,Shift+Enter 换行,输入法组合中的 Enter 不发送;粘贴图片变成附件,粘贴文字按文字放入。
+- **Markdown 输入**(决策笔记 `2026-11-18-composer-text-is-markdown`):输入框是 Lexical 编辑器,文本即 Markdown,边写边渲染;发出去的是敲下的字(`composer-markdown.ts` 把 Lexical 会改写的字符换成私用区的占位再换回来,测试覆盖固定样例和随机文本)。Enter 发送,Shift+Enter 换行,输入法组合中的 Enter 不发送。agent 运行中(agent 和 daemon 都支持插入时,见 protocol.md §8 和决策笔记 `2026-11-19-steer-into-the-running-turn`):Enter 把消息插入当前 turn("Send now"),Shift+Enter 排队("Queue"),Alt+Enter 换行;不支持插入时 Enter 和 Shift+Enter 都是排队。粘贴图片变成附件,粘贴文字按文字放入。
 - **草稿**:每个 session 一份,文字存在渲染进程的 localStorage(键含主机和 session),图片只在内存里;发送、删除 session 时清掉。发送失败,内容放回输入框。
 - **排队**:agent 工作时同一个框继续写,按钮变成"Queue";排队的消息列在输入框上方,可以 Edit 取回;停止或出错后 daemon 退回的消息自动放回输入框(不当作错误)。
 - **会话设置**:输入框下面的工具条里,agent `configSchema` 中每个可选的属性(`enum`、`oneOf`)一个菜单按钮(权限模式、模型),改了就发 `set_config`;没有记录的值写 "Not set"。它们后面一个齿轮按钮打开 Session settings,里面是全部设置(包括文本类的)。版式见 DESIGN.md 第 21 节。

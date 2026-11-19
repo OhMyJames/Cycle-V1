@@ -62,6 +62,13 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
     kill: (_error?: Error): void => undefined,
     /** True when the newest query's input was closed (the adapter let it go). */
     inputClosed: false,
+    /**
+     * A message pushed with priority "next" while a turn runs is taken into that turn, as Claude does
+     * at a tool call; otherwise it waits and gets a turn of its own, as when the turn ends first.
+     */
+    fold: false,
+    /** The texts taken into a running turn, in order. */
+    folded: [] as string[],
   };
   const run = (params: {
     prompt: string | AsyncIterable<SDKUserMessage>;
@@ -90,14 +97,36 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
     });
     ended.catch(() => undefined);
 
+    // The input is read as it comes, as the CLI reads its stdin, so a message can arrive mid-turn.
+    const buffer: SDKUserMessage[] = [];
+    let inputDone = false;
+    let arrived: (() => void) | undefined;
+    void (async () => {
+      for await (const message of input) {
+        buffer.push(message);
+        arrived?.();
+      }
+      inputDone = true;
+      arrived?.();
+    })();
+    const next = async (): Promise<SDKUserMessage | undefined> => {
+      while (buffer.length === 0 && !inputDone) {
+        await new Promise<void>((resolve) => {
+          arrived = resolve;
+        });
+      }
+      return buffer.shift();
+    };
+
     const iterator = (async function* () {
-      const next = input[Symbol.asyncIterator]();
       for (;;) {
-        const pushed = await Promise.race([next.next(), ended]);
-        if (pushed.done) {
+        // A process that has been killed reads nothing more, even what was already sent to it.
+        const message = await Promise.race([ended, next()]);
+        if (message === undefined) {
           state.inputClosed = true;
           return;
         }
+        const pushed = { value: message };
         const text = textOfInput(pushed.value);
         prompts.push(text);
         contents.push((pushed.value.message as { content: unknown }).content);
@@ -113,14 +142,33 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
           ended,
         ]);
         if (messages === "interrupted") {
+          const own = (pushed.value as { uuid?: string }).uuid;
           yield {
             type: "result",
             subtype: "error_during_execution",
             stop_reason: null,
+            ...(own !== undefined ? { user_message_uuids: [own] } : {}),
           } as unknown as SDKMessage;
           continue;
         }
-        for (const message of messages) yield message;
+        const own = (pushed.value as { uuid?: string }).uuid;
+        for (const message of messages) {
+          if (message.type !== "result" || own === undefined) {
+            yield message;
+            continue;
+          }
+          const taken = [own];
+          for (const waiting of state.fold ? [...buffer] : []) {
+            if ((waiting as { priority?: string }).priority !== "next") continue;
+            buffer.splice(buffer.indexOf(waiting), 1);
+            const said = textOfInput(waiting);
+            prompts.push(said);
+            contents.push((waiting.message as { content: unknown }).content);
+            state.folded.push(said);
+            taken.push((waiting as { uuid?: string }).uuid ?? "");
+          }
+          yield { ...message, user_message_uuids: taken } as SDKMessage;
+        }
       }
     })();
     return Object.assign(iterator, {

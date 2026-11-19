@@ -36,7 +36,7 @@ export type EnvironmentStatus = {
    * What the daemon on the environment can do beyond what every daemon does (docs/protocol.md §3). Absent until it has said: a
    * client that needs one of them waits, and does not assume.
    */
-  capabilities?: { queue: boolean; files: boolean; folders: boolean };
+  capabilities?: { queue: boolean; steer?: boolean; files: boolean; folders: boolean };
   /** What the daemon on the environment says it is. Not for the local one, which the app carries. */
   daemon?: {
     version: string;
@@ -75,6 +75,8 @@ export type AgentInfo = {
   configSchema: Record<string, unknown>;
   /** What the agent takes in a prompt beyond text (ACP `PromptCapabilities`). Absent from a daemon that does not say. */
   promptCapabilities?: { image?: object | null | undefined } | undefined;
+  /** It can take a message into the turn that is running (docs/protocol.md §8). Absent: it cannot. */
+  steer?: boolean;
 };
 
 /** What a message to an agent is made of: text, and images as ACP carries them (base64). */
@@ -196,8 +198,13 @@ export type AppApi = {
   createSession(environmentId: string, params: NewSession): Promise<string>;
   /** Starts watching a session and returns it whole. Call again after a reload. */
   openSession(environmentId: string, sessionId: string): Promise<SessionSnapshot>;
-  /** A text, or blocks: text and images. */
-  prompt(environmentId: string, sessionId: string, content: string | PromptBlock[]): Promise<void>;
+  /** A text, or blocks: text and images. `steer`: into the running turn rather than the queue. */
+  prompt(
+    environmentId: string,
+    sessionId: string,
+    content: string | PromptBlock[],
+    options?: { steer?: boolean },
+  ): Promise<void>;
   cancel(environmentId: string, sessionId: string): Promise<void>;
   /** Files and folders of the session's folder, on the machine of the daemon, that fit what was typed after an @. */
   searchFiles(environmentId: string, sessionId: string, query: string): Promise<FileSearch>;

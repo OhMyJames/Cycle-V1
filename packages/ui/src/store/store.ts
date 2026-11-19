@@ -321,9 +321,10 @@ export class AppStore {
 
   /**
    * Sends what the selected session's box holds: its text, and the images attached to it. The box is empty from the
-   * moment it goes; if it cannot go, what was in it comes back, in front of anything written since.
+   * moment it goes; if it cannot go, what was in it comes back, in front of anything written since. `steer`: while the
+   * agent works, into the turn that is running instead of the queue.
    */
-  send = async (): Promise<void> => {
+  send = async (options: { steer?: boolean } = {}): Promise<void> => {
     const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
     if (environmentId === undefined || sessionId === undefined) return;
     const key = viewKey(environmentId, sessionId);
@@ -331,7 +332,9 @@ export class AppStore {
     if (content === undefined) return;
     this.drafts.clear(key);
     const sent = await this.#attempt(async () => {
-      await this.#bridge.prompt(environmentId, sessionId, content);
+      if (options.steer === true)
+        await this.#bridge.prompt(environmentId, sessionId, content, { steer: true });
+      else await this.#bridge.prompt(environmentId, sessionId, content);
       return true;
     });
     if (sent !== true) this.drafts.restore(key, [content]);

@@ -62,6 +62,7 @@ export const agentsFor = (
     name: "Claude",
     configSchema: CLAUDE_CONFIG_SCHEMA,
     promptCapabilities: CLAUDE_PROMPT_CAPABILITIES,
+    steer: true,
     // In the executable, the Claude binary shipped beside it must be there: say so now, not on the first prompt.
     available: () => claudeExecutable() === undefined || existsSync(claudeExecutable() as string),
     command: [...selfCommand(), "adapter", "claude"],

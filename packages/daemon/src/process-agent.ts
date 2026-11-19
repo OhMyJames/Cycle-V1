@@ -8,6 +8,8 @@ export type ProcessAgentOptions = {
   configSchema?: Record<string, unknown>;
   /** What the agent takes in a prompt beyond text and links; see `AgentDefinition`. */
   promptCapabilities?: PromptCapabilities;
+  /** See `AgentDefinition`. */
+  steer?: boolean;
   command: string[];
   /**
    * The child's whole environment. Nothing is inherited from the daemon: the daemon's own variables
@@ -27,6 +29,7 @@ export const processAgent = (options: ProcessAgentOptions): AgentDefinition => (
   ...(options.promptCapabilities !== undefined
     ? { promptCapabilities: options.promptCapabilities }
     : {}),
+  ...(options.steer === true ? { steer: true } : {}),
   ...(options.available !== undefined ? { available: options.available } : {}),
   launch: async () => {
     const proc = Bun.spawn(options.command, {

@@ -461,6 +461,7 @@ export function App() {
                 }
                 onSetting={(key, value) => void store.setSessionConfig(key, value)}
                 onOpenSettings={() => setPanel("settings")}
+                canSteer={agent?.steer === true}
                 enabled={!view.loading}
                 connected={connected}
                 activity={activity}

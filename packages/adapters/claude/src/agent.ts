@@ -147,6 +147,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PROPOSED_ID = "cycle/sessionId";
 /** In `session/resume`: a turn of the session was answered, so Claude must have a record of it (`META.hadTurn`). */
 const HAD_TURN = "cycle/hadTurn";
+/** On `session/prompt`: put it into the turn that is running (`META.steer`, docs/protocol.md §8). */
+const STEER = "cycle/steer";
 
 type Turn = {
   translator: TurnTranslator;
@@ -154,6 +156,11 @@ type Turn = {
   permissions: AbortController;
   cancelled: boolean;
   done: boolean;
+  /**
+   * Prompts put into this turn that Claude has not yet said it took (a result's `user_message_uuids`).
+   * While there are any, a result does not end the turn: Claude goes on with them.
+   */
+  steers: Set<string>;
   killTimer: ReturnType<typeof setTimeout> | undefined;
 };
 
@@ -161,8 +168,11 @@ type Turn = {
 type Live = {
   query: Query;
   abort: AbortController;
-  /** Hands the process a user message. */
-  push: (content: string | SdkContent[]) => void;
+  /**
+   * Hands the process a user message. `uuid` is how a result names it among what it took; `next`:
+   * into the turn that is running, at its next tool call.
+   */
+  push: (content: string | SdkContent[], uuid: string, priority?: "next") => void;
   /** Ends the input: the process finishes what it is doing and exits. */
   end: () => void;
   idle: ReturnType<typeof setTimeout> | undefined;
@@ -642,11 +652,13 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     const live: Live = {
       query,
       abort,
-      push: (content) => {
+      push: (content, uuid, priority) => {
         queue.push({
           type: "user",
           message: { role: "user", content },
           parent_tool_use_id: null,
+          uuid,
+          ...(priority !== undefined ? { priority } : {}),
         } as SDKUserMessage);
         wake?.();
       },
@@ -697,6 +709,16 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
             await notify(client, session.id, update);
           }
           if (message.type === "result") {
+            // What was put into the turn and not taken before it ended is Claude's next to answer,
+            // in the same process: the turn goes on until that is answered too.
+            const taken = (message as { user_message_uuids?: string[] }).user_message_uuids;
+            if (taken === undefined) turn.steers.clear();
+            else for (const id of taken) turn.steers.delete(id);
+            if (turn.steers.size > 0 && !turn.cancelled) continue;
+            // A stopped turn with something put into it still waiting: Claude would answer it
+            // after the stop, with no turn to show it in. The process goes before it can begin
+            // that; the next prompt starts another, which resumes the session.
+            if (turn.steers.size > 0) release(session, true);
             await finish(
               client,
               session,
@@ -745,6 +767,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     session: SessionState,
     turn: Turn,
     content: string | SdkContent[],
+    messageId: string,
   ) => {
     // A cancel can arrive before there is a process: then there is nothing to interrupt.
     if (turn.cancelled) return finish(client, session, turn, { stopReason: "cancelled" });
@@ -753,7 +776,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       const live = session.live ?? start(client, session);
       session.live = live;
       clearTimeout(live.idle);
-      live.push(content);
+      live.push(content, messageId);
     } catch (error) {
       await finish(client, session, turn, {
         stopReason: "error",
@@ -872,7 +895,29 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     })
     .onRequest(methods.agent.session.prompt, ({ params, client }) => {
       const session = require(params.sessionId);
-      if (session.turn !== undefined) {
+      const steer = (params._meta as Record<string, unknown> | null | undefined)?.[STEER] === true;
+      const running = session.turn;
+      if (steer) {
+        // Only into a turn that is going on, in a process that has it: anything else is the
+        // daemon's to queue or send (docs/protocol.md §8).
+        const live = session.live;
+        if (running === undefined || running.done || running.cancelled || live === undefined) {
+          throw new RequestError(-32600, "No turn is running to take it", {
+            sessionId: session.id,
+          });
+        }
+        const content = toSdkContent(params.prompt);
+        const messageId = randomUUID();
+        running.steers.add(messageId);
+        live.push(content, messageId, "next");
+        void notify(client, session.id, {
+          sessionUpdate: "user_message",
+          messageId,
+          content: params.prompt,
+        } as SessionUpdate).catch(() => undefined);
+        return { messageId };
+      }
+      if (running !== undefined) {
         throw new RequestError(-32600, "A turn is already running", { sessionId: session.id });
       }
       // Refused whole, before there is a turn: a block that cannot be carried is not dropped.
@@ -885,6 +930,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         permissions: new AbortController(),
         cancelled: false,
         done: false,
+        steers: new Set(),
         killTimer: undefined,
       };
       session.turn = turn;
@@ -900,7 +946,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
             sessionUpdate: "state_update",
             state: "running",
           } as SessionUpdate);
-          await runTurn(client, session, turn, content);
+          await runTurn(client, session, turn, content, messageId);
         } catch {
           // The connection is gone: there is no one to tell.
         }

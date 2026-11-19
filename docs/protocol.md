@@ -45,6 +45,7 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
   "agents": ["claude"],
   "sessionOps": ["archive", "rename", "delete", "markRead"],
   "queue": true,
+  "steer": true,
   "files": true,
   "folders": true
 }
@@ -67,7 +68,7 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 | `session/new`                | 客户端 → daemon | daemon 创建 session 并启动 agent,见 §6                |
 | `session/list`               | 客户端 → daemon | daemon 处理,只返回 Cycle 自己的 session,见 §6         |
 | `session/resume`             | 客户端 → daemon | daemon 处理,表示"附着并按需补发历史",见 §7            |
-| `session/prompt`             | 客户端 → daemon | 转发。session 忙时入队,见 §8                          |
+| `session/prompt`             | 客户端 → daemon | 转发。session 忙时入队或插入当前 turn,见 §8           |
 | `_cycle/prompt/dequeue`      | 客户端 → daemon | daemon 处理:把排队的 prompt 撤回,见 §8                |
 | `_cycle/files/search`        | 客户端 → daemon | daemon 处理:在 session 的 `cwd` 里找文件,见 §8        |
 | `_cycle/folders/list`        | 客户端 → daemon | daemon 处理:列出一个目录下的文件夹(选 `cwd` 用),见 §8 |
@@ -266,6 +267,17 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 - **退回时没有客户端附着**(窗口都关了),或者 **daemon 重启**(进程被中断,没有机会退回):daemon 不退回,也不自动发送,队列留着。下一次有客户端附着时,daemon 在补发、`replay_complete` 和状态快照**之后**退回:原因照旧(重启则是 `interrupted`)。这条 `_cycle/queue_update` 是新写的记录(占新的序号),所以附着的客户端是实时收到它的。daemon 自己关闭时杀掉 agent 进程,不算退回的理由。
 - **撤回**:`_cycle/prompt/dequeue`(客户端 → daemon),参数 `{sessionId, queueId}`。成功时响应里带那条 prompt 的内容(`{prompt}`),客户端放回输入框编辑,并发一条 `_cycle/queue_update`。那条已经发出或不在队列里,以 `-32016`(`not_queued`)拒绝。
 
+### 插入(steer:把 prompt 放进正在运行的 turn)
+
+排队的 prompt 要等 turn 结束才发;插入的 prompt 现在就交给 agent,由 agent 在当前 turn 里接着处理(Claude 在下一次工具调用之间读到它)。
+
+- **请求**:`session/prompt` 的 `_meta["cycle/steer"]` 为 `true`。只在 session 是 `running` 或 `requires_action` 时有意义;session 空闲或已停止时,这个标记被忽略,照常发送。
+- **能力**:daemon 的 `cycle/capabilities` 有 `steer: true`,`_cycle/agents/list` 里能插入的 agent 带 `steer: true`(§10)。客户端只对这样的 agent 提供插入;旧 daemon 不认识这个 `_meta`,会照常排队,所以发了也不会出错。
+- **daemon 的处理**:agent 声明能插入时,daemon 把 `session/prompt` 原样转给 agent,`_meta` 里带 `cycle/steer: true`;agent 不声明、拒绝或 agent 进程不在,daemon 退回到排队(§8 "排队"),响应照排队的写法带 `cycle/queued`。插入成功的响应是 agent 给的 `messageId`,`_meta["cycle/steered"]` 为 `true`。
+- **agent 的处理**(L2):agent 在当前 turn 收下这条 prompt,立即发它的 `user_message`(带同一个 `messageId`),然后继续这个 turn,不另起 `state_update`。turn 在 agent 处理完它之前结束的(例如 Claude 恰好已经说完),agent 让 turn 继续,把它当作同一个 turn 的后续处理,turn 只以一条 `idle` 结束。turn 被取消时还没处理的插入,agent 必须保证它不会在之后悄悄运行(Claude 适配会结束进程,下一条 prompt 启动新进程恢复会话)。
+- **历史**:插入的 `user_message` 在 agent 收下时进日志,所以它在历史里出现在 turn 中间,位置就是它被收下的时刻。
+- 插入不经过队列,也不改变队列:队列里等着的 prompt 仍在 turn 正常结束后发出。
+
 ### 提及(@)文件与文件夹
 
 客户端在输入框里用 `@` 引用 session 的 `cwd` 下的文件或文件夹。
@@ -369,6 +381,8 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 ```
 
 session 里 ACP 的 `configOptions` 用 ACP 自己的字段表达同样的东西:`SessionConfigSelectOption` 的 `name`、`description`,推荐项同样在它的 `_meta` 里带 `cycle/recommended`。agent 两边给的名字和说明应当一致。
+
+能把 prompt 插入正在运行的 turn 的 agent 带 `steer: true`(§8 "插入"),没有就是不能。
 
 每个 agent 还有 `promptCapabilities`(ACP 的 `PromptCapabilities`:`image`、`embeddedContext`,缺省都是没有),客户端据此决定是否提供附件入口,daemon 据此校验 prompt(§8)。Claude 的 `model` 用 `oneOf` 给出取值和名字(`default` 叫 "Default model",以及 `sonnet`、`opus`、`haiku`;值不变,0.2.7 之前是只有值的 `enum`,客户端两种都认),`mode` 是权限模式,取值就是 Claude Agent SDK 的 `PermissionMode`:`default`、`acceptEdits`、`plan`、`auto`、`dontAsk`、`bypassPermissions`,新 session 默认且推荐 `auto`,各自的名字和说明见 L3 文档。
 

@@ -330,3 +330,61 @@ test("with nobody attached the queue is held, and handed back when a client come
   ]);
   expect(fake.log.prompts).toEqual(["first"]);
 });
+
+// ---- steer: into the running turn (docs/protocol.md §8) ----
+
+const steerPrompt = (sessionId: string, value: string) => ({
+  sessionId,
+  prompt: text(value),
+  _meta: { "cycle/steer": true },
+});
+
+test("a steered prompt goes into the running turn, not the queue, where the agent takes it", async () => {
+  const { fake, c, sessionId, release } = await working(undefined, { steer: "take" });
+  const answer = await c.agent.request(
+    methods.agent.session.prompt,
+    steerPrompt(sessionId, "mind this"),
+  );
+  expect(answer._meta).toMatchObject({ "cycle/steered": true });
+  expect(answer._meta).not.toHaveProperty("cycle/queued");
+  expect(fake.log.steers).toEqual(["mind this"]);
+  expect(fake.log.prompts).toEqual(["first"]);
+  await until(
+    () => c.seen.some((s) => (s.update as { messageId?: string }).messageId === answer.messageId),
+    "the steered user message",
+  );
+  expect(queueUpdates(c.seen)).toEqual([]);
+  release();
+  await until(() => c.ended() === 1, "the one turn to end");
+  expect(fake.log.prompts).toEqual(["first"]);
+});
+
+for (const steer of [undefined, "refuse"] as const) {
+  test(`a steered prompt is queued when the agent ${steer === undefined ? "cannot steer" : "refuses it"}`, async () => {
+    const { fake, c, sessionId, release } = await working(
+      undefined,
+      steer === undefined ? {} : { steer },
+    );
+    const answer = await c.agent.request(
+      methods.agent.session.prompt,
+      steerPrompt(sessionId, "later"),
+    );
+    expect(answer._meta).toMatchObject({ "cycle/queued": true });
+    expect(fake.log.steers).toEqual([]);
+    release();
+    await until(() => fake.log.prompts.length === 2, "the queued prompt to be sent");
+    expect(fake.log.prompts).toEqual(["first", "later"]);
+  });
+}
+
+test("a steer to a session that is not working is sent as any prompt", async () => {
+  const fake = fakeAgent({}, { steer: "take" });
+  const daemon = await start(fake);
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.prompt, steerPrompt(sessionId, "hello"));
+  await until(() => c.ended() === 1, "the turn to end");
+  expect(fake.log.prompts).toEqual(["hello"]);
+  expect(fake.log.steers).toEqual([]);
+});

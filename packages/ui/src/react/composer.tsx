@@ -42,6 +42,8 @@ export type ComposerProps = {
   activity: Status;
   /** The agent takes images in a prompt: the person may attach them. Without it the controls are not there. */
   canAttach?: boolean;
+  /** The agent can take a message into the turn that is running (docs/protocol.md §8). */
+  canSteer?: boolean;
   /** A message was sent from the box (not yet known to have arrived): the conversation follows it. */
   onSent?: () => void;
   /** The session's settings and the agent's schema for them; the choices among them are offered under the input. */
@@ -82,6 +84,7 @@ export function Composer({
   connected,
   activity,
   canAttach = false,
+  canSteer = false,
   onSent,
   settings,
   onSetting,
@@ -98,6 +101,8 @@ export function Composer({
   // A daemon that has not said it queues is asked nothing it would refuse: a message waits for the turn to end.
   const capabilities = useAppState((s) => s.status[environmentId]?.capabilities);
   const canQueue = capabilities?.queue === true;
+  // While it works, Enter puts the message into the running turn where the agent and the daemon can; Shift+Enter queues it.
+  const steers = working && canQueue && canSteer && capabilities?.steer === true;
   const canFind = connected && capabilities?.files === true;
   const recalled = useRef<Recall>(NOT_RECALLING);
   const [problem, setProblem] = useState<string | undefined>();
@@ -215,7 +220,13 @@ export function Composer({
     : activity === "requires_action"
       ? t("step.approval")
       : working
-        ? t(canQueue ? "composer.placeholder.working" : "composer.placeholder.busy")
+        ? t(
+            steers
+              ? "composer.placeholder.steer"
+              : canQueue
+                ? "composer.placeholder.working"
+                : "composer.placeholder.busy",
+          )
         : t("composer.placeholder.idle");
 
   const megabytes = (bytes: number) =>
@@ -277,12 +288,13 @@ export function Composer({
     setProblem(first);
   };
 
-  const send = async () => {
+  /** `steer`: into the running turn; otherwise, while the agent works, into the queue. */
+  const send = async (steer = false) => {
     if (!canSend) return;
     recalled.current = NOT_RECALLING;
     setProblem(undefined);
     onSent?.();
-    await store.send();
+    await store.send(steer ? { steer: true } : {});
   };
 
   const edit = async (queueId: string) => {
@@ -291,7 +303,11 @@ export function Composer({
     }
   };
 
-  /** The keys the box asks about first. Enter sends (a new line is Shift+Enter); the arrows walk through what was sent. */
+  /**
+   * The keys the box asks about first. Enter sends: while the agent works, into its turn where it can take it. Shift+Enter
+   * is a new line, or while the agent works the queue (a new line is then Alt+Enter, as it is at any time). The arrows walk through what
+   * was sent.
+   */
   const onKey = (key: InputKey, event: KeyboardEvent): boolean => {
     // An open menu has the keys first: the arrows choose, Enter and Tab take, Escape closes.
     if (menuOpen) {
@@ -312,7 +328,13 @@ export function Composer({
       }
     }
     if (key === "enter") {
-      void send();
+      if (event.altKey) return false;
+      if (event.shiftKey) {
+        if (!working || !canQueue) return false;
+        void send();
+        return true;
+      }
+      void send(steers);
       return true;
     }
     if (key !== "up" && key !== "down") return false;
@@ -511,8 +533,17 @@ export function Composer({
               {t("composer.stop")}
             </Button>
           ) : null}
-          <Button data-variant="solid" disabled={!canSend} onClick={send}>
-            {working && canQueue ? t("composer.queue") : t("composer.send")}
+          {steers ? (
+            <Button data-variant="outline" disabled={!canSend} onClick={() => void send()}>
+              {t("composer.queue")}
+            </Button>
+          ) : null}
+          <Button data-variant="solid" disabled={!canSend} onClick={() => void send(steers)}>
+            {steers
+              ? t("composer.steer")
+              : working && canQueue
+                ? t("composer.queue")
+                : t("composer.send")}
           </Button>
         </div>
       </div>

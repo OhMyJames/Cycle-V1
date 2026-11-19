@@ -208,10 +208,19 @@ export class CycleClient {
     this.#watched.delete(sessionId);
   }
 
-  async prompt(sessionId: string, content: ContentBlock[]): Promise<string> {
+  /**
+   * Sends a prompt. While the agent works it is queued, or with `steer` put into the running turn
+   * where the agent can take it (docs/protocol.md §8); a daemon that cannot queues it.
+   */
+  async prompt(
+    sessionId: string,
+    content: ContentBlock[],
+    options: { steer?: boolean } = {},
+  ): Promise<string> {
     const answer = (await this.#request(methods.agent.session.prompt, {
       sessionId,
       prompt: content,
+      ...(options.steer === true ? { _meta: { [META.steer]: true } } : {}),
     })) as { messageId: string };
     return answer.messageId;
   }
