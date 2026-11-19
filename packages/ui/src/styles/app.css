@@ -194,6 +194,7 @@ summary:focus-visible {
     [data-slot="composer-placeholder"],
     [data-slot="connector-name"],
     [data-slot="connector-where"],
+    [data-slot="tool-verb"],
     [data-slot="tool-summary"],
     [data-slot="step-detail"],
     [data-slot="session-header"] h1,
@@ -227,6 +228,7 @@ summary:focus-visible {
   [data-slot="composer-placeholder"],
   [data-slot="connector-name"],
   [data-slot="connector-where"],
+  [data-slot="tool-verb"],
   [data-slot="tool-summary"],
   [data-slot="step-detail"],
   [data-slot="session-header"] h1,
@@ -1240,22 +1242,43 @@ html[data-platform="darwin"]
   height: 1rem;
 }
 
-[data-slot="tool-icon"] {
-  flex: none;
-  color: var(--ui-muted-foreground);
-}
-
 [data-slot="tool-mark"] {
   flex: none;
 }
 
+/* The verb, or the agent's own sentence for what the call is for. It keeps its room; what it acted on gives way first. */
 [data-slot="tool-verb"] {
   flex: none;
   white-space: nowrap;
 }
 
+/* A description can be long: it gives way, but leaves what it ran some room (the summary keeps at least 6rem). */
+[data-slot="tool-verb"][data-prose] {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+[data-slot="tool-verb"][data-prose] + * + [data-slot="tool-summary"]:not(:empty),
+[data-slot="tool-verb"][data-prose] ~ [data-slot="tool-summary"]:not(:empty) {
+  min-width: 6rem;
+}
+
+/* The agent's own sentence for what a call is for is prose, not a command: the body's font, in the slot's muted colour. */
+:is([data-slot="tool-summary"], [data-slot="step-detail"])[data-prose] {
+  font-family: inherit;
+  font-size: var(--cycle-text-ui);
+}
+
+/* A call that is done: a small dot, so the left edge is a column of states, and a stretch's rule has something to join. */
+[data-slot="tool-dot"] {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cycle-ink-disabled);
+}
+
 [data-slot="tool-summary"] {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;

@@ -131,17 +131,6 @@ export const CloseIcon = ({ size = 16, ...rest }: IconProps) => (
   </Svg>
 );
 
-/** iconmcp: terminal */
-export const TerminalIcon = ({ size = 16, ...rest }: IconProps) => (
-  <Svg size={size} {...rest}>
-    <g>
-      <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
-      <path d="M4.5 6 L6.5 8 L4.5 10" />
-      <line x1="8" y1="10" x2="11" y2="10" />
-    </g>
-  </Svg>
-);
-
 /** iconmcp: search */
 export const SearchIcon = ({ size = 16, ...rest }: IconProps) => (
   <Svg size={size} {...rest}>
@@ -159,42 +148,6 @@ export const WarningIcon = ({ size = 16, ...rest }: IconProps) => (
       <path d="M9.311 4.36 L13.012 11.022 C13.567 12.021 12.844 13.25 11.701 13.25 L4.299 13.25 C3.156 13.25 2.433 12.021 2.988 11.022 L6.689 4.36 C7.26 3.332 8.74 3.332 9.311 4.36 Z" />
       <line x1="8" y1="6.25" x2="8" y2="8.75" />
       <circle cx="8" cy="10.9" r="0.99" fill="currentColor" stroke="none" />
-    </g>
-  </Svg>
-);
-
-/** iconmcp: browser */
-export const WebIcon = ({ size = 16, ...rest }: IconProps) => (
-  <Svg size={size} {...rest}>
-    <g>
-      <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="2" />
-      <line x1="2.25" y1="7.25" x2="13.75" y2="7.25" />
-      <circle cx="4.75" cy="5" r="0.99" fill="currentColor" stroke="none" />
-      <line x1="7.5" y1="5" x2="11.25" y2="5" />
-    </g>
-  </Svg>
-);
-
-/** iconmcp: file-text */
-export const FileReadIcon = ({ size = 16, ...rest }: IconProps) => (
-  <Svg size={size} {...rest}>
-    <g>
-      <path d="M5.25 2 L9 2 L12.75 5.75 L12.75 12 C12.75 13.105 11.855 14 10.75 14 L5.25 14 C4.145 14 3.25 13.105 3.25 12 L3.25 4 C3.25 2.895 4.145 2 5.25 2 Z" />
-      <path d="M9 2 L9 4.75 C9 5.302 9.448 5.75 10 5.75 L12.75 5.75" />
-      <line x1="5.5" y1="5.75" x2="7" y2="5.75" />
-      <line x1="5.5" y1="8.5" x2="10.5" y2="8.5" />
-      <line x1="5.5" y1="11" x2="10.5" y2="11" />
-    </g>
-  </Svg>
-);
-
-/** iconmcp: file-edit */
-export const FileEditIcon = ({ size = 16, ...rest }: IconProps) => (
-  <Svg size={size} {...rest}>
-    <g>
-      <path d="M5.25 2 L9 2 L12.75 5.75 L12.75 12 C12.75 13.105 11.855 14 10.75 14 L5.25 14 C4.145 14 3.25 13.105 3.25 12 L3.25 4 C3.25 2.895 4.145 2 5.25 2 Z" />
-      <path d="M9 2 L9 4.75 C9 5.302 9.448 5.75 10 5.75 L12.75 5.75" />
-      <path d="M9.674 7.424 L10.576 8.326 C10.81 8.56 10.81 8.94 10.576 9.174 L7.926 11.824 C7.813 11.937 7.661 12 7.501 12 L6 12 L6 10.499 C6 10.339 6.063 10.187 6.176 10.074 L8.826 7.424 C9.06 7.19 9.44 7.19 9.674 7.424 Z" />
     </g>
   </Svg>
 );
@@ -217,15 +170,6 @@ export const ThoughtIcon = ({ size = 16, ...rest }: IconProps) => (
       <path d="M8 3.5 A2.25 2.25 0 0 0 4 4.25 A2.5 2.5 0 0 0 2.75 8.5 A2.5 2.5 0 0 0 5 12.75 A2 2 0 0 0 8 13" />
       <path d="M8 3.5 A2.25 2.25 0 0 1 12 4.25 A2.5 2.5 0 0 1 13.25 8.5 A2.5 2.5 0 0 1 11 12.75 A2 2 0 0 1 8 13" />
       <line x1="8" y1="3.5" x2="8" y2="13" />
-    </g>
-  </Svg>
-);
-
-/** iconmcp: wrench */
-export const ToolIcon = ({ size = 16, ...rest }: IconProps) => (
-  <Svg size={size} {...rest}>
-    <g>
-      <path d="M8.63 9.13 A3.75 3.75 0 0 0 13.7 4.28 L11.42 6.56 L9.44 4.58 L11.72 2.3 A3.75 3.75 0 0 0 6.87 7.37 L2.83 11.41 A1.25 1.25 0 0 0 4.59 13.17 Z" />
     </g>
   </Svg>
 );

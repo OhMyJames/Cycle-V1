@@ -3,17 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Block, ToolItem } from "../model/index.ts";
 import { activityOf, isLive, textOf } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
-import {
-  ChevronRightIcon,
-  CloseIcon,
-  FileEditIcon,
-  FileReadIcon,
-  type IconProps,
-  SearchIcon,
-  TerminalIcon,
-  ToolIcon,
-  WebIcon,
-} from "./icons.tsx";
+import { ChevronRightIcon, CloseIcon } from "./icons.tsx";
 
 /**
  * Whether a card or row is open: it starts open when it holds a failure (that is what the person came to read), opens by
@@ -48,15 +38,32 @@ const clip = (text: string): string =>
     ? `${text.slice(0, MAX_SHOWN)}\n… (${text.length - MAX_SHOWN} more characters not shown)`
     : text;
 
-/** A line saying what a tool is doing, from what it was given. Shown, never run. */
+/** What a call acted on: its command, path, pattern, address or query. Shown, never run. */
 export const toolSummary = (tool: ToolItem): string => {
   const input = (tool.rawInput ?? {}) as Record<string, unknown>;
   const pick = (...keys: string[]): string | undefined => {
     for (const key of keys) if (typeof input[key] === "string") return input[key] as string;
     return undefined;
   };
-  return pick("command", "file_path", "path", "pattern", "url", "query", "description") ?? "";
+  return pick("command", "file_path", "notebook_path", "path", "pattern", "url", "query") ?? "";
 };
+
+/**
+ * What the agent said the call is for, when it said ("Run the daemon tests"): a sentence of its own, easier to read than
+ * the command it explains. Bash, Monitor and Agent take one.
+ */
+export const toolDescription = (tool: ToolItem): string | undefined => {
+  // Only where the field is that sentence: an MCP tool's `description` is often content (an issue's body), not a purpose.
+  if (!PURPOSE_TOOLS.has(tool.name ?? "")) return undefined;
+  const description = ((tool.rawInput ?? {}) as Record<string, unknown>).description;
+  if (typeof description !== "string") return undefined;
+  const line = description.trim();
+  // A sentence, not a document: one line, of a length a line can hold.
+  return line !== "" && !line.includes("\n") && line.length <= 160 ? line : undefined;
+};
+
+/** The tools whose `description` is the agent's sentence for what the call is for. */
+const PURPOSE_TOOLS: ReadonlySet<string> = new Set(["Bash", "Monitor", "Agent", "Task"]);
 
 const stringify = (value: unknown): string => {
   if (value === undefined) return "";
@@ -66,20 +73,6 @@ const stringify = (value: unknown): string => {
   } catch {
     return String(value);
   }
-};
-
-/** The icon of a tool, by what it does. Unknown tools get the general one. */
-export const TOOL_ICONS: Record<string, (props: IconProps) => React.ReactElement> = {
-  Bash: TerminalIcon,
-  Read: FileReadIcon,
-  Edit: FileEditIcon,
-  MultiEdit: FileEditIcon,
-  Write: FileEditIcon,
-  NotebookEdit: FileEditIcon,
-  Grep: SearchIcon,
-  Glob: SearchIcon,
-  WebFetch: WebIcon,
-  WebSearch: WebIcon,
 };
 
 /**
@@ -93,16 +86,11 @@ export const toolVerb = (t: (key: string) => string, tool: ToolItem, going: bool
 };
 
 /**
- * What leads a line, for a call or a stretch of them: the spinner while it goes, a cross when it failed, else its icon.
- * The one place a status becomes a mark.
+ * What leads a line, for a call or a stretch of them: the spinner while it goes, a cross when it failed, else a small dot.
+ * Not the tool's icon: the words already say what it did ("Ran", "Read"), and a state is what the eye looks for down the
+ * left edge. The one place a status becomes a mark.
  */
-export function Lead({
-  mark,
-  icon: Icon,
-}: {
-  mark: "going" | "failed" | "other";
-  icon: (props: IconProps) => React.ReactElement;
-}) {
+export function Lead({ mark }: { mark: "going" | "failed" | "other" }) {
   return (
     <span data-slot="tool-lead">
       {mark === "going" ? (
@@ -110,7 +98,7 @@ export function Lead({
       ) : mark === "failed" ? (
         <CloseIcon size={14} data-slot="tool-mark" data-tone="danger" />
       ) : (
-        <Icon size={14} data-slot="tool-icon" />
+        <span data-slot="tool-dot" aria-hidden="true" />
       )}
     </span>
   );
@@ -132,18 +120,20 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
       ? textOf(tool.content.flatMap((c) => (c.type === "content" ? [c.content as Block] : [c])))
       : stringify(tool.rawOutput);
   const summary = toolSummary(tool);
+  const description = toolDescription(tool);
+  // The tooltip names the tool, and holds the whole sentence when the line cuts it.
+  const tip =
+    description !== undefined ? [tool.name, description].filter(Boolean).join(": ") : tool.name;
   return (
     // A failure is what the person came to read: it starts open.
     <Collapsible data-kind="tool" data-status={status} open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger>
-        <Lead
-          mark={going && status === "in_progress" ? "going" : failed ? "failed" : "other"}
-          icon={TOOL_ICONS[tool.name ?? ""] ?? ToolIcon}
-        />
-        {/* The verb says what it did; which tool did it is for a screen reader and the tooltip of the line. */}{" "}
+        <Lead mark={going && status === "in_progress" ? "going" : failed ? "failed" : "other"} />{" "}
+        {/* Which tool it was is for a screen reader and the tooltip of the line; the words say what it did. With a
+            description, that is the line (what it is for), and what it ran follows it, muted; else the verb in its tense. */}
         <span data-slot="visually-hidden">{tool.name ?? t("tool.unnamed")}</span>{" "}
-        <span data-slot="tool-verb" title={tool.name}>
-          {toolVerb(t, tool, going)}
+        <span data-slot="tool-verb" data-prose={description !== undefined || undefined} title={tip}>
+          {description ?? toolVerb(t, tool, going)}
         </span>{" "}
         <span data-slot="tool-summary">{summary}</span>{" "}
         <span data-slot={failed ? "tool-status" : "visually-hidden"}>{statusWord(t, status)}</span>{" "}

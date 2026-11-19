@@ -97,6 +97,47 @@ test("a tool row says what it did with a verb in its tense, and only a failure s
   );
 });
 
+test("a call with a description reads as it; what it ran follows, and a mention is not drawn twice", async () => {
+  const { log } = await open(
+    u({
+      sessionUpdate: "user_message",
+      messageId: "u1",
+      content: [
+        { type: "text", text: "Look at @src/a.ts" },
+        {
+          type: "resource_link",
+          name: "a.ts",
+          uri: "file:///p/src/a.ts",
+          _meta: { "cycle/mention": "src/a.ts" },
+        },
+      ],
+    }),
+    ...tool("a", "Bash", "completed", { command: "bun test", description: "Run the tests" }),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const row = await screen.findByRole("button", { name: /Run the tests/ });
+  expect(row.querySelector('[data-slot="tool-verb"]')?.textContent).toBe("Run the tests");
+  expect(row.querySelector('[data-slot="tool-summary"]')?.textContent).toBe("bun test");
+  expect(log.textContent).not.toContain("resource_link");
+  expect(log.textContent).toContain("@src/a.ts");
+});
+
+test("only a purpose sentence is a description: an MCP tool's description field is content, not the line", async () => {
+  await open(
+    you("u1"),
+    ...tool("a", "mcp__tracker__create_issue", "completed", {
+      title: "Fix login",
+      description: "A long body\nwith several lines",
+    }),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const row = await screen.findByRole("button", { name: /mcp__tracker__create_issue/ });
+  expect(row.querySelector('[data-slot="tool-verb"]')?.textContent).toBe(
+    "mcp__tracker__create_issue",
+  );
+  expect(row.textContent).not.toContain("A long body");
+});
+
 test("a turn that failed says how, and the failed call is a row under the card, not in it", async () => {
   const { log } = await open(
     you("u1"),

@@ -8,6 +8,7 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
+import { MENTION_META } from "../draft.ts";
 import {
   type Block,
   type BlockCache,
@@ -29,7 +30,23 @@ import { EndBlock, Notice, StepLine, WorkBlock } from "./turn.tsx";
 
 export { toolSummary } from "./tool.tsx";
 
+/** A file or folder the person named with @: the text already says "@path", so the link is not drawn a second time. */
+const isMention = (block: Block, text: string): boolean => {
+  if (block.type !== "resource_link") return false;
+  const path = (block._meta as Record<string, unknown> | undefined)?.[MENTION_META];
+  // Only when the words still name it: a link the text no longer shows is drawn, so a file sent is never invisible.
+  return typeof path === "string" && text.includes(`@${path}`);
+};
+
+const linkName = (block: Block): string =>
+  typeof block.name === "string" && block.name !== ""
+    ? block.name
+    : typeof block.uri === "string"
+      ? block.uri
+      : block.type;
+
 function Blocks({ blocks, from }: { blocks: Block[]; from: "agent" | "user" }) {
+  const words = blocks.map((b) => (b.type === "text" ? String(b.text) : "")).join("");
   return (
     <>
       {blocks
@@ -39,6 +56,11 @@ function Blocks({ blocks, from }: { blocks: Block[]; from: "agent" | "user" }) {
             <span key={key}>{String(block.text)}</span>
           ) : block.type === "image" ? (
             <ImageBlockView key={key} block={block} from={from} />
+          ) : isMention(block, words) ? null : block.type === "resource_link" ? (
+            // A link that is not a mention in the text: its name, marked off, so it reads as what was attached.
+            <span data-slot="block-note" key={key}>
+              [{linkName(block)}]
+            </span>
           ) : (
             <span data-slot="block-note" key={key}>
               [{block.type}]
