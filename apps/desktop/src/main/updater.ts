@@ -27,6 +27,7 @@ import { assembleDelta, DeltaDeclined } from "./delta.ts";
 import { APP_NAME, BUILD_FILE, MAC_BUNDLE } from "./layout.ts";
 
 export const CHECK_EVERY_MS = 60_000;
+const DEADLINE_MS = 30_000;
 
 export type UpdaterDeps = {
   /** What is running: its version and where it was built for. */
@@ -56,6 +57,8 @@ export type UpdaterDeps = {
   clearInterval?: (handle: unknown) => void;
   /** Why updating is off (not an installed app); there is then nothing to check. */
   disabled?: string | undefined;
+  /** How long GitHub may take to answer a request, in ms; for what is small (the list, a manifest), to send all of it. Default 30 s. */
+  deadlineMs?: number;
   /** Updating by the difference when the release allows it. On unless this is false. */
   delta?: boolean;
   /** Where the updater says what it did that the user does not need to see (a difference that fell back). */
@@ -168,28 +171,57 @@ export class Updater {
     return this.#state;
   }
 
+  /**
+   * One request, with a deadline: GitHub not answering ends the check or the install with an error, and does not hold
+   * `#busy` for ever. The deadline is for the answer to begin; with `small` (the list, a manifest) it is for all of
+   * the body too, which is read here. How long an archive's body takes is the line's, and is not limited.
+   */
   async #get(
     url: string,
     headers: Record<string, string> = {},
     signal?: AbortSignal,
+    small = false,
   ): Promise<Response> {
-    const response = await this.#d.fetch(url, {
-      headers: { "user-agent": "Cycle-updater", ...headers },
-      redirect: "follow",
-      ...(signal !== undefined ? { signal } : {}),
-    });
-    if (response.status === 403 || response.status === 429)
-      throw new Limited("GitHub is limiting requests from this network. Try again in a while.");
-    return response;
+    const ms = this.#d.deadlineMs ?? DEADLINE_MS;
+    const deadline = new AbortController();
+    const timer = setTimeout(
+      () => deadline.abort(new Error(`GitHub did not answer in ${ms / 1000} seconds.`)),
+      ms,
+    );
+    try {
+      const response = await this.#d.fetch(url, {
+        headers: { "user-agent": "Cycle-updater", ...headers },
+        redirect: "follow",
+        signal: AbortSignal.any(
+          signal === undefined ? [deadline.signal] : [deadline.signal, signal],
+        ),
+      });
+      if (response.status === 403 || response.status === 429)
+        throw new Limited("GitHub is limiting requests from this network. Try again in a while.");
+      if (!small) return response;
+      const body = [101, 204, 205, 304].includes(response.status)
+        ? null
+        : await response.arrayBuffer();
+      return new Response(body, { status: response.status, headers: response.headers });
+    } catch (error) {
+      throw deadline.signal.aborted ? deadline.signal.reason : error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** The newest release that is newer than this app and has what this platform needs. */
   async #find(): Promise<Pending | undefined> {
     const api = this.#d.apiBase ?? "https://api.github.com";
-    const response = await this.#get(`${api}/repos/${this.#d.repo}/releases?per_page=20`, {
-      accept: "application/vnd.github+json",
-      ...(this.#etag !== undefined ? { "if-none-match": this.#etag } : {}),
-    });
+    const response = await this.#get(
+      `${api}/repos/${this.#d.repo}/releases?per_page=20`,
+      {
+        accept: "application/vnd.github+json",
+        ...(this.#etag !== undefined ? { "if-none-match": this.#etag } : {}),
+      },
+      undefined,
+      true,
+    );
     if (response.status !== 304) {
       if (!response.ok) throw new Error(`GitHub answered ${response.status}.`);
       this.#etag = response.headers.get("etag") ?? undefined;
@@ -230,7 +262,7 @@ export class Updater {
   async #resolve(candidate: Candidate): Promise<Pending> {
     const { platform, arch } = this.#d.current;
     const manifestUrl = this.#allowed(candidate.assets.get(manifestName(platform, arch)) ?? "");
-    const response = await this.#get(manifestUrl);
+    const response = await this.#get(manifestUrl, {}, undefined, true);
     if (!response.ok)
       throw new Error(`The release's manifest could not be read (${response.status}).`);
     const manifest = parseManifest(await response.text());
