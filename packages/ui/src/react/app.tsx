@@ -205,7 +205,6 @@ export function App() {
    * shown, else on the environment that is open, else on the first that is connected.
    */
   const newSession = (via: "click" | "shortcut" = "click") => {
-    store.track("panel_opened", { panel: "new_session", via });
     // One is open already: it stays as it is, with what was chosen and written on it.
     if (blank !== undefined) return store.openBlank({ environmentId: blank.environmentId });
     const environmentId =
@@ -213,6 +212,7 @@ export function App() {
       (connected ? selectedEnvironment : undefined) ??
       connectedEnvironments[0]?.id;
     if (environmentId === undefined) return;
+    store.track("panel_opened", { panel: "new_session", via });
     store.openBlank({
       environmentId,
       cwd: startOn?.environmentId === environmentId ? startOn.cwd : undefined,

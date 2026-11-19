@@ -157,10 +157,7 @@ export class AppStore {
       // An event that came while this was asked is newer than the answer.
       this.#set((s) => (s.update === undefined ? { update } : {}));
     });
-    void this.#bridge
-      .analytics()
-      .then((analytics) => this.#set({ analytics }))
-      .catch(() => undefined);
+    void this.#attempt(async () => this.#set({ analytics: await this.#bridge.analytics() }));
     await this.#attempt(async () => {
       const { environments, status, sessions } = await this.#bridge.environments();
       this.#set({

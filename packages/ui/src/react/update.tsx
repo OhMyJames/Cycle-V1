@@ -133,7 +133,7 @@ export function UpdateFooter() {
             <>
               <MenuSeparator />
               <MenuItem value="toggle-analytics">
-                {analytics.enabled ? "Turn off usage statistics" : "Turn on usage statistics"}
+                {t(analytics.enabled ? "app.analyticsOff" : "app.analyticsOn")}
               </MenuItem>
             </>
           ) : null}

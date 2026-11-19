@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isUiEvent } from "@cycle/analytics/events";
 import { commandChannel, sshChannel } from "@cycle/transport/client";
-import { createTranslator, enUS, SOURCE_LOCALE } from "@cycle/ui";
+import { createTranslator, enUS, SOURCE_LOCALE, type UpdateState } from "@cycle/ui";
 import {
   API_METHODS,
   type AppEvent,
@@ -31,6 +31,27 @@ export type AppOptions = {
   analytics?: AnalyticsControl;
   /** How the app updates itself. Without it, updating is off. */
   update?: Omit<UpdaterDeps, "emit" | "quit">;
+};
+
+/** What asking for an update came to, in the words of the dictionary; the states that are not an answer say nothing. */
+const updateResult = (
+  kind: UpdateState["kind"],
+): "available" | "up_to_date" | "error" | "disabled" | undefined => {
+  switch (kind) {
+    case "available":
+      return "available";
+    case "up-to-date":
+      return "up_to_date";
+    case "error":
+      return "error";
+    case "disabled":
+      return "disabled";
+    case "idle":
+    case "checking":
+    case "downloading":
+    case "installing":
+      return undefined;
+  }
 };
 
 const isWeb = (url: string): boolean => {
@@ -114,14 +135,7 @@ export const startApp = async (options: AppOptions) => {
     updateState: () => updater.state,
     checkForUpdate: async () => {
       const state = await updater.check(true);
-      const result = (
-        {
-          available: "available",
-          "up-to-date": "up_to_date",
-          error: "error",
-          disabled: "disabled",
-        } as const
-      )[state.kind as "available" | "up-to-date" | "error" | "disabled"];
+      const result = updateResult(state.kind);
       if (result !== undefined) analytics.track("update_checked", { result });
       return state;
     },
@@ -201,7 +215,8 @@ export const startApp = async (options: AppOptions) => {
   app.on("before-quit", (event) => {
     updater.stop();
     void manager.close();
-    if (flushed || !analytics.enabled) return;
+    // Also when it was just turned off: its last word may still be waiting.
+    if (flushed || !usage.status().available) return;
     flushed = true;
     event.preventDefault();
     void analytics.shutdown().finally(() => app.quit());

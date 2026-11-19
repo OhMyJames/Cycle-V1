@@ -662,15 +662,20 @@ export class ConnectionManager
           optionId === "cancelled" ? { outcome: "cancelled" } : { outcome: "selected", optionId },
         );
         // Which kind of answer (ACP names them allow_once, allow_always, reject_once, reject_always), never what was asked.
-        const kind = pending.request.options.find((o) => o.optionId === optionId)?.kind ?? "";
-        this.#track("permission_answered", {
-          outcome: kind.startsWith("allow")
-            ? "allowed"
-            : kind.startsWith("reject")
-              ? "rejected"
-              : "cancelled",
-          remembered: kind.endsWith("_always"),
-        });
+        const kind =
+          optionId === "cancelled"
+            ? "cancelled"
+            : (pending.request.options.find((o) => o.optionId === optionId)?.kind ?? "");
+        const outcome = kind.startsWith("allow")
+          ? "allowed"
+          : kind.startsWith("reject")
+            ? "rejected"
+            : kind === "cancelled"
+              ? "cancelled"
+              : undefined;
+        // An answer that is none of these (an option of a kind this does not know) is not counted as another.
+        if (outcome !== undefined)
+          this.#track("permission_answered", { outcome, remembered: kind.endsWith("_always") });
         this.#closePermission(environmentId, sessionId, watched, key);
         return;
       }

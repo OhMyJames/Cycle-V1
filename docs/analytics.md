@@ -22,7 +22,7 @@ ConnectionManager(会话、环境、权限的动作) ─────────
 1. **属性只能是数字、布尔,或一组固定的词。** 字典(`events.ts`)里没有 `z.string()`,有测试检查这一点。用户或 agent 写的任何文字(prompt、回复、路径、仓库名、标题、命令、报错信息、agent 的 id、配置值)都不能进属性。需要时把它换成一组词:`agentOf`(`claude` 或 `other`)、`settingOf`、`sizeOf`(`short`/`medium`/`long`)。
 2. **字典里没有的事件、字典里没有的属性,一律丢弃。** `strictObject` 校验,多一个字段整条不发。
 3. **匿名。** id 是首次启动随机生成、存在 `userData/analytics.json` 的 UUID,不是人名、机器名或账号。不建 person profile,不做 IP 定位,PostHog 的 autocapture、会话回放、异常自动收集都不开。
-4. **用户说了算。** 默认开启。首次启动有一条说明(两个按钮都算回答,之后不再出现);侧栏底部的设置菜单里随时可以开关。关闭时,最后发出一条 `analytics_toggled`,之后什么都不发。环境变量 `DO_NOT_TRACK=1` 或 `CYCLE_ANALYTICS=off`(开发者和 CI 用)直接关掉,界面里也不显示开关。决定见 [笔记](../.agents/notes/2026-11-19-analytics-opt-out-restored.md)。
+4. **用户说了算。** 默认开启。首次启动有一条说明(两个按钮都算回答,之后不再出现)。**回答之前什么都不发**:这段时间的事件只留在内存里,选"Keep on"才发出去,选"Turn off"就丢掉(也不发 `analytics_toggled`),不回答就退出的话随进程丢失;侧栏底部的设置菜单里随时可以开关。关闭时,最后发出一条 `analytics_toggled`,之后什么都不发。环境变量 `DO_NOT_TRACK=1` 或 `CYCLE_ANALYTICS=off`(开发者和 CI 用)直接关掉,界面里也不显示开关。决定见 [笔记](../.agents/notes/2026-11-19-analytics-opt-out-restored.md)。
 5. **没有项目就不发。** 没有 PostHog key(从源码运行、测试、没配置的构建)时,什么都不创建、不发送,界面也不显示说明和开关。
 6. **密钥不给 agent。** key 只在主进程;agent 的环境是白名单,不继承 `CYCLE_POSTHOG_KEY`。
 
@@ -35,7 +35,7 @@ ConnectionManager(会话、环境、权限的动作) ─────────
 | `CYCLE_POSTHOG_KEY` / `…_HOST`    | 运行时            | 覆盖构建里的值。从源码运行默认什么都不发,想看事件到没到就设它                                                   |
 | `DO_NOT_TRACK`、`CYCLE_ANALYTICS` | 运行时            | 开发者和 CI 用:设了就什么都不发,界面里也不显示开关                                                              |
 
-测试永远不设这些变量。只有打包出来的安装版带项目 key,从源码运行和测试没有,所以不会把开发数据混进线上数据。
+测试永远不设这些变量(打包出来的应用带着真的 key,所以启动它的集成测试要设 `CYCLE_ANALYTICS=off`,`packaged`、`update` 套件已经设了)。只有打包出来的安装版带项目 key,从源码运行和测试没有,所以不会把开发数据混进线上数据。
 
 ## 事件字典
 

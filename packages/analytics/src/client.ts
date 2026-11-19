@@ -18,6 +18,8 @@ export type Analytics = {
   trackUnchecked(name: string, props: unknown): boolean;
   readonly enabled: boolean;
   setEnabled(enabled: boolean): void;
+  /** The person has answered while events were held (see `held`): send them, or throw them away. */
+  release(send: boolean): void;
   shutdown(): Promise<void>;
 };
 
@@ -26,6 +28,11 @@ export type AnalyticsOptions = {
   /** A random id made on this computer. Not a person, not a machine name. */
   distinctId: string;
   enabled: boolean;
+  /**
+   * Events are kept in memory, not sent, until `release`: for the first run, before the person has been told. A person who
+   * says no then has had nothing sent; one who never answers has had nothing sent either (what is held is lost on quit).
+   */
+  held?: boolean;
   /** On every event: what the app is, never who is using it. */
   context: { app_version: string; platform: string; arch: string };
   /** One launch of the app, so PostHog can group its events. */
@@ -34,8 +41,22 @@ export type AnalyticsOptions = {
   onDrop?: (name: string, reason: string) => void;
 };
 
+/** The most events held at once: the rest are dropped, so a notice nobody answers cannot grow memory. */
+const MAX_HELD = 200;
+
+type Message = Parameters<Sink["capture"]>[0];
+
 export const createAnalytics = (options: AnalyticsOptions): Analytics => {
   let enabled = options.enabled;
+  let held = options.held === true;
+  const queue: Message[] = [];
+  const capture = (message: Message): void => {
+    if (held) {
+      if (queue.length < MAX_HELD) queue.push(message);
+      return;
+    }
+    options.sink.capture(message);
+  };
   const send = (name: string, props: unknown): boolean => {
     if (!enabled) return false;
     if (!isEventName(name)) {
@@ -48,7 +69,7 @@ export const createAnalytics = (options: AnalyticsOptions): Analytics => {
       return false;
     }
     try {
-      options.sink.capture({
+      capture({
         distinctId: options.distinctId,
         event: name,
         properties: {
@@ -74,6 +95,16 @@ export const createAnalytics = (options: AnalyticsOptions): Analytics => {
     setEnabled(value) {
       enabled = value;
     },
+    release(send) {
+      held = false;
+      const waiting = queue.splice(0);
+      if (!send) return;
+      try {
+        for (const message of waiting) options.sink.capture(message);
+      } catch (error) {
+        options.onDrop?.("held events", error instanceof Error ? error.message : String(error));
+      }
+    },
     shutdown: () => options.sink.shutdown().catch(() => undefined),
   };
 };
@@ -84,5 +115,6 @@ export const noAnalytics: Analytics = {
   trackUnchecked: () => false,
   enabled: false,
   setEnabled: () => {},
+  release: () => {},
   shutdown: async () => {},
 };

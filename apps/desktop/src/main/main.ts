@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { posthogSink } from "@cycle/analytics/posthog";
 import { app } from "electron";
+import { POSTHOG_HOST } from "../shared/posthog.ts";
 import { RELEASE_REPO } from "../shared/release.ts";
 import {
   fileAnalyticsStore,
@@ -68,7 +69,7 @@ const main = async () => {
     sink:
       project === undefined
         ? undefined
-        : () => posthogSink({ apiKey: project.key, host: project.host }),
+        : () => posthogSink({ apiKey: project.key, host: project.host ?? POSTHOG_HOST }),
     context: {
       app_version: info?.version ?? "dev",
       platform: process.platform,

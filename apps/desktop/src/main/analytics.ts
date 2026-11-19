@@ -19,32 +19,44 @@ export type AnalyticsStore = {
   save(record: AnalyticsRecord): Promise<void>;
 };
 
-export const fileAnalyticsStore = (path: string): AnalyticsStore => ({
-  async load() {
-    try {
-      const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<AnalyticsRecord>;
-      if (typeof parsed.id === "string" && parsed.id !== "") {
-        return {
-          first: false,
-          record: {
-            id: parsed.id,
-            enabled: parsed.enabled !== false,
-            noticed: parsed.noticed === true,
-          },
-        };
-      }
-    } catch {
-      // No file, or one that is not ours: a new id is made. What was in it was only an id and two flags.
-    }
-    return { first: true, record: { id: randomUUID(), enabled: true, noticed: false } };
-  },
-  async save(record) {
+export const fileAnalyticsStore = (path: string): AnalyticsStore => {
+  // One save at a time: two at once would write the same temporary file.
+  let saving: Promise<void> = Promise.resolve();
+  const write = async (record: AnalyticsRecord): Promise<void> => {
     await mkdir(dirname(path), { recursive: true });
     const temporary = `${path}.${process.pid}.tmp`;
     await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`);
     await rename(temporary, path);
-  },
-});
+  };
+  return {
+    async load() {
+      try {
+        const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<AnalyticsRecord>;
+        if (typeof parsed.id === "string" && parsed.id !== "") {
+          return {
+            first: false,
+            record: {
+              id: parsed.id,
+              enabled: parsed.enabled !== false,
+              noticed: parsed.noticed === true,
+            },
+          };
+        }
+      } catch {
+        // No file, or one that is not ours: a new id is made. What was in it was only an id and two flags.
+      }
+      return { first: true, record: { id: randomUUID(), enabled: true, noticed: false } };
+    },
+    save(record) {
+      const done = saving.then(
+        () => write(record),
+        () => write(record),
+      );
+      saving = done;
+      return done;
+    },
+  };
+};
 
 /**
  * What a person says, outside the app, that nothing is to be sent: the community's DO_NOT_TRACK, or our own variable.
@@ -64,11 +76,12 @@ export const projectOf = (
   build: { posthogKey?: unknown; posthogHost?: unknown } | undefined,
   env: Record<string, string | undefined>,
 ): PosthogProject | undefined => {
+  // An empty variable is not set: a blank exported in a shell must not switch an installed app off.
   const key =
-    env.CYCLE_POSTHOG_KEY ?? (typeof build?.posthogKey === "string" ? build.posthogKey : "");
+    env.CYCLE_POSTHOG_KEY || (typeof build?.posthogKey === "string" ? build.posthogKey : "");
   if (key === "") return undefined;
   const host =
-    env.CYCLE_POSTHOG_HOST ?? (typeof build?.posthogHost === "string" ? build.posthogHost : "");
+    env.CYCLE_POSTHOG_HOST || (typeof build?.posthogHost === "string" ? build.posthogHost : "");
   return { key, ...(host !== "" ? { host } : {}) };
 };
 
@@ -108,6 +121,8 @@ export const startAnalytics = async (options: {
           sink: make(),
           distinctId: record.id,
           enabled: record.enabled,
+          // Not told yet: nothing is sent until the person has answered.
+          held: !record.noticed,
           context: options.context,
           sessionId: randomUUID(),
           ...(options.onDrop !== undefined ? { onDrop: options.onDrop } : {}),
@@ -123,14 +138,24 @@ export const startAnalytics = async (options: {
     first,
     status,
     async set(enabled) {
+      // Kept first: if it cannot be, nothing changes and the person is told, instead of a switch that says one thing and a file another.
+      const next = { ...record, enabled, noticed: true };
+      await options.store.save(next);
+      const wasHeld = !record.noticed;
+      record = next;
       if (available) {
-        // Turning off says so as its last word; turning on says so as its first.
-        if (enabled) analytics.setEnabled(true);
-        analytics.track("analytics_toggled", { enabled });
-        if (!enabled) analytics.setEnabled(false);
+        if (enabled) {
+          analytics.setEnabled(true);
+          // What the first run did while the notice was up goes now, and "on" is the first word after it.
+          analytics.release(true);
+          analytics.track("analytics_toggled", { enabled: true });
+        } else {
+          // Said no to the notice: nothing at all was sent, and nothing will be. Said no later: one last word, then silence.
+          if (wasHeld) analytics.release(false);
+          else analytics.track("analytics_toggled", { enabled: false });
+          analytics.setEnabled(false);
+        }
       }
-      record = { ...record, enabled, noticed: true };
-      await options.store.save(record);
       return status();
     },
   };

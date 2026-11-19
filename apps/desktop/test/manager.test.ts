@@ -814,3 +814,24 @@ test("what wants the person is reported even when nothing shows a notification",
     { kind: "finished" },
   ]);
 });
+
+test("an answer that is not one of the offered options is not counted as another kind", async () => {
+  const { manager } = await setup(
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        await ask();
+      },
+    }),
+  );
+  const reported: [string, unknown][] = [];
+  const { m, events } = await manager("app", undefined, undefined, (name, props) =>
+    reported.push([name, props]),
+  );
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  await m.openSession("local", id);
+  await m.prompt("local", id, "ask");
+  await until(() => of(events, "permission").length === 1, "the request");
+  await m.answerPermission(first(of(events, "permission")).request.key, "not-an-option");
+  expect(reported.filter(([n]) => n === "permission_answered")).toEqual([]);
+});

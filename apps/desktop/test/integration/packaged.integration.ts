@@ -51,7 +51,8 @@ test.skipIf(!ready)(
     const proc = Bun.spawn(
       linux ? ["xvfb-run", "-a", packaged.executable, ...flags] : [packaged.executable, ...flags],
       {
-        env: { PATH: "/usr/bin:/bin", HOME: root, CYCLE_HOME: data },
+        // The packaged app carries the real project key: a test must say that nothing is to be reported.
+        env: { PATH: "/usr/bin:/bin", HOME: root, CYCLE_HOME: data, CYCLE_ANALYTICS: "off" },
         stdout: "ignore",
         stderr: "ignore",
       },

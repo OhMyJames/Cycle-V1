@@ -2,14 +2,12 @@
 import { PostHog } from "posthog-node";
 import type { Sink } from "./client.ts";
 
-export const POSTHOG_US = "https://us.i.posthog.com";
-
 /** How long quitting may wait for the last events to go out. */
 const SHUTDOWN_MS = 2000;
 
-export const posthogSink = (options: { apiKey: string; host?: string | undefined }): Sink => {
+export const posthogSink = (options: { apiKey: string; host: string }): Sink => {
   const client = new PostHog(options.apiKey, {
-    host: options.host ?? POSTHOG_US,
+    host: options.host,
     flushAt: 20,
     flushInterval: 10_000,
     disableGeoip: true,

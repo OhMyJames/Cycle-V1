@@ -56,6 +56,39 @@ describe("track", () => {
     ]);
   });
 
+  test("held events go when released, and are thrown away when the person says no", () => {
+    const r = recording();
+    const make = () =>
+      createAnalytics({ sink: r.sink, distinctId: "x", enabled: true, held: true, context });
+    const a = make();
+    a.track("update_install_started", {});
+    expect(r.sent).toHaveLength(0);
+    a.release(true);
+    expect(r.sent).toHaveLength(1);
+    a.track("update_install_started", {});
+    expect(r.sent).toHaveLength(2);
+
+    const b = make();
+    b.track("update_install_started", {});
+    b.release(false);
+    b.track("update_install_started", {});
+    expect(r.sent).toHaveLength(3);
+  });
+
+  test("what is held is bounded", () => {
+    const r = recording();
+    const a = createAnalytics({
+      sink: r.sink,
+      distinctId: "x",
+      enabled: true,
+      held: true,
+      context,
+    });
+    for (let i = 0; i < 500; i++) a.track("update_install_started", {});
+    a.release(true);
+    expect(r.sent.length).toBe(200);
+  });
+
   test("sends nothing while it is off, and again once it is on", () => {
     const { analytics, sent } = make(false);
     analytics.track("update_install_started", {});
