@@ -21,6 +21,7 @@ const USAGE = `cycle <command> [options]
   login   Sign in to Claude for this daemon: "claude auth login" with the environment and
           config directory the daemon gives Claude. Run it on the machine the daemon is on.
   claude <args>   Run the Claude binary with that same environment (e.g. claude auth status).
+          Everything after login or claude goes to Claude as typed, --help included.
   adapter claude   (internal) Run the Claude adapter on stdin and stdout.
 
 Options:
