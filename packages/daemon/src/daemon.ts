@@ -531,13 +531,19 @@ export class Daemon {
     return [];
   }
 
-  /** Writes the queue as it is now, with what was handed back by this change, if anything. */
-  #publishQueue(session: Session, back?: { returned: QueueEntry[]; reason: QueueReason }): void {
+  /**
+   * Writes the queue as it is now, with what was handed back by this change, if anything. Whether
+   * it is on record: a change a person asked for is confirmed to them only once it is.
+   */
+  #publishQueue(
+    session: Session,
+    back?: { returned: QueueEntry[]; reason: QueueReason },
+  ): Promise<boolean> {
     const queued = session.queue.length > 0;
     if ((session.entry.queued === true) !== queued) {
       this.#remember(session, { queued: queued ? true : undefined } as Partial<SessionEntry>);
     }
-    void this.#write(session, {
+    return this.#write(session, {
       kind: "update",
       data: {
         sessionUpdate: QUEUE_UPDATE,
@@ -546,6 +552,7 @@ export class Daemon {
       },
     }).then((written) => {
       if (written) this.#changed();
+      return written;
     });
   }
 
@@ -1334,8 +1341,17 @@ export class Daemon {
         // The agent is busy: the prompt waits here, and goes when the turn ends well.
         if (session.queue.length >= QUEUE_LIMIT) throw queueFull(session.id, QUEUE_LIMIT);
         const queueId = randomUUID();
-        session.queue.push({ queueId, prompt: params.prompt });
-        this.#publishQueue(session);
+        const queued = { queueId, prompt: params.prompt };
+        session.queue.push(queued);
+        if (!(await this.#publishQueue(session))) {
+          // Not on record, so not taken: the sender keeps what they wrote, and the queue is as it was.
+          // (If the turn has ended meanwhile and sent it, it is gone from the queue and is not undone.)
+          const at = session.queue.indexOf(queued);
+          if (at >= 0) {
+            session.queue.splice(at, 1);
+            throw logUnavailable(session.id, session.historyError ?? HISTORY_NOT_SAVED);
+          }
+        }
         return { messageId: queueId, _meta: { [META.queued]: true } } as never;
       }
       // Marked at once: the agent's own "running" comes later, and a second prompt must not slip in.
@@ -1499,7 +1515,11 @@ export class Daemon {
           queueId: params.queueId,
         });
       }
-      this.#publishQueue(session);
+      if (!(await this.#publishQueue(session))) {
+        // Not on record: the prompt stays where it was, and the person is told it did not come back.
+        session.queue.splice(Math.min(at, session.queue.length), 0, entry);
+        throw logUnavailable(session.id, session.historyError ?? HISTORY_NOT_SAVED);
+      }
       return { prompt: entry.prompt };
     });
     cycle(filesSearch, async (params) => {

@@ -1191,6 +1191,35 @@ test("a stop that comes while the agent is starting means the prompt is not give
   expect(stateOf(row)).toBe("idle");
 });
 
+test("a prompt whose queue cannot be written is refused, and the queue is as it was", async () => {
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { store, state } = flaky();
+  const { daemon } = await startOn(store, fakeAgent({ onPrompt: () => held }));
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("first") });
+  // The first turn is running and on record before the disk starts failing: it is the queue's write that fails.
+  await until(
+    () =>
+      c.seen.some(
+        (s) =>
+          s.update.sessionUpdate === "state_update" &&
+          (s.update as { state?: string }).state === "running",
+      ),
+    "the turn to be running",
+  );
+
+  state.failing.add("update");
+  await expect(
+    c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("second") }),
+  ).rejects.toMatchObject({ code: CycleErrorCode.LogUnavailable });
+  release();
+});
+
 test("a half line left by a crash is not damage: the session is listed and opens as before", async () => {
   const [id] = (await seedSessions(1)) as [string];
   await appendFile(join(dir, "sessions", `${id}.jsonl`), '{"seq": 99, "kind":"upd');
