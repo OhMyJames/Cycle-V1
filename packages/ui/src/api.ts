@@ -190,6 +190,12 @@ export type AppEvent =
   /** A notification was pressed: show this session. */
   | { type: "focus-session"; environmentId: string; sessionId: string };
 
+/** Whether the app reports how it is used (docs/analytics.md). `available` is false when there is nowhere to report to. */
+export type AnalyticsStatus = { available: boolean; enabled: boolean; noticed: boolean };
+
+/** What the page may say about itself: numbers, booleans and words. Main checks it against its dictionary. */
+export type TrackProps = Record<string, string | number | boolean>;
+
 export type NewSession = { cwd: string; agent?: string; config?: Record<string, string> };
 
 /** What the renderer asks of main. Every method can fail; the renderer shows the message. */
@@ -270,6 +276,12 @@ export type AppApi = {
   checkForUpdate(): Promise<UpdateState>;
   /** Downloads the update that was found, checks it, and restarts the app as the new version. */
   installUpdate(): Promise<void>;
+
+  /** Reports an event the page alone can see (docs/analytics.md). Never fails and says nothing when it is off. */
+  track(event: string, props?: TrackProps): Promise<void>;
+  analytics(): Promise<AnalyticsStatus>;
+  /** The person's answer about usage statistics. It also means they have been told. */
+  setAnalytics(enabled: boolean): Promise<AnalyticsStatus>;
 };
 
 /** Subscribes to events. Returns the function that stops it. */
@@ -307,6 +319,9 @@ export const API_METHODS = [
   "updateState",
   "checkForUpdate",
   "installUpdate",
+  "track",
+  "analytics",
+  "setAnalytics",
 ] as const satisfies readonly (keyof AppApi)[];
 
 export const channel = (method: string): string => `cycle:${method}`;

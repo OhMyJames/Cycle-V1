@@ -1,0 +1,87 @@
+# 产品埋点(用户行为统计)
+
+状态:已实现。验证日期 2026-11-19。决定的理由见 [`.agents/notes/2026-11-19-product-analytics-posthog.md`](../.agents/notes/2026-11-19-product-analytics-posthog.md)。
+
+目的:知道 Cycle 的功能有没有人用、怎么用、哪里出问题,用来改产品。**只记录"做了什么",不记录"内容是什么"。**
+
+## 它怎么工作
+
+```
+页面(渲染进程) ──track(事件, 属性)──▶ 主进程 app.ts ─┐
+                                                      ├─▶ Analytics.track ──校验字典──▶ PostHog(posthog-node)
+ConnectionManager(会话、环境、权限的动作) ────────────┘
+```
+
+- 事件在**主进程**发出,不在页面里、不在 daemon 里。页面只能报它自己才看得到的三个事件(`UI_EVENTS`),其余的页面伪造不了。daemon 不出网。
+- `packages/analytics` 不依赖 Electron、文件和环境变量:`events.ts`(字典)、`client.ts`(校验、开关)、`posthog.ts`(唯一导入 `posthog-node` 的文件)。页面只能导入 `@cycle/analytics/events` 的类型,不能导入 PostHog(`scripts/boundaries.ts` 检查)。
+- `apps/desktop/src/main/analytics.ts` 把它接到应用:匿名 id、开关的持久化、密钥从哪来。
+- `track` 永远不抛错、不等待;网络断了不影响应用。退出时最多等 2 秒把没发的发出去。
+
+## 隐私规则(红线)
+
+1. **属性只能是数字、布尔,或一组固定的词。** 字典(`events.ts`)里没有 `z.string()`,有测试检查这一点。用户或 agent 写的任何文字(prompt、回复、路径、仓库名、标题、命令、报错信息、agent 的 id、配置值)都不能进属性。需要时把它换成一组词:`agentOf`(`claude` 或 `other`)、`settingOf`、`sizeOf`(`short`/`medium`/`long`)。
+2. **字典里没有的事件、字典里没有的属性,一律丢弃。** `strictObject` 校验,多一个字段整条不发。
+3. **匿名。** id 是首次启动随机生成、存在 `userData/analytics.json` 的 UUID,不是人名、机器名或账号。不建 person profile,不做 IP 定位,PostHog 的 autocapture、会话回放、异常自动收集都不开。
+4. **用户说了算。** 默认开启。首次启动有一条说明(两个按钮都算回答,之后不再出现);侧栏底部的设置菜单里随时可以开关。关闭时,最后发出一条 `analytics_toggled`,之后什么都不发。环境变量 `DO_NOT_TRACK=1` 或 `CYCLE_ANALYTICS=off`(开发者和 CI 用)直接关掉,界面里也不显示开关。决定见 [笔记](../.agents/notes/2026-11-19-analytics-opt-out-restored.md)。
+5. **没有项目就不发。** 没有 PostHog key(从源码运行、测试、没配置的构建)时,什么都不创建、不发送,界面也不显示说明和开关。
+6. **密钥不给 agent。** key 只在主进程;agent 的环境是白名单,不继承 `CYCLE_POSTHOG_KEY`。
+
+## 配置
+
+| 变量                              | 何时              | 作用                                                                                                            |
+| --------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------- |
+| (无,默认)                         | 构建(`package`)时 | 用 `apps/desktop/src/shared/posthog.ts` 里的项目 key 和美国区 host,写进 `build.json`。key 是公开的,只能写入事件 |
+| `CYCLE_POSTHOG_KEY` / `…_HOST`    | 构建时            | 换成别的项目;`CYCLE_POSTHOG_KEY=`(空)造出不上报的构建                                                           |
+| `CYCLE_POSTHOG_KEY` / `…_HOST`    | 运行时            | 覆盖构建里的值。从源码运行默认什么都不发,想看事件到没到就设它                                                   |
+| `DO_NOT_TRACK`、`CYCLE_ANALYTICS` | 运行时            | 开发者和 CI 用:设了就什么都不发,界面里也不显示开关                                                              |
+
+测试永远不设这些变量。只有打包出来的安装版带项目 key,从源码运行和测试没有,所以不会把开发数据混进线上数据。
+
+## 事件字典
+
+每一行对应 `packages/analytics/src/events.ts` 里的一个事件(门禁检查两边一致)。公共属性:`app_version`、`platform`、`arch`,以及每次启动一个随机的 `$session_id`。
+
+| 事件                     | 何时                             | 属性                                                                                           | 发出处                       |
+| ------------------------ | -------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------- |
+| `app_launched`           | 应用启动                         | `remote_environments` 个数,`first_run`                                                         | `app.ts`                     |
+| `analytics_toggled`      | 用户开或关统计                   | `enabled`                                                                                      | `analytics.ts`               |
+| `update_checked`         | 用户手动检查更新                 | `result`:`available`/`up_to_date`/`error`/`disabled`                                           | `app.ts`                     |
+| `update_install_started` | 用户开始安装更新                 | 无                                                                                             | `app.ts`                     |
+| `environment_saved`      | 保存了一个远程环境               | `transport`:`ssh`                                                                              | `manager.ts`                 |
+| `environment_removed`    | 删除了一个环境                   | `kind`:`local`/`remote`                                                                        | `manager.ts`                 |
+| `environment_connection` | 环境连上、断开重连、关闭         | `kind`,`state`:`connected`/`reconnecting`/`closed`                                             | `manager.ts`                 |
+| `session_created`        | 新建会话                         | `agent`,`environment`,`configured`(是否改了设置)                                               | `manager.ts`                 |
+| `session_opened`         | 打开(选中)会话                   | `agent`,`environment`                                                                          | `manager.ts`                 |
+| `session_renamed`        | 重命名                           | 无(标题是内容,不发)                                                                            | `manager.ts`                 |
+| `session_archived`       | 归档或取消归档                   | `archived`                                                                                     | `manager.ts`                 |
+| `session_deleted`        | 删除(客户端已确认)               | 无                                                                                             | `manager.ts`                 |
+| `session_config_changed` | 改会话设置                       | `setting`:`mode`/`model`/`other`(不发值)                                                       | `manager.ts`                 |
+| `agent_defaults_saved`   | 保存 agent 的默认设置            | `agent`                                                                                        | `manager.ts`                 |
+| `session_attention`      | 会话完成、需要用户、停止         | `kind`:`finished`/`needs-you`/`stopped`                                                        | `manager.ts`                 |
+| `prompt_sent`            | 发送消息                         | `agent`,`environment`,`size`(三档),`images` 数,`mentions` 数,`steered`(直接插入正在进行的回合) | `manager.ts`                 |
+| `prompt_cancelled`       | 取消正在进行的回合               | `agent`                                                                                        | `manager.ts`                 |
+| `permission_answered`    | 回答权限请求                     | `outcome`:`allowed`/`rejected`/`cancelled`,`remembered`                                        | `manager.ts`                 |
+| `panel_opened`           | 打开面板(搜索、新建会话、信任等) | `panel`,`via`:`click`/`shortcut`                                                               | 页面 `app.tsx`               |
+| `code_theme_changed`     | 换代码主题                       | 无                                                                                             | 页面 `code-theme-picker.tsx` |
+| `slash_command_used`     | 从菜单选了斜杠命令               | 无(命令名由 agent 给,不发)                                                                     | 页面 `composer.tsx`          |
+
+## 加新功能时怎么埋点
+
+每个用户能感知的新功能或新操作都要有埋点,和功能一起提交。
+
+1. 想清楚要回答的产品问题:"有人用吗"、"在哪一步放弃"、"失败率多少",而不是"能记什么记什么"。
+2. 在 `events.ts` 的 `EVENTS` 里加事件,属性按上面的规则:数字、布尔、固定的词。需要新的词表就加一个枚举,并像 `agentOf` 那样写一个把原始值变成词的函数。
+3. 在**主进程**能知道的地方发(通常是 `ConnectionManager` 里,动作成功之后)。只有页面才知道的(面板、主题、输入框里的选择),把事件名加进 `UI_EVENTS`,在页面里调 `store.track(...)`。
+4. 在上面的表里加一行(门禁会检查字典里的每个事件都在这份文档里)。
+5. 写测试:至少一条证明事件发出了,和一条证明内容没有跟着发出去(`apps/desktop/test/manager.test.ts` 里有例子)。
+6. 属性里需要自由文字时:不要加。去问,再决定。
+
+## 在 PostHog 里看什么
+
+数据在 PostHog 项目的 Activity 里。常用的看法:
+
+- **漏斗**:`app_launched` → `session_created` → `prompt_sent` → `session_attention`(`finished`),看新用户走到哪一步。
+- **留存**:`prompt_sent` 的周留存。
+- **功能使用**:`panel_opened` 按 `panel` 分,`permission_answered` 按 `outcome` 分。
+- **稳定性**:`environment_connection` 里 `closed` 和 `reconnecting` 的占比,按 `kind` 分。
+- **版本差异**:任何事件按 `app_version` 分。

@@ -24,6 +24,7 @@ bun run start                          # 启动桌面端
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `apps/desktop/src/main/manager.ts`    | `ConnectionManager`:每个 host 一个 `CycleClient`,以及每个被观看 session 的会话。不依赖 Electron,用真 daemon 测试 |
 | `apps/desktop/src/main/app.ts`        | 窗口、安全设置、IPC;只有它知道怎么连各种 host                                                                    |
+| `apps/desktop/src/main/analytics.ts`  | 埋点的接线:匿名 id、开关、key 从哪来。事件字典和规则见 [analytics.md](analytics.md)                              |
 | `apps/desktop/src/preload/preload.ts` | 给页面一个对象 `window.cycle`(`AppApi` 的方法加 `onEvent`),没有别的                                              |
 | `packages/ui/src/api.ts`              | main 与页面之间的契约(只有类型和方法名)                                                                          |
 | `packages/ui/src/model/`              | 会话模型:把 ACP v2 的 `session/update` 累加成对话。纯 TS,没有 React,main 也用它                                  |

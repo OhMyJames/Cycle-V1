@@ -1,5 +1,6 @@
 import type { SessionUpdate } from "@cycle/acp";
 import type {
+  AnalyticsStatus,
   AppEvent,
   ConnectionState,
   CycleBridge,
@@ -31,12 +32,16 @@ export const text = (t: string, id = "a") =>
 export const idle = (extra: object = {}) =>
   ({ sessionUpdate: "state_update", state: "idle", ...extra }) as SessionUpdate;
 
+const off: AnalyticsStatus = { available: false, enabled: false, noticed: true };
+
 /** A bridge that records what it is asked, answers from a script, and lets a test send events. */
 export const fakeBridge = (
   options: {
     snapshot?: () => SessionSnapshot | Promise<SessionSnapshot>;
     connected?: boolean;
     update?: UpdateState;
+    /** Whether usage statistics are on. Default: nowhere to report to. */
+    analytics?: AnalyticsStatus;
     /** What the daemon says it can do. Default: all of it. */
     capabilities?: {
       queue: boolean;
@@ -160,6 +165,13 @@ export const fakeBridge = (
       async () => options.update ?? { current: "0.1.0", kind: "up-to-date" as const, checkedAt: 0 },
     ),
     installUpdate: record("installUpdate", async () => {}),
+    track: record("track", async () => {}),
+    analytics: record("analytics", async () => options.analytics ?? off),
+    setAnalytics: record("setAnalytics", async (enabled: boolean) => ({
+      available: true,
+      enabled,
+      noticed: true,
+    })),
   };
   return {
     bridge,

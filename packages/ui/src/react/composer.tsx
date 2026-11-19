@@ -203,6 +203,7 @@ export function Composer({
       if (command === undefined) return;
       // What was typed of it, the slash and the query, is replaced by the whole name and a space.
       input.current?.replaceBeforeCaret((typed.slash?.length ?? 0) + 1, commandText(command));
+      store.track("slash_command_used", {});
     } else if (kind === "mention") {
       const hit = hits[index];
       const root = found?.result.root;

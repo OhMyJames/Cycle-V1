@@ -29,6 +29,7 @@ import {
   MAC_BUNDLE,
   MAIN,
 } from "../src/main/layout.ts";
+import { POSTHOG_HOST, POSTHOG_KEY } from "../src/shared/posthog.ts";
 import { removePlistDict, setPlistString } from "./plist.ts";
 
 const DESKTOP = new URL("..", import.meta.url).pathname;
@@ -64,6 +65,18 @@ const electronDist = (): { dist: string; version: string } => {
 const copyTree = (from: string, to: string) =>
   run(process.platform === "darwin" ? ["/bin/cp", "-cR", from, to] : ["/bin/cp", "-a", from, to]);
 
+/**
+ * The PostHog project the build reports to: the one in src/shared/posthog.ts, or CYCLE_POSTHOG_KEY (and
+ * CYCLE_POSTHOG_HOST) when the build is made for another project. The key is public (it can only add events), so it may
+ * sit in build.json. `CYCLE_POSTHOG_KEY=` (empty) makes a build that reports nowhere (docs/analytics.md).
+ */
+const posthogProject = (): { posthogKey?: string; posthogHost?: string } => {
+  const key = (process.env.CYCLE_POSTHOG_KEY ?? POSTHOG_KEY).trim();
+  if (key === "") return {};
+  const host = (process.env.CYCLE_POSTHOG_HOST ?? POSTHOG_HOST).trim();
+  return { posthogKey: key, ...(host ? { posthogHost: host } : {}) };
+};
+
 export type Packaged = { app: string; appDir: string; executable: string; version: string };
 
 export const packageApp = (outDir = BUILD_DIR): Packaged => {
@@ -95,7 +108,7 @@ export const packageApp = (outDir = BUILD_DIR): Packaged => {
   );
   writeFileSync(
     join(staging, BUILD_FILE),
-    `${JSON.stringify({ name: APP_NAME, identifier: BUNDLE_ID, version, platform, arch, electron: electron.version }, null, 2)}\n`,
+    `${JSON.stringify({ name: APP_NAME, identifier: BUNDLE_ID, version, platform, arch, electron: electron.version, ...posthogProject() }, null, 2)}\n`,
   );
 
   const app = join(outDir, platform === "darwin" ? MAC_BUNDLE : "Cycle");

@@ -7,6 +7,7 @@ import {
 import { useSyncExternalStore } from "react";
 import { CODE_THEMES, type CodeThemeId, codeTheme } from "../code-theme.ts";
 import { useI18n } from "./i18n.tsx";
+import { useAppStore } from "./store-context.tsx";
 
 /**
  * Which colours code is drawn in, as a group of a menu. Applies at once and the menu stays open: the code on screen is
@@ -14,12 +15,15 @@ import { useI18n } from "./i18n.tsx";
  */
 export function CodeThemeItems() {
   const { t } = useI18n();
+  const store = useAppStore();
   const current = useSyncExternalStore(codeTheme.subscribe, codeTheme.get, codeTheme.get);
   return (
     <MenuRadioGroup
       value={current}
       onValueChange={(next) => {
-        if (typeof next === "string") codeTheme.set(next as CodeThemeId);
+        if (typeof next !== "string") return;
+        codeTheme.set(next as CodeThemeId);
+        store.track("code_theme_changed", {});
       }}
     >
       <MenuGroupLabel>{t("codeTheme.label")}</MenuGroupLabel>

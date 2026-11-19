@@ -1,4 +1,11 @@
 import { randomUUID } from "node:crypto";
+import {
+  agentOf,
+  type EventName,
+  type EventProps,
+  settingOf,
+  sizeOf,
+} from "@cycle/analytics/events";
 import { CycleClient, type PermissionAnswer } from "@cycle/client";
 import type { Channel } from "@cycle/transport/client";
 import {
@@ -35,7 +42,12 @@ export type ManagerOptions = {
   appVersion?: string;
   /** A session changed in a way worth telling (it asks, it is done, its agent is gone). Without it, nothing is said. */
   attention?: (notice: AttentionNotice) => void;
+  /** What the person does, for product analytics (docs/analytics.md). Without it, nothing is reported. */
+  track?: Tracker;
 };
+
+/** Reports one event of the dictionary in @cycle/analytics. */
+export type Tracker = <N extends EventName>(name: N, props: EventProps<N>) => void;
 
 /** What the main process is told when a session that was changing is in a state that wants the person. */
 export type AttentionNotice = {
@@ -66,6 +78,8 @@ type Connection = {
    * is on record (docs/protocol.md §6), and it is opened as that message goes: its folder is known from here meanwhile.
    */
   made: Map<string, string>;
+  /** The agent each of them was asked for (what `agent` was, or nothing), for the reports about it before it is listed. */
+  madeAgent: Map<string, string>;
   /** A list has been read on this connection: what is in the first says nothing, what appears later is new. */
   listed: boolean;
   /** Counts the rereads of the list, and the newest one applied: an older answer arriving late is not applied over it. */
@@ -82,7 +96,17 @@ const messageOf = (error: unknown): string =>
  * Electron, so it is tested against a real daemon without a window.
  */
 export class ConnectionManager
-  implements Omit<AppApi, "chooseDirectory" | "updateState" | "checkForUpdate" | "installUpdate">
+  implements
+    Omit<
+      AppApi,
+      | "chooseDirectory"
+      | "updateState"
+      | "checkForUpdate"
+      | "installUpdate"
+      | "track"
+      | "analytics"
+      | "setAnalytics"
+    >
 {
   readonly #options: ManagerOptions;
   #environments: EnvironmentConfig[] = [LOCAL_ENVIRONMENT];
@@ -98,6 +122,19 @@ export class ConnectionManager
 
   async init(): Promise<void> {
     this.#environments = await this.#options.settings.load();
+  }
+
+  #track: Tracker = (name, props) => this.#options.track?.(name, props);
+
+  #kindOf(environmentId: string): "local" | "remote" {
+    return this.#environments.find((e) => e.id === environmentId)?.kind ?? "remote";
+  }
+
+  /** The agent of a session, as one of the words the dictionary has. */
+  #agentOf(environmentId: string, sessionId: string): "claude" | "other" {
+    const connection = this.#connections.get(environmentId);
+    const row = connection?.sessions.find((s) => s.sessionId === sessionId);
+    return agentOf(row?.agent ?? connection?.madeAgent.get(sessionId) ?? "");
   }
 
   async close(): Promise<void> {
@@ -145,11 +182,13 @@ export class ConnectionManager
     await this.#options.settings.save(next);
     this.#environments = next;
     this.#options.emit({ type: "environments", environments: this.#environments });
+    this.#track("environment_saved", { transport: "ssh" });
   }
 
   async removeEnvironment(environmentId: string): Promise<void> {
     if (environmentId === LOCAL_ENVIRONMENT.id)
       throw new Error("The local daemon cannot be removed");
+    const kind = this.#kindOf(environmentId);
     await this.disconnect(environmentId);
     this.#lastSessions.delete(environmentId);
     this.#lastError.delete(environmentId);
@@ -157,6 +196,7 @@ export class ConnectionManager
     await this.#options.settings.save(next);
     this.#environments = next;
     this.#options.emit({ type: "environments", environments: this.#environments });
+    this.#track("environment_removed", { kind });
   }
 
   async connect(environmentId: string): Promise<void> {
@@ -172,6 +212,7 @@ export class ConnectionManager
       watched: new Map(),
       opening: new Map(),
       made: new Map(),
+      madeAgent: new Map(),
       listed: false,
       asked: 0,
       applied: 0,
@@ -218,6 +259,8 @@ export class ConnectionManager
                 : {}),
           };
           this.#options.emit({ type: "environment-status", ...connection.status });
+          if (state !== "connecting")
+            this.#track("environment_connection", { kind: this.#kindOf(environmentId), state });
           if (state === "connected" && was === "reconnecting") {
             void this.#refreshSessions(environmentId, connection, true).catch(() => undefined);
           }
@@ -355,7 +398,6 @@ export class ConnectionManager
     first: boolean,
   ): void {
     const attention = this.#options.attention;
-    if (attention === undefined) return;
     const environmentName =
       this.#environments.find((h) => h.id === environmentId)?.name ?? environmentId;
     for (const session of sessions) {
@@ -372,6 +414,8 @@ export class ConnectionManager
             });
       const kind = attentionOf(was, session);
       if (kind === undefined || (afterOutage && kind !== "needs-you")) continue;
+      this.#track("session_attention", { kind });
+      if (attention === undefined) continue;
       try {
         attention({ environmentId, environmentName, session, kind });
       } catch {
@@ -385,6 +429,13 @@ export class ConnectionManager
     const sessionId = await connection.client.newSession(params);
     // Not in the list until its first message (docs/protocol.md §6): the daemon announces it then, and it is read again.
     connection.made.set(sessionId, params.cwd);
+    // Its agent is not in the list yet either, and the reports about it (opened, a prompt) need the word for it.
+    connection.madeAgent.set(sessionId, params.agent ?? "");
+    this.#track("session_created", {
+      agent: agentOf(params.agent ?? ""),
+      environment: this.#kindOf(environmentId),
+      configured: Object.keys(params.config ?? {}).length > 0,
+    });
     return sessionId;
   }
 
@@ -400,6 +451,10 @@ export class ConnectionManager
     await opening;
     const watched = connection.watched.get(sessionId);
     if (watched === undefined) throw new Error("The session is gone");
+    this.#track("session_opened", {
+      agent: this.#agentOf(environmentId, sessionId),
+      environment: this.#kindOf(environmentId),
+    });
     return {
       conversation: watched.conversation,
       permissions: [...watched.pending.values()].map((p) => p.request),
@@ -466,10 +521,20 @@ export class ConnectionManager
     await this.#connection(environmentId).client.prompt(sessionId, blocks, {
       ...(options.steer === true ? { steer: true } : {}),
     });
+    // How much, never what: the length in three words and the number of images and mentions.
+    this.#track("prompt_sent", {
+      agent: this.#agentOf(environmentId, sessionId),
+      environment: this.#kindOf(environmentId),
+      size: sizeOf(blocks.reduce((n, b) => n + (b.type === "text" ? b.text.length : 0), 0)),
+      images: blocks.filter((b) => b.type === "image").length,
+      mentions: blocks.filter((b) => b.type === "resource_link").length,
+      steered: options.steer === true,
+    });
   }
 
   async cancel(environmentId: string, sessionId: string): Promise<void> {
     await this.#connection(environmentId).client.cancel(sessionId);
+    this.#track("prompt_cancelled", { agent: this.#agentOf(environmentId, sessionId) });
   }
 
   async listFolders(
@@ -513,14 +578,17 @@ export class ConnectionManager
     value: string,
   ) {
     await this.#connection(environmentId).client.setConfig(sessionId, configId, value);
+    this.#track("session_config_changed", { setting: settingOf(configId) });
   }
 
   async renameSession(environmentId: string, sessionId: string, title: string): Promise<void> {
     await this.#connection(environmentId).client.rename(sessionId, title);
+    this.#track("session_renamed", {});
   }
 
   async archiveSession(environmentId: string, sessionId: string, archived: boolean): Promise<void> {
     await this.#connection(environmentId).client.archive(sessionId, archived);
+    this.#track("session_archived", { archived });
   }
 
   /**
@@ -541,6 +609,7 @@ export class ConnectionManager
     const connection = this.#connection(environmentId);
     await connection.client.delete(sessionId);
     connection.watched.delete(sessionId);
+    this.#track("session_deleted", {});
   }
 
   // ---- permissions ----
@@ -592,6 +661,16 @@ export class ConnectionManager
         pending.answer(
           optionId === "cancelled" ? { outcome: "cancelled" } : { outcome: "selected", optionId },
         );
+        // Which kind of answer (ACP names them allow_once, allow_always, reject_once, reject_always), never what was asked.
+        const kind = pending.request.options.find((o) => o.optionId === optionId)?.kind ?? "";
+        this.#track("permission_answered", {
+          outcome: kind.startsWith("allow")
+            ? "allowed"
+            : kind.startsWith("reject")
+              ? "rejected"
+              : "cancelled",
+          remembered: kind.endsWith("_always"),
+        });
         this.#closePermission(environmentId, sessionId, watched, key);
         return;
       }
@@ -641,6 +720,7 @@ export class ConnectionManager
     config: Record<string, string>,
   ): Promise<void> {
     await this.#connection(environmentId).client.setAgentDefaults(agent, config);
+    this.#track("agent_defaults_saved", { agent: agentOf(agent) });
   }
 
   chooseDirectory(): Promise<string | undefined> {
