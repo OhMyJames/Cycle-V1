@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { contentOf, MAX_PATCH, rawOutputOf, resultOf } from "../src/results.ts";
+import { Subagents } from "../src/subagents.ts";
 import { TurnTranslator } from "../src/translate.ts";
 
 // Shapes from the SDK's `sdk-tools.d.ts` (0.3.327): FileEditOutput, FileWriteOutput, FileReadOutput, GlobOutput,
@@ -365,6 +366,23 @@ test("a held write the SDK could not diff still says it was held; a replace with
   expect(replaced?._meta).toBeUndefined();
 });
 
+test("a command that failed with no structured result keeps its text and its exit code", () => {
+  const [, failed] = run(
+    call("b", "Bash", { command: "ls nope" }),
+    result("b", "Exit code 2\nls: cannot access 'nope'", "Error: Exit code 2", true),
+  );
+  expect(failed).toMatchObject({
+    status: "failed",
+    content: [
+      { type: "content", content: { type: "text", text: "Exit code 2\nls: cannot access 'nope'" } },
+    ],
+    _meta: { "cycle/toolResult": { run: { exitCode: 2 } } },
+  });
+  // A failed command whose text says no exit code is left as it came.
+  const [, other] = run(call("b", "Bash", {}), result("b", "Permission denied", undefined, true));
+  expect(other?._meta).toBeUndefined();
+});
+
 test("a command's output and errors come apart, and how it ended is said only when it did not just finish", () => {
   const [, ran] = run(
     call("b", "Bash", { command: "make" }),
@@ -448,4 +466,26 @@ test("a command's output and errors come apart, and how it ended is said only wh
   ).toEqual({
     run: { background: true },
   });
+});
+
+test("the SDK's own hand-back at a sub-agent's end is not shown as a tool it used", () => {
+  const subagents = new Subagents();
+  subagents.update({
+    subtype: "task_started",
+    task_id: "t",
+    tool_use_id: "a",
+    task_type: "local_agent",
+  });
+  const progress = (tool: string) =>
+    (
+      subagents.update({
+        subtype: "task_progress",
+        task_id: "t",
+        last_tool_name: tool,
+      }) as unknown as {
+        _meta: Record<string, Record<string, unknown>>;
+      }
+    )._meta["cycle/subagent"];
+  expect(progress("Read")?.lastTool).toBe("Read");
+  expect(progress("SubagentHandback")?.lastTool).toBeUndefined();
 });

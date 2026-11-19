@@ -20,6 +20,9 @@ type Task = {
   skip_transcript?: boolean;
 };
 
+/** Tools the SDK uses inside a sub-agent that are not the agent's own work. */
+const INTERNAL_TOOLS: ReadonlySet<string> = new Set(["SubagentHandback"]);
+
 type Ended = { stopReason: "end_turn" | "cancelled" } | { stopReason: "error"; error: unknown };
 
 /** How a task's end is told as a state: ACP's idle, with the reason it stopped. */
@@ -104,7 +107,9 @@ export class Subagents {
     if (task.is_backgrounded !== undefined) meta.background = task.is_backgrounded;
     if (task.parent_task_id !== undefined) meta.parentId = task.parent_task_id;
     if (task.summary !== undefined && task.status === undefined) meta.summary = task.summary;
-    if (task.last_tool_name !== undefined) meta.lastTool = task.last_tool_name;
+    // The SDK's own hand-back at a sub-agent's end is not a tool it used (seen with a real model).
+    if (task.last_tool_name !== undefined && !INTERNAL_TOOLS.has(task.last_tool_name))
+      meta.lastTool = task.last_tool_name;
     if (task.usage !== undefined) {
       meta.usage = {
         tokens: task.usage.total_tokens ?? 0,

@@ -753,3 +753,81 @@ test.skipIf(!enabled)(
   },
   180_000,
 );
+
+test.skipIf(!enabled)(
+  "real file tools and a failing command say what they did: a diff, counts, output and errors apart (CYCL-14, a report)",
+  async () => {
+    const config = await tempConfigDir();
+    await writeFile(join(cwd, "fruit.txt"), "apple\nbanana\ncherry\n");
+    try {
+      await withAdapter(
+        { configDir: config.dir, env: claudeEnv(config.dir), onPermission: () => "allow" },
+        async ({ agent, updates, idle }) => {
+          const id = ID(6);
+          await agent.request(methods.agent.session.new, {
+            cwd,
+            _meta: { "cycle/sessionId": id },
+          });
+          await agent.request(methods.agent.session.setConfigOption, {
+            sessionId: id,
+            configId: "model",
+            type: "id",
+            value: model,
+          } as never);
+          const done = idle();
+          await agent.request(methods.agent.session.prompt, {
+            sessionId: id,
+            prompt: say(
+              [
+                "Do these four steps in order, each with the tool named, and nothing else:",
+                "1. Read the file fruit.txt.",
+                "2. Edit fruit.txt: replace the line banana with the two lines blueberry and blackberry.",
+                "3. Bash: run exactly  ls no-such-file-here  (it will fail; that is expected).",
+                "4. Grep for the pattern 'berry' in fruit.txt, counting matches (output_mode count).",
+                "Then reply with the word finished.",
+              ].join("\n"),
+            ),
+          });
+          await done;
+          const results = updates.filter(
+            (u) =>
+              u.sessionUpdate === "tool_call_update" &&
+              ((u as { status?: string }).status === "completed" ||
+                (u as { status?: string }).status === "failed"),
+          ) as unknown as Record<string, unknown>[];
+          const names = new Map<string, string>();
+          for (const u of updates as unknown as Record<string, unknown>[]) {
+            if (typeof u.name === "string") names.set(String(u.toolCallId), u.name);
+          }
+          for (const r of results) {
+            console.log(
+              "REAL tools:",
+              names.get(String(r.toolCallId)),
+              r.status,
+              JSON.stringify({
+                content: r.content,
+                meta: r._meta,
+                locations: r.locations,
+                rawOutput: r.rawOutput,
+              }).slice(0, 900),
+            );
+          }
+          const metaOf = (name: string, status = "completed") =>
+            results
+              .filter((r) => names.get(String(r.toolCallId)) === name && r.status === status)
+              .map((r) => (r._meta as Record<string, unknown> | undefined)?.["cycle/toolResult"]);
+          expect(metaOf("Edit")[0]).toMatchObject({ edit: { additions: 2, deletions: 1 } });
+          // The SDK counts the empty line after the last newline: three lines read as four.
+          expect(metaOf("Read")[0]).toMatchObject({ read: { startLine: 1 } });
+          // A real model does not always do every step: what it did is checked, what it skipped is said.
+          const failed = metaOf("Bash", "failed")[0];
+          if (failed === undefined) console.log("REAL tools: the model ran no failing command");
+          else expect(failed).toMatchObject({ run: { exitCode: 2 } });
+        },
+      );
+    } finally {
+      await config.dispose();
+    }
+  },
+  180_000,
+);
