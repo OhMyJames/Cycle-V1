@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { join } from "node:path";
-import { parseArgs } from "node:util";
 import { runAdapter } from "@cycle/adapter-claude/run";
 import { AlreadyRunningError, isListening } from "@cycle/transport/server";
 import { claudeEnv } from "./agents.ts";
+import { parseCli } from "./args.ts";
 import { defaultDataDir, loadConfig, pathsFor } from "./config.ts";
 import { proxy } from "./proxy.ts";
 import { claudeExecutable } from "./self.ts";
@@ -28,15 +28,7 @@ Options:
   --socket <path>    The unix socket. Default: <data-dir>/daemon.sock
 `;
 
-const { values, positionals } = parseArgs({
-  args: Bun.argv.slice(2),
-  options: {
-    "data-dir": { type: "string" },
-    socket: { type: "string" },
-    help: { type: "boolean" },
-  },
-  allowPositionals: true,
-});
+const { values, positionals, forwarded } = parseCli(Bun.argv.slice(2));
 const command = positionals[0];
 if (command === "adapter" && positionals[1] === "claude") {
   await runAdapter();
@@ -78,8 +70,7 @@ if (command === "serve") {
     console.error("No Claude binary: it is meant to sit beside cycle, or be on PATH.");
     process.exit(1);
   }
-  const rest =
-    command === "login" ? ["auth", "login", ...positionals.slice(1)] : positionals.slice(1);
+  const rest = command === "login" ? ["auth", "login", ...(forwarded ?? [])] : (forwarded ?? []);
   const child = Bun.spawn([executable, ...rest], {
     env: claudeEnv(config.claude, paths.dataDir, process.env),
     stdin: "inherit",
