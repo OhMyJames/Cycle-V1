@@ -104,7 +104,9 @@ export type PromptBlock =
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string }
   /** A reference to a file or folder on the daemon's machine: `uri` is `file://`, a folder's ending in `/`. */
-  | { type: "resource_link"; name: string; uri: string; _meta?: Record<string, unknown> };
+  | { type: "resource_link"; name: string; uri: string; _meta?: Record<string, unknown> }
+  /** A file's content in the message (a PDF, a text file), which the box does not make but sends again as it was. */
+  | { type: "resource"; resource: Record<string, unknown>; _meta?: Record<string, unknown> };
 
 export type FileHit = { path: string; kind: "file" | "folder" };
 

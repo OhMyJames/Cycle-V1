@@ -20,13 +20,20 @@ export type Mention = {
   readonly name: string;
 };
 
+/**
+ * A block of a message that came back (from a hand-back, a queued prompt taken back, or a message that did not go) which
+ * this box cannot edit: a PDF or a text file in the message, a link that is not a mention. It goes out again as it was.
+ */
+export type KeptBlock = { readonly id: string; readonly name: string; readonly block: Block };
+
 export type Draft = {
   readonly text: string;
   readonly attachments: readonly Attachment[];
   readonly mentions: readonly Mention[];
+  readonly kept: readonly KeptBlock[];
 };
 
-const EMPTY: Draft = { text: "", attachments: [], mentions: [] };
+const EMPTY: Draft = { text: "", attachments: [], mentions: [], kept: [] };
 
 /** What the text says of a mention: the @ and the path, and a slash after a folder's. */
 export const mentionText = (mention: Pick<Mention, "path" | "kind">): string =>
@@ -77,7 +84,8 @@ type Saved = { text?: string; handled?: string };
 
 /** What a message is sent as: its text, then its images. Undefined when there is nothing to send. */
 export const promptBlocks = (draft: Draft): PromptBlock[] | undefined => {
-  if (draft.text.trim() === "" && draft.attachments.length === 0) return undefined;
+  if (draft.text.trim() === "" && draft.attachments.length === 0 && draft.kept.length === 0)
+    return undefined;
   const text = draft.text.trim() === "" ? [] : [{ type: "text" as const, text: draft.text }];
   const images = draft.attachments.map((a) => ({
     type: "image" as const,
@@ -96,7 +104,21 @@ export const promptBlocks = (draft: Draft): PromptBlock[] | undefined => {
       _meta: { [MENTION_META]: m.path },
     }))
     .slice(0, Math.max(0, ATTACHMENT_LIMITS.blocks - text.length - images.length));
-  return [...text, ...images, ...links];
+  // What came back and cannot be edited goes out as it was; the words and the links give way to it, not it to them.
+  const kept = draft.kept.map((k) => k.block as PromptBlock);
+  const room = Math.max(0, ATTACHMENT_LIMITS.blocks - text.length - images.length - kept.length);
+  return [...text, ...images, ...kept, ...links.slice(0, room)];
+};
+
+/** What a person is told a block they cannot edit is called: its file's name, or what kind of block it is. */
+const keep = (block: Block): KeptBlock => {
+  const resource = block.resource as { uri?: unknown } | undefined;
+  const uri = [block.uri, resource?.uri].find((u): u is string => typeof u === "string");
+  const name =
+    typeof block.name === "string" && block.name !== ""
+      ? block.name
+      : (uri?.split("/").filter(Boolean).at(-1) ?? block.type);
+  return { id: crypto.randomUUID(), name, block };
 };
 
 /** A prompt's blocks as a draft: its texts, and its images as attachments. Other blocks are left out. */
@@ -104,6 +126,7 @@ export const draftOf = (blocks: readonly Block[]): Draft => {
   const texts: string[] = [];
   const attachments: Attachment[] = [];
   const mentions: Mention[] = [];
+  const kept: KeptBlock[] = [];
   for (const block of blocks) {
     if (block.type === "resource_link") {
       const path = (block._meta as Record<string, unknown> | undefined)?.[MENTION_META];
@@ -114,6 +137,8 @@ export const draftOf = (blocks: readonly Block[]): Draft => {
           uri: block.uri,
           name: typeof block.name === "string" ? block.name : path,
         });
+      } else {
+        kept.push(keep(block));
       }
       continue;
     }
@@ -130,9 +155,11 @@ export const draftOf = (blocks: readonly Block[]): Draft => {
         data: block.data,
         bytes: base64Bytes(block.data) ?? 0,
       });
+    } else if (block.type !== "text") {
+      kept.push(keep(block));
     }
   }
-  return { text: texts.join(""), attachments, mentions };
+  return { text: texts.join(""), attachments, mentions, kept };
 };
 
 /** What identifies a hand-back, so one that was put in the box is not put there twice. */
@@ -166,7 +193,7 @@ export class DraftStore {
       if (raw === null || raw === undefined) return;
       const saved = JSON.parse(raw) as Saved;
       if (typeof saved.text === "string" && saved.text !== "") {
-        this.#drafts.set(key, { text: saved.text, attachments: [], mentions: [] });
+        this.#drafts.set(key, { text: saved.text, attachments: [], mentions: [], kept: [] });
       }
       if (typeof saved.handled === "string") this.#handled.set(key, saved.handled);
     } catch {
@@ -197,7 +224,12 @@ export class DraftStore {
 
   #put(key: string, draft: Draft): void {
     this.#load(key);
-    if (draft.text === "" && draft.attachments.length === 0 && draft.mentions.length === 0)
+    if (
+      draft.text === "" &&
+      draft.attachments.length === 0 &&
+      draft.mentions.length === 0 &&
+      draft.kept.length === 0
+    )
       this.#drafts.delete(key);
     else this.#drafts.set(key, draft);
     this.#save(key);
@@ -212,6 +244,12 @@ export class DraftStore {
 
   setAttachments(key: string, attachments: readonly Attachment[]): void {
     this.#put(key, { ...this.get(key), attachments });
+  }
+
+  /** A block that came back and cannot be edited is taken out of the message: it is not sent again. */
+  removeKept(key: string, id: string): void {
+    const old = this.get(key);
+    this.#put(key, { ...old, kept: old.kept.filter((k) => k.id !== id) });
   }
 
   /** A file or folder picked after an @. Picking it again changes nothing. */
@@ -285,6 +323,7 @@ export class DraftStore {
       text,
       attachments: [...back.flatMap((d) => d.attachments), ...old.attachments],
       mentions: [...back.flatMap((d) => d.mentions), ...old.mentions],
+      kept: [...back.flatMap((d) => d.kept), ...old.kept],
     });
   }
 

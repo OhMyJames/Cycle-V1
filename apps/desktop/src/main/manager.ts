@@ -650,9 +650,14 @@ export class ConnectionManager
   ): Promise<void> {
     const blocks =
       typeof content === "string" ? [{ type: "text" as const, text: content }] : content;
-    await this.#connection(environmentId).client.prompt(sessionId, blocks, {
-      ...(options.steer === true ? { steer: true } : {}),
-    });
+    // The page's blocks are the daemon's to check: a block it does not take is refused whole there (decision 0010).
+    await this.#connection(environmentId).client.prompt(
+      sessionId,
+      blocks as Parameters<CycleClient["prompt"]>[1],
+      {
+        ...(options.steer === true ? { steer: true } : {}),
+      },
+    );
     // How much, never what: the length in three words and the number of images and mentions.
     this.#track("prompt_sent", {
       agent: this.#agentOf(environmentId, sessionId),
