@@ -427,8 +427,15 @@ export class CycleClient {
 
   /** Removes a session's history for good. The caller asks the user first. */
   async delete(sessionId: string): Promise<void> {
+    try {
+      await this.#request(methods.agent.session.delete, { sessionId });
+    } catch (error) {
+      // Refused (a turn is running): the session is still there and still watched, so a reconnect
+      // asks for what comes next. Only one that is not there any more is let go.
+      if (isSessionGone(error)) this.unwatch(sessionId);
+      throw error;
+    }
     this.unwatch(sessionId);
-    await this.#request(methods.agent.session.delete, { sessionId });
   }
 
   // ---- the connection ----

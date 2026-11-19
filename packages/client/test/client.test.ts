@@ -423,3 +423,33 @@ test("a watched session whose history cannot be read does not keep the host from
   const row = (await a.listSessions()).find((s) => s.sessionId === damaged);
   expect(row?._meta?.["cycle/historyFailed"]).toBe(true);
 });
+
+test("a delete the daemon refuses leaves the session watched, so a reconnect still brings what comes next", async () => {
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { make, drop } = await setup(fakeAgent({ onPrompt: () => held }));
+  const states: string[] = [];
+  const seen: { update: SessionUpdate; seq: number | undefined }[] = [];
+  const a = make({
+    connection: (s) => states.push(s),
+    update: (_id, update, seq) => seen.push({ update, seq }),
+  });
+  await a.start();
+  const sessionId = await a.newSession({ cwd: "/tmp" });
+  await a.watch(sessionId, "/tmp");
+  await a.prompt(sessionId, text("slow"));
+  await until(
+    () => seen.some((s) => (s.update as { state?: string }).state === "running"),
+    "the turn to be running",
+  );
+  await expect(a.delete(sessionId)).rejects.toMatchObject({ code: -32010 });
+  drop();
+  await until(() => states.filter((s) => s === "connected").length === 2, "the reconnect");
+  release();
+  await until(
+    () => seen.some((s) => (s.update as { stopReason?: string }).stopReason === "end_turn"),
+    "the turn to end, as seen after the reconnect",
+  );
+});
