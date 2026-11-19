@@ -85,20 +85,26 @@ export type SshOptions = {
  */
 export const sshChannel = (options: SshOptions): Channel => {
   return commandChannel({
-    command: [
-      options.ssh ?? "ssh",
-      "-T",
-      "-o",
-      "BatchMode=yes",
-      "-o",
-      "ServerAliveInterval=15",
-      ...(options.args ?? []),
-      // Whatever the host is, it is the host: ssh reads a word that starts with "-" as an option unless this ends them
-      // (-oProxyCommand=... would run a command here).
-      "--",
-      options.host,
-      ...options.command,
-    ],
+    command: sshCommand(options),
     ...(options.env !== undefined ? { env: options.env } : {}),
   });
 };
+
+/**
+ * The program and arguments that run `options.command` on the host. The one place that decides how ssh is called, so
+ * anything else that runs something there (the app updating a daemon) is called the same way.
+ */
+export const sshCommand = (options: SshOptions): string[] => [
+  options.ssh ?? "ssh",
+  "-T",
+  "-o",
+  "BatchMode=yes",
+  "-o",
+  "ServerAliveInterval=15",
+  ...(options.args ?? []),
+  // Whatever the host is, it is the host: ssh reads a word that starts with "-" as an option unless this ends them
+  // (-oProxyCommand=... would run a command here).
+  "--",
+  options.host,
+  ...options.command,
+];

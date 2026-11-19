@@ -469,8 +469,31 @@ test("updating a daemon runs its command on that host, says it is running, and i
   await m.upgradeDaemon("far");
   expect(ran).toHaveLength(1);
   expect(ran[0]).toContain("far: cd ");
-  expect(lastStatus(events)?.daemon?.upgrade?.running).toBeUndefined();
   expect(tracked).toContainEqual(["daemon_upgraded", { ok: true }]);
+  // If the connection never drops, the wait ends and the button is back.
+  await until(() => lastStatus(events)?.daemon?.upgrade?.running === undefined, "the wait to end");
+});
+
+test("a second click while the update runs does not run it again", async () => {
+  const { manager } = await setup(fakeAgent(), "0.1.0");
+  let runs = 0;
+  let finish: () => void = () => {};
+  const { m } = await manager("app", "9.9.9", undefined, undefined, {
+    runOnHost: () => {
+      runs += 1;
+      return new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    },
+    settle: 10,
+  });
+  await m.saveEnvironment(far);
+  await m.connect("far");
+  const first = m.upgradeDaemon("far");
+  await m.upgradeDaemon("far");
+  expect(runs).toBe(1);
+  finish();
+  await first;
 });
 
 test("a daemon update that fails says why in the status and keeps the command", async () => {

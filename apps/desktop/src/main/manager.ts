@@ -117,6 +117,8 @@ export class ConnectionManager
 {
   readonly #options: ManagerOptions;
   #environments: EnvironmentConfig[] = [LOCAL_ENVIRONMENT];
+  /** Environments whose daemon is being updated from here, and the last one's failure. */
+  readonly #upgrading = new Map<string, { running: true } | { error: string }>();
   readonly #connections = new Map<string, Connection>();
   /** The last list read from each environment, kept when its connection goes: what the interface greys out. */
   readonly #lastSessions = new Map<string, SessionSummary[]>();
@@ -320,10 +322,21 @@ export class ConnectionManager
     if (environment.kind === "local" || version === undefined) return {};
     const { appVersion } = this.#options;
     const old = appVersion !== undefined && daemonTooOld(version);
+    // A daemon that is no longer too old has been updated: what was said about the update is done with.
+    if (!old) this.#upgrading.delete(environment.id);
+    const doing = this.#upgrading.get(environment.id);
     return {
       daemon: {
         version,
-        ...(old ? { upgrade: { to: appVersion, command: daemonUpgradeCommand(appVersion) } } : {}),
+        ...(old
+          ? {
+              upgrade: {
+                to: appVersion,
+                command: daemonUpgradeCommand(appVersion),
+                ...(doing !== undefined ? doing : {}),
+              },
+            }
+          : {}),
       },
     };
   }
@@ -339,14 +352,15 @@ export class ConnectionManager
     const { runOnHost } = this.#options;
     const upgrade = connection?.status.daemon?.upgrade;
     if (connection === undefined || environment === undefined || upgrade === undefined) return;
-    if (upgrade.running === true || runOnHost === undefined) return;
-    const say = (next: Omit<NonNullable<typeof upgrade>, "to" | "command"> | undefined) => {
-      const daemon = connection.status.daemon;
-      if (daemon === undefined) return;
-      const { running: _r, error: _e, ...base } = upgrade;
+    if (this.#upgrading.has(environmentId) || runOnHost === undefined) return;
+    // Kept here and not in the status, which every change of the connection builds anew.
+    const say = (now: { running: true } | { error: string } | undefined) => {
+      if (now === undefined) this.#upgrading.delete(environmentId);
+      else this.#upgrading.set(environmentId, now);
+      if (this.#connections.get(environmentId) !== connection) return;
       connection.status = {
         ...connection.status,
-        daemon: { ...daemon, upgrade: { ...base, ...next } },
+        ...this.#daemonOf(environment, connection.client),
       };
       this.#options.emit({ type: "environment-status", ...connection.status });
     };
@@ -359,10 +373,11 @@ export class ConnectionManager
       return;
     }
     this.#track("daemon_upgraded", { ok: true });
-    // Stopping the daemon drops the connection; the status that comes with the new one replaces this. If it never drops,
-    // the person is shown the button again rather than a wait without end.
-    await new Promise((resolve) => setTimeout(resolve, this.#options.settle ?? 15_000));
-    if (connection.status.daemon?.upgrade?.running === true) say({});
+    // Stopping the daemon drops the connection, and the status that comes with the new one has no upgrade. If it never
+    // drops, the person is shown the button again after a while, not a wait without end. Not awaited: the click is done.
+    setTimeout(() => {
+      if ("running" in (this.#upgrading.get(environmentId) ?? {})) say(undefined);
+    }, this.#options.settle ?? 15_000).unref?.();
   }
 
   async disconnect(environmentId: string): Promise<void> {
