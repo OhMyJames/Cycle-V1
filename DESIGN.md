@@ -461,8 +461,8 @@ old-cycle 的 daemon 是透明代理,日志里没有这些,所以它要从文字
 对话里每一类内容从 SDK 到屏幕的映射、现状和打算在 [docs/conversation-content.md](docs/conversation-content.md);这里只写规则。负责人的决定(2026-11-19):
 
 - **工具行不用图标。** 动词已经说了做了什么("Ran""Read""Edited"),图标是第二遍;左边一列只留状态:完成是 5px 的灰点(`ink-disabled`,装饰,状态的文字给读屏),在跑是转动的线,失败是叉。一段调用展开后,细竖线把这些点连起来。不认识的工具也就不用找图标。
-- **有 description 就用它。** Bash、Agent 等的输入里有 agent 写的一句"在做什么"("Run the daemon tests"),这一行就是这句话(正文字体),后面跟淡灰的等宽命令或路径;没有才是"动词 + 摘要"。步骤行和卡片在跑时的那一句同样。放不下时先让摘要,再让这句话,末尾淡出。
-- **@ 提及不画两遍。** 用户消息里的 `resource_link` 带 `cycle/mention` 的,文字里已有 `@path`,不再画;别的链接画它的名字,不再是 `[resource_link]`。
+- **有 description 就用它。** Bash、Monitor、Agent 的输入里有 agent 写的一句"在做什么"("Run the daemon tests"),这一行就是这句话(正文字体),后面跟淡灰的等宽命令或路径;没有才是"动词 + 摘要"。只认这几个工具,且只认一行、不超过 160 字的:MCP 工具的 `description` 常常是内容(一个 issue 的正文),不是目的。说明被截断时,提示里是全句。步骤行和卡片在跑时的那一句同样。放不下时先让摘要,再让这句话,末尾淡出。
+- **@ 提及不画两遍。** 用户消息里的 `resource_link` 带 `cycle/mention` 的,文字里已有 `@path`,不再画;只在文字里还写着 `@path` 时才省略(否则发出去的文件在消息里就看不见了);别的链接画成 `[名字]`,不再是 `[resource_link]`。
 - **Edit 只显示这一次调用的改动**(增删行),不做跨文件浏览的 Changes 面板(v1 范围外)。
 - **AskUserQuestion 做成真正的表单**,在 CYCL-14 里做。
 

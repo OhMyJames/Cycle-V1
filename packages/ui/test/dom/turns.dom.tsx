@@ -122,6 +122,22 @@ test("a call with a description reads as it; what it ran follows, and a mention 
   expect(log.textContent).toContain("@src/a.ts");
 });
 
+test("only a purpose sentence is a description: an MCP tool's description field is content, not the line", async () => {
+  await open(
+    you("u1"),
+    ...tool("a", "mcp__tracker__create_issue", "completed", {
+      title: "Fix login",
+      description: "A long body\nwith several lines",
+    }),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const row = await screen.findByRole("button", { name: /mcp__tracker__create_issue/ });
+  expect(row.querySelector('[data-slot="tool-verb"]')?.textContent).toBe(
+    "mcp__tracker__create_issue",
+  );
+  expect(row.textContent).not.toContain("A long body");
+});
+
 test("a turn that failed says how, and the failed call is a row under the card, not in it", async () => {
   const { log } = await open(
     you("u1"),

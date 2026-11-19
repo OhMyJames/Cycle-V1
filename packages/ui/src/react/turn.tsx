@@ -43,6 +43,7 @@ function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }
   const { t, list, locale } = useI18n();
   const failed = tools.filter((tool) => tool.status === "failed").length;
   const going = live ? tools.findLast(isLive) : undefined;
+  const goingDescription = going !== undefined ? toolDescription(going) : undefined;
   const [open, setOpen] = useOpenOnFailure(failed > 0);
   // The pieces are written to follow one another ("ran 2 commands"), and the line begins as a sentence does.
   const pieces = list(
@@ -69,12 +70,9 @@ function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }
         <Lead mark={going !== undefined ? "going" : failed > 0 ? "failed" : "other"} />{" "}
         <span data-slot="tool-verb">{summary}</span>{" "}
         {/* While one goes, the line says which, in its tense: that is also what a screen reader is told. */}
-        <span
-          data-slot="tool-summary"
-          data-prose={(going !== undefined && toolDescription(going) !== undefined) || undefined}
-        >
+        <span data-slot="tool-summary" data-prose={goingDescription !== undefined || undefined}>
           {going !== undefined
-            ? (toolDescription(going) ?? `${toolVerb(t, going, true)} ${toolSummary(going)}`)
+            ? (goingDescription ?? `${toolVerb(t, going, true)} ${toolSummary(going)}`)
             : ""}
         </span>{" "}
         {failed > 0 ? (
@@ -157,14 +155,17 @@ export function StepLine({
         <span data-slot="spinner" aria-hidden="true" />
       )}
       <span>{words}</span>
-      {step.kind === "tool" ? (
-        <span
-          data-slot="step-detail"
-          data-prose={toolDescription(step.tool) !== undefined || undefined}
-        >
-          {toolDescription(step.tool) ?? toolSummary(step.tool)}
-        </span>
-      ) : null}
+      {step.kind === "tool" ? <StepDetail tool={step.tool} /> : null}
     </div>
+  );
+}
+
+/** What the step line says of the call that is going: the agent's sentence for it, or what it acts on. */
+function StepDetail({ tool }: { tool: ToolItem }) {
+  const description = toolDescription(tool);
+  return (
+    <span data-slot="step-detail" data-prose={description !== undefined || undefined}>
+      {description ?? toolSummary(tool)}
+    </span>
   );
 }

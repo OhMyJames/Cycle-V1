@@ -50,14 +50,20 @@ export const toolSummary = (tool: ToolItem): string => {
 
 /**
  * What the agent said the call is for, when it said ("Run the daemon tests"): a sentence of its own, easier to read than
- * the command it explains. Bash and Agent take one; any tool that does is read the same way.
+ * the command it explains. Bash, Monitor and Agent take one.
  */
 export const toolDescription = (tool: ToolItem): string | undefined => {
+  // Only where the field is that sentence: an MCP tool's `description` is often content (an issue's body), not a purpose.
+  if (!PURPOSE_TOOLS.has(tool.name ?? "")) return undefined;
   const description = ((tool.rawInput ?? {}) as Record<string, unknown>).description;
-  return typeof description === "string" && description.trim() !== ""
-    ? description.trim()
-    : undefined;
+  if (typeof description !== "string") return undefined;
+  const line = description.trim();
+  // A sentence, not a document: one line, of a length a line can hold.
+  return line !== "" && !line.includes("\n") && line.length <= 160 ? line : undefined;
 };
+
+/** The tools whose `description` is the agent's sentence for what the call is for. */
+const PURPOSE_TOOLS: ReadonlySet<string> = new Set(["Bash", "Monitor", "Agent", "Task"]);
 
 const stringify = (value: unknown): string => {
   if (value === undefined) return "";
@@ -115,6 +121,9 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
       : stringify(tool.rawOutput);
   const summary = toolSummary(tool);
   const description = toolDescription(tool);
+  // The tooltip names the tool, and holds the whole sentence when the line cuts it.
+  const tip =
+    description !== undefined ? [tool.name, description].filter(Boolean).join(": ") : tool.name;
   return (
     // A failure is what the person came to read: it starts open.
     <Collapsible data-kind="tool" data-status={status} open={open} onOpenChange={setOpen}>
@@ -123,11 +132,7 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
         {/* Which tool it was is for a screen reader and the tooltip of the line; the words say what it did. With a
             description, that is the line (what it is for), and what it ran follows it, muted; else the verb in its tense. */}
         <span data-slot="visually-hidden">{tool.name ?? t("tool.unnamed")}</span>{" "}
-        <span
-          data-slot="tool-verb"
-          data-prose={description !== undefined || undefined}
-          title={tool.name}
-        >
+        <span data-slot="tool-verb" data-prose={description !== undefined || undefined} title={tip}>
           {description ?? toolVerb(t, tool, going)}
         </span>{" "}
         <span data-slot="tool-summary">{summary}</span>{" "}
