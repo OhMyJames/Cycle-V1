@@ -1137,6 +1137,10 @@ test("a session whose history file is gone is listed as unreadable, and no empty
     c.agent.request(methods.agent.session.resume, { sessionId: lost, cwd: "/tmp" }),
   ).rejects.toMatchObject({ code: CycleErrorCode.LogUnavailable });
   expect(existsSync(file)).toBe(false);
+  // The way out: it can still be deleted.
+  await c.agent.request(methods.agent.session.delete, { sessionId: lost });
+  const after = (await c.agent.request(methods.agent.session.list, {})).sessions;
+  expect(after.map((s) => s.sessionId)).toEqual([good]);
 });
 
 test("a half line left by a crash is not damage: the session is listed and opens as before", async () => {
