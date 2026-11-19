@@ -446,6 +446,10 @@ export class Daemon {
       if (Object.keys(missing).length > 0) {
         this.#remember(session, { config: { ...missing, ...(session.entry.config ?? {}) } });
       }
+      // What was saved is put back, setting by setting. One the agent no longer takes is not left on
+      // record as if it were in force: the session carries on with what the agent actually has, the
+      // record says so, and the conversation says so before anything more is sent.
+      const refused: { configId: string; wanted: string }[] = [];
       for (const [configId, value] of Object.entries(session.entry.config ?? {})) {
         await link.agent
           .request(methods.agent.session.setConfigOption, {
@@ -454,14 +458,60 @@ export class Daemon {
             type: "id",
             value,
           } as never)
-          .catch(() => undefined);
+          .catch((error: unknown) => {
+            // Only the agent's own answer is a refusal. A link that broke is not: the record is kept.
+            if (typeof (error as { code?: unknown } | null)?.code === "number")
+              refused.push({ configId, wanted: value });
+          });
       }
+      if (refused.length > 0) await this.#configNotRestored(session, refused, resumedWith);
       return { link, created: undefined };
     } catch (error) {
       session.link = undefined;
       this.#connectors.release(session.id);
       link.kill();
       throw error;
+    }
+  }
+
+  /**
+   * Settings the agent refused on resume: the record follows what is in force, and the conversation
+   * says so. Written before the caller can send anything more.
+   */
+  async #configNotRestored(
+    session: Session,
+    refused: { configId: string; wanted: string }[],
+    actual: Record<string, string>,
+  ): Promise<void> {
+    const config = { ...(session.entry.config ?? {}) };
+    // An agent that listed none of its settings has not said what is in force: the record stays as it is.
+    const known = Object.keys(actual).length > 0;
+    const titles: string[] = [];
+    for (const { configId, wanted } of refused) {
+      const now = actual[configId];
+      if (now !== undefined) {
+        config[configId] = now;
+        titles.push(`The agent did not accept "${wanted}" for "${configId}". It is now "${now}".`);
+      } else if (known) {
+        delete config[configId];
+        titles.push(
+          `The agent no longer has the setting "${configId}" (it was "${wanted}"). It is not applied.`,
+        );
+      } else {
+        titles.push(
+          `The agent did not accept "${wanted}" for "${configId}", and has not said what it is now.`,
+        );
+      }
+    }
+    // The record first, and waited for, so a client that sees the notice finds the list already right.
+    session.entry = { ...session.entry, config };
+    await this.#index.update(session.id, { config });
+    this.#changed();
+    for (const title of titles) {
+      await this.#write(session, {
+        kind: "update",
+        data: { sessionUpdate: "notice", severity: "warning", title },
+      });
     }
   }
 

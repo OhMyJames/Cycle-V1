@@ -422,6 +422,8 @@ agent 自己改了配置(例如 Claude 在 plan 模式里被批准后切回常�
 
 新建 session 时,`cycle/config` 覆盖默认配置。daemon 把 agent 在 `session/new` 应答里报的各项当前值(`configOptions` 的 `currentValue`)也写进 session 的配置记录，再用设置的值覆盖:恢复时整份重发，所以 agent 以后改了新 session 的默认值，已有的 session 不跟着变。`session/new` 的应答里的 `configOptions` 是设置之后的值。恢复时,`session/resume` 应答里有而记录里没有的项(在记录初始值之前建的 session)按应答补记。客户端显示一个已有 session 的配置时,没有记录的项显示为"未设置",不套用 `configSchema` 的 `default`:那是给新 session 的。
 
+恢复时某一项被 agent 拒绝(例如 agent 升级后不再有这个模型或模式),daemon 不把它留在记录里当作仍然生效:记录改为 agent 在 `session/resume` 应答里报的当前值(应答里也没有这项就去掉它),`session/list` 的 `cycle/config` 反映的是实际生效的值,并往该 session 的会话里写一条 `severity: "warning"` 的 `notice`,说明哪一项没有恢复、现在是什么。这发生在下一条 prompt 发出之前。
+
 ### session 级配置
 
 session 运行中的配置变更使用 ACP 的 `session/set_config_option`,agent 通过 `config_option_update` 回报当前值。daemon 把最终生效的值写入 session 的配置记录,用于恢复。
