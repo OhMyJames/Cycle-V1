@@ -84,6 +84,11 @@ export type ClientEvents = {
    * connection is up. Opening the session says what is wrong with it.
    */
   unreadable?: (sessionId: string, error: unknown) => void;
+  /**
+   * A watched session was attached again after a reconnect. `pending` is the `requestId` of every request
+   * the daemon still waits on, asked of this client again; undefined from a daemon that does not say.
+   */
+  resumed?: (sessionId: string, pending: string[] | undefined) => void;
   connection?: (state: ConnectionState, error?: unknown) => void;
 };
 
@@ -460,12 +465,22 @@ export class CycleClient {
     const replayFrom = entry.replayed
       ? { type: "_cycle.seq", after: entry.lastSeq }
       : { type: "start" };
-    await api.request(methods.agent.session.resume, {
+    const answer = (await api.request(methods.agent.session.resume, {
       sessionId,
       cwd: entry.cwd,
       replayFrom,
-    } as never);
+    } as never)) as { _meta?: Record<string, unknown> | null } | undefined;
+    const waiting = answer?._meta?.[META.pending];
+    const wasAttached = entry.replayed;
     entry.replayed = true;
+    if (wasAttached) {
+      this.#events.resumed?.(
+        sessionId,
+        Array.isArray(waiting)
+          ? waiting.filter((id): id is string => typeof id === "string")
+          : undefined,
+      );
+    }
   }
 
   async #connectOnce(): Promise<void> {
@@ -608,10 +623,6 @@ export class CycleClient {
             this.#events.gone?.(sessionId);
           }
         }
-        // What the daemon asked again along with each answer (a request still waiting) came before that
-        // answer on the line, and is handled by now but for the turns of the event loop its handler takes:
-        // the host is not said to be back before they have run, so a request not asked again is known to be gone.
-        await new Promise((resolve) => setTimeout(resolve, 0));
         if (this.#closing) return;
         this.#setState("connected");
         return;

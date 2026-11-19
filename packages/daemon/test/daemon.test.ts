@@ -190,6 +190,40 @@ test("a request made while no one is attached waits for the next client", async 
   expect(outcomes[0]).toMatchObject({ outcome: { outcome: "selected", optionId: "deny" } });
 });
 
+test("a resume says which requests the daemon still waits on, and none once they are answered", async () => {
+  const { daemon } = await start(
+    fakeAgent({
+      onPrompt: async ({ ask }) => {
+        await ask();
+      },
+    }),
+  );
+  const first = await connectClient(daemon);
+  const { sessionId } = await first.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await first.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("ask") });
+  await Bun.sleep(30);
+  const waiting = async (c: Awaited<ReturnType<typeof connectClient>>) =>
+    (
+      (await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" })) as {
+        _meta?: Record<string, unknown>;
+      }
+    )._meta?.["cycle/pending"];
+  const second = await connectClient(daemon, { onPermission: () => "never" });
+  const ids = (await waiting(second)) as string[];
+  await until(() => second.permissions.length === 1, "the request to be asked again");
+  expect(ids).toEqual([
+    (second.permissions[0] as { _meta: Record<string, unknown> })._meta[
+      "cycle/requestId"
+    ] as string,
+  ]);
+  // Answered by someone: nothing is waited on any more.
+  const third = await connectClient(daemon, { onPermission: () => "allow" });
+  await waiting(third);
+  await until(() => third.permissions.length === 1, "the other client to answer");
+  await Bun.sleep(30);
+  expect(await waiting(await connectClient(daemon))).toEqual([]);
+});
+
 test("a cancel answers pending requests as cancelled and reaches the agent", async () => {
   const outcomes: unknown[] = [];
   const { daemon, fake } = await start(

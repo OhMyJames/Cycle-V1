@@ -40,6 +40,8 @@ export const META = {
   usage: "cycle/usage",
   /** On a permission request sent to a client: the daemon's id for it, as `_cycle/request_resolved` names it. */
   requestId: "cycle/requestId",
+  /** In a `session/resume` answer: the `requestId` of every request the daemon still waits on, which it has asked of this client again. */
+  pending: "cycle/pending",
   /** On the answer to an `elicitation/create` nobody could be asked: no attached client has the capability. */
   noClient: "cycle/noClient",
   /** On the answer to a `session/prompt` that was queued, not sent: the agent was still working. */
