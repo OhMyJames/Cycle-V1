@@ -304,6 +304,150 @@ export const scenarios: Record<string, Scenario> = {
       }),
     ],
   },
+  work: {
+    title:
+      "A command's output and errors apart, a sub-agent in the background, a compaction, a plan proposed, and the plan above the input box",
+    sessions: [session("s1", { title: "Speed up the build", state: "running" })],
+    history: [
+      you("u1", "The build is slow. Find out why and make a plan."),
+      u({
+        sessionUpdate: "plan_update",
+        plan: {
+          type: "items",
+          planId: "tasks",
+          entries: [
+            { content: "Profile the build", priority: "medium", status: "completed" },
+            { content: "Cache the dependency step", priority: "medium", status: "in_progress" },
+            { content: "Measure again", priority: "medium", status: "pending" },
+          ],
+        },
+      }),
+      ...done(
+        "b1",
+        "Bash",
+        { command: "bun run build --profile", description: "Profile the build" },
+        {
+          content: [
+            {
+              type: "content",
+              content: {
+                type: "text",
+                text: Array.from(
+                  { length: 60 },
+                  (_, n) => `[${n + 1}/60] step ${n + 1} ${n % 7 === 0 ? "(slow)" : ""}`,
+                ).join("\n"),
+              },
+            },
+            {
+              type: "content",
+              content: {
+                type: "text",
+                text: "warning: cache directory not found, building from scratch",
+              },
+              _meta: { "cycle/stream": "stderr" },
+            },
+          ],
+          _meta: { "cycle/toolResult": { run: { timedOutMs: 120000, background: true } } },
+        },
+      ),
+      say(
+        "m1",
+        "Most of the time is in installing dependencies. A sub-agent is checking the cache settings.",
+      ),
+      ...tool("a1", "Agent", "completed", { description: "Check the cache settings", prompt: "…" }),
+      u({
+        sessionUpdate: "subagent_update",
+        sessionId: "task-1",
+        state: { state: "running" },
+        _meta: { "cycle/subagent": { toolCallId: "a1", background: true, lastTool: "Grep" } },
+      }),
+      u({ sessionUpdate: "compaction_update", compactionId: "k1", status: "completed" }),
+      ...done(
+        "p1",
+        "ExitPlanMode",
+        { plan: "## Cache the install\n\n1. Keep `node_modules` between runs\n2. Measure again" },
+        {},
+      ),
+    ],
+    after: async (root) => {
+      for (const label of ["Profile the build", "Proposed a plan"]) {
+        const row = [...root.querySelectorAll<HTMLElement>('[data-kind="tool"] > button')].find(
+          (b) => b.textContent?.includes(label),
+        );
+        row?.click();
+      }
+      (document.activeElement as HTMLElement | null)?.blur();
+      await frames(4);
+    },
+  },
+  ask: {
+    title:
+      "The agent asks: a question with choices and an answer of one's own, as a form above the input box",
+    sessions: [session("s1", { state: "requires_action", title: "Pick a validation library" })],
+    history: [you("u1", "Add validation to the config file."), running()],
+    permissions: [
+      {
+        key: "local:s1:f1",
+        environmentId: "local",
+        sessionId: "s1",
+        title: "Claude has some questions",
+        options: [],
+        form: {
+          message: "Claude has some questions",
+          schema: {
+            type: "object",
+            properties: {
+              q0: {
+                type: "string",
+                title: "Library",
+                description: "Which library should we use?",
+                oneOf: [
+                  {
+                    const: "zod",
+                    title: "zod",
+                    description: "Already a dependency of the protocol package",
+                  },
+                  { const: "valibot", title: "valibot", description: "Smaller, newer" },
+                ],
+              },
+              q0_other: {
+                type: "string",
+                title: "Other",
+                description: "Your own answer, if none of the choices fits",
+                maxLength: 2000,
+              },
+              q1: {
+                type: "array",
+                title: "Checks",
+                description: "What should be checked?",
+                items: {
+                  anyOf: [
+                    { const: "types", title: "Types" },
+                    { const: "ranges", title: "Ranges" },
+                    { const: "paths", title: "Paths exist" },
+                  ],
+                },
+              },
+              q1_other: {
+                type: "string",
+                title: "Other",
+                description: "Your own answer, if none of the choices fits",
+                maxLength: 2000,
+              },
+            },
+          },
+        },
+      },
+    ],
+    after: async (root) => {
+      root.querySelector<HTMLInputElement>('[data-slot="form-option"] input')?.click();
+      root
+        .querySelector<HTMLInputElement>('[data-slot="form-option"] input[type="checkbox"]')
+        ?.click();
+      (document.activeElement as HTMLElement | null)?.blur();
+      await frames(2);
+    },
+  },
   files: {
     title:
       "File tools with what they amount to: an edit's own lines (+2 −1), a new file, the lines a read read, a picture read, what searches found",

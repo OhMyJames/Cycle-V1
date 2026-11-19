@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { PlanState, stopReasonOf, TurnTranslator } from "../src/index.ts";
+import { PlanState, stopReasonOf, TurnTranslator, toolKind } from "../src/index.ts";
 import { textTurn } from "./fake-query.ts";
 
 const feedAll = (messages: SDKMessage[]) => {
@@ -352,4 +352,11 @@ test("a tool call that started and got no result ends with the turn, as cancelle
   ] as never);
   // Said once.
   expect(translator.unfinished()).toEqual([]);
+});
+
+test("keeping the task list is planning (ACP's think), so a client can let the plan say it", () => {
+  for (const name of ["TodoWrite", "TaskCreate", "TaskUpdate"])
+    expect(toolKind(name)).toBe("think");
+  // Reading the list changes nothing the plan shows: a call of its own.
+  for (const name of ["TaskGet", "TaskList", "TaskStop"]) expect(toolKind(name)).toBe("other");
 });

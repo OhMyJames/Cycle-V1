@@ -11,7 +11,16 @@ import {
   type EnvironmentConfig,
   EVENT_CHANNEL,
 } from "@cycle/ui/api";
-import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  Notification,
+  session,
+  shell,
+} from "electron";
 import { shellQuote } from "../shared/release.ts";
 import { type AnalyticsControl, offAnalytics } from "./analytics.ts";
 import { notifyAttention } from "./attention.ts";
@@ -169,6 +178,8 @@ export const startApp = async (options: AppOptions) => {
     emit: (state) => emit({ type: "app-update", state }),
     quit: () => app.quit(),
   });
+  /** The most the page may put on the clipboard at once: a long output, not a file. */
+  const MAX_COPY = 5_000_000;
   const methods: Record<string, (...a: unknown[]) => unknown> = {
     updateState: () => updater.state,
     checkForUpdate: async () => {
@@ -188,6 +199,12 @@ export const startApp = async (options: AppOptions) => {
     },
     analytics: () => usage.status(),
     setAnalytics: (enabled: unknown) => usage.set(enabled === true),
+    // Through main, not the page's navigator.clipboard: the page is given no permissions. Text only, of a sane size.
+    copyText: (text: unknown) => {
+      if (typeof text !== "string" || text.length > MAX_COPY) return false;
+      clipboard.writeText(text);
+      return true;
+    },
   };
 
   // Only our own page may ask main for anything.
@@ -195,7 +212,8 @@ export const startApp = async (options: AppOptions) => {
     ipcMain.handle(channel(method), (event, ...args: unknown[]) => {
       if (event.senderFrame?.url !== indexUrl) throw new Error("Refused: not from the app's page");
       const own = methods[method];
-      if (own !== undefined) return own();
+      // With what the page sent: `track` and `setAnalytics` take it (they were called without, and so did nothing).
+      if (own !== undefined) return own(...args);
       return (manager as unknown as Record<string, (...a: unknown[]) => unknown>)[method]?.(
         ...args,
       );

@@ -28,6 +28,8 @@ export type ToolFacts = {
   read?: { start: number; count: number; total?: number };
   /** A search: files found, and matches or lines where it counted them. */
   search?: { files: number; matches?: number; lines?: number; more: boolean };
+  /** How a command ended, when the agent said (docs/protocol.md §9 `run`). */
+  run?: { interrupted: boolean; timedOutMs?: number; background: boolean; exitCode?: number };
   /** Pictures in the result (a Read of an image, an MCP screenshot), each with a key for its list. */
   images: { key: string; block: Block }[];
 };
@@ -71,7 +73,10 @@ export const diffLines = (patch: string): DiffLine[] => {
 };
 
 /** One part of the call's `_meta["cycle/toolResult"]` (docs/protocol.md §9), when it is there and an object. */
-const resultPart = (tool: ToolItem, part: "edit" | "read" | "search"): Record<string, unknown> => {
+const resultPart = (
+  tool: ToolItem,
+  part: "edit" | "read" | "search" | "run",
+): Record<string, unknown> => {
   const result = tool.result;
   return isObject(result) && isObject(result[part]) ? result[part] : {};
 };
@@ -120,6 +125,38 @@ const searchOf = (tool: ToolItem): ToolFacts["search"] => {
   };
 };
 
+const runOf = (tool: ToolItem): ToolFacts["run"] => {
+  const result = tool.result;
+  if (!isObject(result) || !isObject(result.run)) return undefined;
+  const said = result.run;
+  const timedOutMs = num(said.timedOutMs);
+  const exitCode = num(said.exitCode);
+  return {
+    interrupted: said.interrupted === true,
+    ...(timedOutMs !== undefined ? { timedOutMs } : {}),
+    ...(exitCode !== undefined ? { exitCode } : {}),
+    background: said.background === true,
+  };
+};
+
+/**
+ * What a call printed, as text: what it printed as errors apart, when the agent told them apart (a text item whose
+ * `_meta["cycle/stream"]` is "stderr", docs/protocol.md §9). Images are not text and are left to `toolFacts`.
+ */
+export const streamsOf = (tool: ToolItem): { out: string; err: string } => {
+  let out = "";
+  let err = "";
+  for (const block of tool.content) {
+    const inner =
+      block.type === "content" && isObject(block.content) ? (block.content as Block) : block;
+    if (inner.type !== "text") continue;
+    const meta = isObject(block._meta) ? block._meta : {};
+    if (meta["cycle/stream"] === "stderr") err += String(inner.text ?? "");
+    else out += String(inner.text ?? "");
+  }
+  return { out, err };
+};
+
 /** The facts of a call. Only a completed call has them: a failed one's text is what it says. */
 export const toolFacts = (tool: ToolItem): ToolFacts => {
   const images: ToolFacts["images"] = [];
@@ -128,11 +165,17 @@ export const toolFacts = (tool: ToolItem): ToolFacts => {
       block.type === "content" && isObject(block.content) ? (block.content as Block) : block;
     if (inner.type === "image") images.push({ key: `image-${index}`, block: inner });
   }
+  // How a command ended is said for one that failed too: its exit code is why.
+  if (tool.status === "failed") {
+    const run = runOf(tool);
+    return run !== undefined ? { images, run } : { images };
+  }
   if (tool.status !== "completed") return { images };
   const facts: ToolFacts = { images };
   // By what the agent sent, never by the tool's name: another agent's edit or search says the same in the same fields.
-  const [edit, read, search] = [editOf(tool), readOf(tool), searchOf(tool)];
+  const [edit, read, search, run] = [editOf(tool), readOf(tool), searchOf(tool), runOf(tool)];
   if (edit !== undefined) facts.edit = edit;
+  if (run !== undefined) facts.run = run;
   if (read !== undefined) facts.read = read;
   if (search !== undefined) facts.search = search;
   return facts;

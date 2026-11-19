@@ -159,3 +159,11 @@ test("a tool call's result is counts and flags only", () => {
     expect(ToolResultSchema.safeParse(bad).success).toBe(false);
   }
 });
+
+test("a command's result says only how it ended", () => {
+  expect(ToolResultSchema.safeParse({ run: {} }).success).toBe(true);
+  expect(
+    ToolResultSchema.safeParse({ run: { timedOutMs: 120000, background: true } }).success,
+  ).toBe(true);
+  expect(ToolResultSchema.safeParse({ run: { interrupted: false } }).success).toBe(false);
+});

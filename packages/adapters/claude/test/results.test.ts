@@ -364,3 +364,88 @@ test("a held write the SDK could not diff still says it was held; a replace with
   );
   expect(replaced?._meta).toBeUndefined();
 });
+
+test("a command's output and errors come apart, and how it ended is said only when it did not just finish", () => {
+  const [, ran] = run(
+    call("b", "Bash", { command: "make" }),
+    result("b", "built\nwarning: x", { stdout: "built", stderr: "warning: x", interrupted: false }),
+  );
+  expect(ran?.content).toEqual([
+    { type: "content", content: { type: "text", text: "built" } },
+    {
+      type: "content",
+      content: { type: "text", text: "warning: x" },
+      _meta: { "cycle/stream": "stderr" },
+    },
+  ]);
+  expect(meta(ran)).toEqual({ run: {} });
+  // Nothing printed: what the model was told instead is shown.
+  const [, quiet] = run(
+    call("b", "Bash", {}),
+    result("b", "No matches found", {
+      stdout: "",
+      stderr: "",
+      interrupted: false,
+      returnCodeInterpretation: "No matches found",
+    }),
+  );
+  expect(quiet?.content).toEqual([
+    { type: "content", content: { type: "text", text: "No matches found" } },
+  ]);
+  // Saved to a file because it was too long: the text the model saw is what there is.
+  const [, saved] = run(
+    call("b", "Bash", {}),
+    result("b", "Output saved to /tmp/x (first 2KB): …", {
+      stdout: "…",
+      stderr: "",
+      interrupted: false,
+      persistedOutputPath: "/tmp/x",
+    }),
+  );
+  expect(saved?._meta).toBeUndefined();
+  // A command that failed still has its errors apart.
+  const [, failed] = run(
+    call("b", "Bash", {}),
+    result("b", "Exit code 1\nboom", { stdout: "", stderr: "boom", interrupted: false }, true),
+  );
+  expect(failed).toMatchObject({
+    status: "failed",
+    _meta: { "cycle/toolResult": { run: { exitCode: 1 } } },
+  });
+  // What an exit code means is only in the model's text: that text is shown.
+  const [, meant] = run(
+    call("b", "Bash", {}),
+    result("b", "Files differ", {
+      stdout: "x",
+      stderr: "",
+      interrupted: false,
+      returnCodeInterpretation: "Files differ",
+    }),
+  );
+  expect(meant?._meta).toBeUndefined();
+  expect(meant?.content).toEqual([
+    { type: "content", content: { type: "text", text: "Files differ" } },
+  ]);
+  expect(((failed?.content ?? []) as { _meta?: unknown }[])[1]?._meta).toEqual({
+    "cycle/stream": "stderr",
+  });
+  const ended = (out: object) =>
+    meta(
+      run(
+        call("b", "Bash", {}),
+        result("b", "…", { stdout: "", stderr: "", interrupted: false, ...out }),
+      )[1],
+    );
+  expect(ended({ interrupted: true })).toEqual({ run: { interrupted: true } });
+  expect(ended({ timedOutAfterMs: 120000, backgroundTaskId: "t1" })).toEqual({
+    run: { timedOutMs: 120000, background: true },
+  });
+  expect(ended({ backgroundTaskId: "t1" })).toEqual({ run: { background: true } });
+  // An image printed by a command is left as it came.
+  expect(ended({ isImage: true })).toBeUndefined();
+  expect(
+    meta(run(call("m", "Monitor", {}), result("m", "Watching", { taskId: "w1", timeoutMs: 1 }))[1]),
+  ).toEqual({
+    run: { background: true },
+  });
+});

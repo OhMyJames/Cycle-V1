@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { SessionUpdate } from "@cycle/acp";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { SessionSnapshot } from "../../src/api.ts";
 import { applyUpdate, emptyConversation } from "../../src/model/index.ts";
@@ -50,7 +50,7 @@ const open = async (...updates: SessionUpdate[]) => {
       script.emit({ type: "update", environmentId: "local", sessionId: "s1", update, version }),
     );
   };
-  return { user, log, emit };
+  return { user, log, emit, script };
 };
 
 test("two tool calls in a row are one card that says what they were, and opens to the rows", async () => {
@@ -427,4 +427,111 @@ test("a deletion-only edit shows only removed lines, not +0", async () => {
   const row = await screen.findByRole("button", { name: /Edited/ });
   expect(row.textContent).toContain("−2");
   expect(row.textContent).not.toContain("+0");
+});
+
+test("a command opens to itself and its output apart from its errors; a long output shows its end; both copy whole", async () => {
+  const long = Array.from({ length: 100 }, (_, n) => `line ${n + 1}`).join("\n");
+  const { user, log, script } = await open(
+    you("u1"),
+    ...finished(
+      "b",
+      "Bash",
+      { command: "make all", description: "Build everything", timeout: 600000 },
+      {
+        content: [
+          { type: "content", content: { type: "text", text: long } },
+          {
+            type: "content",
+            content: { type: "text", text: "warning: deprecated" },
+            _meta: { "cycle/stream": "stderr" },
+          },
+        ],
+        _meta: { "cycle/toolResult": { run: { timedOutMs: 120000, background: true } } },
+      },
+    ),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const row = await screen.findByRole("button", { name: /Build everything/ });
+  expect(row.textContent).toContain("ran past 2 min, now in the background");
+  await user.click(row);
+  // The command as a command, not a field of JSON: everything its input says is said.
+  expect(log.querySelector('[data-slot="tool-input"]')).toBeNull();
+  expect(log.querySelector('[data-slot="tool-command"]')?.textContent).toBe("make all");
+  const output = log.querySelector('[data-kind="output"] [data-slot="tool-output"]');
+  expect(output?.textContent?.startsWith("line 61")).toBe(true);
+  expect(output?.textContent?.endsWith("line 100")).toBe(true);
+  expect(log.querySelector('[data-kind="stderr"]')?.textContent).toContain("warning: deprecated");
+  await user.click(screen.getByRole("button", { name: "Show 60 earlier lines" }));
+  expect(log.querySelector('[data-kind="output"] [data-slot="tool-output"]')?.textContent).toBe(
+    long,
+  );
+  await user.click(screen.getByRole("button", { name: "Copy the output" }));
+  expect(script.calls.filter(([name]) => name === "copyText")).toEqual([["copyText", long]]);
+  // Reported as what was copied, never the text.
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([
+    ["track", "tool_output_expanded", {}],
+    ["track", "tool_copied", { part: "output" }],
+  ]);
+});
+
+test("the plan is followed above the input box and is one line in the conversation; a sub-agent, a compaction, a plan proposed and a question say what they are", async () => {
+  const plan = (statuses: string[]) =>
+    u({
+      sessionUpdate: "plan_update",
+      plan: {
+        type: "items",
+        planId: "tasks",
+        entries: statuses.map((status, n) => ({
+          content: `Step ${n + 1}`,
+          priority: "medium",
+          status,
+        })),
+      },
+    });
+  const { user, log, script, emit } = await open(
+    you("u1"),
+    plan(["completed", "in_progress", "pending"]),
+    ...tool("a", "Agent", "in_progress", { description: "Survey the tests", prompt: "…" }),
+    u({
+      sessionUpdate: "subagent_update",
+      sessionId: "task-1",
+      state: { state: "running" },
+      _meta: { "cycle/subagent": { toolCallId: "a", background: true, lastTool: "Grep" } },
+    }),
+    u({ sessionUpdate: "compaction_update", compactionId: "k", status: "completed" }),
+    ...finished("p", "ExitPlanMode", { plan: "## The plan\n\n1. Do it" }, {}),
+    u({
+      sessionUpdate: "agent_message",
+      messageId: "m1",
+      content: [{ type: "text", text: "next" }],
+    }),
+    ...finished(
+      "q",
+      "AskUserQuestion",
+      { questions: [{ question: "Which library?", options: [] }] },
+      {},
+    ),
+    state({ state: "running" }),
+  );
+  // Above the input box: how far along, and what is being done now.
+  const strip = await waitFor(() => {
+    const found = document.querySelector('[data-kind="plan-strip"]');
+    if (found === null) throw new Error("no strip");
+    return found;
+  });
+  expect(strip.textContent).toContain("1/3");
+  expect(strip.textContent).toContain("Step 2");
+  await user.click(within(strip as HTMLElement).getByRole("button"));
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([["track", "plan_opened", {}]]);
+  // In the conversation: one line.
+  expect(log.querySelector('[data-kind="plan"]')?.textContent).toContain("1 of 3 done");
+  const agent = screen.getByRole("button", { name: /Survey the tests/ });
+  expect(agent.textContent).toContain("in the background · using Grep");
+  expect(log.textContent).toContain("Context compacted");
+  await user.click(screen.getByRole("button", { name: /Proposed a plan/ }));
+  expect(log.querySelector('[data-slot="tool-plan"] h2')?.textContent).toBe("The plan");
+  expect(screen.getByRole("button", { name: /Asked/ }).textContent).toContain("Which library?");
+  // All done: the strip goes.
+  await emit(plan(["completed", "completed", "completed"]));
+  await waitFor(() => expect(document.querySelector('[data-kind="plan-strip"]')).toBeNull());
 });

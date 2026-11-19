@@ -196,6 +196,7 @@ summary:focus-visible {
     [data-slot="tool-verb"],
     [data-slot="tool-summary"],
     [data-slot="step-detail"],
+    [data-slot="plan-now"],
     [data-slot="session-header"] h1
   ) {
     animation: cycle-fade linear both !important;
@@ -228,6 +229,7 @@ summary:focus-visible {
   [data-slot="tool-verb"],
   [data-slot="tool-summary"],
   [data-slot="step-detail"],
+  [data-slot="plan-now"],
   [data-slot="session-header"] h1
 ) {
   overflow: hidden;
@@ -301,7 +303,8 @@ body {
 [data-slot="conversation"],
 [data-slot="permissions"],
 [data-slot="composer"],
-[data-slot="blank-where"] {
+[data-slot="blank-where"],
+[data-kind="plan-strip"] {
   --cycle-column-pad: max(var(--cycle-gap), calc((100% - var(--cycle-measure)) / 2));
 }
 
@@ -1260,7 +1263,7 @@ html[data-platform="darwin"]
   line-height: var(--cycle-leading-ui);
 }
 
-:is([data-kind="tool"], [data-kind="work"], [data-kind="thought"]) > button {
+:is([data-kind="tool"], [data-kind="work"], [data-kind="thought"], [data-kind="plan"]) > button {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -1275,7 +1278,7 @@ html[data-platform="darwin"]
   transition: background-color var(--cycle-motion-state) var(--cycle-ease);
 }
 
-:is([data-kind="tool"], [data-kind="work"]) > button:hover {
+:is([data-kind="tool"], [data-kind="work"], [data-kind="plan"]) > button:hover {
   background: var(--cycle-surface-hover);
   color: var(--cycle-ink);
 }
@@ -1485,11 +1488,71 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   overflow-wrap: anywhere;
 }
 
+/* A command, an output, its errors: sunken like the input, a small head with what it is and a button to copy all of
+   it. The text inside is the block's; the block is set in from the line. */
+[data-slot="tool-block"] {
+  margin: 0.25rem 0 0.25rem 1.5rem;
+  border-radius: var(--ui-radius);
+  background: var(--ui-muted);
+  overflow: hidden;
+}
+
+[data-slot="tool-block-head"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0.25rem 0 0.75rem;
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
+}
+
+[data-slot="tool-block"][data-kind="stderr"] [data-slot="tool-block-label"] {
+  color: var(--ui-destructive);
+}
+
+[data-slot="tool-copy"],
+[data-slot="tool-more"] {
+  padding: 0 0.5rem;
+  min-height: 1.5rem;
+  border: 0;
+  border-radius: var(--cycle-radius-sm);
+  background: transparent;
+  color: var(--ui-muted-foreground);
+  font: inherit;
+  font-size: var(--cycle-text-meta);
+  cursor: pointer;
+}
+
+[data-slot="tool-copy"]:hover,
+[data-slot="tool-more"]:hover {
+  background: var(--cycle-surface-hover);
+  color: var(--ui-foreground);
+}
+
+/* Its words start on the block's text edge: 4px in, then the button's own 8px. */
+[data-slot="tool-more"] {
+  margin: 0.25rem 0 0 0.25rem;
+}
+
+[data-slot="tool-block"] > :is([data-slot="tool-output"], [data-slot="tool-command"]) {
+  margin: 0;
+  padding: 0.25rem 0.75rem 0.5rem;
+  max-height: 16rem;
+  overflow: auto;
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--ui-font-mono);
+  font-size: var(--cycle-text-meta);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* One call's change: its own lines, numbered as in the file, removed and added ones on a faint red and green. Sunken like
    the output, and as tall at most. */
 [data-slot="tool-diff"] {
   margin: 0.25rem 0 0.25rem 1.5rem;
-  padding: 0.375rem 0;
+  padding: 0.5rem 0;
   max-height: 16rem;
   overflow: auto;
   border-radius: var(--ui-radius);
@@ -1504,11 +1567,11 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 [data-slot="tool-diff"] > [data-line="add"] {
-  background: color-mix(in oklch, var(--cycle-success) 12%, transparent);
+  background: color-mix(in oklch, var(--cycle-success) 8%, transparent);
 }
 
 [data-slot="tool-diff"] > [data-line="del"] {
-  background: color-mix(in oklch, var(--ui-destructive) 12%, transparent);
+  background: color-mix(in oklch, var(--ui-destructive) 8%, transparent);
 }
 
 [data-slot="tool-diff"] > [data-line="hunk"] {
@@ -1551,6 +1614,27 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   margin: 0.25rem 0 0.25rem 1.5rem;
 }
 
+/* A plan a call proposes: the document, as the agent's own messages are drawn. */
+[data-slot="tool-plan"] {
+  margin: 0.25rem 0 0.25rem 1.5rem;
+  padding: 0.5rem 0.75rem;
+  max-height: 24rem;
+  overflow: auto;
+  border: 1px solid var(--cycle-border-default);
+  border-radius: var(--cycle-radius-card);
+  background: var(--cycle-surface-raised);
+}
+
+[data-slot="tool-questions"] {
+  margin: 0.25rem 0 0.25rem 1.5rem;
+  padding-left: 1.25rem;
+  font-size: var(--cycle-text-ui);
+}
+
+[data-slot="tool-facts"][data-tone="danger"] {
+  color: var(--ui-destructive);
+}
+
 /* A line about the panel itself: a long diff cut short, a change too large to show. */
 [data-slot="tool-note"] {
   margin: 0.25rem 0 0.25rem 1.5rem;
@@ -1578,6 +1662,64 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   border-left: 2px solid var(--ui-border);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* The plan in the conversation is one quiet line where it was made, styled as a tool's (above), that opens to the list.
+   The strip above the input box is the same line in a frame. */
+[data-kind="plan-strip"] > button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--cycle-text-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-kind="plan-strip"] > button:hover {
+  background: var(--cycle-surface-hover);
+}
+
+[data-kind="plan"] [data-slot="plan"] {
+  margin: 0.25rem 0 0.25rem 1.5rem;
+}
+
+/* The plan above the input box while some of it is to do: how far along, and what is being done now. */
+[data-kind="plan-strip"] {
+  margin: 0 var(--cycle-column-pad) 0.5rem;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--cycle-radius-card);
+  background: var(--cycle-surface-raised);
+}
+
+[data-kind="plan-strip"] [data-slot="plan"] {
+  padding: 0.25rem 0.75rem 0.5rem;
+  max-height: 12rem;
+  overflow: auto;
+}
+
+[data-slot="plan-count"] {
+  flex: none;
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Fades at its end only when it overflows (the fade group above). */
+[data-slot="plan-now"] {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+[data-kind="plan-strip"] [data-slot="tool-chevron"] {
+  opacity: 1;
 }
 
 [data-slot="plan"] {
@@ -1721,6 +1863,156 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 
 [data-kind="permission-dismiss"] {
   margin-left: auto;
+}
+
+/* The agent asks (a question, an MCP server's form): the permission card, with its questions in it. Each question is a
+   list of rows to pick, a round mark for one of them, a square for several; a line for an answer of one's own. It
+   scrolls inside itself so the input under it stays on screen. */
+[data-slot="permission"][data-kind="form"] {
+  border-top-color: var(--cycle-accent);
+  max-height: min(28rem, 60vh);
+}
+
+[data-slot="form"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+[data-slot="form-fields"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* The card holds no more than the room it is given: its questions scroll inside it. */
+[data-slot="permission"][data-kind="form"] {
+  flex-shrink: 1;
+  min-height: 8rem;
+}
+
+[data-slot="form-field"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+[data-slot="form-title"] {
+  padding: 0;
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
+  line-height: var(--cycle-leading-meta);
+}
+
+[data-slot="form-required"] {
+  margin-left: 0.5rem;
+}
+
+[data-slot="form-question"] {
+  font-weight: 500;
+}
+
+[data-slot="form-options"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+[data-slot="form-option"] {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-slot="form-option"]:hover:not(:has(:disabled)) {
+  background: var(--cycle-surface-hover);
+}
+
+[data-slot="form-option"]:has(:checked) {
+  border-color: var(--cycle-accent);
+  background: color-mix(in oklch, var(--cycle-accent) 8%, transparent);
+}
+
+[data-slot="form-option"]:has(:focus-visible) {
+  outline: 2px solid var(--cycle-accent);
+  outline-offset: 2px;
+}
+
+/* The native control does the work (keyboard, a screen reader, a form); the mark beside it is what shows. */
+[data-slot="form-option"] > input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+
+[data-slot="form-mark"] {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+  /* Centred on the first line of its option (a 20px line holds a 16px mark): alignment, not spacing. */
+  margin-top: calc((1lh - 1rem) / 2);
+  border: 1.5px solid var(--cycle-input-border);
+  border-radius: 50%;
+  color: var(--cycle-accent-foreground);
+}
+
+/* A one-of mark: the chosen one has a dot in it. A several-of mark is a box that fills and shows a check. */
+[data-slot="form-mark"]:not([data-several])::after {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+[data-slot="form-mark"] > svg {
+  visibility: hidden;
+}
+
+[data-slot="form-mark"][data-several] {
+  border-radius: 3px;
+}
+
+[data-slot="form-option"] > :checked + [data-slot="form-mark"] {
+  border-color: var(--cycle-accent);
+}
+
+[data-slot="form-option"] > :checked + [data-slot="form-mark"]:not([data-several])::after {
+  background: var(--cycle-accent);
+}
+
+[data-slot="form-option"] > :checked + [data-slot="form-mark"][data-several] {
+  background: var(--cycle-accent);
+}
+
+[data-slot="form-option"] > :checked + [data-slot="form-mark"] > svg {
+  visibility: visible;
+}
+
+[data-slot="form-hint"] {
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
 }
 
 /* Composer */

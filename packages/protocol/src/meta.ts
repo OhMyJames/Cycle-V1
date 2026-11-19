@@ -40,6 +40,8 @@ export const META = {
   subagent: "cycle/subagent",
   /** In a finished `tool_call_update`: what the call amounts to in numbers, never contents (docs/protocol.md §9, `ToolResultSchema`). */
   toolResult: "cycle/toolResult",
+  /** On a text content item of a tool call: `"stderr"` when it is what a command printed as errors (docs/protocol.md §9). */
+  stream: "cycle/stream",
   /** In a `session/list` row: the context the session uses and what it has cost (`SessionUsageSchema`). */
   usage: "cycle/usage",
   /** On a permission request sent to a client: the daemon's id for it, as `_cycle/request_resolved` names it. */
@@ -143,6 +145,14 @@ export const ToolResultSchema = z.union([
       matches: count.optional(),
       lines: count.optional(),
       more: z.literal(true).optional(),
+    }),
+  }),
+  z.object({
+    run: z.object({
+      interrupted: z.literal(true).optional(),
+      timedOutMs: count.optional(),
+      background: z.literal(true).optional(),
+      exitCode: count.optional(),
     }),
   }),
 ]);

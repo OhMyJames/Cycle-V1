@@ -13,13 +13,20 @@ export const TOOL_RESULT_META = "cycle/toolResult";
 export type ToolResultMeta =
   | { edit: { additions: number; deletions: number; created?: true; staged?: true } }
   | { read: { startLine: number; numLines: number; totalLines?: number } }
-  | { search: { files: number; matches?: number; lines?: number; more?: true } };
+  | { search: { files: number; matches?: number; lines?: number; more?: true } }
+  | {
+      run: { interrupted?: true; timedOutMs?: number; background?: true; exitCode?: number };
+    };
+
+/** On a text content item: which stream of a command it is, when a command's output and errors are told apart. */
+export const STREAM_META = "cycle/stream";
 
 /** ACP v2 tool call content, as far as this file makes it. */
 export type Content =
   | {
       type: "content";
       content: { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+      _meta?: Record<string, unknown>;
     }
   | {
       type: "diff";
@@ -274,6 +281,58 @@ const grep = (out: Json, text: Content[]): Result | undefined => {
 };
 
 /**
+ * A command: what it printed and what it printed as errors, apart (the model sees them together), and how it ended
+ * when that was not simply running to the end. A command whose output was an image is left as it came.
+ */
+const bash = (out: Json, text: Content[], failed: boolean): Result | undefined => {
+  if (typeof out.stdout !== "string" || typeof out.stderr !== "string" || out.isImage === true)
+    return undefined;
+  // The output was too large and was saved to a file: what was kept of it is in the text the model saw, not here.
+  if (out.persistedOutputPath !== undefined) return undefined;
+  // What the exit code means ("Files differ") is only in the text the model saw: that text is what is shown.
+  if (typeof out.returnCodeInterpretation === "string" && out.returnCodeInterpretation !== "")
+    return undefined;
+  // A command that failed says its exit code only in that text ("Exit code 2"): it is kept as a count.
+  const said = text.find((c) => c.type === "content" && c.content.type === "text");
+  const code =
+    failed && said?.type === "content" && said.content.type === "text"
+      ? /^Exit code (\d+)/.exec(said.content.text)?.[1]
+      : undefined;
+  // Nothing printed: the text the model saw may still say something ("No matches found", where a background
+  // command's output goes), and that is what is shown.
+  const quiet = out.stdout === "" && out.stderr === "";
+  const content: Content[] = quiet
+    ? text
+    : [{ type: "content", content: { type: "text", text: out.stdout } }];
+  if (out.stderr !== "") {
+    content.push({
+      type: "content",
+      content: { type: "text", text: out.stderr },
+      _meta: { [STREAM_META]: "stderr" },
+    });
+  }
+  const timedOutMs = num(out.timedOutAfterMs);
+  const background = typeof out.backgroundTaskId === "string" || out.backgroundedByUser === true;
+  return {
+    content,
+    meta: {
+      run: {
+        ...(out.interrupted === true ? { interrupted: true as const } : {}),
+        ...(timedOutMs !== undefined ? { timedOutMs: Math.round(timedOutMs) } : {}),
+        ...(background || timedOutMs !== undefined ? { background: true as const } : {}),
+        ...(code !== undefined ? { exitCode: Number(code) } : {}),
+      },
+    },
+  };
+};
+
+/** A watcher started in the background: its text, and that it runs on. */
+const monitor = (out: Json, text: Content[]): Result | undefined =>
+  typeof out.taskId === "string"
+    ? { content: text, meta: { run: { background: true } } }
+    : undefined;
+
+/**
  * A `tool_result`'s own content as ACP content: its text as one block, each image as an image. Every tool's result
  * goes through here, so a Read of a picture or an MCP tool's screenshot is no longer lost.
  */
@@ -333,14 +392,18 @@ export const rawOutputOf = (content: unknown): unknown => {
 
 /**
  * What a finished call says, from its structured result when there is one this file knows; `undefined` leaves the
- * result as it was (its text). A failed call keeps its text: the message is what matters.
+ * result as it was (its text). A failed call keeps its text (the message is what matters), except where a tool's own
+ * reader says otherwise: a command that failed is the one whose errors most need to be told apart.
  */
 export const resultOf = (
   name: string,
   structured: unknown,
   content: unknown,
+  failed = false,
 ): Result | undefined => {
   if (!isObject(structured)) return undefined;
+  if (name === "Bash") return bash(structured, contentOf(content), failed);
+  if (failed) return undefined;
   switch (name) {
     case "Edit":
       return edit(structured);
@@ -354,6 +417,8 @@ export const resultOf = (
       return glob(structured, contentOf(content));
     case "Grep":
       return grep(structured, contentOf(content));
+    case "Monitor":
+      return monitor(structured, contentOf(content));
     default:
       return undefined;
   }
