@@ -173,7 +173,11 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 
 ## 还没做
 
-- **远端 daemon 的升级**:应用只更新自己和自带的本地 daemon,不替用户在别的机器上装东西。远端的 daemon 版本(初始化时它报告自己的版本,构建时写入,和应用同一个版本号)比应用旧时,顶部会出现横幅和一条要在那台机器上运行的命令(下载本版本的 tarball、校验、`install.sh`、`cycle stop`)。`dev`(从源码运行)和比应用新的版本不提示。限于 Linux x64。
+- **远端 daemon 的升级**:应用只更新自己和自带的本地 daemon;远端的 daemon 由用户决定何时升。应用带一个 `MIN_DAEMON_VERSION`(`src/shared/release.ts`),**远端 daemon 低于它**才在标题栏下面出现一行提示和一个"Update to x.y.z"按钮;高于或等于它就不提示,即使比应用旧(多数版本只改界面,不动 daemon)。`dev`(从源码运行)和读不出版本的不提示,本地的也不提示。
+  - **什么时候抬高它**:应用开始依赖旧 daemon 没有的东西(字段、方法、行为),而且不能像 `capabilities` 开关那样"没有就关掉那个功能"。发版时问一句:这次有没有这种改动。可以关掉的功能用 capabilities,不动它。门禁测试保证它是合法版本号且不晚于应用自己的版本。
+  - **按钮做什么**:确认后,应用用该环境同一个 ssh 主机(`BatchMode`,不交互)在远端运行 `daemonUpgradeCommand`(下载本版本的 tarball、校验、`install.sh`、`cycle stop`),`cycle stop` 让连接断开,重连时接上新的 daemon,已打开的会话原样保留。该机器上正在工作的会话会被中断,所以先确认。
+  - **失败时**:那一行变成错误并附上同一条命令,让用户在那台机器上手动运行(远端连不上 GitHub、没有 `curl`/`sha256sum`、ssh 需要交互,都会走到这里)。第一版不做"应用下载再传过去"。
+  - 限于 Linux x64。理由见 `.agents/notes/2026-11-19-daemon-minimum-version-and-upgrade-button.md`。
 - **签名后的更新**:更新里已有"签名团队必须和当前应用相同"的检查,但还没有在真实的 Developer ID 签名包上跑过(目前发布的包只有 ad hoc 签名,这一条检查被跳过)。
 - **会话内容的全文搜索**:⌘K 搜的是标题、文件夹、agent 和主机(跨已连接的主机)。对话内容的全文要在历史所在的 daemon 里做。
 - **图片的发送只对声明了能力的 agent 开放**:附加的控件(按钮、粘贴、拖放)只在 `_cycle/agents/list` 里这个 agent 的 `promptCapabilities.image` 存在时出现。带附件支持的 daemon(decision 0010)上的 Claude 声明了;更早的 daemon 不报告,界面上就没有附加入口,不会发出 daemon 不认的内容。主进程这一段有测试(`apps/desktop/test/manager.test.ts`):能力被报告,图片块原样送达 agent,没有声明的 agent 拒绝图片。

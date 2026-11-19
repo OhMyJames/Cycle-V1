@@ -740,6 +740,15 @@ html[data-platform="darwin"]
   color: var(--ui-destructive);
 }
 
+/* The daemon's banner sits under the title and is one line; the command, when it is shown, wraps below. */
+[data-slot="banner"][data-kind="daemon"] {
+  flex-wrap: wrap;
+}
+
+[data-slot="banner"][data-kind="daemon"] > [data-slot="command"] {
+  flex-basis: 100%;
+}
+
 [data-slot="command"] {
   display: block;
   padding: 0.25rem 0.5rem;

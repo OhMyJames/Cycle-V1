@@ -28,7 +28,7 @@ import {
   type SessionSnapshot,
   type SessionSummary,
 } from "@cycle/ui";
-import { daemonUpgradeCommand, isNewer } from "../shared/release.ts";
+import { daemonTooOld, daemonUpgradeCommand } from "../shared/release.ts";
 import { environmentOf, LOCAL_ENVIRONMENT, type Settings } from "./settings.ts";
 
 export type ManagerOptions = {
@@ -38,8 +38,15 @@ export type ManagerOptions = {
   emit: (event: AppEvent) => void;
   chooseDirectory?: () => Promise<string | undefined>;
   backoff?: { first: number; max: number };
-  /** The version of this app, to tell an environment whose daemon is older. Without it, nothing is said. */
+  /** The version of this app: the one an update of a daemon puts there. Without it, nothing is said. */
   appVersion?: string;
+  /**
+   * Runs a shell command on the machine of a remote environment (over its ssh) and resolves when it succeeded; rejects
+   * with what went wrong. Without it, a daemon cannot be updated from the app, only by hand.
+   */
+  runOnHost?: (environment: EnvironmentConfig, command: string) => Promise<void>;
+  /** How long after a daemon update to wait for the connection to drop and come back before giving up on it (ms). */
+  settle?: number;
   /** A session changed in a way worth telling (it asks, it is done, its agent is gone). Without it, nothing is said. */
   attention?: (notice: AttentionNotice) => void;
   /** What the person does, for product analytics (docs/analytics.md). Without it, nothing is reported. */
@@ -304,7 +311,7 @@ export class ConnectionManager
     }
   }
 
-  /** What a connected remote environment's daemon is, and whether it is behind this app. */
+  /** What a connected remote environment's daemon is, and whether it is too old for this app to work with. */
   #daemonOf(
     environment: EnvironmentConfig,
     client: CycleClient,
@@ -312,10 +319,50 @@ export class ConnectionManager
     const version = client.serverVersion;
     if (environment.kind === "local" || version === undefined) return {};
     const { appVersion } = this.#options;
-    const behind = appVersion !== undefined && isNewer(appVersion, version);
+    const old = appVersion !== undefined && daemonTooOld(version);
     return {
-      daemon: { version, ...(behind ? { upgrade: daemonUpgradeCommand(appVersion) } : {}) },
+      daemon: {
+        version,
+        ...(old ? { upgrade: { to: appVersion, command: daemonUpgradeCommand(appVersion) } } : {}),
+      },
     };
+  }
+
+  /**
+   * Updates the daemon of a remote environment by running the command on its machine. The command stops the old daemon,
+   * so the connection drops and comes back to the new one by itself (what is open stays open). A failure is said in the
+   * status, with the command left there to run by hand.
+   */
+  async upgradeDaemon(environmentId: string): Promise<void> {
+    const connection = this.#connections.get(environmentId);
+    const environment = this.#environments.find((e) => e.id === environmentId);
+    const { runOnHost } = this.#options;
+    const upgrade = connection?.status.daemon?.upgrade;
+    if (connection === undefined || environment === undefined || upgrade === undefined) return;
+    if (upgrade.running === true || runOnHost === undefined) return;
+    const say = (next: Omit<NonNullable<typeof upgrade>, "to" | "command"> | undefined) => {
+      const daemon = connection.status.daemon;
+      if (daemon === undefined) return;
+      const { running: _r, error: _e, ...base } = upgrade;
+      connection.status = {
+        ...connection.status,
+        daemon: { ...daemon, upgrade: { ...base, ...next } },
+      };
+      this.#options.emit({ type: "environment-status", ...connection.status });
+    };
+    say({ running: true });
+    try {
+      await runOnHost(environment, upgrade.command);
+    } catch (error) {
+      this.#track("daemon_upgraded", { ok: false });
+      say({ error: messageOf(error) });
+      return;
+    }
+    this.#track("daemon_upgraded", { ok: true });
+    // Stopping the daemon drops the connection; the status that comes with the new one replaces this. If it never drops,
+    // the person is shown the button again rather than a wait without end.
+    await new Promise((resolve) => setTimeout(resolve, this.#options.settle ?? 15_000));
+    if (connection.status.daemon?.upgrade?.running === true) say({});
   }
 
   async disconnect(environmentId: string): Promise<void> {

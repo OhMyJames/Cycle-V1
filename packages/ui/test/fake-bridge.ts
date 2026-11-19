@@ -165,6 +165,7 @@ export const fakeBridge = (
       async () => options.update ?? { current: "0.1.0", kind: "up-to-date" as const, checkedAt: 0 },
     ),
     installUpdate: record("installUpdate", async () => {}),
+    upgradeDaemon: record("upgradeDaemon", async () => {}),
     track: record("track", async () => {}),
     analytics: record("analytics", async () => options.analytics ?? off),
     setAnalytics: record("setAnalytics", async (enabled: boolean) => ({

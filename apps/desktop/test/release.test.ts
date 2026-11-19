@@ -1,11 +1,15 @@
 import { expect, test } from "bun:test";
 import {
   archiveName,
+  daemonTooOld,
   daemonUpgradeCommand,
   isNewer,
+  MIN_DAEMON_VERSION,
   manifestFor,
   parseManifest,
   parseTree,
+  parseVersion,
+  shellQuote,
   type TreeEntry,
 } from "../src/shared/release.ts";
 
@@ -119,4 +123,24 @@ test("a file table may only describe the inside of the bundle", () => {
     [["a"], /not an object/],
   ];
   for (const [value, message] of refused) expect(() => parseTree(value)).toThrow(message);
+});
+
+test("the least daemon is a version no later than the app's own: an app cannot ask for what it is not", async () => {
+  const { version } = (await Bun.file(new URL("../package.json", import.meta.url)).json()) as {
+    version: string;
+  };
+  expect(parseVersion(MIN_DAEMON_VERSION)).toBeDefined();
+  expect(isNewer(MIN_DAEMON_VERSION, version)).toBe(false);
+});
+
+test("a daemon is too old below the least, and not for a development build or a version it cannot read", () => {
+  expect(daemonTooOld("0.0.1")).toBe(true);
+  expect(daemonTooOld(MIN_DAEMON_VERSION)).toBe(false);
+  expect(daemonTooOld("99.0.0")).toBe(false);
+  expect(daemonTooOld("dev")).toBe(false);
+});
+
+test("a command is one word for the shell, whatever it holds", () => {
+  expect(shellQuote("a b")).toBe("'a b'");
+  expect(shellQuote("it's")).toBe(`'it'\\''s'`);
 });

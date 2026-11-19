@@ -38,6 +38,8 @@ export const EVENTS = {
   // ---- environments ----
   environment_saved: o({ transport: z.enum(["ssh"]) }),
   environment_removed: o({ kind: environment }),
+  /** The person had the app update the daemon of a remote environment (not the hand-run command), and it worked or not. */
+  daemon_upgraded: o({ ok: z.boolean() }),
   /** An environment's connection changed: it is up, it dropped and is trying again, or it is closed. */
   environment_connection: o({
     kind: environment,

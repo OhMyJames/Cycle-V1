@@ -109,6 +109,7 @@ test.skipIf(!ready)(
           "setTrust",
           "track",
           "updateState",
+          "upgradeDaemon",
         ].sort(),
       );
 
