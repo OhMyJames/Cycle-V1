@@ -187,3 +187,19 @@ test("a conversation that grows from a few blocks to many draws about a page, no
   expect(drawn(log)).toBe(60);
   expect(log.textContent).not.toContain("question 20");
 });
+
+test("a tool call left going in a turn that has ended says it did not finish, and is not shown running", async () => {
+  const { log, emit } = await open(
+    you("u1"),
+    state({ state: "running" }),
+    ...tool("a", "Bash", "in_progress", { command: "sed -n 1,60p icons.tsx" }),
+  );
+  const row = await screen.findByRole("button", { name: /Bash/ });
+  expect(row.textContent).toContain("in progress");
+  expect(log.querySelector('[data-slot="spinner"]')).not.toBeNull();
+  // An older session: the turn ended and the call never said it had.
+  await emit(state({ state: "idle", stopReason: "end_turn" }));
+  await waitFor(() => expect(row.textContent).toContain("not finished"));
+  expect(row.textContent).not.toContain("in progress");
+  expect(log.querySelector('[data-slot="spinner"]')).toBeNull();
+});

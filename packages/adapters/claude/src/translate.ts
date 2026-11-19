@@ -59,10 +59,16 @@ export class TurnTranslator {
   readonly #streamed = new Set<string>();
   /** Task calls waiting for their results: a created task's id is only in the result. */
   readonly #calls = new Map<string, { name: string; input: Record<string, unknown> }>();
+  /** Tool calls that were shown starting and have had no result yet, in the order they started. */
+  readonly #open = new Set<string>();
 
   constructor(readonly plan: PlanState = new PlanState()) {}
 
   feed(message: SDKMessage): SessionUpdate[] {
+    // A sub-agent's own talk and tool calls are not the session's: it is only announced, through
+    // `task_*` → `subagent_update` (decision 0014). Shown here they would read as the main agent's,
+    // and a background one's results arrive after the turn, so its calls would never end.
+    if ((message as { parent_tool_use_id?: string | null }).parent_tool_use_id) return [];
     switch (message.type) {
       case "stream_event":
         return this.#stream(message.event as unknown as { type: string; [key: string]: unknown });
@@ -93,6 +99,7 @@ export class TurnTranslator {
       this.#blockTypes.set(index, String(block.type));
       if (block.type === "tool_use") {
         const name = String(block.name);
+        this.#open.add(String(block.id));
         return [
           {
             sessionUpdate: "tool_call_update",
@@ -123,6 +130,7 @@ export class TurnTranslator {
     for (const block of message.content) {
       if (block.type === "tool_use") {
         const name = String(block.name);
+        this.#open.add(String(block.id));
         updates.push({
           sessionUpdate: "tool_call_update",
           toolCallId: String(block.id),
@@ -205,11 +213,29 @@ export class TurnTranslator {
     } as SessionUpdate;
   }
 
+  /**
+   * The turn is over: a tool call shown starting that never got its result (the turn was stopped,
+   * or the process went) ends here as `cancelled`, so no client shows it running for ever.
+   */
+  unfinished(): SessionUpdate[] {
+    const updates = [...this.#open].map(
+      (id) =>
+        ({
+          sessionUpdate: "tool_call_update",
+          toolCallId: id,
+          status: "cancelled",
+        }) as SessionUpdate,
+    );
+    this.#open.clear();
+    return updates;
+  }
+
   #toolResults(message: { content: unknown }, structured: unknown): SessionUpdate[] {
     if (!Array.isArray(message.content)) return [];
     const updates: SessionUpdate[] = [];
     for (const block of message.content as Block[]) {
       if (block.type !== "tool_result") continue;
+      this.#open.delete(String(block.tool_use_id));
       const planned = this.#planned(
         String(block.tool_use_id),
         block.is_error === true,

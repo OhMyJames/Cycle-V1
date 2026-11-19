@@ -437,6 +437,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       session.live.idle.unref?.();
     }
     try {
+      for (const update of turn.translator.unfinished()) await notify(client, session.id, update);
       if (usage !== undefined && !turn.cancelled) await notify(client, session.id, usage);
       await notify(client, session.id, {
         sessionUpdate: "state_update",

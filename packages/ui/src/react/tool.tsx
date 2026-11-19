@@ -1,7 +1,7 @@
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
 import { useEffect, useRef, useState } from "react";
 import type { Block, ToolItem } from "../model/index.ts";
-import { textOf } from "../model/index.ts";
+import { isLive, textOf } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
 import {
   CheckIcon,
@@ -92,9 +92,15 @@ export function ToolStatus({ status }: { status: string }) {
   return <span data-slot="dot" data-tone="muted" data-shape="ring" aria-hidden="true" />;
 }
 
-export function ToolCard({ tool }: { tool: ToolItem }) {
+/**
+ * One tool call. `live`: whether its turn is still going. A call in a turn that has ended and never said it ended
+ * (an older session, or a turn that did not wait for it) is "not finished", not shown running for ever.
+ */
+export function ToolCard({ tool, live = true }: { tool: ToolItem; live?: boolean }) {
   const { t } = useI18n();
-  const status = tool.status ?? "pending";
+  const said = tool.status ?? "pending";
+  const unfinished = !live && isLive(tool);
+  const status = unfinished ? "pending" : said;
   const [open, setOpen] = useOpenOnFailure(status === "failed");
   const output =
     tool.content.length > 0
@@ -110,7 +116,9 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
         <span data-slot="tool-name">{tool.name ?? t("tool.unnamed")}</span>
         <span data-slot="tool-summary">{summary}</span>
         <ToolStatus status={status} />
-        <span data-slot="tool-status">{statusWord(t, status)}</span>
+        <span data-slot="tool-status">
+          {unfinished ? t("work.unfinished") : statusWord(t, status)}
+        </span>
       </CollapsibleTrigger>
       <CollapsiblePanel>
         {tool.rawInput !== undefined ? (
