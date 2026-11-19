@@ -20,7 +20,7 @@ SDK 消息(assistant / stream_event / user / system / result)
 Claude SDK 的类型只在适配器里;页面读的是 ACP 的字段(`name`、`kind`、`status`、`rawInput`、`content`、`locations`)。
 **结构化的结果**(`SDKUserMessage.tool_use_result`,每个工具一个 `*Output`,类型是 `unknown`)用于 TaskCreate / TaskUpdate(计划),
 以及 Read、Edit、Write、NotebookEdit、Glob、Grep(`packages/adapters/claude/src/results.ts`,PR2):翻成 ACP 自己的字段——编辑是 `diff` 内容,
-文件位置是 `locations`,数量放进 `rawOutput`(几个数和词,**不带文件内容**:结构化结果里有整个文件)。一条消息里有几个结果时不知道结构化的是谁的,不用。
+文件位置是 `locations`,数量放进 `_meta["cycle/toolResult"]`(只有数和布尔,**不带文件内容**:结构化结果里有整个文件;协议 §9)。页面按这些字段画,不看工具名。一条消息里有几个结果时不知道结构化的是谁的,不用。
 `tool_result.content` 里的文字合成一段,图片作为 ACP 的 `image`(日志里大于 16 KiB 的照常存成 blob)。别的工具仍只有文字。
 
 ## 消息和事件

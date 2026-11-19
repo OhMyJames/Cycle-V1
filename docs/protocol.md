@@ -364,6 +364,17 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 
 `subagent_update`(决策 0014)原样转给客户端:`sessionId` 是子的 id(不是可以打开的 session),`title`、`description`、`state`,以及 `_meta["cycle/subagent"]`:`toolCallId`、`background`、`parentId`、`summary`、`lastTool`、`usage`。只是通告:子 agent 的对话不转发,也不能对它发 `session/*` 请求。
 
+### 工具调用的结果
+
+工具调用结束时,agent 尽量用 ACP 自己的字段说它做了什么:编辑是 `diff` 内容(`changes` 加 git 格式的 `patch`,只是这一次调用的改动;太大时 `patch` 为 `null`),
+读写的文件在 `locations`(读文件带起始行)。ACP 没有字段的数量,放在这次 `tool_call_update` 的 `_meta["cycle/toolResult"]`,是下面三种之一,只有数字和布尔,**不带内容**:
+
+- `{edit: {additions, deletions, created?, staged?}}`:增删的行数;`created` 为 `true` 是新建的文件;`staged` 为 `true` 是改动被留下等人审、文件没变。
+- `{read: {startLine, numLines, totalLines?}}`:从第几行起读了几行,文件共几行。
+- `{search: {files, matches?, lines?, more?}}`:找到几个文件,按匹配数或行数计时带上那个数;`more` 为 `true` 是可能还有(被截断、超时、到了上限)。
+
+daemon 原样转发(照常脱敏,§12)。客户端按 ACP 的 `kind` 和这些字段画,不看工具名;没有这个字段(旧日志、别的 agent)就照旧显示文字。`rawOutput` 仍是原样的结果,只是图片的字节不再重复(已在 `content` 里)。
+
 ## 10. agent 与配置
 
 ### agent 清单

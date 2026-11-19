@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { contentOf, MAX_PATCH, resultOf } from "../src/results.ts";
+import { contentOf, MAX_PATCH, rawOutputOf, resultOf } from "../src/results.ts";
 import { TurnTranslator } from "../src/translate.ts";
 
 // Shapes from the SDK's `sdk-tools.d.ts` (0.3.327): FileEditOutput, FileWriteOutput, FileReadOutput, GlobOutput,
@@ -18,6 +18,9 @@ const result = (id: string, content: unknown, structured?: unknown, isError = fa
     message: { content: [{ type: "tool_result", tool_use_id: id, content, is_error: isError }] },
     tool_use_result: structured,
   }) as unknown as SDKMessage;
+
+const meta = (update: Record<string, unknown> | undefined) =>
+  (update?._meta as Record<string, unknown> | undefined)?.["cycle/toolResult"];
 
 const run = (...messages: SDKMessage[]) => {
   const translator = new TurnTranslator();
@@ -78,7 +81,9 @@ test("an edit becomes the diff of that one call, with its counts and where it is
       },
     },
   ]);
-  expect(done.rawOutput).toEqual({ type: "update", additions: 2, deletions: 1 });
+  expect(meta(done)).toEqual({ edit: { additions: 2, deletions: 1 } });
+  // The text stays as it came, for a client that knows no diff.
+  expect(typeof done.rawOutput).toBe("string");
   expect(done.locations).toEqual([{ path: "/repo/src/a.ts", line: 10 }]);
   expect(JSON.stringify(updates)).not.toContain("SECRET WHOLE FILE");
 });
@@ -104,7 +109,7 @@ test("a new file is all added lines; a huge one keeps its counts and drops the p
       },
     },
   ]);
-  expect(made?.rawOutput).toEqual({ type: "create", additions: 2, deletions: 0 });
+  expect(meta(made)).toEqual({ edit: { additions: 2, deletions: 0, created: true } });
 
   const big = `${"x".repeat(99)}\n`.repeat(MAX_PATCH / 100 + 10);
   const [, huge] = run(
@@ -119,10 +124,8 @@ test("a new file is all added lines; a huge one keeps its counts and drops the p
   );
   const [change] = (huge?.content ?? []) as { patch: unknown }[];
   expect(change?.patch).toBeNull();
-  expect(huge?.rawOutput).toEqual({
-    type: "create",
-    additions: MAX_PATCH / 100 + 10,
-    deletions: 0,
+  expect(meta(huge)).toEqual({
+    edit: { additions: MAX_PATCH / 100 + 10, deletions: 0, created: true },
   });
 });
 
@@ -131,7 +134,7 @@ test("an edit held for review says so", () => {
     call("e", "Edit", { file_path: "/repo/src/a.ts" }),
     result("e", "held", { ...EDIT, staged: true }),
   );
-  expect(held?.rawOutput).toMatchObject({ staged: true });
+  expect(meta(held)).toMatchObject({ edit: { staged: true } });
 });
 
 test("a read keeps its text and says which lines it read", () => {
@@ -151,9 +154,9 @@ test("a read keeps its text and says which lines it read", () => {
   expect(updates[0]).toMatchObject({ locations: [{ path: "/repo/a.ts", line: 20 }] });
   expect(updates[1]).toMatchObject({
     content: [{ type: "content", content: { type: "text", text: "    20\tone\n    21\ttwo" } }],
-    rawOutput: { type: "text", startLine: 20, numLines: 2, totalLines: 300 },
     locations: [{ path: "/repo/a.ts", line: 20 }],
   });
+  expect(meta(updates[1])).toEqual({ read: { startLine: 20, numLines: 2, totalLines: 300 } });
 });
 
 test("a read picture comes through as an image; its bytes are not repeated in rawOutput", () => {
@@ -171,7 +174,9 @@ test("a read picture comes through as an image; its bytes are not repeated in ra
   expect(read?.content).toEqual([
     { type: "content", content: { type: "image", data: "iVBOR", mimeType: "image/png" } },
   ]);
-  expect(read?.rawOutput).toEqual({ type: "image", bytes: 1234 });
+  expect(read?.rawOutput).toEqual([
+    { type: "image", source: { type: "base64", media_type: "image/png", data: "" } },
+  ]);
 });
 
 test("searches say how much they found", () => {
@@ -184,7 +189,7 @@ test("searches say how much they found", () => {
       truncated: false,
     }),
   );
-  expect(glob?.rawOutput).toEqual({ numFiles: 2, truncated: false });
+  expect(meta(glob)).toEqual({ search: { files: 2 } });
   const [, grep] = run(
     call("s", "Grep", { pattern: "todo", output_mode: "content" }),
     result("s", "a.ts:1:todo", {
@@ -195,7 +200,7 @@ test("searches say how much they found", () => {
       numLines: 1,
     }),
   );
-  expect(grep?.rawOutput).toEqual({ mode: "content", numFiles: 1, numLines: 1 });
+  expect(meta(grep)).toEqual({ search: { files: 1, lines: 1 } });
 });
 
 test("a failed call, an unknown shape, or a message with two results keeps the text as it came", () => {
@@ -207,6 +212,7 @@ test("a failed call, an unknown shape, or a message with two results keeps the t
   });
   const [, odd] = run(call("e", "Edit", {}), result("e", "ok", { filePath: 3 }));
   expect(odd?.rawOutput).toBe("ok");
+  expect(odd?._meta).toBeUndefined();
 
   const translator = new TurnTranslator();
   translator.feed(call("a", "Read", { file_path: "/a" }));
@@ -225,6 +231,7 @@ test("a failed call, an unknown shape, or a message with two results keeps the t
     },
   } as unknown as SDKMessage) as unknown as Record<string, unknown>[];
   expect(both.map((u) => u.rawOutput)).toEqual(["A", "B"]);
+  expect(both.map((u) => u._meta)).toEqual([undefined, undefined]);
 });
 
 test("a tool result's text parts join and its images follow; a picture alone has no empty text", () => {
@@ -242,4 +249,87 @@ test("a tool result's text parts join and its images follow; a picture alone has
     { type: "content", content: { type: "text", text: "" } },
   ]);
   expect(resultOf("Bash", { stdout: "x" }, "x")).toBeUndefined();
+});
+
+test("a change with nothing to show is not a diff: an update the SDK could not diff, an empty new file has no patch", () => {
+  const [, nothing] = run(
+    call("w", "Write", { file_path: "/r/a" }),
+    result("w", "The file /r/a has been updated.", {
+      type: "update",
+      filePath: "/r/a",
+      content: "x",
+      structuredPatch: [],
+      originalFile: null,
+    }),
+  );
+  expect(nothing?.rawOutput).toBe("The file /r/a has been updated.");
+  expect(nothing?._meta).toBeUndefined();
+  const [, empty] = run(
+    call("w", "Write", { file_path: "/r/__init__.py" }),
+    result("w", "File created", {
+      type: "create",
+      filePath: "/r/__init__.py",
+      content: "",
+      structuredPatch: [],
+    }),
+  );
+  expect(empty?.content).toEqual([
+    { type: "diff", changes: [{ operation: "add", path: "/r/__init__.py" }], patch: null },
+  ]);
+  expect(meta(empty)).toEqual({ edit: { additions: 0, deletions: 0, created: true } });
+});
+
+test("a notebook cell: a delete takes lines away only, an insert adds only, an error is no diff", () => {
+  const cell = {
+    notebook_path: "/r/n.ipynb",
+    cell_type: "code",
+    language: "python",
+    original_file: "",
+    updated_file: "",
+  };
+  const patchOfCall = (out: object) => {
+    const [, done] = run(call("n", "NotebookEdit", {}), result("n", "ok", { ...cell, ...out }));
+    return done;
+  };
+  const textOf = (done: Record<string, unknown> | undefined) =>
+    ((done?.content ?? []) as { patch: { text: string } }[])[0]?.patch.text;
+  const deleted = patchOfCall({ edit_mode: "delete", old_source: "a\nb", new_source: "a\nb" });
+  expect(meta(deleted)).toEqual({ edit: { additions: 0, deletions: 2 } });
+  expect(textOf(deleted)).toContain("@@ -1,2 +0,0 @@");
+  const inserted = patchOfCall({ edit_mode: "insert", new_source: "x" });
+  expect(textOf(inserted)).toContain("@@ -0,0 +1,1 @@");
+  expect(
+    patchOfCall({ edit_mode: "replace", new_source: "x", error: "Cell not found" })?._meta,
+  ).toBeUndefined();
+  expect(
+    patchOfCall({ edit_mode: "replace", old_source: "", new_source: "" })?._meta,
+  ).toBeUndefined();
+});
+
+test("a search that may have found more says so; an exact total is not marked", () => {
+  const found = (name: string, out: object) =>
+    meta(run(call("s", name, {}), result("s", "…", out))[1]);
+  expect(
+    found("Glob", { numFiles: 100, truncated: true, totalMatches: 523, countIsComplete: true }),
+  ).toEqual({
+    search: { files: 523 },
+  });
+  expect(
+    found("Glob", { numFiles: 100, truncated: true, totalMatches: 900, countIsComplete: false }),
+  ).toEqual({
+    search: { files: 900, more: true },
+  });
+  expect(found("Glob", { numFiles: 100, truncated: true })).toEqual({
+    search: { files: 100, more: true },
+  });
+  expect(
+    found("Grep", { mode: "files_with_matches", numFiles: 250, filenames: [], appliedLimit: 250 }),
+  ).toEqual({
+    search: { files: 250, more: true },
+  });
+});
+
+test("rawOutput keeps a result as it came, but not an image's bytes twice", () => {
+  expect(rawOutputOf("x")).toBe("x");
+  expect(rawOutputOf([{ type: "text", text: "a" }])).toEqual([{ type: "text", text: "a" }]);
 });

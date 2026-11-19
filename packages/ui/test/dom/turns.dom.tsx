@@ -298,7 +298,7 @@ test("an edit's line counts its own lines and opens to them, not to the strings 
             },
           },
         ],
-        rawOutput: { type: "update", additions: 2, deletions: 1 },
+        _meta: { "cycle/toolResult": { edit: { additions: 2, deletions: 1 } } },
       },
     ),
     state({ state: "idle", stopReason: "end_turn" }),
@@ -328,7 +328,7 @@ test("a new file is Created; a read says its lines; a search what it found; a pi
         content: [
           { type: "diff", changes: [{ operation: "add", path: "/r/README.md" }], patch: null },
         ],
-        rawOutput: { type: "create", additions: 3, deletions: 0 },
+        _meta: { "cycle/toolResult": { edit: { additions: 3, deletions: 0, created: true } } },
       },
     ),
     u({
@@ -340,7 +340,7 @@ test("a new file is Created; a read says its lines; a search what it found; a pi
       "r",
       "Read",
       { file_path: "a.ts" },
-      { rawOutput: { type: "text", startLine: 20, numLines: 40, totalLines: 212 } },
+      { _meta: { "cycle/toolResult": { read: { startLine: 20, numLines: 40, totalLines: 212 } } } },
     ),
     u({
       sessionUpdate: "agent_message",
@@ -351,7 +351,7 @@ test("a new file is Created; a read says its lines; a search what it found; a pi
       "g",
       "Grep",
       { pattern: "PORT" },
-      { rawOutput: { mode: "count", numFiles: 2, numMatches: 5 } },
+      { _meta: { "cycle/toolResult": { search: { files: 2, matches: 5 } } } },
     ),
     u({
       sessionUpdate: "agent_message",

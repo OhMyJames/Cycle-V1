@@ -92,9 +92,15 @@ const stringify = (value: unknown): string => {
  * What a call did, as a verb in its tense: "Running" while it goes, "Ran" once it has. A tool with no verb of its own is
  * named instead.
  */
-export const toolVerb = (t: (key: string) => string, tool: ToolItem, going: boolean): string => {
+export const toolVerb = (
+  t: (key: string) => string,
+  tool: ToolItem,
+  going: boolean,
+  facts?: ToolFacts,
+): string => {
   const activity = activityOf(tool);
-  if (!going && toolFacts(tool).edit?.created === true) return t("tool.verb.create.done");
+  if (!going && (facts ?? toolFacts(tool)).edit?.created === true)
+    return t("tool.verb.create.done");
   if (activity === "other") return tool.name ?? t("tool.unnamed");
   return t(`tool.verb.${activity}.${going ? "live" : "done"}`);
 };
@@ -154,7 +160,7 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
             description, that is the line (what it is for), and what it ran follows it, muted; else the verb in its tense. */}
         <span data-slot="visually-hidden">{tool.name ?? t("tool.unnamed")}</span>{" "}
         <span data-slot="tool-verb" data-prose={description !== undefined || undefined} title={tip}>
-          {description ?? toolVerb(t, tool, going)}
+          {description ?? toolVerb(t, tool, going, facts)}
         </span>{" "}
         <span data-slot="tool-summary">{summary}</span> <Facts facts={facts} />{" "}
         <span data-slot={failed ? "tool-status" : "visually-hidden"}>{statusWord(t, status)}</span>{" "}
@@ -163,7 +169,9 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
       <CollapsiblePanel>
         {input !== undefined ? <pre data-slot="tool-input">{clip(stringify(input))}</pre> : null}
         {diff !== undefined ? <DiffView lines={diff} /> : null}
-        {facts.edit !== undefined && diff === undefined ? (
+        {facts.edit !== undefined &&
+        diff === undefined &&
+        facts.edit.additions + facts.edit.deletions > 0 ? (
           <p data-slot="tool-note">{t("tool.diff.tooLarge")}</p>
         ) : null}
         {output !== "" ? <pre data-slot="tool-output">{clip(output)}</pre> : null}
@@ -179,6 +187,9 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
 function Facts({ facts }: { facts: ToolFacts }) {
   const { t } = useI18n();
   const { edit, read, search } = facts;
+  if (edit !== undefined && edit.created && edit.additions === 0) {
+    return <span data-slot="tool-facts">{t("tool.facts.empty")}</span>;
+  }
   if (edit !== undefined) {
     const label = t("tool.facts.diff", { added: edit.additions, removed: edit.deletions });
     return (
@@ -201,6 +212,9 @@ function Facts({ facts }: { facts: ToolFacts }) {
     );
   }
   if (read !== undefined) {
+    // Past the end of the file (or an empty one): no lines were read, and there is no range to give.
+    if (read.count === 0)
+      return <span data-slot="tool-facts">{t("tool.facts.lines", { count: 0 })}</span>;
     const whole = read.start === 1 && read.total !== undefined && read.count >= read.total;
     const end = read.start + Math.max(0, read.count - 1);
     const text = whole

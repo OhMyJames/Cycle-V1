@@ -127,6 +127,7 @@ export const enUS = {
   "tool.facts.removed": "−{count}",
   "tool.facts.diff": "{added} lines added, {removed} removed",
   "tool.facts.staged": "held for review",
+  "tool.facts.empty": "empty file",
   "tool.facts.lines": { one: "{count} line", other: "{count} lines" },
   "tool.facts.range": "lines {start}–{end}",
   "tool.facts.rangeOf": "lines {start}–{end} of {total}",

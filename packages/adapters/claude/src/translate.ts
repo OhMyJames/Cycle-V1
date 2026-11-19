@@ -1,6 +1,6 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { SessionUpdate } from "@cycle/acp";
-import { contentOf, resultOf } from "./results.ts";
+import { contentOf, rawOutputOf, resultOf, TOOL_RESULT_META } from "./results.ts";
 
 /** What a Claude turn ended with, as ACP's idle `state_update` names it. */
 export type StopReason =
@@ -259,8 +259,9 @@ export class TurnTranslator {
         toolCallId: id,
         status: failed ? "failed" : "completed",
         content: read?.content ?? contentOf(block.content),
-        rawOutput: read !== undefined ? read.rawOutput : block.content,
+        rawOutput: rawOutputOf(block.content),
         ...(read?.locations !== undefined ? { locations: read.locations } : {}),
+        ...(read !== undefined ? { _meta: { [TOOL_RESULT_META]: read.meta } } : {}),
       } as SessionUpdate);
     }
     return updates;

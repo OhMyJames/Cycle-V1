@@ -38,6 +38,8 @@ export type ToolItem = InTurn & {
   rawInput?: unknown;
   rawOutput?: unknown;
   locations?: { path: string; line?: number | null }[];
+  /** `_meta["cycle/toolResult"]` of the call's result: what it amounts to in numbers (docs/protocol.md §9). */
+  result?: unknown;
 };
 export type PlanEntry = { content: string; priority: string; status: string };
 export type Usage = { used: number; size: number; cost?: { amount: number; currency: string } };
@@ -220,6 +222,8 @@ const toolUpdate = (c: Conversation, update: Fields): Conversation => {
   const rawInput = update.rawInput === undefined ? old?.rawInput : update.rawInput;
   const rawOutput = update.rawOutput === undefined ? old?.rawOutput : update.rawOutput;
   const locations = patch(old?.locations, update.locations);
+  const meta = update._meta as Record<string, unknown> | null | undefined;
+  const result = meta?.["cycle/toolResult"] !== undefined ? meta["cycle/toolResult"] : old?.result;
   if (name !== undefined) next.name = name;
   if (toolKind !== undefined) next.toolKind = toolKind;
   if (status !== undefined) next.status = status;
@@ -227,6 +231,7 @@ const toolUpdate = (c: Conversation, update: Fields): Conversation => {
   if (rawInput !== undefined) next.rawInput = rawInput;
   if (rawOutput !== undefined) next.rawOutput = rawOutput;
   if (locations !== undefined) next.locations = locations;
+  if (result !== undefined) next.result = result;
   return { ...c, items: upsert(c.items, next) };
 };
 

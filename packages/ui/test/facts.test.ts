@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
+import type { SessionUpdate } from "@cycle/acp";
 import type { ToolItem } from "../src/model/index.ts";
-import { diffLines, toolFacts } from "../src/model/index.ts";
+import { applyUpdate, diffLines, emptyConversation, toolFacts } from "../src/model/index.ts";
 
 const PATCH = [
   "diff --git a/x.ts b/x.ts",
@@ -61,7 +62,7 @@ test("an edit's counts come from the agent, or from its patch when it sent none"
       call({
         name: "Write",
         content: [big],
-        rawOutput: { type: "create", additions: 9000, deletions: 0, staged: true },
+        result: { edit: { additions: 9000, deletions: 0, created: true, staged: true } },
       }),
     ).edit,
   ).toEqual({ created: true, additions: 9000, deletions: 0, staged: true });
@@ -72,22 +73,21 @@ test("an edit's counts come from the agent, or from its patch when it sent none"
 test("reads, searches and pictures; a call that is not completed, or from an older log, has no facts", () => {
   const read = call({
     name: "Read",
-    rawOutput: { type: "text", startLine: 20, numLines: 40, totalLines: 212 },
+    result: { read: { startLine: 20, numLines: 40, totalLines: 212 } },
   });
   expect(toolFacts(read).read).toEqual({ start: 20, count: 40, total: 212 });
   expect(toolFacts({ ...read, status: "failed" }).read).toBeUndefined();
-  expect(toolFacts(call({ name: "Read", rawOutput: "    1\tline" })).read).toBeUndefined();
   expect(
-    toolFacts(
-      call({ name: "Glob", rawOutput: { numFiles: 100, truncated: true, totalMatches: 340 } }),
-    ).search,
+    toolFacts(call({ name: "Read", rawOutput: { type: "text", startLine: 1, numLines: 1 } })).read,
+  ).toBeUndefined();
+  expect(
+    toolFacts(call({ name: "Glob", result: { search: { files: 340, more: true } } })).search,
   ).toEqual({
     files: 340,
     more: true,
   });
   expect(
-    toolFacts(call({ name: "Grep", rawOutput: { mode: "count", numFiles: 2, numMatches: 5 } }))
-      .search,
+    toolFacts(call({ name: "Grep", result: { search: { files: 2, matches: 5 } } })).search,
   ).toEqual({
     files: 2,
     matches: 5,
@@ -97,4 +97,25 @@ test("reads, searches and pictures; a call that is not completed, or from an old
   expect(
     toolFacts(call({ name: "Read", content: [{ type: "content", content: image }] })).images,
   ).toEqual([{ key: "image-0", block: image }]);
+});
+
+test("facts follow what the agent sent, not the tool's name; the result stays through later updates", () => {
+  const updates = [
+    {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "x",
+      name: "mcp__fs__search",
+      status: "in_progress",
+    },
+    {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "x",
+      status: "completed",
+      _meta: { "cycle/toolResult": { search: { files: 3, more: true } } },
+    },
+    { sessionUpdate: "tool_call_update", toolCallId: "x", title: "later" },
+  ] as unknown as SessionUpdate[];
+  const conversation = updates.reduce(applyUpdate, emptyConversation());
+  const tool = conversation.items.find((item) => item.kind === "tool") as ToolItem;
+  expect(toolFacts(tool).search).toEqual({ files: 3, more: true });
 });
