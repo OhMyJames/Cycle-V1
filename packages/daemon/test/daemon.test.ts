@@ -1191,7 +1191,7 @@ test("a stop that comes while the agent is starting means the prompt is not give
   expect(stateOf(row)).toBe("idle");
 });
 
-test("a prompt whose queue cannot be written is refused, and the queue is as it was", async () => {
+test("a prompt whose queue snapshot cannot be written is refused, not confirmed as queued", async () => {
   let release: () => void = () => {};
   const held = new Promise<void>((resolve) => {
     release = resolve;

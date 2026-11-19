@@ -446,6 +446,10 @@ export class Daemon {
       if (Object.keys(missing).length > 0) {
         this.#remember(session, { config: { ...missing, ...(session.entry.config ?? {}) } });
       }
+      // What was saved is put back, setting by setting. One the agent no longer takes is not left on
+      // record as if it were in force: the session carries on with what the agent actually has, the
+      // record says so, and the conversation says so before anything more is sent.
+      const refused: { configId: string; wanted: string }[] = [];
       for (const [configId, value] of Object.entries(session.entry.config ?? {})) {
         await link.agent
           .request(methods.agent.session.setConfigOption, {
@@ -454,8 +458,11 @@ export class Daemon {
             type: "id",
             value,
           } as never)
-          .catch(() => undefined);
+          .catch(() => {
+            refused.push({ configId, wanted: value });
+          });
       }
+      if (refused.length > 0) this.#configNotRestored(session, refused, resumedWith);
       return { link, created: undefined };
     } catch (error) {
       session.link = undefined;
@@ -463,6 +470,32 @@ export class Daemon {
       link.kill();
       throw error;
     }
+  }
+
+  /** Settings the agent refused on resume: the record follows what is in force, and the client is told. */
+  #configNotRestored(
+    session: Session,
+    refused: { configId: string; wanted: string }[],
+    actual: Record<string, string>,
+  ): void {
+    const config = { ...(session.entry.config ?? {}) };
+    for (const { configId, wanted } of refused) {
+      const now = actual[configId];
+      if (now === undefined) delete config[configId];
+      else config[configId] = now;
+      void this.#write(session, {
+        kind: "update",
+        data: {
+          sessionUpdate: "notice",
+          severity: "warning",
+          title:
+            now === undefined
+              ? `The agent no longer has the setting "${configId}" (it was "${wanted}"). It is not applied.`
+              : `The agent did not accept "${wanted}" for "${configId}". It is now "${now}".`,
+        },
+      });
+    }
+    this.#remember(session, { config });
   }
 
   /** The agent for a session, started if it is not running. */

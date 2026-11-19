@@ -66,7 +66,9 @@ export const fakeAgent = (
     failInitialize: boolean;
     /** While set, a launch waits for it: the agent is slow to start. */
     holdLaunch: Promise<void> | undefined;
-  } = { failLaunch: false, failInitialize: false, holdLaunch: undefined };
+    /** Settings (by configId) the agent refuses to be set to anything: it no longer has them. */
+    rejectConfig: Set<string>;
+  } = { failLaunch: false, failInitialize: false, holdLaunch: undefined, rejectConfig: new Set() };
   const cancelResolvers: (() => void)[] = [];
 
   const build = () => {
@@ -105,6 +107,8 @@ export const fakeAgent = (
       })
       .onRequest(methods.agent.session.setConfigOption, ({ params }) => {
         log.configs.push(params as unknown as Record<string, unknown>);
+        if (control.rejectConfig.has(params.configId))
+          throw new RequestError(-32602, "No such setting");
         const value = (params as { value?: unknown }).value;
         return {
           configOptions: (options.configOptions ?? []).map((o) =>

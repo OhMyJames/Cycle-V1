@@ -243,6 +243,39 @@ test("a setting not on record is recorded as the agent resumed it", async () => 
   expect(config).toEqual({ mode: "default" });
 });
 
+test("a saved setting the agent refuses on resume is not left on record as in force, and the conversation says so", async () => {
+  const fake = fakeAgent(
+    {},
+    { configOptions: [modeOption("auto")], resumeConfigOptions: [modeOption("auto")] },
+  );
+  const { daemon } = await start(fake);
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, {
+    cwd: "/tmp",
+    _meta: { "cycle/config": { mode: "plan" } },
+  });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  expect((await sessionRow(c))["cycle/config"]).toEqual({ mode: "plan" });
+
+  // The agent is updated and no longer takes "plan"; it resumes the session in "auto".
+  fake.control.rejectConfig.add("mode");
+  fake.crash();
+  await Bun.sleep(30);
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("again") });
+  await until(() => fake.log.resumes.length === 1, "the agent to be resumed");
+
+  await until(
+    () =>
+      c.seen.some(
+        (s) =>
+          s.update.sessionUpdate === "notice" &&
+          String((s.update as { title?: unknown }).title).includes('"plan"'),
+      ),
+    "the conversation to say the setting was not restored",
+  );
+  expect((await sessionRow(c))["cycle/config"]).toEqual({ mode: "auto" });
+});
+
 test("the setup survives a new daemon, and a session without one sends none", async () => {
   const first = await start();
   const c = await connectClient(first.daemon);
