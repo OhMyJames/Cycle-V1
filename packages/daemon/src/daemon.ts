@@ -369,13 +369,22 @@ export class Daemon {
   async #startAgent(session: Session, mode: "new" | "resume", create?: Record<string, unknown>) {
     const definition = this.#definition(session.entry.agent);
     const trust = await this.#trustMeta(session.entry.cwd);
+    // The connection can end before connect() has returned the link (an agent that fails to start,
+    // or exits at once): the end is noted, and acted on once there is a link to act on.
+    let connected: AgentLink | undefined;
+    let endedEarly = false;
     const link = await AgentLink.connect(definition, {
       update: (update) => this.#onUpdate(session, update),
       permission: (params) => this.#onPermission(session, params),
       elicitation: (params) => this.#onElicitation(session, params),
-      closed: () => this.#onAgentClosed(session, link),
+      closed: () => {
+        if (connected === undefined) endedEarly = true;
+        else this.#onAgentClosed(session, connected);
+      },
     });
+    connected = link;
     session.link = link;
+    if (endedEarly) this.#onAgentClosed(session, link);
     try {
       // Cycle's connectors, each through the gateway (docs/protocol.md §14). A session's own servers keep their names.
       const own = ((mode === "new" ? create?.mcpServers : undefined) ??

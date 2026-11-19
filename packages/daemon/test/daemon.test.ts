@@ -1143,6 +1143,25 @@ test("a session whose history file is gone is listed as unreadable, and no empty
   expect(after.map((s) => s.sessionId)).toEqual([good]);
 });
 
+test("an agent that fails to initialize fails that one session; the daemon and the others carry on", async () => {
+  const { daemon, fake } = await start();
+  const a = await connectClient(daemon);
+  const b = await connectClient(daemon);
+  const { sessionId } = await b.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await b.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+
+  fake.control.failInitialize = true;
+  await expect(a.agent.request(methods.agent.session.new, { cwd: "/tmp" })).rejects.toBeDefined();
+  fake.control.failInitialize = false;
+
+  // Let anything the failure left behind surface before looking.
+  await Bun.sleep(50);
+  await b.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("still here") });
+  await until(() => b.ended() >= 1, "the other session to take a turn");
+  const fresh = await a.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  expect(fresh.sessionId).toBeDefined();
+});
+
 test("a half line left by a crash is not damage: the session is listed and opens as before", async () => {
   const [id] = (await seedSessions(1)) as [string];
   await appendFile(join(dir, "sessions", `${id}.jsonl`), '{"seq": 99, "kind":"upd');
