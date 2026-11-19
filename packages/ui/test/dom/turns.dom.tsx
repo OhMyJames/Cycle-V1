@@ -403,3 +403,28 @@ test("a new file is Created; a read says its lines; a search what it found; a pi
   // Neither input is shown again: the new file's is the file, the read's says only the path the line shows.
   expect(log.querySelector('[data-slot="tool-input"]')).toBeNull();
 });
+
+test("a deletion-only edit shows only removed lines, not +0", async () => {
+  await open(
+    you("u1"),
+    ...finished(
+      "d",
+      "Edit",
+      { file_path: "src/old.ts", old_string: "a\nb\n", new_string: "" },
+      {
+        content: [
+          {
+            type: "diff",
+            changes: [{ operation: "modify", path: "/r/src/old.ts" }],
+            patch: { format: "git_patch", text: "--- a\n+++ b\n@@ -1,2 +1,0 @@\n-a\n-b\n" },
+          },
+        ],
+        _meta: { "cycle/toolResult": { edit: { additions: 0, deletions: 2 } } },
+      },
+    ),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const row = await screen.findByRole("button", { name: /Edited/ });
+  expect(row.textContent).toContain("−2");
+  expect(row.textContent).not.toContain("+0");
+});

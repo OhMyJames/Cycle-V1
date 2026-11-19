@@ -37,14 +37,17 @@ export const updateLine = (update: UpdateState): string => {
 /** At the top of the page when there is something to do about the update. */
 export function UpdateBanner() {
   const store = useAppStore();
+  const { t } = useI18n();
   const update = useAppState((s) => s.update);
   const [confirming, setConfirming] = useState(false);
+  const [dismissed, setDismissed] = useState<string | undefined>(undefined);
   if (update === undefined) return null;
   const busy = update.kind === "downloading" || update.kind === "installing";
   const failedInstall = update.kind === "error" && update.version !== undefined;
   if (update.kind !== "available" && !busy && !failedInstall) return null;
   const version =
     update.kind === "error" ? update.version : (update as { version: string }).version;
+  if (update.kind === "available" && dismissed === version) return null;
   return (
     <div data-slot="banner" data-severity={failedInstall ? "error" : "info"} role="status">
       {failedInstall ? <ErrorCircleIcon /> : <DownloadIcon />}
@@ -53,6 +56,11 @@ export function UpdateBanner() {
           ? `Updating to ${version} failed: ${updateLine(update)}`
           : updateLine(update)}
       </span>
+      {update.kind === "available" ? (
+        <Button data-variant="ghost" onClick={() => setDismissed(version)}>
+          {t("update.dismiss")}
+        </Button>
+      ) : null}
       {!busy ? (
         <Button data-variant="outline" onClick={() => setConfirming(true)}>
           {failedInstall ? "Try again" : "Update and restart"}

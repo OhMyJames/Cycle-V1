@@ -321,6 +321,9 @@ test("a new session starts in auto, the suggested mode", async () => {
     expect(mode?.options.filter((o) => o._meta?.["cycle/recommended"] === true)).toEqual([
       expect.objectContaining({ value: "auto" }),
     ]);
+    expect(mode?.options.filter((o) => o._meta?.["cycle/danger"] === true)).toEqual([
+      expect.objectContaining({ value: "bypassPermissions" }),
+    ]);
     const idle = waitForIdle();
     await agent.request(methods.agent.session.prompt, {
       sessionId: ID,

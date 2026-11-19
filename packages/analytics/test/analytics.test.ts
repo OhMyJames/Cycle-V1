@@ -177,6 +177,7 @@ describe("track", () => {
 describe("the dictionary", () => {
   test("the page may send only its own events", () => {
     expect(isUiEvent("panel_opened")).toBe(true);
+    expect(isUiEvent("sidebar_toggled")).toBe(true);
     expect(isUiEvent("prompt_sent")).toBe(false);
     expect(isUiEvent("session_deleted")).toBe(false);
   });

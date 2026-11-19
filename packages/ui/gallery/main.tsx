@@ -50,60 +50,64 @@ const bridgeFor = (scenario: Scenario) => {
   script.bridge.environments = async () => ({ environments, status, sessions });
   script.bridge.sessions = async (environmentId) => sessions[environmentId] ?? [];
   script.bridge.openSession = async () => snapshotOf(scenario);
-  script.bridge.agents = async () => [
-    {
-      id: "claude",
-      name: "Claude",
-      available: true,
-      ...(scenario.attach ? { promptCapabilities: { image: {} } } : {}),
-      configSchema: {
-        type: "object",
-        properties: {
-          model: {
-            type: "string",
-            title: "Model",
-            oneOf: [
-              { const: "default", title: "Default model" },
-              { const: "sonnet", title: "Sonnet" },
-              { const: "opus", title: "Opus" },
-            ],
+  script.bridge.agents = async () =>
+    scenario.noAgents
+      ? []
+      : [
+          {
+            id: "claude",
+            name: "Claude",
+            available: true,
+            ...(scenario.attach ? { promptCapabilities: { image: {} } } : {}),
+            configSchema: {
+              type: "object",
+              properties: {
+                model: {
+                  type: "string",
+                  title: "Model",
+                  oneOf: [
+                    { const: "default", title: "Default model" },
+                    { const: "sonnet", title: "Sonnet" },
+                    { const: "opus", title: "Opus" },
+                  ],
+                },
+                mode: {
+                  type: "string",
+                  title: "Permission mode",
+                  oneOf: [
+                    {
+                      const: "auto",
+                      title: "Auto",
+                      description:
+                        "A model reviews each action and allows or denies it, and asks you when it cannot tell. Not every account has it.",
+                      _meta: { "cycle/recommended": true },
+                    },
+                    {
+                      const: "default",
+                      title: "Ask before acting",
+                      description:
+                        "Asks you before Claude edits a file or runs a command. Reading is allowed without asking.",
+                    },
+                    {
+                      const: "plan",
+                      title: "Plan mode",
+                      description:
+                        "Claude reads and writes a plan but changes nothing. It starts work only after you approve the plan.",
+                    },
+                    {
+                      const: "bypassPermissions",
+                      title: "Bypass permissions",
+                      description:
+                        "Every edit and command runs without asking. Use only where Claude can do no harm, such as a sandbox.",
+                      _meta: { "cycle/danger": true },
+                    },
+                  ],
+                  default: "auto",
+                },
+              },
+            },
           },
-          mode: {
-            type: "string",
-            title: "Permission mode",
-            oneOf: [
-              {
-                const: "auto",
-                title: "Auto",
-                description:
-                  "A model reviews each action and allows or denies it, and asks you when it cannot tell. Not every account has it.",
-                _meta: { "cycle/recommended": true },
-              },
-              {
-                const: "default",
-                title: "Ask before acting",
-                description:
-                  "Asks you before Claude edits a file or runs a command. Reading is allowed without asking.",
-              },
-              {
-                const: "plan",
-                title: "Plan mode",
-                description:
-                  "Claude reads and writes a plan but changes nothing. It starts work only after you approve the plan.",
-              },
-              {
-                const: "bypassPermissions",
-                title: "Bypass permissions",
-                description:
-                  "Every edit and command runs without asking. Use only where Claude can do no harm, such as a sandbox.",
-              },
-            ],
-            default: "auto",
-          },
-        },
-      },
-    },
-  ];
+        ];
   return script;
 };
 

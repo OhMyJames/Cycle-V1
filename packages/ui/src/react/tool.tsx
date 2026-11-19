@@ -151,6 +151,7 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
   // The tooltip names the tool, and holds the whole sentence when the line cuts it.
   const tip =
     description !== undefined ? [tool.name, description].filter(Boolean).join(": ") : tool.name;
+  const summaryTip = summary || undefined;
   return (
     // A failure is what the person came to read: it starts open.
     <Collapsible data-kind="tool" data-status={status} open={open} onOpenChange={setOpen}>
@@ -162,7 +163,10 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
         <span data-slot="tool-verb" data-prose={description !== undefined || undefined} title={tip}>
           {description ?? toolVerb(t, tool, going, facts)}
         </span>{" "}
-        <span data-slot="tool-summary">{summary}</span> <Facts facts={facts} />{" "}
+        <span data-slot="tool-summary" title={summaryTip}>
+          {summary}
+        </span>{" "}
+        <Facts facts={facts} />{" "}
         <span data-slot={failed ? "tool-status" : "visually-hidden"}>{statusWord(t, status)}</span>{" "}
         <ChevronRightIcon size={12} data-slot="tool-chevron" aria-hidden="true" />
       </CollapsibleTrigger>
@@ -197,12 +201,12 @@ function Facts({ facts }: { facts: ToolFacts }) {
         {empty ? t("tool.facts.empty") : null}
         {counted ? (
           <>
-            <span data-tone="add">{t("tool.facts.added", { count: edit.additions })}</span>
+            {edit.additions > 0 ? (
+              <span data-tone="add">{t("tool.facts.added", { count: edit.additions })}</span>
+            ) : null}
+            {edit.additions > 0 && edit.deletions > 0 ? " " : null}
             {edit.deletions > 0 ? (
-              <>
-                {" "}
-                <span data-tone="del">{t("tool.facts.removed", { count: edit.deletions })}</span>
-              </>
+              <span data-tone="del">{t("tool.facts.removed", { count: edit.deletions })}</span>
             ) : null}
             <span data-slot="visually-hidden">{label}</span>
           </>

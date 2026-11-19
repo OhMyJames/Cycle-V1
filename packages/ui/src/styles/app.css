@@ -193,12 +193,10 @@ summary:focus-visible {
     [data-slot="picker-description"],
     [data-slot="composer-placeholder"],
     [data-slot="connector-name"],
-    [data-slot="connector-where"],
     [data-slot="tool-verb"],
     [data-slot="tool-summary"],
     [data-slot="step-detail"],
-    [data-slot="session-header"] h1,
-    [data-slot="session-where"]
+    [data-slot="session-header"] h1
   ) {
     animation: cycle-fade linear both !important;
     animation-timeline: scroll(self inline) !important;
@@ -227,12 +225,10 @@ summary:focus-visible {
   [data-slot="picker-description"],
   [data-slot="composer-placeholder"],
   [data-slot="connector-name"],
-  [data-slot="connector-where"],
   [data-slot="tool-verb"],
   [data-slot="tool-summary"],
   [data-slot="step-detail"],
-  [data-slot="session-header"] h1,
-  [data-slot="session-where"]
+  [data-slot="session-header"] h1
 ) {
   overflow: hidden;
   white-space: nowrap;
@@ -385,6 +381,9 @@ svg[data-slot="dot"] {
   border-radius: var(--cycle-radius-card);
   background: var(--cycle-surface-raised);
   box-shadow: var(--cycle-shadow-popover);
+  transition:
+    opacity var(--cycle-motion-enter) var(--cycle-ease),
+    transform var(--cycle-motion-enter) var(--cycle-ease);
 }
 
 :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) {
@@ -392,6 +391,33 @@ svg[data-slot="dot"] {
   border-radius: var(--cycle-radius-message);
   background: var(--cycle-surface-raised);
   box-shadow: var(--cycle-shadow-dialog);
+  transition:
+    opacity var(--cycle-motion-enter) var(--cycle-ease),
+    transform var(--cycle-motion-enter) var(--cycle-ease);
+}
+
+:is(
+  [data-slot="menu-content"],
+  [data-slot="select-content"],
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"]
+):is([data-starting-style], [data-ending-style]) {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+:is(
+  [data-slot="menu-content"],
+  [data-slot="select-content"],
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"]
+)[data-ending-style] {
+  transition-duration: var(--cycle-motion-state);
+}
+
+[data-slot="row"][data-dialog-footer] {
+  justify-content: flex-end;
+  margin-top: 0.25rem;
 }
 
 /* Sidebar */
@@ -635,13 +661,6 @@ svg[data-slot="dot"] {
   height: 1.3em;
 }
 
-[data-slot="session-main"] {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-
 [data-slot="session-title"] {
   overflow: hidden;
   white-space: nowrap;
@@ -775,11 +794,21 @@ html[data-platform="darwin"] :is([data-slot$="-backdrop"], [data-slot$="-content
   -webkit-app-region: no-drag;
 }
 
-/* With the sidebar folded the traffic lights are over the main area: the title starts after them. */
+/* With the sidebar folded the traffic lights sit in the main area's top-left corner: clear them on whatever is at the top. */
 html[data-platform="darwin"]
   [data-slot="app"]:has([data-slot="resizable-panel"][data-collapsed])
-  [data-slot="session-header"] {
+  [data-slot="main"]
+  > :first-child {
   padding-left: 5.5rem;
+}
+
+@keyframes cycle-banner-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 [data-slot="banner"] {
@@ -789,6 +818,7 @@ html[data-platform="darwin"]
   padding: 0.5rem var(--cycle-gap);
   border-bottom: 1px solid var(--ui-border);
   border-left: 3px solid var(--cycle-accent);
+  animation: cycle-banner-in var(--cycle-motion-enter) var(--cycle-ease);
 }
 
 [data-slot="banner"]:has([data-slot="stack"]) {
@@ -823,7 +853,7 @@ html[data-platform="darwin"]
 }
 
 /* The daemon's banner sits under the title and is one line; the command, when it is shown, wraps below. */
-[data-slot="banner"][data-kind="daemon"] {
+[data-slot="banner"]:is([data-kind="daemon"], [data-kind="incompatible"]) {
   flex-wrap: wrap;
 }
 
@@ -837,7 +867,7 @@ html[data-platform="darwin"]
   user-select: all;
 }
 
-[data-slot="banner"][data-kind="daemon"] > [data-slot="command"] {
+[data-slot="banner"]:is([data-kind="daemon"], [data-kind="incompatible"]) > [data-slot="command"] {
   flex-basis: 100%;
 }
 
@@ -931,10 +961,21 @@ html[data-platform="darwin"]
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--cycle-gap);
+  gap: 0.5rem;
   height: 2.625rem;
   flex: none;
   padding: 0 0.5rem 0 var(--cycle-gap);
+}
+
+[data-slot="session-header"][data-empty-header] {
+  justify-content: flex-start;
+}
+
+[data-kind="sidebar-toggle"] {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
 }
 
 [data-slot="session-heading"] {
@@ -946,7 +987,7 @@ html[data-platform="darwin"]
   white-space: nowrap;
 }
 
-/* The title gives way last: where it runs shrinks first, then the title, and the row fades where it is cut. */
+/* The title gives way last: where it runs shrinks first, then the title. Paths truncate from the start so the repo/folder name at the end stays readable. */
 [data-slot="session-header"] h1 {
   flex: 0 1 auto;
   min-width: 0;
@@ -961,6 +1002,11 @@ html[data-platform="darwin"]
   flex: 0 100 auto;
   min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
+  text-overflow: ellipsis;
   font-family: var(--ui-font-mono);
   font-size: var(--cycle-text-meta);
   color: var(--ui-muted-foreground);
@@ -993,7 +1039,7 @@ html[data-platform="darwin"]
   text-align: center;
 }
 
-[data-slot="empty-block"] > svg {
+[data-slot="empty-block"] > svg:not([data-tone]) {
   color: var(--ui-destructive);
 }
 
@@ -1258,7 +1304,6 @@ html[data-platform="darwin"]
   min-width: 0;
 }
 
-[data-slot="tool-verb"][data-prose] + * + [data-slot="tool-summary"]:not(:empty),
 [data-slot="tool-verb"][data-prose] ~ [data-slot="tool-summary"]:not(:empty) {
   min-width: 6rem;
 }
@@ -1477,7 +1522,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 [data-slot="diff-number"] {
   padding-right: 0.75rem;
   text-align: right;
-  color: var(--cycle-ink-disabled);
+  color: var(--cycle-ink-muted);
   font-variant-numeric: tabular-nums;
   user-select: none;
 }
@@ -1668,6 +1713,12 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   flex-wrap: wrap;
 }
 
+[data-slot="permission-actions"] kbd {
+  font: inherit;
+  font-size: var(--cycle-text-meta);
+  opacity: 0.85;
+}
+
 [data-kind="permission-dismiss"] {
   margin-left: auto;
 }
@@ -1766,15 +1817,14 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   stroke-linecap: round;
 }
 
-/* The keys under the box: one line of the same height whatever it says, so the box does not move. */
+/* The keys under the box: keeps its baseline height so the box does not jump, and wraps cleanly on narrow windows. */
 [data-slot="key-hints"] {
   display: flex;
   flex-wrap: wrap;
-  gap: 0 0.75rem;
-  height: 1.125rem;
+  gap: 0.125rem 0.75rem;
+  min-height: 1.125rem;
   margin: -0.25rem 0 0;
   padding: 0 0.5rem;
-  overflow: hidden;
   list-style: none;
   font-size: var(--cycle-text-meta);
   line-height: var(--cycle-leading-meta);
@@ -1796,7 +1846,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   text-align: center;
 }
 
-/* A setting at hand: its value as a quiet word, no chevron (old-cycle's rule); the name is in its label and tooltip. */
+/* A setting at hand: quiet ghost button with a subtle chevron cue; high-risk modes warn in attention colour. */
 [data-kind="setting-chip"] {
   min-width: 0;
   max-width: 12rem;
@@ -1805,8 +1855,21 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   font-weight: var(--cycle-weight);
 }
 
-[data-kind="setting-chip"][data-unset] {
+[data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"][data-unset] {
   color: var(--ui-muted-foreground);
+}
+
+[data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"][data-danger],
+[data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"][data-danger]:is(
+  :hover:not([data-disabled]),
+  [data-open]
+) {
+  color: var(--cycle-attention);
+}
+
+[data-slot="setting-chevron"] {
+  flex: none;
+  opacity: 0.7;
 }
 
 [data-slot="setting-value"] {
@@ -2071,6 +2134,11 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   color: var(--ui-muted-foreground);
 }
 
+[data-slot="option-tag"][data-tone="attention"] {
+  border-color: color-mix(in oklab, var(--cycle-attention) 45%, transparent);
+  color: var(--cycle-attention);
+}
+
 [data-slot="option-description"] {
   font-size: var(--cycle-text-meta);
   color: var(--ui-muted-foreground);
@@ -2216,6 +2284,12 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 [data-slot="connector-where"] {
+  overflow: hidden;
+  white-space: nowrap;
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
+  text-overflow: ellipsis;
   font-family: var(--ui-font-mono);
   font-size: var(--cycle-text-meta);
   color: var(--ui-muted-foreground);

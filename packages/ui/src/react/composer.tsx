@@ -339,8 +339,9 @@ export function Composer({
       // `/compact` typed in full and Enter: the name is already there, and sending is what was meant. A file is still taken
       // (its link is made when it is picked), and Tab always takes.
       const complete = kind === "command" && rows[active]?.name === query;
-      // Only a plain Enter takes: with Shift or Alt it is the box's (a new line, or the queue).
-      const plain = key === "enter" && !event.shiftKey && !event.altKey;
+      // Only a plain Enter takes: with Shift, Alt, Cmd or Ctrl it is not a menu pick.
+      const plain =
+        key === "enter" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
       if (key === "tab" || (plain && !complete)) {
         pick(active);
         return true;
@@ -351,7 +352,7 @@ export function Composer({
       }
     }
     if (key === "enter") {
-      if (event.altKey) return false;
+      if (event.altKey || event.metaKey || event.ctrlKey) return false;
       if (event.shiftKey) {
         // The queue only where Enter steers; otherwise Shift+Enter is a new line, as it always was.
         if (!steers) return false;
@@ -378,6 +379,7 @@ export function Composer({
   // Dropping files: listeners on the element itself (a drag is not something a keyboard does, so it is not a handler of the markup).
   const attachRef = useRef(attach);
   attachRef.current = attach;
+  const noImageMessage = t("composer.problem.noImage");
   useEffect(() => {
     const el = root.current;
     if (el === null || !canAttach) return;
@@ -388,12 +390,18 @@ export function Composer({
       event.preventDefault();
       setDropping(true);
     };
-    const leave = () => setDropping(false);
+    const leave = (event: globalThis.DragEvent) => {
+      if (event.relatedTarget instanceof Node && el.contains(event.relatedTarget)) return;
+      setDropping(false);
+    };
     const drop = (event: globalThis.DragEvent) => {
       setDropping(false);
       if (!hasFiles(event)) return;
       event.preventDefault();
-      void attachRef.current(imagesOf(event.dataTransfer?.files));
+      const dropped = Array.from(event.dataTransfer?.files ?? []);
+      const imgs = imagesOf(dropped);
+      if (dropped.length > 0 && imgs.length === 0) setProblem(noImageMessage);
+      else void attachRef.current(imgs);
     };
     el.addEventListener("dragover", over);
     el.addEventListener("dragleave", leave);
@@ -403,7 +411,7 @@ export function Composer({
       el.removeEventListener("dragleave", leave);
       el.removeEventListener("drop", drop);
     };
-  }, [canAttach]);
+  }, [canAttach, noImageMessage]);
 
   const sendName = t(steers ? "composer.steer" : "composer.send");
   return (

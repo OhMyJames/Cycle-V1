@@ -10,6 +10,7 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
 import { MarkdownShortcutPlugin } from "@lexical/react/LexicalMarkdownShortcutPlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
+import { isComposing } from "@ui-sdk/core";
 import {
   $getRoot,
   $getSelection,
@@ -159,15 +160,21 @@ function Behaviour({ props }: { props: MarkdownInputProps }) {
       (event: KeyboardEvent | null): boolean => {
         if (event === null) return false;
         if (name === "enter") {
-          // Enter that confirms an IME composition is not a send.
-          if (event.isComposing) return false;
+          // Enter that confirms an IME composition is not a send; Safari reports it as !event.isComposing.
+          if (isComposing(event)) return false;
+          // Cmd/Ctrl+Enter is reserved for app-level shortcuts (e.g. approving a permission): stop Lexical
+          // from inserting a break or sending, while letting the DOM keydown bubble to window.
+          if (event.metaKey || event.ctrlKey) {
+            event.preventDefault();
+            return true;
+          }
           event.preventDefault();
           // Not used by the parent: a new line, the one Shift+Enter makes, whichever modifier asked for it.
           if (!latest.current.onKey("enter", event))
             editor.dispatchCommand(INSERT_LINE_BREAK_COMMAND, false);
           return true;
         }
-        if (event.isComposing) return false;
+        if (isComposing(event)) return false;
         if (!latest.current.onKey(name, event)) return false;
         event.preventDefault();
         return true;
@@ -217,13 +224,41 @@ function Behaviour({ props }: { props: MarkdownInputProps }) {
           const selection = $getSelection();
           if (!$isRangeSelection(selection)) return;
           const node = selection.anchor.getNode();
-          // What was typed of a trigger is in the one text node the caret is in, so it is replaced there, without the
-          // browser's own selection (which a test, and a caret that has just moved, may not have).
           if ($isTextNode(node) && selection.anchor.type === "text") {
             const end = selection.anchor.offset;
-            node.spliceText(Math.max(0, end - length), Math.min(length, end), text, true);
+            const take = Math.min(length, end);
+            node.spliceText(end - take, take, text, true);
+            let left = length - take;
+            let prev = node.getPreviousSibling();
+            while (left > 0 && prev !== null) {
+              const before = prev.getPreviousSibling();
+              if ($isTextNode(prev)) {
+                const size = prev.getTextContentSize();
+                const drop = Math.min(left, size);
+                prev.spliceText(size - drop, drop, "", false);
+                left -= drop;
+              }
+              prev = before;
+            }
           } else {
-            selection.insertRawText(text);
+            // Element anchor right after a text node (e.g., boundary after restored draft).
+            const prev =
+              selection.anchor.type === "element" && selection.anchor.offset > 0
+                ? (node as { getChildAtIndex?: (i: number) => unknown }).getChildAtIndex?.(
+                    selection.anchor.offset - 1,
+                  )
+                : null;
+            if ($isTextNode(prev as never)) {
+              const t = prev as unknown as {
+                getTextContentSize: () => number;
+                spliceText: (o: number, d: number, s: string, move: boolean) => void;
+              };
+              const size = t.getTextContentSize();
+              const take = Math.min(length, size);
+              t.spliceText(size - take, take, text, true);
+            } else {
+              selection.insertRawText(text);
+            }
           }
         }),
     };

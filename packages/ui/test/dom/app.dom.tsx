@@ -570,7 +570,7 @@ test("deleting a session asks first", async () => {
   await waitFor(() => expect(named("deleteSession")).toEqual([["deleteSession", "local", "s1"]]));
 });
 
-test("Ctrl or Cmd+Enter allows a pending request, but not while typing in the message box", async () => {
+test("Ctrl or Cmd+Enter allows a pending request even while typing in the message box, when connected", async () => {
   const { user, emit, named } = await mount();
   await openFirstSession(user);
   const box = await screen.findByRole("textbox", { name: "Message" });
@@ -595,19 +595,19 @@ test("Ctrl or Cmd+Enter allows a pending request, but not while typing in the me
   await screen.findByLabelText("Allow Bash?");
   // The key this platform's shortcut uses: Cmd on a Mac, Control elsewhere (the page reads the user agent).
   const mod = /Mac/.test(navigator.userAgent) ? "Meta" : "Control";
+  await write(box, "half-written follow-up");
   await user.click(box);
-  await user.keyboard(`{${mod}>}{Enter}{/${mod}}`);
-  expect(named("answerPermission")).toHaveLength(0);
-  await user.click(document.body);
   emit({ type: "environment-status", environmentId: "local", state: "reconnecting" });
   await user.keyboard(`{${mod}>}{Enter}{/${mod}}`);
   expect(named("answerPermission")).toHaveLength(0);
   emit({ type: "environment-status", environmentId: "local", state: "connected" });
-  // Out of the message box and connected, the same keys allow it.
+  // Connected, Cmd/Ctrl+Enter allows it even with focus and a draft inside the message box, without sending or adding a line break.
   await user.keyboard(`{${mod}>}{Enter}{/${mod}}`);
   await waitFor(() =>
     expect(named("answerPermission")).toEqual([["answerPermission", "local:s1:p1", "allow"]]),
   );
+  expect(named("sendPrompt")).toHaveLength(0);
+  expect(boxText(box)).toBe("half-written follow-up");
 });
 
 test("the colours of code can be chosen, and the choice is kept", async () => {
@@ -860,6 +860,8 @@ test("a daemon on another protocol says why it cannot be used and what to update
     },
   });
   expect(screen.getByText(/speaks protocol 0\.2, older than the 1\.0 this app needs/)).toBeTruthy();
+  // Not stacked with the generic "Connection lost" banner: protocol mismatch is the single reason.
+  expect(screen.queryByText(/Connection lost/)).toBeNull();
   // Not a button that would act on a daemon that is not connected: the command, to run on that machine.
   expect(screen.getByText("sh install.sh")).toBeTruthy();
 
@@ -1345,4 +1347,40 @@ test("asking for a new session while one is blank keeps it as it is", async () =
   expect((screen.getByRole("textbox", { name: "Folder" }) as HTMLInputElement).value).toBe(
     "/new/project",
   );
+});
+
+test("empty state offers Start a new session and high-risk mode chip carries data-danger", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          configSchema: {
+            type: "object",
+            properties: {
+              mode: {
+                type: "string",
+                title: "Permission mode",
+                oneOf: [
+                  { const: "auto", title: "Auto", _meta: { "cycle/recommended": true } },
+                  {
+                    const: "bypassPermissions",
+                    title: "Bypass permissions",
+                    _meta: { "cycle/danger": true },
+                  },
+                ],
+                default: "bypassPermissions",
+              },
+            },
+          },
+        },
+      ];
+    },
+  });
+  await user.click(await screen.findByRole("button", { name: "Start a new session" }));
+  const chip = await screen.findByRole("button", { name: "Permission mode: Bypass permissions" });
+  expect(chip.hasAttribute("data-danger")).toBe(true);
+  expect(screen.getByRole("button", { name: "Hide sidebar" })).toBeTruthy();
 });

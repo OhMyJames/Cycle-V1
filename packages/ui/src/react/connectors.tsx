@@ -83,7 +83,7 @@ export function ConnectorsDialog(props: ConnectorsDialogProps) {
         {environment === undefined ? (
           <>
             <p data-slot="hint">{t("connectors.none")}</p>
-            <div data-slot="row">
+            <div data-slot="row" data-dialog-footer="">
               <DialogClose>{t("common.close")}</DialogClose>
             </div>
           </>
@@ -124,7 +124,7 @@ export function ConnectorsDialog(props: ConnectorsDialogProps) {
               environment={environment}
               onEdit={(connector) => setEditing(connector)}
             />
-            <div data-slot="row">
+            <div data-slot="row" data-dialog-footer="">
               <DialogClose>{t("common.close")}</DialogClose>
               <Button data-variant="solid" onClick={() => setEditing("new")}>
                 {t("connectors.add")}
@@ -307,10 +307,12 @@ function ConnectorList(props: {
           title={t("connectors.removeTitle", { name: removing.name })}
           description={t("connectors.removeDescription")}
           confirmLabel={t("connectors.removeConfirm")}
+          destructive
           onConfirm={async () => {
             const target = removing;
             const answer = await store.removeConnector(environmentId, target.id);
-            if ("problem" in answer) setProblems((p) => ({ ...p, [target.id]: answer }));
+            if ("problem" in answer) return problemText(answer);
+            return undefined;
           }}
         />
       ) : null}
@@ -516,6 +518,7 @@ function ConnectorForm(props: {
                 })}
               </span>
               <Button
+                type="button"
                 data-variant="ghost"
                 onClick={() =>
                   setDropped((set) => {
@@ -561,6 +564,7 @@ function ConnectorForm(props: {
         ))}
         <div data-slot="row">
           <Button
+            type="button"
             data-variant="ghost"
             onClick={() => {
               setAdded((list) => [...list, { key: counter, name: "", value: "" }]);
@@ -576,8 +580,10 @@ function ConnectorForm(props: {
           {problemText(problem)}
         </p>
       ) : null}
-      <div data-slot="row">
-        <Button onClick={props.onDone}>{t("connectors.form.back")}</Button>
+      <div data-slot="row" data-dialog-footer="">
+        <Button type="button" onClick={props.onDone}>
+          {t("connectors.form.back")}
+        </Button>
         <Button data-variant="solid" type="submit" disabled={!ready || busy}>
           {t(before === undefined ? "connectors.form.create" : "connectors.form.save")}
         </Button>

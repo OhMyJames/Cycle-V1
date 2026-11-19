@@ -351,6 +351,9 @@ export class AppStore {
     if (this.#state.blank?.environmentId === environmentId) void this.#readBlankDefaults();
   }
 
+  /** Reads the environment's agents again, e.g. after credentials or binaries are fixed. */
+  reloadAgents = (environmentId: string): Promise<void> => this.#loadAgents(environmentId);
+
   // ---- the blank conversation ----
 
   /** The agent a blank conversation starts: the one chosen, if the environment has it, else its first available. */
@@ -670,10 +673,15 @@ export class AppStore {
     );
   };
 
-  renameSession = async (sessionId: string, title: string): Promise<void> => {
+  renameSession = async (sessionId: string, title: string): Promise<string | undefined> => {
     const environmentId = this.#state.selectedEnvironment;
-    if (environmentId === undefined) return;
-    await this.#attempt(() => this.#bridge.renameSession(environmentId, sessionId, title));
+    if (environmentId === undefined) return undefined;
+    try {
+      await this.#bridge.renameSession(environmentId, sessionId, title);
+      return undefined;
+    } catch (error) {
+      return messageOf(error);
+    }
   };
 
   archiveSession = async (sessionId: string, archived: boolean): Promise<void> => {
@@ -694,13 +702,16 @@ export class AppStore {
     }
   };
 
-  deleteSession = async (sessionId: string): Promise<void> => {
+  deleteSession = async (sessionId: string): Promise<string | undefined> => {
     const environmentId = this.#state.selectedEnvironment;
-    if (environmentId === undefined) return;
-    await this.#attempt(async () => {
+    if (environmentId === undefined) return undefined;
+    try {
       await this.#bridge.deleteSession(environmentId, sessionId);
       this.#forgetSession(environmentId, sessionId);
-    });
+      return undefined;
+    } catch (error) {
+      return messageOf(error);
+    }
   };
 
   /** A session that no longer exists: its view, its draft and its place as the selected one go. */
@@ -724,42 +735,47 @@ export class AppStore {
     await this.#attempt(() => this.#bridge.answerPermission(key, optionId));
   };
 
-  saveEnvironment = async (environment: EnvironmentConfig): Promise<void> => {
-    const saved = await this.#attempt(async () => {
+  saveEnvironment = async (environment: EnvironmentConfig): Promise<string | undefined> => {
+    try {
       await this.#bridge.saveEnvironment(environment);
-      return true;
-    });
+    } catch (error) {
+      return messageOf(error);
+    }
     // An environment that is added is connected at once, as every environment is when the app starts.
-    if (saved === true) await this.connectEnvironment(environment.id);
+    await this.connectEnvironment(environment.id);
+    return undefined;
   };
 
-  removeEnvironment = async (environmentId: string): Promise<void> => {
-    await this.#attempt(async () => {
+  removeEnvironment = async (environmentId: string): Promise<string | undefined> => {
+    try {
       await this.#bridge.removeEnvironment(environmentId);
-      this.drafts.forgetEnvironment(environmentId);
-      this.#set((s) => {
-        const { [environmentId]: _sessions, ...sessions } = s.sessions;
-        const { [environmentId]: _agents, ...agents } = s.agents;
-        const { [environmentId]: _status, ...status } = s.status;
-        const views = Object.fromEntries(
-          Object.entries(s.views).filter(([, view]) => view.environmentId !== environmentId),
-        );
-        const open = s.selectedEnvironment === environmentId;
-        return {
-          ...(s.blank?.environmentId === environmentId ? { blank: undefined } : {}),
-          sessions,
-          agents,
-          status,
-          views,
-          ...(open
-            ? {
-                selectedEnvironment: s.environments.find((h) => h.id !== environmentId)?.id,
-                selectedSession: undefined,
-              }
-            : {}),
-        };
-      });
+    } catch (error) {
+      return messageOf(error);
+    }
+    this.drafts.forgetEnvironment(environmentId);
+    this.#set((s) => {
+      const { [environmentId]: _sessions, ...sessions } = s.sessions;
+      const { [environmentId]: _agents, ...agents } = s.agents;
+      const { [environmentId]: _status, ...status } = s.status;
+      const views = Object.fromEntries(
+        Object.entries(s.views).filter(([, view]) => view.environmentId !== environmentId),
+      );
+      const open = s.selectedEnvironment === environmentId;
+      return {
+        ...(s.blank?.environmentId === environmentId ? { blank: undefined } : {}),
+        sessions,
+        agents,
+        status,
+        views,
+        ...(open
+          ? {
+              selectedEnvironment: s.environments.find((h) => h.id !== environmentId)?.id,
+              selectedSession: undefined,
+            }
+          : {}),
+      };
     });
+    return undefined;
   };
 
   readAgentDefaults = (

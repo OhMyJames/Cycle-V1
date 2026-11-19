@@ -15,6 +15,8 @@ const panel = z.enum([
   "search",
   "new_session",
   "add_environment",
+  "edit_environment",
+  "remove_environment",
   "defaults",
   "session_settings",
   "rename",
@@ -90,6 +92,7 @@ export const EVENTS = {
 
   // ---- the interface (the only ones the page may send) ----
   panel_opened: o({ panel, via: z.enum(["click", "shortcut"]) }),
+  sidebar_toggled: o({ open: z.boolean(), via: z.enum(["click", "shortcut"]) }),
   code_theme_changed: o({}),
   slash_command_used: o({}),
 } as const;
@@ -100,6 +103,7 @@ export type EventProps<N extends EventName> = z.infer<(typeof EVENTS)[N]>;
 /** What the page may report itself, through the bridge. The rest happen in main, where the page cannot forge them. */
 export const UI_EVENTS = [
   "panel_opened",
+  "sidebar_toggled",
   "code_theme_changed",
   "slash_command_used",
 ] as const satisfies readonly EventName[];

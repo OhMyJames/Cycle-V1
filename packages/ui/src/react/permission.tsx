@@ -1,6 +1,7 @@
 import { Button } from "@ui-sdk/react/button";
 import type { PermissionRequest } from "../api.ts";
 import { WarningIcon } from "./icons.tsx";
+import { MOD } from "./sidebar.tsx";
 
 /** What the agent wants to do, as the request says it. Text only: it is the agent's word. */
 export const describeSubject = (subject: unknown): string => {
@@ -30,17 +31,25 @@ export function PermissionCard({ request, disabled, onAnswer }: PermissionCardPr
       </div>
       {detail !== "" ? <pre data-slot="permission-detail">{detail}</pre> : null}
       <div data-slot="permission-actions">
-        {request.options.map((option) => (
-          <Button
-            key={option.optionId}
-            // One main answer: allowing once. The rest are quieter, so that the strong one is not a default to click through.
-            data-variant={option.kind === "allow_once" ? "solid" : "outline"}
-            disabled={disabled}
-            onClick={() => onAnswer(request.key, option.optionId)}
-          >
-            {option.name}
-          </Button>
-        ))}
+        {request.options.map((option) => {
+          const allowOnce = option.kind === "allow_once";
+          const label = allowOnce ? option.name : undefined;
+          const tip = allowOnce ? `${option.name} (${MOD}↩)` : undefined;
+          return (
+            <Button
+              key={option.optionId}
+              // One main answer: allowing once. The rest are quieter, so that the strong one is not a default to click through.
+              data-variant={allowOnce ? "solid" : "outline"}
+              aria-label={label}
+              title={tip}
+              disabled={disabled}
+              onClick={() => onAnswer(request.key, option.optionId)}
+            >
+              {option.name}
+              {allowOnce ? <kbd>{MOD}↩</kbd> : null}
+            </Button>
+          );
+        })}
         <Button
           data-variant="ghost"
           data-kind="permission-dismiss"

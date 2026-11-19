@@ -14,6 +14,8 @@ export const META = {
   config: "cycle/config",
   /** On a choice an agent offers (an ACP select option, a `configSchema` `oneOf` entry): true on the one it suggests. */
   recommended: "cycle/recommended",
+  /** On a choice an agent offers: true on a high-risk option (such as skipping all permission checks) that the UI should warn on. */
+  danger: "cycle/danger",
   /** On a `configSchema` property that lists choices: true when the agent takes values that are not listed, so the list is a menu, not a limit. */
   open: "cycle/open",
   /** In `session/new`: the id the daemon proposes for the agent's own session. */

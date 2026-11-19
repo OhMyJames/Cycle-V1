@@ -44,6 +44,11 @@ function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }
   const failed = tools.filter((tool) => tool.status === "failed").length;
   const going = live ? tools.findLast(isLive) : undefined;
   const goingDescription = going !== undefined ? toolDescription(going) : undefined;
+  const goingDetail =
+    going !== undefined
+      ? (goingDescription ?? `${toolVerb(t, going, true)} ${toolSummary(going)}`)
+      : "";
+  const goingTip = goingDetail || undefined;
   const [open, setOpen] = useOpenOnFailure(failed > 0);
   // The pieces are written to follow one another ("ran 2 commands"), and the line begins as a sentence does.
   const pieces = list(
@@ -70,10 +75,12 @@ function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }
         <Lead mark={going !== undefined ? "going" : failed > 0 ? "failed" : "other"} />{" "}
         <span data-slot="tool-verb">{summary}</span>{" "}
         {/* While one goes, the line says which, in its tense: that is also what a screen reader is told. */}
-        <span data-slot="tool-summary" data-prose={goingDescription !== undefined || undefined}>
-          {going !== undefined
-            ? (goingDescription ?? `${toolVerb(t, going, true)} ${toolSummary(going)}`)
-            : ""}
+        <span
+          data-slot="tool-summary"
+          data-prose={goingDescription !== undefined || undefined}
+          title={goingTip}
+        >
+          {goingDetail}
         </span>{" "}
         {failed > 0 ? (
           <span data-slot="tool-status" data-tone="danger">
@@ -163,9 +170,11 @@ export function StepLine({
 /** What the step line says of the call that is going: the agent's sentence for it, or what it acts on. */
 function StepDetail({ tool }: { tool: ToolItem }) {
   const description = toolDescription(tool);
+  const text = description ?? toolSummary(tool);
+  const tip = text || undefined;
   return (
-    <span data-slot="step-detail" data-prose={description !== undefined || undefined}>
-      {description ?? toolSummary(tool)}
+    <span data-slot="step-detail" data-prose={description !== undefined || undefined} title={tip}>
+      {text}
     </span>
   );
 }

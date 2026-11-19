@@ -60,3 +60,41 @@ test("opening the search from the sidebar is counted, with how it was opened", a
   await user.click(await screen.findByRole("button", { name: /Search/ }));
   expect(tracked(calls)).toEqual([["panel_opened", { panel: "search", via: "click" }]]);
 });
+
+test("toggling the sidebar and opening remote environment panels report only fixed event properties", async () => {
+  const script = fakeBridge({
+    connected: true,
+    environments: [
+      {
+        id: "ssh-secret",
+        name: "secret-prod-host",
+        kind: "remote",
+        transport: { type: "ssh", host: "admin@secret.internal" },
+      },
+    ],
+  });
+  const store = new AppStore(script.bridge);
+  render(
+    <StoreProvider store={store}>
+      <App />
+    </StoreProvider>,
+  );
+  await act(() => store.start());
+  const user = userEvent.setup();
+  const mod = /Mac/.test(navigator.userAgent) ? "Meta" : "Control";
+  await user.keyboard(`{${mod}>}b{/${mod}}`);
+  await user.click(await screen.findByRole("button", { name: "Show sidebar" }));
+  await user.click(await screen.findByRole("button", { name: "Environment actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Edit secret-prod-host" }));
+  await user.keyboard("{Escape}");
+  await user.click(await screen.findByRole("button", { name: "Environment actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Remove secret-prod-host" }));
+  const events = tracked(script.calls);
+  expect(events).toEqual([
+    ["sidebar_toggled", { open: false, via: "shortcut" }],
+    ["sidebar_toggled", { open: true, via: "click" }],
+    ["panel_opened", { panel: "edit_environment", via: "click" }],
+    ["panel_opened", { panel: "remove_environment", via: "click" }],
+  ]);
+  expect(JSON.stringify(events)).not.toContain("secret");
+});
