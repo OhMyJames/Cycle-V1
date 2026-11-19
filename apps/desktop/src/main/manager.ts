@@ -282,6 +282,8 @@ export class ConnectionManager
           this.#options.emit({ type: "agent-defaults", environmentId, agent }),
         connectorsChanged: () => this.#options.emit({ type: "connectors", environmentId }),
         gone: (sessionId) => this.#onGone(environmentId, connection, sessionId),
+        // A history that cannot be read after a reconnect: the view goes, the list row says why.
+        unreadable: (sessionId) => this.#onGone(environmentId, connection, sessionId),
         connection: (state, error) => {
           // A connection that came back asks for the list again: it may have changed while away.
           const was = connection.status.state;
