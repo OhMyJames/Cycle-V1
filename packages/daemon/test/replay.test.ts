@@ -81,3 +81,39 @@ test("a client that fails while being sent the history stops receiving", async (
   await log.append({ kind: "update", data: 2 });
   await log.close();
 });
+
+test("a record appended at any point of the hand-over to live is sent once, in order", async () => {
+  // The log tells its subscriber of record 3 a few turns of the event loop after its history was
+  // read, which is where the replay changes over from the held records to the live ones. A different
+  // number of turns for each try, so the whole span of that step is covered.
+  for (let turns = 0; turns < 8; turns++) {
+    const record = (seq: number) => ({ seq, ts: "now", kind: "update", data: seq }) as LogRecord;
+    const records = [record(1), record(2)];
+    const listeners = new Set<(record: LogRecord) => void>();
+    const log = {
+      sessionId: "s",
+      lastSeq: () => 2,
+      updatedAt: () => 0,
+      subscribe: (listener: (record: LogRecord) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      read: async () => {
+        let later = Promise.resolve();
+        for (let i = 0; i < turns; i++) later = later.then(() => undefined);
+        void later.then(() => {
+          for (const listener of listeners) listener(record(3));
+        });
+        return records;
+      },
+      append: async () => record(1),
+      close: async () => undefined,
+    };
+    const got: number[] = [];
+    await attach(log as never, 0, (r) => {
+      got.push(r.seq);
+    });
+    await Bun.sleep(5);
+    expect({ turns, got }).toEqual({ turns, got: [1, 2, 3] });
+  }
+});

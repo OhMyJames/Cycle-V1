@@ -57,12 +57,20 @@ export const attach = async (
       }
     };
     await drain();
-    if (beforeLive) {
-      await beforeLive(sent);
-      await drain();
+    if (beforeLive) await beforeLive(sent);
+    // The last of what was held goes out, and the client is live in the same step that finds nothing
+    // left: with an await between the two, a record appended there would be held and never sent.
+    for (;;) {
+      const record = held.shift();
+      if (record === undefined) {
+        live = true;
+        break;
+      }
+      if (record.seq > sent) {
+        await send(record);
+        sent = record.seq;
+      }
     }
-    // Nothing is awaited between the last drain and going live, so nothing slips between.
-    live = true;
   } catch (error) {
     unsubscribe();
     throw error;
