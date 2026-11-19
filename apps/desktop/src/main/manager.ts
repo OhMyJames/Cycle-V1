@@ -224,7 +224,7 @@ export class ConnectionManager
    */
   #editing: Promise<unknown> = Promise.resolve();
   #edit(change: () => Promise<void>): Promise<void> {
-    const run = this.#editing.then(change, change);
+    const run = this.#editing.then(() => change());
     this.#editing = run.catch(() => undefined);
     return run;
   }
@@ -250,11 +250,14 @@ export class ConnectionManager
   async removeEnvironment(environmentId: string): Promise<void> {
     if (environmentId === LOCAL_ENVIRONMENT.id)
       throw new Error("The local daemon cannot be removed");
-    const kind = this.#kindOf(environmentId);
-    await this.disconnect(environmentId);
-    this.#lastSessions.delete(environmentId);
-    this.#lastError.delete(environmentId);
+    // All of it in turn, the disconnecting too: a connect that comes while a removal waits its turn
+    // finds the environment still listed, and the removal then closes what it opened.
+    let kind: "local" | "remote" = "remote";
     await this.#edit(async () => {
+      kind = this.#kindOf(environmentId);
+      await this.disconnect(environmentId);
+      this.#lastSessions.delete(environmentId);
+      this.#lastError.delete(environmentId);
       const next = this.#environments.filter((h) => h.id !== environmentId);
       await this.#options.settings.save(next);
       this.#environments = next;
