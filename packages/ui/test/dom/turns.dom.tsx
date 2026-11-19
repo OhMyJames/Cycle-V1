@@ -217,3 +217,31 @@ test("a conversation that grows from a few blocks to many draws about a page, no
   expect(drawn(log)).toBe(60);
   expect(log.textContent).not.toContain("question 20");
 });
+
+test("a tool call left going in a turn that has ended is not shown running; in a card it is not done", async () => {
+  const { log, emit } = await open(
+    you("u1"),
+    state({ state: "running" }),
+    ...tool("a", "Bash", "in_progress", { command: "sed -n 1,60p icons.tsx" }),
+  );
+  const row = await screen.findByRole("button", { name: /Bash/ });
+  expect(row.textContent).toContain("in progress");
+  expect(log.querySelector('[data-slot="spinner"]')).not.toBeNull();
+  // An older session: the turn ended and the call never said it had.
+  await emit(state({ state: "idle", stopReason: "end_turn" }));
+  await waitFor(() => expect(row.textContent).toContain("cancelled"));
+  expect(log.querySelector('[data-slot="spinner"]')).toBeNull();
+});
+
+test("a card with a call the turn left is not finished, not done", async () => {
+  await open(
+    you("u1"),
+    state({ state: "running" }),
+    ...tool("a", "Bash", "completed", { command: "ls" }),
+    ...tool("b", "Bash", "in_progress", { command: "make" }),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const card = await screen.findByRole("button", { name: /Ran 2 commands/ });
+  expect(card.textContent).toContain("not finished");
+  expect(card.closest('[data-kind="work"]')?.getAttribute("data-status")).toBe("pending");
+});

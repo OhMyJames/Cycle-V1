@@ -145,6 +145,30 @@ const withoutContent = (outcome: unknown): unknown => {
   return rest;
 };
 
+/**
+ * The values a `configSchema` property allows when it lists them and takes no others: its `enum`, or
+ * the `const` of each `oneOf` entry. Undefined for a property that lists none, or says it is open.
+ */
+const closedChoices = (property: unknown): unknown[] | undefined => {
+  if (typeof property !== "object" || property === null) return undefined;
+  const {
+    enum: values,
+    oneOf,
+    _meta,
+  } = property as {
+    enum?: unknown;
+    oneOf?: unknown;
+    _meta?: Record<string, unknown>;
+  };
+  if (_meta?.[META.open] === true) return undefined;
+  if (Array.isArray(values)) return values;
+  if (Array.isArray(oneOf)) {
+    const consts = oneOf.map((entry) => (entry as { const?: unknown } | null)?.const);
+    return consts.every((value) => value !== undefined) ? consts : undefined;
+  }
+  return undefined;
+};
+
 export class Daemon {
   readonly #version: string;
   readonly #agents: Map<string, AgentDefinition>;
@@ -446,6 +470,10 @@ export class Daemon {
       if (Object.keys(missing).length > 0) {
         this.#remember(session, { config: { ...missing, ...(session.entry.config ?? {}) } });
       }
+      // What was saved is put back, setting by setting. One the agent no longer takes is not left on
+      // record as if it were in force: the session carries on with what the agent actually has, the
+      // record says so, and the conversation says so before anything more is sent.
+      const refused: { configId: string; wanted: string }[] = [];
       for (const [configId, value] of Object.entries(session.entry.config ?? {})) {
         await link.agent
           .request(methods.agent.session.setConfigOption, {
@@ -454,14 +482,60 @@ export class Daemon {
             type: "id",
             value,
           } as never)
-          .catch(() => undefined);
+          .catch((error: unknown) => {
+            // Only the agent's own answer is a refusal. A link that broke is not: the record is kept.
+            if (typeof (error as { code?: unknown } | null)?.code === "number")
+              refused.push({ configId, wanted: value });
+          });
       }
+      if (refused.length > 0) await this.#configNotRestored(session, refused, resumedWith);
       return { link, created: undefined };
     } catch (error) {
       session.link = undefined;
       this.#connectors.release(session.id);
       link.kill();
       throw error;
+    }
+  }
+
+  /**
+   * Settings the agent refused on resume: the record follows what is in force, and the conversation
+   * says so. Written before the caller can send anything more.
+   */
+  async #configNotRestored(
+    session: Session,
+    refused: { configId: string; wanted: string }[],
+    actual: Record<string, string>,
+  ): Promise<void> {
+    const config = { ...(session.entry.config ?? {}) };
+    // An agent that listed none of its settings has not said what is in force: the record stays as it is.
+    const known = Object.keys(actual).length > 0;
+    const titles: string[] = [];
+    for (const { configId, wanted } of refused) {
+      const now = actual[configId];
+      if (now !== undefined) {
+        config[configId] = now;
+        titles.push(`The agent did not accept "${wanted}" for "${configId}". It is now "${now}".`);
+      } else if (known) {
+        delete config[configId];
+        titles.push(
+          `The agent no longer has the setting "${configId}" (it was "${wanted}"). It is not applied.`,
+        );
+      } else {
+        titles.push(
+          `The agent did not accept "${wanted}" for "${configId}", and has not said what it is now.`,
+        );
+      }
+    }
+    // The record first, and waited for, so a client that sees the notice finds the list already right.
+    session.entry = { ...session.entry, config };
+    await this.#index.update(session.id, { config });
+    this.#changed();
+    for (const title of titles) {
+      await this.#write(session, {
+        kind: "update",
+        data: { sessionUpdate: "notice", severity: "warning", title },
+      });
     }
   }
 
@@ -531,21 +605,28 @@ export class Daemon {
     return [];
   }
 
-  /** Writes the queue as it is now, with what was handed back by this change, if anything. */
-  #publishQueue(session: Session, back?: { returned: QueueEntry[]; reason: QueueReason }): void {
+  /**
+   * Writes the queue as it is now, with what was handed back by this change, if anything. Whether
+   * it is on record: a change a person asked for is confirmed to them only once it is.
+   */
+  #publishQueue(
+    session: Session,
+    back?: { returned: QueueEntry[]; reason: QueueReason },
+  ): Promise<boolean> {
     const queued = session.queue.length > 0;
     if ((session.entry.queued === true) !== queued) {
       this.#remember(session, { queued: queued ? true : undefined } as Partial<SessionEntry>);
     }
-    void this.#write(session, {
+    return this.#write(session, {
       kind: "update",
       data: {
         sessionUpdate: QUEUE_UPDATE,
-        entries: session.queue,
+        entries: [...session.queue],
         ...(back !== undefined ? back : {}),
       },
     }).then((written) => {
       if (written) this.#changed();
+      return written;
     });
   }
 
@@ -1334,8 +1415,17 @@ export class Daemon {
         // The agent is busy: the prompt waits here, and goes when the turn ends well.
         if (session.queue.length >= QUEUE_LIMIT) throw queueFull(session.id, QUEUE_LIMIT);
         const queueId = randomUUID();
-        session.queue.push({ queueId, prompt: params.prompt });
-        this.#publishQueue(session);
+        const queued = { queueId, prompt: params.prompt };
+        session.queue.push(queued);
+        if (!(await this.#publishQueue(session))) {
+          // Not on record, so not taken: the sender keeps what they wrote, and the queue is as it was.
+          // (If the turn has ended meanwhile and sent it, it is gone from the queue and is not undone.)
+          const at = session.queue.indexOf(queued);
+          if (at >= 0) {
+            session.queue.splice(at, 1);
+            throw logUnavailable(session.id, session.historyError ?? HISTORY_NOT_SAVED);
+          }
+        }
         return { messageId: queueId, _meta: { [META.queued]: true } } as never;
       }
       // Marked at once: the agent's own "running" comes later, and a second prompt must not slip in.
@@ -1461,11 +1551,22 @@ export class Daemon {
       const known = (definition.configSchema as { properties?: Record<string, unknown> })
         .properties;
       if (known !== undefined) {
-        for (const key of Object.keys(params.config)) {
+        for (const [key, value] of Object.entries(params.config)) {
           if (!(key in known)) {
             throw new RpcError(CycleErrorCode.InvalidConfig, "The agent has no such setting", {
               agent: params.agent,
               configId: key,
+            });
+          }
+          // A value the agent lists as the only ones it takes is checked now, not at the next new
+          // session, which it would otherwise stop from being made.
+          const choices = closedChoices(known[key]);
+          if (choices !== undefined && !choices.includes(value)) {
+            throw new RpcError(CycleErrorCode.InvalidConfig, "The agent has no such value", {
+              agent: params.agent,
+              configId: key,
+              value,
+              allowed: choices,
             });
           }
         }
@@ -1499,7 +1600,11 @@ export class Daemon {
           queueId: params.queueId,
         });
       }
-      this.#publishQueue(session);
+      if (!(await this.#publishQueue(session))) {
+        // Not on record: the prompt stays where it was, and the person is told it did not come back.
+        session.queue.splice(Math.min(at, session.queue.length), 0, entry);
+        throw logUnavailable(session.id, session.historyError ?? HISTORY_NOT_SAVED);
+      }
       return { prompt: entry.prompt };
     });
     cycle(filesSearch, async (params) => {

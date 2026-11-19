@@ -27,7 +27,7 @@
 | `session/new`        | 做了 | 采用 daemon 通过 `_meta["cycle/sessionId"]` 提议的 UUID,否则自己生成                                                                                                                                                                                                                                                           |
 | `session/prompt`     | 做了 | 立即返回 `messageId`,turn 在后台跑,以 idle 的 `state_update` 结束                                                                                                                                                                                                                                                              |
 | 流式消息与思考       | 做了 | `agent_message_chunk`、`agent_thought_chunk`                                                                                                                                                                                                                                                                                   |
-| tool call            | 做了 | `tool_call_update`:pending、in_progress、completed 或 failed                                                                                                                                                                                                                                                                   |
+| tool call            | 做了 | `tool_call_update`:pending、in_progress、completed 或 failed;回合结束时还没有结果的,以 cancelled 结束                                                                                                                                                                                                                          |
 | 权限审批             | 做了 | `canUseTool` 对应 `session/request_permission`,选项为允许一次和拒绝一次                                                                                                                                                                                                                                                        |
 | `session/cancel`     | 做了 | `interrupt` 当前回合(进程保留)、取消待决的权限请求,以 `cancelled` 结束;3 秒内没停就杀进程                                                                                                                                                                                                                                      |
 | `session/resume`     | 做了 | 不重放(daemon 管历史);响应前先发状态快照;用 SDK 的 `getSessionInfo` 看 Claude 有没有这个 session 的记录:有就恢复;没有且 daemon 没说有过被回答的 turn(`cycle/hadTurn`)就当新 session 开始(创建后没发过消息的 session,Claude 不会写记录);没有但说有过,就以错误回应(记录丢了,不悄悄开新对话);没给配置目录或查看失败时按有记录处理 |
@@ -60,7 +60,7 @@
 
 - `session/list`、`session/delete`:daemon 管理 session 列表和历史。
 - 音频;URL 模式的 elicitation(MCP 服务器的网页授权);`override` 模式的系统提示;SSE 的 MCP 服务器。这些都明确拒绝(`-32602`)或回绝,不静默忽略。
-- 子 agent 的对话:`subagent_update` 只通告(开始、进度、结束),不转发它的内容,也不能当 session 打开(决策 0014)。
+- 子 agent 的对话:`subagent_update` 只通告(开始、进度、结束),不转发它的内容,也不能当 session 打开(决策 0014)。SDK 里带 `parent_tool_use_id` 的消息(子 agent 的文字、工具调用和结果)一律不翻译(CYCL-46)。
 - 压缩的摘要内容:`compaction_update` 只报开始、完成、失败,不带摘要。
 - 命令列表:`warmStart` 关着时(默认),`available_commands_update` 在 session 的 Claude 进程启动后(第一个 prompt)才有;桌面端的 daemon 开着它,`session/new` 就起进程(决策 0014)。
 - `terminal`。

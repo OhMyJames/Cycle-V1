@@ -442,6 +442,33 @@ test("an agent's defaults are kept, applied to new sessions, and overridden by w
   ]);
 });
 
+test("a default value the agent does not list is refused when it is saved, and one it keeps open is not", async () => {
+  const schema = {
+    type: "object",
+    properties: {
+      mode: { type: "string", oneOf: [{ const: "plan" }, { const: "default" }] },
+      level: { type: "string", enum: ["low", "high"] },
+      model: { type: "string", oneOf: [{ const: "default" }], _meta: { "cycle/open": true } },
+    },
+  };
+  const { daemon } = await start(fakeAgent({}, { configSchema: schema }));
+  const c = await connectClient(daemon);
+  const set = (config: Record<string, string>) =>
+    c.agent.request("_cycle/agent_defaults/set", { agent: "fake", config });
+  await expect(set({ mode: "nonsense" })).rejects.toMatchObject({
+    code: CycleErrorCode.InvalidConfig,
+  });
+  await expect(set({ level: "medium" })).rejects.toMatchObject({
+    code: CycleErrorCode.InvalidConfig,
+  });
+  // Nothing was saved, so a session can still be made.
+  expect(await c.agent.request("_cycle/agent_defaults/read", { agent: "fake" })).toEqual({
+    config: {},
+  });
+  await set({ mode: "plan", level: "high", model: "claude-some-full-id" });
+  await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+});
+
 test("a default for a setting the agent does not have is refused, and defaults survive a restart", async () => {
   const first = await start();
   const c = await connectClient(first.daemon);
@@ -1189,6 +1216,35 @@ test("a stop that comes while the agent is starting means the prompt is not give
   expect(fake.log.prompts.length).toBe(promptsBefore);
   const row = (await c.agent.request(methods.agent.session.list, {})).sessions[0];
   expect(stateOf(row)).toBe("idle");
+});
+
+test("a prompt whose queue snapshot cannot be written is refused, not confirmed as queued", async () => {
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { store, state } = flaky();
+  const { daemon } = await startOn(store, fakeAgent({ onPrompt: () => held }));
+  const c = await connectClient(daemon);
+  const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("first") });
+  // The first turn is running and on record before the disk starts failing: it is the queue's write that fails.
+  await until(
+    () =>
+      c.seen.some(
+        (s) =>
+          s.update.sessionUpdate === "state_update" &&
+          (s.update as { state?: string }).state === "running",
+      ),
+    "the turn to be running",
+  );
+
+  state.failing.add("update");
+  await expect(
+    c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("second") }),
+  ).rejects.toMatchObject({ code: CycleErrorCode.LogUnavailable });
+  release();
 });
 
 test("a half line left by a crash is not damage: the session is listed and opens as before", async () => {

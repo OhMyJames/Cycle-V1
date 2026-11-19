@@ -218,6 +218,17 @@ export class ConnectionManager
     await Promise.allSettled(this.#environments.map((environment) => this.connect(environment.id)));
   }
 
+  /**
+   * Changes to the list of environments go one at a time: each reads the list as the one before left
+   * it, so two saves at once keep both, and a save and a removal keep what each meant.
+   */
+  #editing: Promise<unknown> = Promise.resolve();
+  #edit(change: () => Promise<void>): Promise<void> {
+    const run = this.#editing.then(() => change());
+    this.#editing = run.catch(() => undefined);
+    return run;
+  }
+
   async saveEnvironment(environment: EnvironmentConfig): Promise<void> {
     if (environment.id === LOCAL_ENVIRONMENT.id)
       throw new Error("The local daemon cannot be changed");
@@ -226,25 +237,32 @@ export class ConnectionManager
     const checked = environmentOf(environment);
     if (checked === undefined)
       throw new Error("That is not an environment this app can connect to");
-    const next = [...this.#environments.filter((h) => h.id !== checked.id), checked];
-    // The list changes once it is kept: a save that fails leaves things as they were.
-    await this.#options.settings.save(next);
-    this.#environments = next;
-    this.#options.emit({ type: "environments", environments: this.#environments });
+    await this.#edit(async () => {
+      const next = [...this.#environments.filter((h) => h.id !== checked.id), checked];
+      // The list changes once it is kept: a save that fails leaves things as they were.
+      await this.#options.settings.save(next);
+      this.#environments = next;
+      this.#options.emit({ type: "environments", environments: this.#environments });
+    });
     this.#track("environment_saved", { transport: "ssh" });
   }
 
   async removeEnvironment(environmentId: string): Promise<void> {
     if (environmentId === LOCAL_ENVIRONMENT.id)
       throw new Error("The local daemon cannot be removed");
-    const kind = this.#kindOf(environmentId);
-    await this.disconnect(environmentId);
-    this.#lastSessions.delete(environmentId);
-    this.#lastError.delete(environmentId);
-    const next = this.#environments.filter((h) => h.id !== environmentId);
-    await this.#options.settings.save(next);
-    this.#environments = next;
-    this.#options.emit({ type: "environments", environments: this.#environments });
+    // All of it in turn, the disconnecting too: a connect that comes while a removal waits its turn
+    // finds the environment still listed, and the removal then closes what it opened.
+    let kind: "local" | "remote" = "remote";
+    await this.#edit(async () => {
+      kind = this.#kindOf(environmentId);
+      await this.disconnect(environmentId);
+      this.#lastSessions.delete(environmentId);
+      this.#lastError.delete(environmentId);
+      const next = this.#environments.filter((h) => h.id !== environmentId);
+      await this.#options.settings.save(next);
+      this.#environments = next;
+      this.#options.emit({ type: "environments", environments: this.#environments });
+    });
     this.#track("environment_removed", { kind });
   }
 
@@ -282,6 +300,8 @@ export class ConnectionManager
           this.#options.emit({ type: "agent-defaults", environmentId, agent }),
         connectorsChanged: () => this.#options.emit({ type: "connectors", environmentId }),
         gone: (sessionId) => this.#onGone(environmentId, connection, sessionId),
+        // A history that cannot be read after a reconnect: nothing more comes to it, the list row says why.
+        unreadable: (sessionId) => this.#onUnreadable(connection, sessionId),
         connection: (state, error) => {
           // A connection that came back asks for the list again: it may have changed while away.
           const was = connection.status.state;
@@ -583,6 +603,14 @@ export class ConnectionManager
       connection.watched.delete(sessionId);
       throw error;
     }
+  }
+
+  /** A watched session's history could not be read on reconnecting: it is not watched, and nothing waits on it. */
+  #onUnreadable(connection: Connection, sessionId: string): void {
+    const watched = connection.watched.get(sessionId);
+    if (watched === undefined) return;
+    for (const pending of watched.pending.values()) pending.answer({ outcome: "cancelled" });
+    connection.watched.delete(sessionId);
   }
 
   /** A watched session was deleted elsewhere while the connection was away: nothing is waiting on it any more. */

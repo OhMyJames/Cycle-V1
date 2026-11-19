@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionUpdate } from "@cycle/acp";
@@ -32,7 +32,7 @@ const text = (value: string) => [{ type: "text" as const, text: value }];
 
 /** A daemon on a unix socket, and a way to make clients that can be cut off. */
 const setup = async (fake = fakeAgent()) => {
-  const daemon = await Daemon.start({ dataDir: dir, agents: [fake.definition] });
+  let daemon = await Daemon.start({ dataDir: dir, agents: [fake.definition] });
   const socket = join(dir, "d.sock");
   const server = await listenUnix({
     path: socket,
@@ -64,6 +64,11 @@ const setup = async (fake = fakeAgent()) => {
     },
     network: (up: boolean) => {
       down = !up;
+    },
+    /** Stops the daemon and starts another on the same data, which reads every history afresh. */
+    restart: async () => {
+      await daemon.close();
+      daemon = await Daemon.start({ dataDir: dir, agents: [fake.definition] });
     },
   };
 };
@@ -368,4 +373,147 @@ test("watching a session that is not there fails, and it is not kept for the nex
   drop();
   await until(() => states.filter((s) => s === "connected").length === 2, "the reconnect");
   expect(gone).toEqual([]);
+});
+
+test("a watched session whose history cannot be read does not keep the host from reconnecting", async () => {
+  const { make, drop, network, restart } = await setup();
+  const states: string[] = [];
+  const unreadable: string[] = [];
+  const seen: { update: SessionUpdate; seq: number | undefined }[] = [];
+  const a = make({
+    connection: (s) => states.push(s),
+    unreadable: (id) => unreadable.push(id),
+    update: (id, update, seq) => {
+      if (id === healthy) seen.push({ update, seq });
+    },
+  });
+  await a.start();
+  const healthy = await a.newSession({ cwd: "/tmp" });
+  const damaged = await a.newSession({ cwd: "/tmp" });
+  await a.watch(healthy, "/tmp");
+  await a.watch(damaged, "/tmp");
+  // The line is whole and not JSON: not the half line a crash leaves, which is cut off and forgiven.
+  network(false);
+  drop();
+  await until(() => states.includes("reconnecting"), "the loss to be noticed");
+  await restart();
+  await appendFile(join(dir, "sessions", `${damaged}.jsonl`), "this is not a record\n");
+  network(true);
+  await until(() => a.state === "connected", "the reconnect");
+
+  expect(unreadable).toEqual([damaged]);
+  expect(states.filter((s) => s === "connected")).toHaveLength(2);
+  // The healthy one is attached again and carries on.
+  const other = new CycleClient({
+    connect: () => connectUnix(join(dir, "d.sock")),
+    backoff: { first: 10, max: 50 },
+  });
+  cleanup.push(() => other.close());
+  await other.start();
+  await other.watch(healthy, "/tmp");
+  await other.prompt(healthy, text("still there"));
+  await until(
+    () => seen.some((s) => (s.update as { stopReason?: string }).stopReason === "end_turn"),
+    "the healthy session to go on",
+  );
+  // It is not asked for again at the next drop, and the list says what is wrong with it.
+  drop();
+  await until(() => states.filter((s) => s === "connected").length === 3, "the next reconnect");
+  expect(unreadable).toEqual([damaged]);
+  const row = (await a.listSessions()).find((s) => s.sessionId === damaged);
+  expect(row?._meta?.["cycle/historyFailed"]).toBe(true);
+});
+
+test("a delete the daemon refuses leaves the session watched, so a reconnect still brings what comes next", async () => {
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { make, drop } = await setup(fakeAgent({ onPrompt: () => held }));
+  const states: string[] = [];
+  const seen: { update: SessionUpdate; seq: number | undefined }[] = [];
+  const a = make({
+    connection: (s) => states.push(s),
+    update: (_id, update, seq) => seen.push({ update, seq }),
+  });
+  await a.start();
+  const sessionId = await a.newSession({ cwd: "/tmp" });
+  await a.watch(sessionId, "/tmp");
+  await a.prompt(sessionId, text("slow"));
+  await until(
+    () => seen.some((s) => (s.update as { state?: string }).state === "running"),
+    "the turn to be running",
+  );
+  await expect(a.delete(sessionId)).rejects.toMatchObject({ code: -32010 });
+  drop();
+  await until(() => states.filter((s) => s === "connected").length === 2, "the reconnect");
+  release();
+  await until(
+    () => seen.some((s) => (s.update as { stopReason?: string }).stopReason === "end_turn"),
+    "the turn to end, as seen after the reconnect",
+  );
+});
+
+/** A client whose dials wait for the test to let them through. */
+const gated = async () => {
+  await setup();
+  const socket = join(dir, "d.sock");
+  const gates: (() => void)[] = [];
+  let hold = false;
+  const channels: Channel[] = [];
+  const states: string[] = [];
+  const client = new CycleClient({
+    connect: async () => {
+      if (hold) await new Promise<void>((resolve) => gates.push(resolve));
+      const channel = await connectUnix(socket);
+      channels.push(channel);
+      return channel;
+    },
+    events: { connection: (s) => states.push(s) },
+    backoff: { first: 10, max: 50 },
+  });
+  cleanup.push(() => client.close());
+  return {
+    client,
+    states,
+    hold: (on: boolean) => {
+      hold = on;
+    },
+    release: () => {
+      for (const open of gates.splice(0)) open();
+    },
+    dialling: () => gates.length,
+    /** Cuts the line the client is on. */
+    cut: () => channels.at(-1)?.close(),
+  };
+};
+
+test("closing a client that is still dialling leaves it closed", async () => {
+  const g = await gated();
+  g.hold(true);
+  const starting = g.client.start();
+  starting.catch(() => undefined);
+  await until(() => g.dialling() === 1, "the dial to be waiting");
+  await g.client.close();
+  g.release();
+  await expect(starting).rejects.toThrow();
+  await Bun.sleep(50);
+  expect(g.client.state).toBe("closed");
+  expect(g.states).not.toContain("connected");
+  await expect(g.client.listSessions()).rejects.toThrow("Not connected");
+});
+
+test("closing a client that is reconnecting leaves it closed", async () => {
+  const g = await gated();
+  await g.client.start();
+  g.hold(true);
+  g.cut();
+  await until(() => g.dialling() === 1, "the reconnect to be dialling");
+  await g.client.close();
+  g.release();
+  await Bun.sleep(100);
+  expect(g.client.state).toBe("closed");
+  expect(g.states.at(-1)).toBe("closed");
+  expect(g.states.filter((s) => s === "connected")).toHaveLength(1);
+  await expect(g.client.listSessions()).rejects.toThrow("Not connected");
 });

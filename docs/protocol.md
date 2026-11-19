@@ -385,7 +385,7 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 
 `configSchema` 是 JSON Schema,客户端用它渲染配置界面,不需要认识具体 agent。候选配置项(Claude):模型、权限模式、思考强度、MCP 服务、环境变量白名单、系统提示。具体字段在 L3 文档里定义。
 
-可选值有两种写法。只有值:`enum`。值要带给人看的名字和说明:用 JSON Schema 的 `oneOf`,每项是 `{const, title, description?}`,`const` 是值(发给 agent、存进配置的就是它),`title` 是显示名,`description` 说明选了会怎样。agent 建议用的那一项带 `_meta: {"cycle/recommended": true}`,客户端在它旁边标"推荐";`default` 只说明不设时取哪个值，不代表推荐，两者可以不同。客户端两种都要认:`oneOf` 显示 `title`,并显示 `description`(选项列表里,以及当前选中的那一项);只有 `enum` 时显示值本身。同一个属性不要两种都写。
+可选值有两种写法。只有值:`enum`。值要带给人看的名字和说明:用 JSON Schema 的 `oneOf`,每项是 `{const, title, description?}`,`const` 是值(发给 agent、存进配置的就是它),`title` 是显示名,`description` 说明选了会怎样。agent 建议用的那一项带 `_meta: {"cycle/recommended": true}`,客户端在它旁边标"推荐";`default` 只说明不设时取哪个值，不代表推荐，两者可以不同。客户端两种都要认:`oneOf` 显示 `title`,并显示 `description`(选项列表里,以及当前选中的那一项);只有 `enum` 时显示值本身。同一个属性不要两种都写。列出的值默认就是全部可取的值:`_cycle/agent_defaults/set` 遇到不在其中的值返回 `-32014`,`data` 里有 `configId`、`value` 和 `allowed`(可取的值),什么都不保存。agent 还接受没列出的值时(例如模型可以写完整的模型名),在这个属性上带 `_meta: {"cycle/open": true}`,列表只是菜单,daemon 不拦。
 
 ```json
 {
@@ -421,6 +421,8 @@ agent 自己改了配置(例如 Claude 在 plan 模式里被批准后切回常�
 - `_cycle/agent_defaults/set`:参数 `{agent, config}`,daemon 按 `configSchema` 校验后保存,并发 `_cycle/agent_defaults_changed` 通知。
 
 新建 session 时,`cycle/config` 覆盖默认配置。daemon 把 agent 在 `session/new` 应答里报的各项当前值(`configOptions` 的 `currentValue`)也写进 session 的配置记录，再用设置的值覆盖:恢复时整份重发，所以 agent 以后改了新 session 的默认值，已有的 session 不跟着变。`session/new` 的应答里的 `configOptions` 是设置之后的值。恢复时,`session/resume` 应答里有而记录里没有的项(在记录初始值之前建的 session)按应答补记。客户端显示一个已有 session 的配置时,没有记录的项显示为"未设置",不套用 `configSchema` 的 `default`:那是给新 session 的。
+
+恢复时某一项被 agent 拒绝(例如 agent 升级后不再有这个模型或模式),daemon 不把它留在记录里当作仍然生效:记录改为 agent 在 `session/resume` 应答里报的当前值(应答里也没有这项就去掉它),`session/list` 的 `cycle/config` 反映的是实际生效的值,并往该 session 的会话里写一条 `severity: "warning"` 的 `notice`,说明哪一项没有恢复、现在是什么。这发生在下一条 prompt 发出之前。
 
 ### session 级配置
 
