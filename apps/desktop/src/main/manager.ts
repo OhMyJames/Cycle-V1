@@ -6,7 +6,12 @@ import {
   settingOf,
   sizeOf,
 } from "@cycle/analytics/events";
-import { CycleClient, type PermissionAnswer, ProtocolMismatchError } from "@cycle/client";
+import {
+  CycleClient,
+  type ElicitationAnswer,
+  type PermissionAnswer,
+  ProtocolMismatchError,
+} from "@cycle/client";
 import type { Channel } from "@cycle/transport/client";
 import {
   type AgentInfo,
@@ -81,6 +86,8 @@ type Pending = {
   /** The daemon's id for it, when it said (an older daemon does not). */
   requestId: string | undefined;
   answer: (answer: PermissionAnswer) => void;
+  /** A form's own answer; `answer` then only dismisses it. */
+  answerForm?: (answer: ElicitationAnswer) => void;
   /** Asked before the connection was lost and not asked again since: the daemon may have had it answered elsewhere. */
   stale: boolean;
 };
@@ -153,6 +160,7 @@ export class ConnectionManager
     Omit<
       AppApi,
       | "chooseDirectory"
+      | "copyText"
       | "updateState"
       | "checkForUpdate"
       | "installUpdate"
@@ -310,6 +318,9 @@ export class ConnectionManager
         update: (sessionId, update) => this.#onUpdate(environmentId, connection, sessionId, update),
         permission: (sessionId, request, requestId) =>
           this.#onPermission(environmentId, connection, sessionId, request, requestId),
+        // Saying this is saying the app can show a form: the daemon then asks it the agent's questions.
+        elicitation: (sessionId, request, requestId) =>
+          this.#onForm(environmentId, connection, sessionId, request, requestId),
         resolved: (sessionId, requestId) =>
           this.#onResolved(environmentId, connection, sessionId, String(requestId)),
         listChanged: () =>
@@ -818,6 +829,10 @@ export class ConnectionManager
     sessionId: string,
     request: Record<string, unknown>,
     requestId: string | undefined,
+    form?: {
+      form: { message: string; schema: unknown };
+      resolve: (answer: ElicitationAnswer) => void;
+    },
   ): Promise<PermissionAnswer> {
     const key = `${environmentId}:${sessionId}:${requestId ?? randomUUID()}`;
     return new Promise<PermissionAnswer>((resolve) => {
@@ -842,8 +857,15 @@ export class ConnectionManager
         title: String(request.title ?? "Permission"),
         subject: request.subject,
         options: (request.options as PermissionRequest["options"]) ?? [],
+        ...(form !== undefined ? { form: form.form } : {}),
       };
-      watched.pending.set(key, { request: built, requestId, answer: resolve, stale: false });
+      watched.pending.set(key, {
+        request: built,
+        requestId,
+        answer: resolve,
+        ...(form !== undefined ? { answerForm: form.resolve } : {}),
+        stale: false,
+      });
       if (old === undefined) {
         watched.version += 1;
         this.#options.emit({ type: "permission", request: built, version: watched.version });
@@ -851,11 +873,68 @@ export class ConnectionManager
     });
   }
 
+  /**
+   * The agent asks for answers (`elicitation/create`). Held like a permission request, so the card, a reload and the
+   * daemon asking again after a reconnect work the same; anything that closes a request without an answer dismisses it.
+   */
+  #onForm(
+    environmentId: string,
+    connection: Connection,
+    sessionId: string,
+    request: Record<string, unknown>,
+    requestId: string | undefined,
+  ): Promise<ElicitationAnswer> {
+    return new Promise<ElicitationAnswer>((resolve) => {
+      const form = {
+        message: typeof request.message === "string" ? request.message : "",
+        schema: request.requestedSchema,
+      };
+      void this.#onPermission(
+        environmentId,
+        connection,
+        sessionId,
+        { title: form.message },
+        requestId,
+        {
+          form,
+          resolve,
+        },
+      ).then(() => resolve({ action: "cancel" }));
+    });
+  }
+
+  async answerForm(key: string, answer: unknown): Promise<void> {
+    const checked = formAnswerOf(answer);
+    for (const [environmentId, connection] of this.#connections) {
+      for (const [sessionId, watched] of connection.watched) {
+        const pending = watched.pending.get(key);
+        if (pending?.answerForm === undefined) continue;
+        pending.answerForm(checked);
+        // What was done with it, never what was written in it.
+        this.#track("form_answered", {
+          outcome:
+            checked.action === "accept"
+              ? "answered"
+              : checked.action === "decline"
+                ? "declined"
+                : "dismissed",
+        });
+        this.#closePermission(environmentId, sessionId, watched, key);
+        return;
+      }
+    }
+  }
+
   async answerPermission(key: string, optionId: string | "cancelled"): Promise<void> {
     for (const [environmentId, connection] of this.#connections) {
       for (const [sessionId, watched] of connection.watched) {
         const pending = watched.pending.get(key);
         if (pending === undefined) continue;
+        // A form is answered with `answerForm`; here it can only be dismissed.
+        if (pending.answerForm !== undefined) {
+          if (optionId === "cancelled") await this.answerForm(key, { action: "cancel" });
+          return;
+        }
         pending.answer(
           optionId === "cancelled" ? { outcome: "cancelled" } : { outcome: "selected", optionId },
         );
@@ -1067,3 +1146,22 @@ export class ConnectionManager
     return this.#options.chooseDirectory?.() ?? Promise.resolve(undefined);
   }
 }
+
+/**
+ * A form's answer as the page sent it, checked: the page is not trusted with what goes to the agent. Only `accept`
+ * carries content, and only text, numbers, yes/no and lists of text; anything else is a dismissal.
+ */
+export const formAnswerOf = (answer: unknown): ElicitationAnswer => {
+  const given = (answer ?? {}) as { action?: unknown; content?: unknown };
+  if (given.action === "decline") return { action: "decline" };
+  if (given.action !== "accept" || typeof given.content !== "object" || given.content === null)
+    return { action: "cancel" };
+  const content: Record<string, string | number | boolean | string[]> = {};
+  for (const [field, value] of Object.entries(given.content)) {
+    if (typeof value === "string" || typeof value === "boolean") content[field] = value;
+    else if (typeof value === "number" && Number.isFinite(value)) content[field] = value;
+    else if (Array.isArray(value) && value.every((item) => typeof item === "string"))
+      content[field] = value;
+  }
+  return { action: "accept", content };
+};

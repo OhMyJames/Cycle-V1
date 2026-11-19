@@ -129,17 +129,18 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
 
 基础控件优先使用 `@ui-sdk/react` 并映射为 Cycle 样式；业务通用件收口在 `packages/ui/src/react/`。**注意 ui-sdk 坑点**：`Collapsible`、`Command` 等会覆盖传给它的 `data-slot`，写样式优先用 `data-kind` 或 `data-palette`。
 
-| 组件                     | 来源                                               | 允许变体 / 状态                                                                                          | 映射材质与规则                                                                                                                                                                                                         |
-| ------------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Button`                 | `@ui-sdk/react/button`                             | `solid`、`destructive`、`outline`、`ghost`、`data-kind="round"`、`data-kind="queue"`                     | `solid` 用 `--cycle-accent`；破坏性操作用 `destructive`（`--ui-destructive`）；`outline` 为默认描边按钮；`ghost` 无底无边（`Surface/Ghost`）                                                                           |
-| `Banner`                 | 自建（`app.tsx` / `update.tsx` / `analytics.tsx`） | `data-severity="info" \| "warning" \| "error"`                                                           | 全宽底栏 + `3px` 左侧语义竖条 + 16px 图标 + 单句事实 + 至多 1 个操作按钮 + `Dismiss`                                                                                                                                   |
-| `StatusDot` & `Badge`    | 自建（`status.tsx` / `workspace-switcher.tsx`）    | 点：`solid`、`pulse`、`square`、`ring`、`cross`；角标：`needs-you` / `running` / `background` / `unread` | 颜色 + 形状双通道：Working=accent 脉动圆点，Needs you=attention 实心方块，Background=accent 空心环，Unread=accent 实心圆点，Connected=success 圆点，Reconnecting=attention 空心环，Not connected=danger 叉             |
-| `SettingChip`            | 自建（`setting-chips.tsx`）                        | 正常、`data-unset`（`Not set`）、危险权限态（如免确认）                                                  | `Surface/Ghost`，点击弹出单选 `Menu`（带说明与 `Recommended` / `Caution` 标）；危险模式用 `--cycle-attention` 警示；带轻微下拉箭头线索避免误认为静态文本                                                               |
-| `ToolRow` & `WorkCard`   | 自建（`tool.tsx` / `turn.tsx`）                    | `pending` / `in_progress` / `completed` / `failed` / `cancelled`                                         | 单次调用为 `ToolRow`；连续两次以上聚合为 `WorkCard`（垂直细线串联子行）；左边一列只放状态（完成为 5px `--cycle-ink-disabled` 灰点、在跑为转圈、失败为红叉，**不用工具图标**）；失败行整行红色并写明 `failed`、默认展开 |
-| `Plan`                   | 自建（`conversation.tsx`）                         | `pending` / `in_progress` / `completed`                                                                  | 勾框列表（空框 / 半实框 / 绿色勾框），不用删除线                                                                                                                                                                       |
-| `PermissionCard`         | 自建（`permission.tsx`）                           | `disabled`                                                                                               | `Surface/Popover` + 3px 顶部 `attention` 边条；标题 + 可滚动等宽命令区（最多 8 行）+ `Allow once`（`solid`，标出快捷键）+ 其他 `outline` + 最右 `ghost` `Dismiss`                                                      |
-| `Dialog` / `AlertDialog` | `@ui-sdk/react` + `dialogs.tsx`                    | 表单弹窗 / 信息弹窗 / 破坏性确认弹窗                                                                     | `Surface/Dialog` + `--cycle-scrim`；非破坏性支持 Esc 关闭并将焦点还回触发源                                                                                                                                            |
-| `Icons`                  | `icons.tsx`（iconmcp 线性 16 单位网格）            | `size` 16（控件内）/ 20（空状态），`1.5px` 描边，`currentColor`                                          | 集中维护，禁止内联 SVG；仅图标按钮必须配 `aria-label` 与 `title`                                                                                                                                                       |
+| 组件                     | 来源                                               | 允许变体 / 状态                                                                                          | 映射材质与规则                                                                                                                                                                                                                                                                                 |
+| ------------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Button`                 | `@ui-sdk/react/button`                             | `solid`、`destructive`、`outline`、`ghost`、`data-kind="round"`、`data-kind="queue"`                     | `solid` 用 `--cycle-accent`；破坏性操作用 `destructive`（`--ui-destructive`）；`outline` 为默认描边按钮；`ghost` 无底无边（`Surface/Ghost`）                                                                                                                                                   |
+| `Banner`                 | 自建（`app.tsx` / `update.tsx` / `analytics.tsx`） | `data-severity="info" \| "warning" \| "error"`                                                           | 全宽底栏 + `3px` 左侧语义竖条 + 16px 图标 + 单句事实 + 至多 1 个操作按钮 + `Dismiss`                                                                                                                                                                                                           |
+| `StatusDot` & `Badge`    | 自建（`status.tsx` / `workspace-switcher.tsx`）    | 点：`solid`、`pulse`、`square`、`ring`、`cross`；角标：`needs-you` / `running` / `background` / `unread` | 颜色 + 形状双通道：Working=accent 脉动圆点，Needs you=attention 实心方块，Background=accent 空心环，Unread=accent 实心圆点，Connected=success 圆点，Reconnecting=attention 空心环，Not connected=danger 叉                                                                                     |
+| `SettingChip`            | 自建（`setting-chips.tsx`）                        | 正常、`data-unset`（`Not set`）、危险权限态（如免确认）                                                  | `Surface/Ghost`，点击弹出单选 `Menu`（带说明与 `Recommended` / `Caution` 标）；危险模式用 `--cycle-attention` 警示；带轻微下拉箭头线索避免误认为静态文本                                                                                                                                       |
+| `ToolRow` & `WorkCard`   | 自建（`tool.tsx` / `turn.tsx`）                    | `pending` / `in_progress` / `completed` / `failed` / `cancelled`                                         | 单次调用为 `ToolRow`；连续两次以上聚合为 `WorkCard`（垂直细线串联子行）；左边一列只放状态（完成为 5px `--cycle-ink-disabled` 灰点、在跑为转圈、失败为红叉，**不用工具图标**）；失败行整行红色并写明 `failed`、默认展开；展开区的命令 / 输出 / 错误各为一块 `Surface/Sunken`，带小标题与 `Copy` |
+| `Plan` & `PlanStrip`     | 自建（`plan.tsx`）                                 | `pending` / `in_progress` / `completed`                                                                  | 勾框列表（空框 / 半实框 / 绿色勾框），不用删除线；对话里是一行 `Plan · 1 of 3 done`（排成工具行，点开是列表）；有未完成项时输入框上方一条 `Surface/Card` 细条 `1/3 + 正在做的那项`，全部完成即消失                                                                                             |
+| `FormCard`               | 自建（`form.tsx`）                                 | `disabled`、必填未填、含画不了的必填字段                                                                 | 与 `PermissionCard` 同位同材质，**顶边 3px 用 `accent`**（是提问，不是警示）；问题：大写淡色小标题 + 加粗问题 + 整行可点的选项（圆点单选 / 方框多选，选中为 accent 边 + 8% 底）+ 一行 `Other`；问题区卡内滚动，`Answer`（`solid`）/ `Skip`（`outline`）/ `Dismiss`（`ghost`）固定在底          |
+| `PermissionCard`         | 自建（`permission.tsx`）                           | `disabled`                                                                                               | `Surface/Popover` + 3px 顶部 `attention` 边条；标题 + 可滚动等宽命令区（最多 8 行）+ `Allow once`（`solid`，标出快捷键）+ 其他 `outline` + 最右 `ghost` `Dismiss`                                                                                                                              |
+| `Dialog` / `AlertDialog` | `@ui-sdk/react` + `dialogs.tsx`                    | 表单弹窗 / 信息弹窗 / 破坏性确认弹窗                                                                     | `Surface/Dialog` + `--cycle-scrim`；非破坏性支持 Esc 关闭并将焦点还回触发源                                                                                                                                                                                                                    |
+| `Icons`                  | `icons.tsx`（iconmcp 线性 16 单位网格）            | `size` 16（控件内）/ 20（空状态），`1.5px` 描边，`currentColor`                                          | 集中维护，禁止内联 SVG；仅图标按钮必须配 `aria-label` 与 `title`                                                                                                                                                                                                                               |
 
 ---
 
@@ -178,7 +179,12 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
   - **有 `description` 优先展示**：Bash / Monitor / Agent 的单行短说明（≤ 160 字）用正文字体居前，后跟淡灰等宽命令/路径，放不下时先让摘要再让说明并在末尾淡出；没有时用“动词 + 摘要”。StepLine 与进行中卡片同步遵循。
   - **`@` 提及不画两遍**：用户消息中带 `cycle/mention` 的 `resource_link` 当正文中仍含 `@path` 时不重复渲染；其余链接渲染为 `[名字]`。
   - **文件工具（Edit / Write / Read / Glob / Grep）**：按 ACP `diff` 与 `_meta["cycle/toolResult"]`（协议 §9）渲染、不硬编码工具名——Edit 仅显示本次调用的增删计数（`+2 −1`，新建为 `Created +N`），展开显示带行号与浅绿/浅红底的 diff（省去首段 `@@`，段间 `⋯`，上限 400 行，不再重复输入 JSON，过大或空文件给出明确提示）；Read 写出行范围/总行数（含读取图片直接展示）；Glob/Grep 写出文件数与匹配数/行数（截断时带 `+`）；输入中仅含行上已显示的字段时展开不再重复。
-  - **工具折叠状态保持**：连续工具调用从 1 个变为 2 个以上时保留用户已手动展开的状态；展开态下的长输入/输出与代理消息支持快捷复制；turn 失败支持就地重试；`AskUserQuestion` 在 CYCL-14 后续批次做成表单。
+  - **命令（Bash / Monitor）**：行上只在没照常跑完时多写一句（`interrupted`、`ran past 2m, now in the background`、`in the background`）。展开为三块：命令（不再是输入 JSON）、输出、错误（另一块，标题为红；来自 `_meta["cycle/stream"]: "stderr"`），各带 `Copy`（经 main 的 `copyText`，页面无剪贴板权限，失败不显示 `Copied`）。长输出只显示末 40 行，上方 `Show N earlier lines`；超过 20,000 字时保留末尾。
+  - **子 agent 挂在它的 Agent 行上**：在跑时转圈（转到后台的在调用结束后仍转；前台的只在调用未结束时转），写 `in the background · using Grep`；结束写 `done · 4 steps · 1m 3s`，失败为红字。
+  - **压缩上下文是一行**（同 notice）：`Compacting the context…` → `Context compacted`。
+  - **计划**：见第 3 层 `Plan & PlanStrip`；改计划的调用（ACP `kind` 为 `think`：TodoWrite、TaskCreate、TaskUpdate）不成行，进行中也不，失败的照常；只读计划的（TaskGet、TaskList）照常成行。提出的计划（输入有 `plan`，如 ExitPlanMode）动词为 `Proposed a plan`，展开为 Markdown 正文；提问（输入有 `questions`）动词为 `Asked`，摘要为问题。均按输入的形状判断，不看工具名。
+  - **工具折叠状态保持**：连续工具调用从 1 个变为 2 个以上时保留用户已手动展开的状态；展开态下的长输入/输出与代理消息支持快捷复制；turn 失败支持就地重试。
+  - **提问是表单**：agent 的提问（`AskUserQuestion`、MCP 的 elicitation）以 `FormCard` 出现在权限区；只发回填了的字段；`required` 字段未填时 `Answer` 不可点，必填字段画不了时写明只能跳过。
   - **StepLine**：turn 进行中且未开始输出文本时，在末尾展示实时步骤行（等待批准 / 思考中 / 运行中的工具摘要），防止“静默卡死感”。
 - **长会话窗口与滚动锚定**：
   - 初次仅渲染最后 60 块；向上滚动至距顶 `< 800px` 或点击 `Show earlier` 时向上增量加载 60 块，通过首块位移修正保持视口不跳动；页面内存中记住最近 50 个会话的阅读锚点；用户向上翻阅时提供浮动的回到底部入口。
@@ -218,6 +224,7 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
 需要打断用户或获得明确授权？
 ├─ 是，且为不可逆破坏或中断正在运行的任务 ──▶ AlertDialog（ConfirmDialog，destructive 主按钮，焦点落 Cancel）
 ├─ 是，agent 等待单次/永久工具权限批准   ──▶ PermissionCard（吸附在输入框上方，不遮挡最近对话）
+├─ 是，agent 提出问题要人回答（表单）     ──▶ FormCard（同一位置，accent 顶边，可 Skip）
 └─ 否，不阻断当前编辑：
    ├─ 属于全局/环境/应用级状态（断线、更新、版本过旧、全局错误） ──▶ 顶部 Banner（带左竖条，不自动消失）
    ├─ 属于某个输入或列表项的校验/执行失败（附件超限、连接器报错） ──▶ 就地 inline alert / hint
@@ -267,7 +274,7 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 
 画廊使用临时 profile 在 macOS Electron 或 Linux xvfb 中运行，检查根页面溢出、控制台错误、焦点环、列表首项可见性与输入框边界对比度。在浏览器中预览：`bun packages/ui/gallery/build.ts` 后打开 `packages/ui/gallery/dist/index.html`（`?s=<场景>` 或 `?s=tokens`）。
 
-核心场景（定义在 `packages/ui/gallery/scenarios.ts`）：`tokens`、`empty`、`empty-conversation`、`conversation`、`streaming`、`permission`、`permission-queue`、`turn-error`、`host-down`、`host-reconnecting`、`session-reconnecting`、`many-sessions`、`update-available`、`update-failed`、`daemon-old`、`new-session`、`dialog-add-host`、`dialog-agent-defaults`、`long`、`long-back`、`session-focus` 等。
+核心场景（定义在 `packages/ui/gallery/scenarios.ts`）：`tokens`、`empty`、`empty-conversation`、`conversation`、`streaming`、`permission`、`permission-queue`、`turn-error`、`host-down`、`host-reconnecting`、`session-reconnecting`、`many-sessions`、`update-available`、`update-failed`、`daemon-old`、`new-session`、`dialog-add-host`、`dialog-agent-defaults`、`long`、`long-back`、`session-focus`、`turns`、`files`（文件工具的 diff 与计数）、`work`（命令输出与错误、子 agent、压缩、计划条）、`ask`（提问表单）等。
 
 ## 附录 B：代码配色（Shiki）
 
@@ -318,7 +325,7 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 
 ### P2：对话流与日常工作流质感打磨
 
-- [ ] **对话内高频操作**：消息、代理回复与工具输出快捷 Copy；回合失败（`turn-end` error）就地 Retry；长会话向上阅读时显示浮动“回到底部”按钮；思考内容走 `Markdown` 只读渲染；空白会话转正式会话时平滑衔接。
+- [ ] **对话内高频操作**：消息、代理回复的快捷 Copy（工具的命令、输出、错误已可复制，CYCL-14）；回合失败（`turn-end` error）就地 Retry；长会话向上阅读时显示浮动“回到底部”按钮；思考内容走 `Markdown` 只读渲染；空白会话转正式会话时平滑衔接。
 - [ ] **工具调用与侧栏辨识度**：连续工具从 1 个升格为多个时保留手动展开态；会话行补充次要元信息（相对时间与未发送草稿标）；切换 workspace/环境时重置 `showAll`。
 - [ ] **窄视口与缓存治理**：720×480 下 `composer-toolbar` 折行/紧凑适配；为 `store.views` 增加 LRU 上限，为 `selectSession` 加并发加载保护。
 - [ ] **存量 i18n 迁移**：将剩余约 40 处 JSX 硬编码与 store/dialog 文案迁入 `packages/ui/src/messages/en-US.ts`。

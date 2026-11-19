@@ -13,6 +13,7 @@
 // - A turn begins a new group: the view puts more space before it than between blocks.
 import type {
   AgentItem,
+  CompactionItem,
   Conversation,
   Item,
   NoticeItem,
@@ -75,6 +76,7 @@ export type LaidBlock = { key: string; turn: number; startsTurn: boolean } & (
   | { kind: "thought"; item: ThoughtItem }
   | { kind: "plan"; item: PlanItem }
   | { kind: "notice"; item: NoticeItem }
+  | { kind: "compaction"; item: CompactionItem }
   | { kind: "work"; tools: readonly ToolItem[] }
   /** A failure pulled out from under the card of a turn that stopped. */
   | { kind: "failed"; tool: ToolItem }
@@ -107,6 +109,9 @@ const laidTurn = (
   for (const item of items) {
     switch (item.kind) {
       case "tool": {
+        // The agent changing its plan (ACP's `think`: TodoWrite, TaskCreate, TaskUpdate): the plan says it, not a row per
+        // call, from its start (so nothing shows and then goes). One that failed is shown; none cuts a stretch.
+        if (item.toolKind === "think" && item.status !== "failed") break;
         if (stretch === undefined) {
           stretch = { key: `work:${item.id}`, tools: [] };
           add(stretch.key, { kind: "work", tools: stretch.tools });

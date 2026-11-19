@@ -44,10 +44,12 @@ import {
   type RemoteEnvironment,
   RenameDialog,
 } from "./dialogs.tsx";
+import { FormCard } from "./form.tsx";
 import { useI18n } from "./i18n.tsx";
 import { ErrorCircleIcon, MoreIcon, SidebarIcon, WarningIcon } from "./icons.tsx";
 import { useDay, useInFront } from "./in-front.ts";
 import { PermissionCard } from "./permission.tsx";
+import { currentPlan, PlanStrip } from "./plan.tsx";
 import { SearchDialog } from "./search.tsx";
 import type { Away } from "./session-list.tsx";
 import { MOD, Sidebar, sessionTitle } from "./sidebar.tsx";
@@ -316,6 +318,8 @@ export function App() {
   const activity = view?.permissions.length
     ? "requires_action"
     : (view?.conversation.status ?? "idle");
+  // The plan, above the input box, while some of it is still to do (DESIGN.md section 23).
+  const plan = view !== undefined ? currentPlan(view.conversation) : undefined;
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
 
   const toggleSidebar = useCallback(
@@ -615,15 +619,25 @@ export function App() {
                 )}
               </div>
             )}
+            {plan !== undefined ? <PlanStrip plan={plan} /> : null}
             <div data-slot="permissions">
-              {(view?.permissions ?? []).map((request) => (
-                <PermissionCard
-                  key={request.key}
-                  request={request}
-                  disabled={!connected}
-                  onAnswer={store.answerPermission}
-                />
-              ))}
+              {(view?.permissions ?? []).map((request) =>
+                request.form !== undefined ? (
+                  <FormCard
+                    key={request.key}
+                    request={{ ...request, form: request.form }}
+                    disabled={!connected}
+                    onAnswer={store.answerForm}
+                  />
+                ) : (
+                  <PermissionCard
+                    key={request.key}
+                    request={request}
+                    disabled={!connected}
+                    onAnswer={store.answerPermission}
+                  />
+                ),
+              )}
             </div>
             {view !== undefined ? (
               <Composer

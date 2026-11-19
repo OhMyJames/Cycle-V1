@@ -25,7 +25,11 @@ export const toolKind = (name: string): ToolKind => {
     case "WebFetch":
     case "WebSearch":
       return "fetch";
+    // Changing the plan: the plan says it (docs/conversation-content.md), a client need not draw a row per call.
+    // Reading it (TaskGet, TaskList) changes nothing the plan shows, so it stays a call of its own.
     case "TodoWrite":
+    case "TaskCreate":
+    case "TaskUpdate":
       return "think";
     default:
       return "other";
@@ -250,8 +254,10 @@ export class TurnTranslator {
       const planned = this.#planned(id, failed, structured, asText(block.content));
       if (planned !== undefined) updates.push(planned);
       // The structured result is the message's, not a block's: with more than one result in it, whose it is is not known.
+      // A failed call keeps its text (the message is what matters), except a command: one that exits non-zero is the
+      // one whose errors most need to be told apart from what it printed.
       const read =
-        !failed && blocks.length === 1 && name !== undefined
+        (!failed || name === "Bash") && blocks.length === 1 && name !== undefined
           ? resultOf(name, structured, block.content)
           : undefined;
       const raw = rawOutputOf(block.content);

@@ -7,7 +7,12 @@ import { type Channel, connectUnix } from "@cycle/transport/client";
 import { listenUnix } from "@cycle/transport/server";
 import { type AppEvent, applyUpdate, type EnvironmentConfig, emptyConversation } from "@cycle/ui";
 import { fakeAgent } from "../../../packages/daemon/test/fake-agent.ts";
-import { type AttentionNotice, ConnectionManager, type Tracker } from "../src/main/manager.ts";
+import {
+  type AttentionNotice,
+  ConnectionManager,
+  formAnswerOf,
+  type Tracker,
+} from "../src/main/manager.ts";
 import { fileSettings, LOCAL_ENVIRONMENT } from "../src/main/settings.ts";
 import { MIN_DAEMON_VERSION } from "../src/shared/release.ts";
 
@@ -1060,4 +1065,50 @@ test("a daemon that speaks another major version of the protocol is refused with
   const status = (await fixed.m.environments()).status.find((s) => s.environmentId === "box");
   expect(status?.state).toBe("connected");
   expect(status?.incompatible).toBeUndefined();
+});
+
+test("an agent's form reaches the page, the answer goes back checked, and only what was done with it is reported", async () => {
+  let answered: unknown;
+  const fake = fakeAgent({
+    onPrompt: async ({ elicit }) => {
+      answered = await elicit();
+    },
+  });
+  const { manager } = await setup(fake);
+  const reported: [string, unknown][] = [];
+  const { m, events } = await manager("app", undefined, undefined, (name, props) =>
+    reported.push([name, props]),
+  );
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  await m.openSession("local", id);
+  await m.prompt("local", id, [{ type: "text", text: "go" }]);
+  await until(() => of(events, "permission").length === 1, "the form");
+  const { request } = first(of(events, "permission"));
+  expect(request.form).toEqual({
+    message: "Which one?",
+    schema: { type: "object", properties: { pick: { type: "string" } } },
+  });
+  // What the page sends is checked: only text, numbers, yes/no and lists of text go on.
+  await m.answerForm(request.key, {
+    action: "accept",
+    content: { pick: "secret choice", sneaky: { nested: true } },
+  });
+  await until(() => answered !== undefined, "the agent's answer");
+  expect(answered).toMatchObject({ action: "accept", content: { pick: "secret choice" } });
+  expect(JSON.stringify(answered)).not.toContain("nested");
+  expect(of(events, "permission-closed").map((e) => e.key)).toEqual([request.key]);
+  expect(reported.filter(([n]) => n === "form_answered")).toEqual([
+    ["form_answered", { outcome: "answered" }],
+  ]);
+  expect(JSON.stringify(reported)).not.toContain("secret choice");
+});
+
+test("a form's answer that is not one is a dismissal", () => {
+  expect(formAnswerOf(undefined)).toEqual({ action: "cancel" });
+  expect(formAnswerOf({ action: "decline", content: { a: "b" } })).toEqual({ action: "decline" });
+  expect(formAnswerOf({ action: "accept", content: { n: Number.NaN, list: ["a", 1] } })).toEqual({
+    action: "accept",
+    content: {},
+  });
 });

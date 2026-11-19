@@ -16,6 +16,7 @@ import type {
   FileSearch,
   FolderListing,
   FolderTrust,
+  FormAnswer,
   PermissionRequest,
   PromptBlock,
   SessionSnapshot,
@@ -735,6 +736,10 @@ export class AppStore {
     await this.#attempt(() => this.#bridge.answerPermission(key, optionId));
   };
 
+  answerForm = async (key: string, answer: FormAnswer): Promise<void> => {
+    await this.#attempt(() => this.#bridge.answerForm(key, answer));
+  };
+
   saveEnvironment = async (environment: EnvironmentConfig): Promise<string | undefined> => {
     try {
       await this.#bridge.saveEnvironment(environment);
@@ -888,6 +893,13 @@ export class AppStore {
       this.#set({ analytics: await this.#bridge.setAnalytics(enabled) }),
     );
   };
+
+  /** Puts text on the clipboard, through main. Whether it did: never an error where it is used. */
+  copyText = (text: string): Promise<boolean> =>
+    this.#bridge.copyText(text).then(
+      (done) => done,
+      () => false,
+    );
 
   /** Reports what only the page can see (a panel opened, a theme chosen). Never waits and never fails. */
   track = <N extends UiEventName>(name: N, props: EventProps<N>): void => {

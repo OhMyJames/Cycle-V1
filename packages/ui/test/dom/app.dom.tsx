@@ -284,6 +284,122 @@ test("a permission request is shown with its options, and the click answers it",
   expect(within(log).queryByText("Waiting for your answer")).toBeNull();
 });
 
+test("an agent's questions are a form: a choice, several choices, an answer of one's own; only what was filled goes back", async () => {
+  const { user, emit, named } = await mount();
+  await openFirstSession(user);
+  await ready(await screen.findByRole("textbox", { name: "Message" }));
+  const request: PermissionRequest = {
+    key: "local:s1:f1",
+    environmentId: "local",
+    sessionId: "s1",
+    title: "Claude has some questions",
+    options: [],
+    form: {
+      message: "Claude has some questions",
+      schema: {
+        type: "object",
+        properties: {
+          q0: {
+            type: "string",
+            title: "Library",
+            description: "Which library should we use?",
+            oneOf: [
+              { const: "zod", title: "zod", description: "Already a dependency" },
+              { const: "valibot", title: "valibot" },
+            ],
+          },
+          q0_other: {
+            type: "string",
+            title: "Other",
+            description: "Your own answer",
+            maxLength: 2000,
+          },
+          q1: {
+            type: "array",
+            title: "Targets",
+            description: "Which platforms?",
+            items: {
+              anyOf: [
+                { const: "mac", title: "macOS" },
+                { const: "linux", title: "Linux" },
+              ],
+            },
+          },
+          q1_other: {
+            type: "string",
+            title: "Other",
+            description: "Your own answer",
+            maxLength: 2000,
+          },
+        },
+      },
+    },
+  };
+  emit({ type: "permission", request, version: 1 });
+  const card = await screen.findByLabelText("Claude has some questions");
+  expect(card.textContent).toContain("Which library should we use?");
+  expect(card.textContent).toContain("Already a dependency");
+  await user.click(within(card).getByRole("radio", { name: /zod/ }));
+  await user.click(within(card).getByRole("checkbox", { name: /macOS/ }));
+  await user.click(within(card).getByRole("checkbox", { name: /Linux/ }));
+  await user.click(within(card).getByRole("checkbox", { name: /macOS/ }));
+  const [, second] = within(card).getAllByPlaceholderText("Your own answer");
+  await user.type(second as HTMLElement, "FreeBSD");
+  await user.click(within(card).getByText("Answer"));
+  expect(named("answerForm")).toEqual([
+    [
+      "answerForm",
+      "local:s1:f1",
+      { action: "accept", content: { q0: "zod", q1: ["linux"], q1_other: "FreeBSD" } },
+    ],
+  ]);
+  // Not a permission: it is never answered as one.
+  expect(named("answerPermission")).toEqual([]);
+  await user.click(within(card).getByText("Skip"));
+  expect(named("answerForm").at(-1)).toEqual(["answerForm", "local:s1:f1", { action: "decline" }]);
+});
+
+test("a form's required field must be filled before it is answered; one the app cannot draw can only be skipped", async () => {
+  const { user, emit, named } = await mount();
+  await openFirstSession(user);
+  await ready(await screen.findByRole("textbox", { name: "Message" }));
+  const form = (key: string, properties: object, required: string[]): PermissionRequest => ({
+    key,
+    environmentId: "local",
+    sessionId: "s1",
+    title: key,
+    options: [],
+    form: { message: key, schema: { type: "object", properties, required } },
+  });
+  emit({
+    type: "permission",
+    request: form("Name it", { name: { type: "string", title: "Name" } }, ["name"]),
+    version: 1,
+  });
+  const card = await screen.findByLabelText("Name it");
+  const answer = within(card)
+    .getByText<HTMLButtonElement>("Answer")
+    .closest("button") as HTMLButtonElement;
+  expect(card.textContent).toContain("required");
+  expect(answer.disabled).toBe(true);
+  await user.type(within(card).getByRole("textbox"), "cycle");
+  await waitFor(() => expect(answer.disabled).toBe(false));
+  await user.click(answer);
+  expect(named("answerForm")).toEqual([
+    ["answerForm", "Name it", { action: "accept", content: { name: "cycle" } }],
+  ]);
+  emit({
+    type: "permission",
+    request: form("Odd", { where: { type: "object", title: "Where" } }, ["where"]),
+    version: 2,
+  });
+  const odd = await screen.findByLabelText("Odd");
+  expect(odd.textContent).toContain("can't show");
+  expect((within(odd).getByText("Answer").closest("button") as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+});
+
 test("shows what went wrong, and lets it be dismissed", async () => {
   const { user } = await mount({
     configure: (script) => {

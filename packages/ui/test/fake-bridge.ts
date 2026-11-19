@@ -149,6 +149,8 @@ export const fakeBridge = (
     markRead: record("markRead", async () => {}),
     deleteSession: record("deleteSession", async () => {}),
     answerPermission: record("answerPermission", async () => {}),
+    answerForm: record("answerForm", async () => {}),
+    copyText: record("copyText", async () => true),
     agents: record("agents", async () => [
       {
         id: "fake",

@@ -226,7 +226,18 @@ export type PermissionRequest = {
   /** What the agent wants to do, as ACP gives it. Shown, never trusted. */
   subject?: unknown;
   options: PermissionOption[];
+  /**
+   * Present when the agent asks for answers, not leave (ACP's `elicitation/create`: a question it put, an MCP server's
+   * form). `schema` is the request's `requestedSchema`, a flat JSON Schema object. Answer it with `answerForm`.
+   */
+  form?: { message: string; schema: unknown };
 };
+
+/** What a person did with a form: answered it (only the fields they filled), declined it, or dismissed it. */
+export type FormAnswer =
+  | { action: "accept"; content: Record<string, string | number | boolean | string[]> }
+  | { action: "decline" }
+  | { action: "cancel" };
 
 /** A session as the renderer is given it: everything needed to draw it, at one moment. */
 export type SessionSnapshot = {
@@ -358,6 +369,7 @@ export type AppApi = {
   markRead(environmentId: string, sessionId: string): Promise<void>;
   deleteSession(environmentId: string, sessionId: string): Promise<void>;
   answerPermission(key: string, optionId: string | "cancelled"): Promise<void>;
+  answerForm(key: string, answer: FormAnswer): Promise<void>;
 
   agents(environmentId: string): Promise<AgentInfo[]>;
   agentDefaults(environmentId: string, agent: string): Promise<Record<string, string>>;
@@ -395,6 +407,8 @@ export type AppApi = {
 
   /** A directory chosen by the user, or undefined if they cancelled. */
   chooseDirectory(): Promise<string | undefined>;
+  /** Puts text on the clipboard (a command, an output); false when it did not (too large). The page has no clipboard of its own. */
+  copyText(text: string): Promise<boolean>;
 
   updateState(): Promise<UpdateState>;
   /** Asks now, and answers with what it found (or why it could not). */
@@ -442,6 +456,7 @@ export const API_METHODS = [
   "markRead",
   "deleteSession",
   "answerPermission",
+  "answerForm",
   "agents",
   "agentDefaults",
   "setAgentDefaults",
@@ -453,6 +468,7 @@ export const API_METHODS = [
   "cancelConnectorAuth",
   "signOutConnector",
   "chooseDirectory",
+  "copyText",
   "updateState",
   "checkForUpdate",
   "installUpdate",

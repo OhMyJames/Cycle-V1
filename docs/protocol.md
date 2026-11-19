@@ -373,6 +373,9 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 - `{edit: {additions, deletions, created?, staged?}}`:增删的行数;`created` 为 `true` 是新建的文件;`staged` 为 `true` 是改动被留下等人审、文件没变。
 - `{read: {startLine, numLines, totalLines?}}`:从第几行起读了几行,文件共几行。
 - `{search: {files, matches?, lines?, more?}}`:找到几个文件,按匹配数或行数计时带上那个数;`more` 为 `true` 是可能还有(被截断、超时、到了上限)。
+- `{run: {interrupted?, timedOutMs?, background?}}`:命令没有照常跑完时怎么了:被中断;超过时限(毫秒)后转到后台;在后台运行(自己要求的、被转过去的)。照常跑完是 `{run: {}}`。
+
+命令的输出和错误分开:`content` 里第一项是标准输出,标准错误(不为空时)是另一项,这一项的 `_meta["cycle/stream"]` 为 `"stderr"`。
 
 daemon 原样转发(照常脱敏,§12)。客户端按 ACP 的 `diff` 和这些字段画,不看工具名;daemon 在写进日志时按 `ToolResultSchema`(`@cycle/protocol`)检查,不符合的去掉(和脱敏在同一处,客户端看到的都已检查过),没有这个字段(旧日志、别的 agent)就照旧显示文字。同一个调用后来又发了新的 `content` 而没带这个字段,旧的数量作废。改动被留下等人审、又给不出差异时,是一个 `patch` 为 `null` 的 `diff` 加 `{edit: {additions: 0, deletions: 0, staged: true}}`。
 

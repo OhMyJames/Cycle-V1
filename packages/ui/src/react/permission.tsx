@@ -1,5 +1,6 @@
 import { Button } from "@ui-sdk/react/button";
 import type { PermissionRequest } from "../api.ts";
+import { useI18n } from "./i18n.tsx";
 import { WarningIcon } from "./icons.tsx";
 import { MOD } from "./sidebar.tsx";
 
@@ -22,6 +23,7 @@ export type PermissionCardProps = {
 };
 
 export function PermissionCard({ request, disabled, onAnswer }: PermissionCardProps) {
+  const { t } = useI18n();
   const detail = describeSubject(request.subject);
   return (
     <section data-slot="permission" aria-label={request.title}>
@@ -56,7 +58,7 @@ export function PermissionCard({ request, disabled, onAnswer }: PermissionCardPr
           disabled={disabled}
           onClick={() => onAnswer(request.key, "cancelled")}
         >
-          Dismiss
+          {t("permission.dismiss")}
         </Button>
       </div>
     </section>

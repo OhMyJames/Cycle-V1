@@ -21,9 +21,10 @@ import {
 } from "../model/index.ts";
 import { thinking } from "../thinking.ts";
 import { useI18n } from "./i18n.tsx";
-import { CheckIcon, ThoughtIcon } from "./icons.tsx";
+import { ThoughtIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
 import { Markdown } from "./markdown.tsx";
+import { PlanBlock } from "./plan.tsx";
 import { ToolCard } from "./tool.tsx";
 import { EndBlock, Notice, StepLine, WorkBlock } from "./turn.tsx";
 
@@ -142,20 +143,13 @@ const BlockView = memo(function BlockView({
     case "end":
       return <EndBlock stop={block.stop} />;
     case "plan":
+      return <PlanBlock item={block.item} />;
+    case "compaction":
       return (
-        <ol data-slot="plan" aria-label={t("plan.label")}>
-          {block.item.entries
-            .map((entry, index) => ({ entry, key: `${index}:${entry.content}` }))
-            .map(({ entry, key }) => (
-              <li key={key} data-status={entry.status}>
-                <span data-slot="plan-mark" data-status={entry.status} aria-hidden="true">
-                  {entry.status === "completed" ? <CheckIcon size={12} /> : null}
-                </span>
-                <span>{entry.content}</span>
-                <span data-slot="visually-hidden">{entry.status.replace("_", " ")}</span>
-              </li>
-            ))}
-        </ol>
+        <Notice
+          severity={block.item.status === "failed" ? "error" : "info"}
+          title={t(`compaction.${block.item.status}`)}
+        />
       );
     case "notice":
       return <Notice severity={block.item.severity} title={block.item.title} />;

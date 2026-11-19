@@ -89,10 +89,14 @@ export const EVENTS = {
     outcome: z.enum(["allowed", "rejected", "cancelled"]),
     remembered: z.boolean(),
   }),
+  form_answered: o({ outcome: z.enum(["answered", "declined", "dismissed"]) }),
 
   // ---- the interface (the only ones the page may send) ----
   panel_opened: o({ panel, via: z.enum(["click", "shortcut"]) }),
   sidebar_toggled: o({ open: z.boolean(), via: z.enum(["click", "shortcut"]) }),
+  tool_copied: o({ part: z.enum(["command", "output"]) }),
+  tool_output_expanded: o({}),
+  plan_opened: o({}),
   code_theme_changed: o({}),
   slash_command_used: o({}),
 } as const;
@@ -106,6 +110,9 @@ export const UI_EVENTS = [
   "sidebar_toggled",
   "code_theme_changed",
   "slash_command_used",
+  "tool_copied",
+  "tool_output_expanded",
+  "plan_opened",
 ] as const satisfies readonly EventName[];
 export type UiEventName = (typeof UI_EVENTS)[number];
 

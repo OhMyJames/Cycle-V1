@@ -43,6 +43,19 @@ export type ToolItem = InTurn & {
    * keeps it only when it matches the protocol's schema; the model still reads it field by field (`toolFacts`).
    */
   result?: unknown;
+  /** The sub-agent this call started (the Agent tool), as its `subagent_update`s have told it (decision 0014). */
+  subagent?: Subagent;
+};
+
+/** A sub-agent, as far as the session is told: announced, its progress, its end. Never its own conversation. */
+export type Subagent = {
+  state: "running" | "done" | "failed" | "stopped";
+  background: boolean;
+  /** What it is doing now, in a line the SDK wrote (only with progress summaries on). */
+  summary?: string;
+  /** The tool it used last ("Read"). */
+  lastTool?: string;
+  usage?: { tokens: number; toolUses: number; durationMs: number };
 };
 export type PlanEntry = { content: string; priority: string; status: string };
 export type Usage = { used: number; size: number; cost?: { amount: number; currency: string } };
@@ -63,8 +76,21 @@ export const usageLabel = (usage: Usage): string => {
 
 export type PlanItem = InTurn & { kind: "plan"; id: string; entries: PlanEntry[] };
 export type NoticeItem = InTurn & { kind: "notice"; id: string; severity: string; title: string };
+/** The agent making room in its context: going, done, or not done. One line where it began. */
+export type CompactionItem = InTurn & {
+  kind: "compaction";
+  id: string;
+  status: "in_progress" | "completed" | "failed" | "cancelled";
+};
 
-export type Item = UserItem | AgentItem | ThoughtItem | ToolItem | PlanItem | NoticeItem;
+export type Item =
+  | UserItem
+  | AgentItem
+  | ThoughtItem
+  | ToolItem
+  | PlanItem
+  | NoticeItem
+  | CompactionItem;
 
 export type Status = "idle" | "running" | "requires_action";
 
@@ -99,6 +125,8 @@ export type Conversation = {
   commands: Command[];
   /** Updates of a kind this version does not draw. */
   ignored: number;
+  /** Sub-agents announced before the call that started them was seen, by that call's id. */
+  waiting: Record<string, Subagent>;
 };
 
 export const emptyConversation = (): Conversation => ({
@@ -112,6 +140,7 @@ export const emptyConversation = (): Conversation => ({
   returned: undefined,
   commands: [],
   ignored: 0,
+  waiting: {},
 });
 
 const queuedPrompts = (value: unknown): QueuedPrompt[] =>
@@ -236,7 +265,56 @@ const toolUpdate = (c: Conversation, update: Fields): Conversation => {
   if (rawOutput !== undefined) next.rawOutput = rawOutput;
   if (locations !== undefined) next.locations = locations;
   if (result !== undefined) next.result = result;
+  if (old?.subagent !== undefined) next.subagent = old.subagent;
+  const waiting = c.waiting[id];
+  if (old === undefined && waiting !== undefined) {
+    next.subagent = waiting;
+    const { [id]: _taken, ...rest } = c.waiting;
+    return { ...c, items: upsert(c.items, next), waiting: rest };
+  }
   return { ...c, items: upsert(c.items, next) };
+};
+
+/**
+ * A sub-agent's news, onto the call that started it (`_meta["cycle/subagent"].toolCallId`). Each update says only what
+ * changed: a field it leaves out stays as it was. News of a call not seen yet waits for it.
+ */
+const subagentUpdate = (c: Conversation, update: Fields): Conversation => {
+  const meta = (update._meta as Record<string, unknown> | null | undefined)?.["cycle/subagent"] as
+    | Record<string, unknown>
+    | undefined;
+  const callId = typeof meta?.toolCallId === "string" ? meta.toolCallId : undefined;
+  if (callId === undefined || meta === undefined) return { ...c, ignored: c.ignored + 1 };
+  const tool = find(c.items, "tool", callId);
+  const was = tool?.subagent ??
+    c.waiting[callId] ?? { state: "running" as const, background: false };
+  const next: Subagent = { ...was };
+  const state = update.state as { state?: unknown; stopReason?: unknown } | null | undefined;
+  if (state?.state === "running") next.state = "running";
+  else if (state?.state === "idle") {
+    next.state =
+      state.stopReason === "end_turn"
+        ? "done"
+        : state.stopReason === "error"
+          ? "failed"
+          : "stopped";
+  }
+  if (typeof meta.background === "boolean") next.background = meta.background;
+  if (typeof meta.summary === "string") next.summary = meta.summary;
+  if (typeof meta.lastTool === "string") next.lastTool = meta.lastTool;
+  const usage = meta.usage as Record<string, unknown> | null | undefined;
+  if (typeof usage === "object" && usage !== null) {
+    // Each count that is given replaces the one before; one left out stays.
+    const was = next.usage ?? { tokens: 0, toolUses: 0, durationMs: 0 };
+    const n = (key: "tokens" | "toolUses" | "durationMs") =>
+      typeof usage[key] === "number" ? (usage[key] as number) : was[key];
+    next.usage = { tokens: n("tokens"), toolUses: n("toolUses"), durationMs: n("durationMs") };
+  }
+  if (tool === undefined) {
+    // Its call is not known yet (the news came first): kept, and put on the call when it comes.
+    return { ...c, waiting: { ...c.waiting, [callId as string]: next } };
+  }
+  return { ...c, items: upsert(c.items, { ...tool, subagent: next }) };
 };
 
 const stateUpdate = (c: Conversation, update: Fields): Conversation => {
@@ -347,6 +425,33 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
           : {}),
       };
     }
+    case "subagent_update":
+      return subagentUpdate(c, u);
+    case "compaction_update": {
+      const id = typeof u.compactionId === "string" ? u.compactionId : undefined;
+      const status = u.status;
+      if (id === undefined) return { ...c, ignored: c.ignored + 1 };
+      const known =
+        status === "in_progress" ||
+        status === "completed" ||
+        status === "failed" ||
+        status === "cancelled";
+      const old = find(c.items, "compaction", id);
+      // An update with a status this version does not know keeps the one before.
+      const next = known ? status : (old?.status ?? "in_progress");
+      return {
+        ...c,
+        items: upsert(c.items, {
+          kind: "compaction",
+          id,
+          turn: old?.turn ?? c.turns,
+          status: next,
+        }),
+      };
+    }
+    case "compaction_summary_chunk":
+      // The summary is the agent's note to itself; the line says that it happened.
+      return c;
     case "available_commands_update":
       return { ...c, commands: commandsOf(u.availableCommands) };
     case "config_option_update":

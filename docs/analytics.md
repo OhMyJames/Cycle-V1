@@ -62,6 +62,7 @@ ConnectionManager(会话、环境、权限的动作) ─────────
 | `prompt_sent`            | 发送消息                                                 | `agent`,`environment`,`size`(三档),`images` 数,`mentions` 数,`steered`(直接插入正在进行的回合) | `manager.ts`                 |
 | `prompt_cancelled`       | 取消正在进行的回合                                       | `agent`                                                                                        | `manager.ts`                 |
 | `permission_answered`    | 回答权限请求                                             | `outcome`:`allowed`/`rejected`/`cancelled`,`remembered`                                        | `manager.ts`                 |
+| `form_answered`          | 回答 agent 的提问表单(AskUserQuestion、MCP 的表单)       | `outcome`:`answered`/`declined`/`dismissed`                                                    | `manager.ts`                 |
 | `connector_added`        | 添加了一个 connector                                     | `transport`:`http`/`stdio`,`auth`:`none`/`oauth`,`secrets` 个数(不发名字、URL、命令和密钥)     | `manager.ts`                 |
 | `connector_changed`      | 开关或编辑了一个 connector                               | `change`:`enabled`/`disabled`/`edited`                                                         | `manager.ts`                 |
 | `connector_removed`      | 删除 connector(客户端已确认)                             | `transport`                                                                                    | `manager.ts`                 |
@@ -69,6 +70,9 @@ ConnectionManager(会话、环境、权限的动作) ─────────
 | `connector_signed_out`   | 退出 connector 的登录                                    | 无                                                                                             | `manager.ts`                 |
 | `panel_opened`           | 打开面板(搜索、新建会话、环境增改删、信任、connector 等) | `panel`,`via`:`click`/`shortcut`                                                               | 页面 `app.tsx`               |
 | `sidebar_toggled`        | 展开或折叠侧栏                                           | `open` 布尔值,`via`:`click`/`shortcut`                                                         | 页面 `app.tsx`               |
+| `tool_copied`            | 复制工具调用的命令或输出                                 | `part`:`command`/`output`                                                                      | 页面 `tool.tsx`              |
+| `tool_output_expanded`   | 把只显示末尾的输出展开成全部                             | 无                                                                                             | 页面 `tool.tsx`              |
+| `plan_opened`            | 打开输入框上方的计划条                                   | 无                                                                                             | 页面 `plan.tsx`              |
 | `code_theme_changed`     | 换代码主题                                               | 无                                                                                             | 页面 `code-theme-picker.tsx` |
 | `slash_command_used`     | 从菜单选了斜杠命令                                       | 无(命令名由 agent 给,不发)                                                                     | 页面 `composer.tsx`          |
 
