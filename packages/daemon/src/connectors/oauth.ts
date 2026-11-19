@@ -57,6 +57,21 @@ export const secureUrl = (raw: string): URL | undefined => {
   return undefined;
 };
 
+/**
+ * Two loopback redirects that differ only in port are the same to an authorization server (RFC 8252
+ * §7.3), and the desktop's callback takes a new port each time: a client registered once is reused.
+ */
+const sameLoopbackRedirect = (registered: string | undefined, now: string): boolean => {
+  if (registered === undefined) return false;
+  try {
+    const a = new URL(registered);
+    const b = new URL(now);
+    return a.protocol === b.protocol && a.hostname === b.hostname && a.pathname === b.pathname;
+  } catch {
+    return false;
+  }
+};
+
 const base64url = (bytes: Buffer): string =>
   bytes.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
@@ -255,7 +270,7 @@ export class OAuthBroker {
           : { clientId: options.clientId, registered: false };
     } else if (
       previous?.registered === true &&
-      previous.redirectUri === options.redirectUri &&
+      sameLoopbackRedirect(previous.redirectUri, options.redirectUri) &&
       options.credentials.oauth?.issuer === found.issuer
     ) {
       client = previous;

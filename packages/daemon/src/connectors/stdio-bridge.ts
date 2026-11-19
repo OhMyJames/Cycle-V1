@@ -65,9 +65,12 @@ export class StdioBridge {
   readonly #streams = new Set<ReadableStreamDefaultController<Uint8Array>>();
   #waiting: unknown[] = [];
   #ended = false;
+  /** Cycle stopped it (the agent went, the connector changed): its ending says nothing of the server. */
+  #stopped = false;
   readonly ended: Promise<void>;
 
-  constructor(process: Spawned, onEnd: (beforeAnswer: boolean) => void) {
+  /** `onEnd(failed)`: failed is true when the process ended by itself before it ever answered. */
+  constructor(process: Spawned, onEnd: (failed: boolean) => void) {
     this.#process = process;
     let answered = false;
     this.ended = (async () => {
@@ -91,8 +94,10 @@ export class StdioBridge {
       } catch {
         // The process's output ended badly: the same as ending.
       }
+      // However its output ended, the process goes too: nothing could reach it after this.
+      process.kill();
       this.#end();
-      onEnd(!answered);
+      onEnd(!answered && !this.#stopped);
     })();
   }
 
@@ -120,6 +125,18 @@ export class StdioBridge {
     for (const stream of this.#streams) stream.enqueue(event);
   }
 
+  /** Stops waiting for a reply: it is answered as cancelled, for whoever still holds the request. */
+  #drop(key: string): void {
+    const waiter = this.#pending.get(key);
+    if (waiter === undefined) return;
+    this.#pending.delete(key);
+    waiter({
+      jsonrpc: "2.0",
+      id: JSON.parse(key) as string | number,
+      error: { code: -32800, message: "Request cancelled" },
+    });
+  }
+
   #end(): void {
     if (this.#ended) return;
     this.#ended = true;
@@ -139,6 +156,7 @@ export class StdioBridge {
   }
 
   stop(): void {
+    this.#stopped = true;
     this.#process.kill();
     this.#end();
   }
@@ -189,16 +207,32 @@ export class StdioBridge {
     const batch = Array.isArray(body);
     const messages = (batch ? body : [body]) as Message[];
     const replies: Promise<unknown>[] = [];
+    const keys: string[] = [];
     for (const message of messages) {
       if (typeof message !== "object" || message === null) continue;
       if (message.method !== undefined && message.id !== undefined && message.id !== null) {
         const key = JSON.stringify(message.id);
+        keys.push(key);
         replies.push(new Promise((resolve) => this.#pending.set(key, resolve)));
+      }
+      // A cancelled request gets no answer from a server (MCP): nobody waits for one.
+      if (message.method === "notifications/cancelled") {
+        const cancelled = (message as { params?: { requestId?: unknown } }).params?.requestId;
+        if (cancelled !== undefined) this.#drop(JSON.stringify(cancelled));
       }
       this.#process.stdin.write(`${JSON.stringify(message)}\n`);
     }
     if (replies.length === 0) return new Response(null, { status: 202 });
-    const answers = await Promise.all(replies);
-    return json(200, batch ? answers : answers[0]);
+    // The agent gave up on the request: its waits end, whatever the process does.
+    const onAbort = () => {
+      for (const key of keys) this.#drop(key);
+    };
+    request.signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      const answers = await Promise.all(replies);
+      return json(200, batch ? answers : answers[0]);
+    } finally {
+      request.signal.removeEventListener("abort", onAbort);
+    }
   }
 }

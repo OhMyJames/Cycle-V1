@@ -75,14 +75,20 @@ export const authorizeInBrowser = async <T>(options: {
   let onAbort: (() => void) | undefined;
   try {
     if (options.signal.aborted) return { kind: "cancelled" };
-    const { flowId, authorizationUrl } = await options.start(`http://127.0.0.1:${port}/callback`);
-    if (!openableAuthorizationUrl(authorizationUrl))
-      throw new Error("The daemon gave a sign-in address that is not a web page");
+    // Listening before the daemon is asked: a stop while it discovers and registers is not missed.
     const stopped = new Promise<"stopped">((resolve) => {
       timer = setTimeout(() => resolve("stopped"), options.timeoutMs ?? 10 * 60_000);
       onAbort = () => resolve("stopped");
       options.signal.addEventListener("abort", onAbort, { once: true });
     });
+    const { flowId, authorizationUrl } = await options.start(`http://127.0.0.1:${port}/callback`);
+    if (options.signal.aborted) {
+      // Stopped while the daemon was starting it: the browser is not opened, and the flow is ended there too.
+      await options.finish({ flowId, error: DENIED }).catch(() => undefined);
+      return { kind: "cancelled" };
+    }
+    if (!openableAuthorizationUrl(authorizationUrl))
+      throw new Error("The daemon gave a sign-in address that is not a web page");
     await options.open(authorizationUrl);
     const callback = await Promise.race([arrived, stopped]);
     if (callback === "stopped") return { kind: "cancelled" };

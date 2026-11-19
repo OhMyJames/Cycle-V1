@@ -27,7 +27,13 @@ const fakeServer = () => {
     tokens: [] as Record<string, string>[],
     revoked: [] as string[],
   };
-  const state = { access: "access-1", refresh: "refresh-1", valid: new Set(["access-1"]) };
+  const state = {
+    access: "access-1",
+    refresh: "refresh-1",
+    valid: new Set(["access-1"]),
+    /** When set, a refresh waits for it: a test changes things meanwhile. */
+    refreshGate: undefined as Promise<void> | undefined,
+  };
   let issued = 1;
   const server: ReturnType<typeof Bun.serve> = Bun.serve({
     hostname: "127.0.0.1",
@@ -86,6 +92,7 @@ const fakeServer = () => {
           });
         }
         if (form.grant_type === "refresh_token" && form.refresh_token === state.refresh) {
+          await state.refreshGate;
           issued++;
           state.access = `access-${issued}`;
           state.valid = new Set([state.access]);
@@ -130,6 +137,7 @@ const start = async (fake = fakeAgent({}, { mcpHttp: true })) => {
 };
 
 type Client = Awaited<ReturnType<typeof connectClient>>;
+type GivenServer = { url: string; headers: { name: string; value: string }[] };
 const call = <T = Record<string, unknown>>(c: Client, method: string, params: object) =>
   c.agent.request(method as never, params as never) as Promise<T>;
 type Connector = {
@@ -539,4 +547,76 @@ test("a store file that cannot be read stops the daemon from starting, and is no
     ConnectorFileUnreadableError,
   );
   expect(await Bun.file(join(dir, "connectors", "catalog.json")).text()).toBe("{ not json");
+});
+
+test("a sign-out made while a refresh waits on the network is not undone by it", async () => {
+  const { c, fake } = await start();
+  const { connector } = await call<{ connector: Connector }>(c, "_cycle/connectors/add", {
+    name: "linear",
+    transport: { type: "http", url: upstream.url },
+    auth: { type: "oauth" },
+  });
+  await signIn(c, connector.id);
+  await c.agent.request(methods.agent.session.new, { cwd: dir } as never);
+  const server = ((fake.log.news[0]?.mcpServers ?? []) as GivenServer[])[0];
+  if (server === undefined) throw new Error("no server");
+  let release = () => {};
+  upstream.state.refreshGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  upstream.state.valid = new Set();
+  const pending = asAgent(server);
+  await eventually(
+    async () => upstream.seen.tokens.some((t) => t.grant_type === "refresh_token"),
+    "the refresh to reach the server",
+  );
+  await call(c, "_cycle/connectors/auth/clear", { id: connector.id });
+  release();
+  await pending;
+  const list = await call<{ connectors: Connector[] }>(c, "_cycle/connectors/list", {});
+  expect(list.connectors[0]).toMatchObject({ authorized: false, status: { state: "needs_auth" } });
+  expect(await Bun.file(join(dir, "connectors", "credentials.json")).text()).not.toContain(
+    "access-2",
+  );
+});
+
+test("renaming keeps the sign-in; another address drops it; a registration is reused on another loopback port", async () => {
+  const { c } = await start();
+  const { connector } = await call<{ connector: Connector }>(c, "_cycle/connectors/add", {
+    name: "linear",
+    transport: { type: "http", url: upstream.url },
+    auth: { type: "oauth", scopes: ["read"] },
+  });
+  await signIn(c, connector.id);
+  // The desktop's callback is on a new port each time: the client registered before still serves.
+  await call(c, "_cycle/connectors/auth/start", {
+    id: connector.id,
+    redirectUri: "http://127.0.0.1:50999/callback",
+  });
+  expect(upstream.seen.registrations).toHaveLength(1);
+  const renamed = await call<{ connector: Connector }>(c, "_cycle/connectors/update", {
+    id: connector.id,
+    name: "linear2",
+    auth: { type: "oauth" },
+  });
+  expect(renamed.connector).toMatchObject({ name: "linear2", authorized: true });
+  const moved = await call<{ connector: Connector }>(c, "_cycle/connectors/update", {
+    id: connector.id,
+    transport: { type: "http", url: `${upstream.url}/v2` },
+  });
+  expect(moved.connector.authorized).toBe(false);
+  expect(upstream.seen.revoked).toContain("refresh-1");
+});
+
+test("a header Cycle sets itself is refused as such", async () => {
+  const { c } = await start();
+  const refused = await errorOf(
+    call(c, "_cycle/connectors/add", {
+      name: "x",
+      transport: { type: "http", url: upstream.url },
+      auth: { type: "none" },
+      secrets: { headers: { "Content-Type": "text/plain" } },
+    }),
+  );
+  expect(refused.data?.reason).toBe("reserved_header");
 });

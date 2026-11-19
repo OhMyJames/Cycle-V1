@@ -109,6 +109,8 @@ const messageOf = (error: unknown): string =>
 
 const PROBLEMS: readonly ConnectorProblem[] = [
   "invalid_name",
+  "reserved_header",
+  "invalid_cwd",
   "name_taken",
   "insecure_url",
   "state_mismatch",

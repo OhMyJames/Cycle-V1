@@ -96,6 +96,12 @@ test("a connector that needs signing in offers it, and says when it is done", as
   expect(within(dialog).queryByRole("button", { name: "Sign in" })).toBeNull();
 });
 
+test("a token the server no longer takes still offers signing in again", async () => {
+  const { dialog } = await mount({ connectors: [{ ...notion, authorized: true }] });
+  expect(await within(dialog).findByText("Needs sign-in")).toBeTruthy();
+  expect(within(dialog).getByRole("button", { name: "Sign in" })).toBeTruthy();
+});
+
 test("turning one off goes to the daemon at once", async () => {
   const { user, dialog, named } = await mount({ connectors: [{ ...notion }] });
   await user.click(await within(dialog).findByRole("switch", { name: "Use notion in sessions" }));

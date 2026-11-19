@@ -542,7 +542,7 @@ connector 是 Cycle 自己管理的 MCP 服务器:在 Cycle 里加一次、授�
   - `{type: "http", url}`:streamable HTTP。`url` 必须是 `https`;`http` 只允许 loopback 地址(否则 `insecure_url`)。
   - `{type: "stdio", command, args, cwd?}`:daemon 在自己的机器上启动的进程。`cwd` 是绝对路径;缺省时用 session 的 `cwd`。
 - `auth`:`{type: "none"}`,或 `{type: "oauth", clientId?, scopes?}`(只用于 http,否则 `oauth_needs_http`)。按 MCP 的授权规范:protected resource metadata(RFC 9728)、authorization server metadata(RFC 8414)、动态注册(RFC 7591)、PKCE S256、resource 参数(RFC 8707);服务器什么元数据都没有时,退回它所在源的 `/authorize`、`/token`、`/register`。`clientId` 只在服务器不支持动态注册时由用户填(否则 `no_registration`)。
-- `secrets`:用户填的密钥**的名字**。http 的 `headers` 加在每个发往服务器的请求上,stdio 的 `env` 是进程的环境变量。值只能写入,永不读出。`Host`、`Content-Type`、`Accept`、`Mcp-Session-Id` 这类由网关自己管的头不能设(`invalid_name`)。
+- `secrets`:用户填的密钥**的名字**。http 的 `headers` 加在每个发往服务器的请求上,stdio 的 `env` 是进程的环境变量。值只能写入,永不读出。`Host`、`Content-Type`、`Accept`、`Mcp-Session-Id` 这类由网关自己管的头不能设(`reserved_header`)。
 - `authorized`:daemon 有没有这个 connector 的 token。
 - `status.state`:`disabled`(关着)、`needs_auth`(oauth 没有 token,或 token 被拒、刷新也失败)、`error`(附带 `status.reason`:`unreachable`、`auth_failed`、`spawn_failed`、`protocol`)、`ready`。它是 daemon 最近一次知道的情况,不是实时探测;daemon 重启后从 `ready` 或 `needs_auth` 重新开始。
 
@@ -559,12 +559,13 @@ connector 是 Cycle 自己管理的 MCP 服务器:在 Cycle 里加一次、授�
 | `_cycle/connectors/auth/clear`  | `{id}`                                               | `{connector}`                |
 
 - **密钥只进不出**:`secrets` 是 `{headers?: {名字: 值}, env?: {名字: 值}}`,只出现在 `add` 和 `update` 的参数里。没提到的名字保留原值,值为 `null` 表示删除。daemon 不在任何响应、通知、日志里回传密钥或 token。
-- **换了地址或授权方式,旧 token 作废**:`update` 改了 `transport` 或 `auth` 时,daemon 先尽力向授权服务器撤销,再删掉 token 和注册信息,不会把旧服务器的 token 发给新地址。用户填的 `secrets` 保留(是用户自己的决定)。
+- **换了地址或授权方式,旧 token 作废**:`update` 改了服务器的地址(stdio 是命令、参数、目录)、授权方式或 `clientId` 时(改名字、开关、scopes 不算),daemon 先尽力向授权服务器撤销,再删掉 token 和注册信息,不会把旧服务器的 token 发给新地址。用户填的 `secrets` 保留(是用户自己的决定)。
 - **授权**:
   1. 客户端在**自己这一侧**开一个 loopback 回调(`http://127.0.0.1:<端口>/callback`),把它作为 `redirectUri` 调 `auth/start`。`redirectUri` 必须是 loopback 的 http。
   2. daemon 做发现、按需动态注册、生成 PKCE 和 `state`,返回 `authorizationUrl`。verifier 只在 daemon 的内存里。
   3. 客户端在系统浏览器里打开它,接到回调后把 `code`、`state`(或授权服务器给的 `error`)交给 `auth/finish`;daemon 校验 `state`,换 token,存进凭证库。
-  4. 一个 `flowId` 10 分钟内有效,只能用一次(错的 `state` 也会用掉它);同一个 connector 开新的流程,旧的作废;daemon 重启,流程都没了。
+  4. 动态注册得到的 client 会被复用:回调只换了端口时算同一个(RFC 8252 §7.3),不重新注册。
+  5. 一个 `flowId` 10 分钟内有效,只能用一次(错的 `state` 也会用掉它);同一个 connector 开新的流程,旧的作废;daemon 重启,流程都没了。
 - `auth/clear` 尽力撤销并删掉 token 和注册信息。`remove` 同时删掉清单条目和全部凭证,客户端必须先向用户确认。
 - 有变化(增删改、授权、状态变了)时,daemon 向每个连接发 `_cycle/connectors_changed`(无参数),客户端重新 `list`。
 
@@ -573,11 +574,11 @@ connector 是 Cycle 自己管理的 MCP 服务器:在 Cycle 里加一次、授�
 - daemon **每次启动 agent**(`session/new`,以及恢复时的 `session/resume`)时,把当时所有 `enabled` 的 connector 放进 L2 的 `mcpServers`,每个是一个 http 条目:`{type: "http", name, url: "http://127.0.0.1:<端口>/mcp/<connectorId>", headers: [{name: "Authorization", value: "Bearer <key>"}]}`。所以新加或打开的 connector,在 agent 下次启动时生效;正在运行的 agent 不变。
 - 只给在 `initialize` 里声明了 `capabilities.session.mcp.http` 的 agent。session 自己的 `mcpServers`(§6)和 connector 重名时,session 自己的优先,那个 connector 不给这个 session。
 - **key** 每次启动 agent 时新生成,只能访问这次给它的 connector,agent 退出就失效。它不是任何账号的 token。
-- **网关**只绑 `127.0.0.1`,`Host` 必须是 `127.0.0.1:<端口>` 或 `localhost:<端口>`(否则 421),没有 key 是 401。请求头和响应头都按白名单转发:agent 的 `Authorization` 不发给服务器,服务器的 `WWW-Authenticate` 不回给 agent(否则 agent 会自己去登录)。不跟随重定向(它会把 token 带到别处)。服务器回 401 时,daemon 用 refresh token 刷新一次再重发;同一个 connector 同时只刷新一次。还是不行就把它标成 `needs_auth`。
-- **stdio** 的进程由 daemon 启动,每个 session 每个 connector 一个,在 agent 第一次用到时启动,agent 退出时结束。环境变量只有 `PATH`、`HOME`、`USER`、`LANG`、`LC_ALL`、`TMPDIR`(取自 daemon 的环境)加上它自己的 `secrets.env`;它的 stderr 丢弃(可能打印密钥)。网关把它当 streamable HTTP 提供:POST 写入消息、回复按 JSON 返回;GET 是它主动发的消息的事件流;DELETE 结束它。
+- **网关**只绑 `127.0.0.1`,`Host` 必须是 `127.0.0.1:<端口>` 或 `localhost:<端口>`(否则 421),没有 key 是 401。请求头和响应头都按白名单转发:agent 的 `Authorization` 不发给服务器,服务器的 `WWW-Authenticate` 不回给 agent(否则 agent 会自己去登录)。不跟随重定向(它会把 token 带到别处)。服务器回 401 时,daemon 用 refresh token 刷新一次再重发;同一个 connector 同时只刷新一次;刷新得到的 token 只在凭证没被改过时写入,期间的退出登录或重新登录优先。还是不行就把它标成 `needs_auth`。
+- **stdio** 的进程由 daemon 启动,每个 session 每个 connector 一个,在 agent 第一次用到时启动,agent 退出时结束。环境变量只有 `PATH`、`HOME`、`USER`、`LANG`、`LC_ALL`、`TMPDIR`(取自 daemon 的环境)加上它自己的 `secrets.env`;它的 stderr 丢弃(可能打印密钥)。网关把它当 streamable HTTP 提供:POST 写入消息、回复按 JSON 返回(agent 取消或放弃的请求不再等待);GET 是它主动发的消息的事件流;DELETE 结束它。改了它的环境变量值或关掉它,正在运行的进程随即结束。
 
 ### 错误
 
 - `id` 或 `flowId` 不存在、已用过、已过期:`-32002`。
-- 参数不合法:`-32602`,`data.reason` 是固定的词:`name_taken`、`insecure_url`、`oauth_needs_http`、`invalid_cwd`、`invalid_name`、`state_mismatch`、`no_registration`;名字格式不对是 schema 校验的 `-32602`。
+- 参数不合法:`-32602`,`data.reason` 是固定的词:`name_taken`、`insecure_url`、`oauth_needs_http`、`invalid_cwd`、`reserved_header`、`state_mismatch`、`no_registration`;名字格式不对是 schema 校验的 `-32602`。
 - 授权服务器拒绝或不可达:`-32017`(`connector_failed`),`data.reason` 是 `auth_rejected` 或 `unreachable`,`detail` 只说状态码之类,不含 token。

@@ -245,6 +245,9 @@ export const enUS = {
   "connectors.form.create": "Add connector",
   "connectors.form.back": "Back",
   "connectors.problem.invalid_name": "Use 1 to 32 lowercase letters, digits, - or _.",
+  "connectors.problem.reserved_header":
+    "Cycle sets that header itself. Use another name, such as Authorization or X-Api-Key.",
+  "connectors.problem.invalid_cwd": "The folder must be an absolute path on that machine.",
   "connectors.problem.name_taken": "Another connector already has this name.",
   "connectors.problem.insecure_url": "Use an https URL. Plain http is only for this machine.",
   "connectors.problem.state_mismatch":

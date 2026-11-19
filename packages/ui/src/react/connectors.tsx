@@ -244,7 +244,7 @@ function ConnectorList(props: {
                       {statusWord(t, connector)}
                     </span>
                   </div>
-                  {oauth && connector.enabled && !connector.authorized ? (
+                  {oauth && connector.enabled && connector.status.state === "needs_auth" ? (
                     <Button
                       disabled={busy[connector.id] === true}
                       onClick={() => void signIn(connector)}
@@ -388,7 +388,14 @@ function ConnectorForm(props: {
             },
       auth:
         kind === "http" && auth === "oauth"
-          ? { type: "oauth", ...(clientId.trim() !== "" ? { clientId: clientId.trim() } : {}) }
+          ? {
+              type: "oauth",
+              ...(clientId.trim() !== "" ? { clientId: clientId.trim() } : {}),
+              // Scopes have no field here: what the connector has is kept, not dropped by an edit.
+              ...(before?.auth.type === "oauth" && before.auth.scopes !== undefined
+                ? { scopes: before.auth.scopes }
+                : {}),
+            }
           : { type: "none" },
       ...(written !== undefined ? { secrets: written } : {}),
     };

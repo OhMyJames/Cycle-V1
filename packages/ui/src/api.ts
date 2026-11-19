@@ -173,6 +173,8 @@ export type ConnectorChange = Partial<ConnectorDraft>;
 /** Why a connector could not be saved or signed in to: a fixed word the page has a sentence for. */
 export type ConnectorProblem =
   | "invalid_name"
+  | "reserved_header"
+  | "invalid_cwd"
   | "name_taken"
   | "insecure_url"
   | "state_mismatch"

@@ -89,7 +89,7 @@ const applySecrets = (
   const next = { ...credentials, headers: { ...credentials.headers }, env: { ...credentials.env } };
   for (const [name, value] of Object.entries(secrets.headers ?? {})) {
     if (RESERVED_HEADERS.has(name.toLowerCase())) {
-      throw invalid("That header is set by Cycle", "invalid_name", { header: name });
+      throw invalid("That header is set by Cycle", "reserved_header", { header: name });
     }
     if (value === null) delete next.headers[name];
     else next.headers[name] = value;
@@ -100,6 +100,19 @@ const applySecrets = (
   }
   return next;
 };
+
+/**
+ * What a token is bound to: the server's address (or the command) and how it signs in. Scopes and
+ * names are not part of it, so renaming a connector does not sign it out.
+ */
+const serverOf = (entry: CatalogEntry): string =>
+  JSON.stringify([
+    entry.transport.type === "http"
+      ? entry.transport.url
+      : [entry.transport.command, entry.transport.args, entry.transport.cwd ?? null],
+    entry.auth.type,
+    entry.auth.type === "oauth" ? (entry.auth.clientId ?? null) : null,
+  ]);
 
 /** A session's connector processes, by connector. */
 type SessionBridges = Map<string, StdioBridge>;
@@ -122,6 +135,8 @@ export class ConnectorService {
   readonly #cwds = new Map<string, string>();
   /** One refresh at a time for a connector: two would each spend the same refresh token. */
   readonly #refreshing = new Map<string, Promise<boolean>>();
+  /** The last credential change queued for each connector (see #mutate). */
+  readonly #locks = new Map<string, Promise<unknown>>();
   readonly #listeners = new Set<() => void>();
   #gateway: McpGateway | undefined;
 
@@ -171,6 +186,29 @@ export class ConnectorService {
     const entry = await this.#catalog.get(id);
     if (entry === undefined) throw new RpcError(RESOURCE_NOT_FOUND, "No such connector", { id });
     return entry;
+  }
+
+  /**
+   * Changes a connector's credentials, one change at a time for each connector, on what the vault
+   * holds at that moment: a refresh or a sign-in that waited on the network never writes back a
+   * snapshot older than a sign-out or an edit made meanwhile. `apply` returns undefined to leave
+   * them as they are. A connector removed meanwhile is not brought back.
+   */
+  #mutate(id: string, apply: (current: Credentials) => Credentials | undefined): Promise<boolean> {
+    const previous = this.#locks.get(id) ?? Promise.resolve();
+    const run = previous.then(async () => {
+      if ((await this.#catalog.get(id)) === undefined) return false;
+      const next = apply(await this.#vault.get(id));
+      if (next === undefined) return false;
+      await this.#vault.put(id, next);
+      return true;
+    });
+    const settled = run.catch(() => undefined);
+    this.#locks.set(id, settled);
+    void settled.then(() => {
+      if (this.#locks.get(id) === settled) this.#locks.delete(id);
+    });
+    return run;
   }
 
   async #view(entry: CatalogEntry): Promise<Connector> {
@@ -237,22 +275,25 @@ export class ConnectorService {
     };
     checkTransport(entry.transport, entry.auth);
     if (params.name !== undefined) await this.#nameFree(params.name, entry.id);
-    let credentials = applySecrets(await this.#vault.get(entry.id), params.secrets);
+    // Refused before anything is written.
+    applySecrets({ headers: {}, env: {} }, params.secrets);
     // A token belongs to the server it was given by: another address or another way of signing
     // in, and it is not sent anywhere again.
-    const sameServer =
-      JSON.stringify(before.transport) === JSON.stringify(entry.transport) &&
-      JSON.stringify(before.auth) === JSON.stringify(entry.auth);
-    if (!sameServer && credentials.oauth !== undefined) {
-      await this.#broker.revoke(credentials);
-      const { oauth: _gone, ...rest } = credentials;
-      credentials = rest;
-      this.#broker.forget(entry.id);
-    }
-    await this.#vault.put(entry.id, credentials);
-    await this.#catalog.put(entry);
+    const sameServer = serverOf(before) === serverOf(entry);
     if (!sameServer) {
-      this.#runtime.delete(entry.id);
+      this.#broker.forget(entry.id);
+      await this.#broker.revoke(await this.#vault.get(entry.id));
+    }
+    await this.#mutate(entry.id, (current) => {
+      const next = applySecrets(current, params.secrets);
+      if (sameServer) return next;
+      const { oauth: _gone, ...rest } = next;
+      return rest;
+    });
+    await this.#catalog.put(entry);
+    if (!sameServer) this.#runtime.delete(entry.id);
+    // A process started with the old command, values or switch does not go on with them.
+    if (!sameServer || params.secrets?.env !== undefined || !entry.enabled) {
       this.#stopBridges(entry.id);
     }
     this.#changed();
@@ -265,6 +306,8 @@ export class ConnectorService {
     this.#stopBridges(id);
     await this.#broker.revoke(await this.#vault.get(id));
     await this.#catalog.remove(entry.id);
+    // After the queued changes: none of them can write the credentials back.
+    await (this.#locks.get(id) ?? Promise.resolve());
     await this.#vault.remove(entry.id);
     this.#runtime.delete(id);
     this.#changed();
@@ -286,7 +329,15 @@ export class ConnectorService {
       ...(entry.auth.scopes !== undefined ? { scopes: entry.auth.scopes } : {}),
       credentials: await this.#vault.get(id),
     });
-    await this.#vault.put(id, begun.credentials);
+    const { tokens: _old, ...found } = begun.credentials.oauth ?? ({} as never);
+    await this.#mutate(id, (current) => ({
+      ...current,
+      oauth: {
+        ...found,
+        // Tokens from before stay usable until this sign-in succeeds; whatever they are now.
+        ...(current.oauth?.tokens !== undefined ? { tokens: current.oauth.tokens } : {}),
+      },
+    }));
     return { flowId: begun.flowId, authorizationUrl: begun.authorizationUrl };
   }
 
@@ -310,12 +361,19 @@ export class ConnectorService {
     }
     if (params.code === undefined) throw invalid("No code came back", "auth_rejected");
     const entry = await this.#entry(flow.connectorId);
-    const credentials = await this.#broker.exchange(
+    const exchanged = await this.#broker.exchange(
       flow,
       params.code,
       await this.#vault.get(entry.id),
     );
-    await this.#vault.put(entry.id, credentials);
+    await this.#mutate(entry.id, (current) => ({
+      ...current,
+      oauth: {
+        ...(exchanged.oauth as NonNullable<Credentials["oauth"]>),
+        ...(current.oauth ?? {}),
+        tokens: exchanged.oauth?.tokens,
+      },
+    }));
     this.#runtime.delete(entry.id);
     this.#changed();
     return this.#view(entry);
@@ -324,10 +382,11 @@ export class ConnectorService {
   async authClear(id: string): Promise<Connector> {
     const entry = await this.#entry(id);
     this.#broker.forget(id);
-    const credentials = await this.#vault.get(id);
-    await this.#broker.revoke(credentials);
-    const { oauth: _gone, ...rest } = credentials;
-    await this.#vault.put(id, rest);
+    await this.#broker.revoke(await this.#vault.get(id));
+    await this.#mutate(id, (current) => {
+      const { oauth: _gone, ...rest } = current;
+      return rest;
+    });
     this.#runtime.delete(id);
     this.#changed();
     return this.#view(entry);
@@ -443,9 +502,15 @@ export class ConnectorService {
       // Someone else already refreshed since the token that failed was read.
       if (current.oauth?.tokens?.accessToken !== stale.oauth?.tokens?.accessToken) return true;
       const refreshed = await this.#broker.refresh(current);
-      if (refreshed === undefined) return false;
-      await this.#vault.put(connectorId, refreshed);
-      return true;
+      const tokens = refreshed?.oauth?.tokens;
+      if (tokens === undefined) return false;
+      // Only onto the tokens it replaces: a sign-out or a new sign-in meanwhile wins.
+      return this.#mutate(connectorId, (now) =>
+        now.oauth !== undefined &&
+        now.oauth.tokens?.accessToken === stale.oauth?.tokens?.accessToken
+          ? { ...now, oauth: { ...now.oauth, tokens } }
+          : undefined,
+      );
     })().finally(() => this.#refreshing.delete(connectorId));
     this.#refreshing.set(connectorId, run);
     return run;
@@ -476,9 +541,9 @@ export class ConnectorService {
         return new Response("The connector could not be started", { status: 502 });
       }
       const mine = bridges;
-      const started = new StdioBridge(spawned, (beforeAnswer) => {
+      const started = new StdioBridge(spawned, (failed) => {
         if (mine.get(entry.id) === started) mine.delete(entry.id);
-        if (beforeAnswer) this.#setRuntime(entry.id, { state: "error", reason: "spawn_failed" });
+        if (failed) this.#setRuntime(entry.id, { state: "error", reason: "spawn_failed" });
       });
       bridge = started;
       bridges.set(entry.id, bridge);

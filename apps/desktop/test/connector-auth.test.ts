@@ -124,3 +124,26 @@ test("an address from the daemon that is not a web page is not opened", async ()
   expect(opened).toEqual([]);
   await closed(redirect);
 });
+
+test("stopped while the daemon is still starting the sign-in, the browser is never opened and the flow is ended", async () => {
+  const d = daemon();
+  const controller = new AbortController();
+  const opened: string[] = [];
+  const outcome = await authorizeInBrowser({
+    start: async (redirectUri) => {
+      const started = await d.start(redirectUri);
+      controller.abort(); // the person stops waiting while discovery runs
+      return started;
+    },
+    finish: d.finish,
+    open: async (url) => {
+      opened.push(url);
+    },
+    signal: controller.signal,
+    timeoutMs: 5_000,
+  });
+  expect(outcome).toEqual({ kind: "cancelled" });
+  expect(opened).toEqual([]);
+  expect(d.finished).toEqual([{ flowId: "f1", error: "access_denied" }]);
+  await closed(d.redirect());
+});
