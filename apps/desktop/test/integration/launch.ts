@@ -2,18 +2,12 @@
 // What the app and the daemon may see is only what is passed here: nothing of this machine's own.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { electronBinary } from "../../../../scripts/electron-binary.ts";
 
 const appDir = new URL("../..", import.meta.url).pathname;
 export const dist = join(appDir, "dist");
 
-const electronPath = (): string | undefined => {
-  const base = join(appDir, "../../node_modules/.bun");
-  const found = Array.from(
-    new Bun.Glob("electron@*/node_modules/electron/dist/electron").scanSync(base),
-  );
-  return found[0] === undefined ? undefined : join(base, found[0]);
-};
-export const electron = electronPath();
+export const electron = electronBinary(join(appDir, "../../node_modules/.bun"));
 export const xvfb = Bun.which("xvfb-run");
 /** Electron's binary, xvfb and a built app are all there. */
 export const canLaunch =
