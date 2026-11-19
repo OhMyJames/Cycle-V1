@@ -1128,3 +1128,47 @@ test("a mention's name and address cannot end the tag they are in", async () => 
     'see\n\n<mention name="a&quot;/&gt;&lt;x y=&quot;" uri="file:///a&amp;b&lt;c&gt;"/>',
   );
 });
+
+test("a process let go that exits late does not end the turn of the one that replaced it", async () => {
+  let openOld: () => void = () => undefined;
+  let openTurn: () => void = () => undefined;
+  const turnGate = new Promise<void>((resolve) => {
+    openTurn = resolve;
+  });
+  const fake = fakeQuery(async ({ prompt: text }) => {
+    if (text === "two") await turnGate;
+    return textTurn(ID, text, "ok");
+  });
+  fake.state.holdExit = new Promise<void>((resolve) => {
+    openOld = resolve;
+  });
+  await connect(
+    fake.run,
+    async ({ agent, idle, updates }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "one" }]);
+      await new Promise((resolve) => setTimeout(resolve, 80)); // let go: idleMs is 20
+      fake.state.holdExit = undefined; // only the first process is slow to go
+      const second = prompt(agent, idle, [{ type: "text", text: "two" }]);
+      for (let waited = 0; !fake.prompts.includes("two"); waited += 5) {
+        if (waited > 2_000) throw new Error("the second prompt never reached the process");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      openOld(); // the first process is gone now, with the second one in the middle of its turn
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const ended = updates.filter(
+        (u) => u.sessionUpdate === "state_update" && (u as { state?: string }).state === "idle",
+      );
+      expect(ended.length).toBe(1); // the first turn's: the second has not ended
+      openTurn();
+      await second;
+      const idles = updates.filter(
+        (u) => u.sessionUpdate === "state_update" && (u as { state?: string }).state === "idle",
+      );
+      expect(idles.length).toBe(2);
+      expect(idles[1]).toMatchObject({ stopReason: "end_turn" });
+    },
+    {},
+    { idleMs: 20 },
+  );
+});

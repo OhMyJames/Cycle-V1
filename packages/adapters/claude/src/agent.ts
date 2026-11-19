@@ -164,6 +164,8 @@ type Turn = {
   steers: Set<string>;
   /** The turn's own prompt is in the process: only then can another be put after it. */
   pushed: boolean;
+  /** The process this turn runs on: the one whose exit ends it. */
+  process: Live | undefined;
   killTimer: ReturnType<typeof setTimeout> | undefined;
 };
 
@@ -754,8 +756,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         endSubagents(session);
       }
       clearTimeout(live.idle);
+      // Only a turn that was running on this process ends with it: an exit that comes late, after
+      // another process has taken over the session, says nothing of that one's turn.
       const turn = session.turn;
-      if (turn !== undefined && !turn.done) {
+      if (turn !== undefined && !turn.done && turn.process === live) {
         await finish(
           client,
           session,
@@ -792,6 +796,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       const live = session.live ?? start(client, session);
       session.live = live;
       clearTimeout(live.idle);
+      turn.process = live;
       live.push(content, messageId);
       turn.pushed = true;
     } catch (error) {
@@ -956,6 +961,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         done: false,
         steers: new Set(),
         pushed: false,
+        process: undefined,
         killTimer: undefined,
       };
       session.turn = turn;
