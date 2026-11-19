@@ -936,3 +936,29 @@ test("an answer that is not one of the offered options is not counted as another
   await m.answerPermission(first(of(events, "permission")).request.key, "not-an-option");
   expect(reported.filter(([n]) => n === "permission_answered")).toEqual([]);
 });
+
+test("two environments saved at once are both kept, and a save and a removal that overlap each take effect", async () => {
+  const { manager } = await setup();
+  const { m } = await manager("race");
+  const remote = (id: string): EnvironmentConfig => ({
+    id,
+    name: id,
+    kind: "remote",
+    transport: { type: "ssh", host: `me@${id}` },
+  });
+  await Promise.all([m.saveEnvironment(remote("a")), m.saveEnvironment(remote("b"))]);
+  const ids = async () => (await m.environments()).environments.map((e) => e.id);
+  expect(await ids()).toEqual(["local", "a", "b"]);
+  await Promise.all([m.removeEnvironment("a"), m.saveEnvironment(remote("c"))]);
+  expect(await ids()).toEqual(["local", "b", "c"]);
+  // What is on disk is what is in memory.
+  const again = new ConnectionManager({
+    settings: fileSettings(join(dir, "settings-race.json")),
+    channelFor: () => async () => {
+      throw new Error("no");
+    },
+    emit: () => {},
+  });
+  await again.init();
+  expect((await again.environments()).environments.map((e) => e.id)).toEqual(["local", "b", "c"]);
+});

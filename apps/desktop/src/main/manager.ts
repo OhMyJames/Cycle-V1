@@ -218,6 +218,17 @@ export class ConnectionManager
     await Promise.allSettled(this.#environments.map((environment) => this.connect(environment.id)));
   }
 
+  /**
+   * Changes to the list of environments go one at a time: each reads the list as the one before left
+   * it, so two saves at once keep both, and a save and a removal keep what each meant.
+   */
+  #editing: Promise<unknown> = Promise.resolve();
+  #edit(change: () => Promise<void>): Promise<void> {
+    const run = this.#editing.then(change, change);
+    this.#editing = run.catch(() => undefined);
+    return run;
+  }
+
   async saveEnvironment(environment: EnvironmentConfig): Promise<void> {
     if (environment.id === LOCAL_ENVIRONMENT.id)
       throw new Error("The local daemon cannot be changed");
@@ -226,11 +237,13 @@ export class ConnectionManager
     const checked = environmentOf(environment);
     if (checked === undefined)
       throw new Error("That is not an environment this app can connect to");
-    const next = [...this.#environments.filter((h) => h.id !== checked.id), checked];
-    // The list changes once it is kept: a save that fails leaves things as they were.
-    await this.#options.settings.save(next);
-    this.#environments = next;
-    this.#options.emit({ type: "environments", environments: this.#environments });
+    await this.#edit(async () => {
+      const next = [...this.#environments.filter((h) => h.id !== checked.id), checked];
+      // The list changes once it is kept: a save that fails leaves things as they were.
+      await this.#options.settings.save(next);
+      this.#environments = next;
+      this.#options.emit({ type: "environments", environments: this.#environments });
+    });
     this.#track("environment_saved", { transport: "ssh" });
   }
 
@@ -241,10 +254,12 @@ export class ConnectionManager
     await this.disconnect(environmentId);
     this.#lastSessions.delete(environmentId);
     this.#lastError.delete(environmentId);
-    const next = this.#environments.filter((h) => h.id !== environmentId);
-    await this.#options.settings.save(next);
-    this.#environments = next;
-    this.#options.emit({ type: "environments", environments: this.#environments });
+    await this.#edit(async () => {
+      const next = this.#environments.filter((h) => h.id !== environmentId);
+      await this.#options.settings.save(next);
+      this.#environments = next;
+      this.#options.emit({ type: "environments", environments: this.#environments });
+    });
     this.#track("environment_removed", { kind });
   }
 
