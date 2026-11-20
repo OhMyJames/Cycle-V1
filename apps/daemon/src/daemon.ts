@@ -71,6 +71,7 @@ import { BlobLogStore } from "./log/blobs.ts";
 import { JsonlLogStore } from "./log/jsonl.ts";
 import { attach } from "./log/replay.ts";
 import type { LogRecord, LogStore, NewRecord } from "./log/types.ts";
+import { errorText, type Logger, silentLogger } from "./logger.ts";
 import { redactParams, redactRecord } from "./redact.ts";
 import {
   type Attachment,
@@ -100,6 +101,8 @@ export type DaemonOptions = {
   maxAheadAgents?: number;
   /** For tests: replaces the connectors kept in `$CYCLE_HOME/connectors/` (docs/protocol.md §14). */
   connectors?: ConnectorService;
+  /** Where what it does and what goes wrong is told (docs/daemon.md "日志"): events and ids, never content. */
+  log?: Logger;
 };
 
 const SESSION_UPDATE = methods.client.session.update;
@@ -190,6 +193,7 @@ export class Daemon {
   readonly #trust: FolderTrust;
   readonly #connectors: ConnectorService;
   readonly #maxAhead: number | undefined;
+  readonly #log: Logger;
   readonly #sessions = new Map<string, Session>();
   /** Sessions being loaded, so a second request for one waits for the first load. */
   readonly #loading = new Map<string, Promise<Session>>();
@@ -206,6 +210,7 @@ export class Daemon {
   ) {
     this.#version = options.version ?? "dev";
     this.#maxAhead = options.maxAheadAgents;
+    this.#log = options.log ?? silentLogger;
     this.#agents = new Map(options.agents.map((a) => [a.id, a]));
     this.#store =
       options.store ??
@@ -390,6 +395,7 @@ export class Daemon {
       this.#watch(session);
       await this.#endTurnLeftOpen(session);
       this.#sessions.set(sessionId, session);
+      this.#log.debug("session_loaded", { session: sessionId, queued: session.queue.length });
       return session;
     })().finally(() => {
       this.#loading.delete(sessionId);
@@ -656,7 +662,23 @@ export class Daemon {
       if (written && backgroundChanged) this.#restartIfStale(session);
     });
     // A turn ended (an idle that says why, not a snapshot): the next prompt goes, or the queue is handed back.
-    const ended = update as { sessionUpdate: string; state?: string; stopReason?: unknown };
+    const ended = update as {
+      sessionUpdate: string;
+      state?: string;
+      stopReason?: unknown;
+      error?: { code?: unknown } | null;
+    };
+    if (
+      ended.sessionUpdate === "state_update" &&
+      ended.state === "idle" &&
+      typeof ended.stopReason === "string"
+    ) {
+      const code = typeof ended.error?.code === "number" ? ended.error.code : undefined;
+      // How it ended, and the code of a failure: what the agent said about it is in the history, not here.
+      if (ended.stopReason === "error")
+        this.#log.warn("turn_ended", { session: session.id, stopReason: ended.stopReason, code });
+      else this.#log.info("turn_ended", { session: session.id, stopReason: ended.stopReason });
+    }
     if (
       ended.sessionUpdate === "state_update" &&
       ended.state === "idle" &&
@@ -820,6 +842,11 @@ export class Daemon {
 
   /** A prompt that could not be given to the agent: a turn that ended in failure is a turn end like any other, on record, so the session shows as unread. */
   #promptFailed(session: Session, error: unknown): void {
+    this.#log.warn("prompt_failed", {
+      session: session.id,
+      code: (error as { code?: unknown } | null)?.code as number | undefined,
+      error: errorText(error),
+    });
     session.agentState = "idle";
     this.#changed();
     const code = (error as { code?: unknown } | null)?.code;
@@ -896,6 +923,7 @@ export class Daemon {
    */
   #historyFailed(session: Session, error: unknown): void {
     if (session.historyError !== undefined) return;
+    this.#log.error("history_write_failed", { session: session.id, error: errorText(error) });
     session.historyError = error instanceof Error ? error.message : String(error);
     for (const pending of [...session.pending.values()]) {
       pending.settled = true;
@@ -1213,6 +1241,11 @@ export class Daemon {
    * so the history does not stay at "working". What was queued is not handed back here: it stays, for the next client.
    */
   async #interrupt(session: Session, message: string): Promise<void> {
+    this.#log.warn("turn_interrupted", {
+      session: session.id,
+      pending: session.pending.size,
+      queued: session.queue.length,
+    });
     await this.#abortPending(session);
     session.turnEnded = true;
     session.agentState = "idle";
@@ -1248,6 +1281,10 @@ export class Daemon {
   #onAgentClosed(session: Session, link: AgentLink | undefined): void {
     if (session.link !== link && link !== undefined) return;
     const wasWorking = session.agentState !== "idle";
+    // Its exit code is in the agent's own lines; here, what it left behind.
+    const closed = { session: session.id, working: wasWorking, pending: session.pending.size };
+    if (wasWorking) this.#log.warn("agent_closed", closed);
+    else this.#log.info("agent_closed", closed);
     session.link = undefined;
     // Its key to the gateway goes with it, and the connector processes it had.
     this.#connectors.release(session.id);

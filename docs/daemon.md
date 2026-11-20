@@ -14,6 +14,7 @@
 | `src/process-agent.ts`           | 把一个子进程作为 agent 启动,显式环境,不继承                                      |
 | `src/session.ts`                 | 一个已加载的 session 的状态                                                      |
 | `src/daemon.ts`                  | 面向客户端的 ACP 应用:session 的创建、列表、附着、prompt、取消、权限、归档、删除 |
+| `src/logger.ts`                  | daemon 自己的运行日志:按事件记、过滤凭证、0600、按大小轮转(见"日志")             |
 
 客户端看到的一切都经过 session 的日志:补发和实时是同一条路径。
 
@@ -116,7 +117,8 @@ bun run --cwd apps/daemon build
 机器上不需要 Bun、Node,也不需要装 `claude`。适配器作为同一个可执行文件的子命令(`cycle adapter claude`)运行,所以只有这一个文件加 `claude`。
 
 ```bash
-cycle status   # 在运行返回 0,不在运行返回 1
+cycle status   # 在运行返回 0,不在运行返回 1;并给出日志的位置
+cycle logs     # 日志的最后 100 行(--lines <n> 改行数)
 cycle stop     # 停掉;有会话在工作时先列出来,问等待还是强停(见下面"停止和升级")
 cycle login    # 为这个 daemon 登录 Claude(跑 claude auth login),在 daemon 所在的机器上执行
 cycle claude auth status   # 用同样的环境跑 claude 的其他命令
@@ -141,6 +143,19 @@ cycle claude auth status   # 用同样的环境跑 claude 的其他命令
 - **Claude 进程看到的环境只有三样**:`allowEnv` 里点名的、daemon 自己环境中存在的变量;`CLAUDE_CONFIG_DIR`;`env` 里写明的值。daemon 自己的环境变量不会传下去。端到端测试里给 daemon 设了 `ANTHROPIC_API_KEY`,检查 Claude 一侧的请求里没有它。
 - `configDir` 默认是 `<数据目录>/claude`,一个独立目录,里面没有登录。要用已有登录,把它**有意地**指向那个目录(比如 `~/.claude`);要新登录,用 `CLAUDE_CONFIG_DIR=<目录> claude login`。
 - `HOME` 默认不传(回落到 `configDir`),免得 Claude 找到没人打算共享的登录或设置。
+- `log`(可省):`{ "level": "info", "maxBytes": 1000000, "files": 3 }`,见下面"日志"。
+
+## 日志
+
+daemon 在后台运行,没人看它的输出,所以它把自己做了什么、哪里出了错写进 `<数据目录>/daemon.log`。`cycle status` 给出位置,`cycle logs` 打印最后几行。前台在终端里跑 `cycle serve` 时同样的内容也打到 stderr。
+
+- **一行一个事件**:时间、级别、事件名,然后 `key=value`。例如 `2026-11-20T08:00:00.000Z WARN  turn_ended session=… stopReason=error code=-32012`。
+- **记什么**:启动(版本、pid、级别)、开始监听、客户端连上和离开、收到的信号、停止(当时有几个会话在工作)、agent 进程的启动和退出码、agent 的 stderr、每个 turn 怎么结束(`stopReason`,失败时带错误码)、prompt 发不出去、历史写不进去、daemon 停止时被打断的 turn,以及没被捕获的异常和 promise(带调用栈,然后退出码 1)。`debug` 级再加上 session 的加载。启动失败(比如 `config.json` 读不了)也写进去,用默认设置。
+- **不记什么**:prompt、agent 的回答和工具调用的内容、凭证。这些只在 session 自己的历史里(§12 的过滤同样适用)。日志里出现的字符串只有事件名、id、退出码和错误信息;每个值都过一遍历史用的同一个凭证过滤(`redactText`,CYCL-7),并截到 500 字符。agent 的 stderr 是它的诊断输出,不是对话,也照此过滤和截断,每个 agent 进程最多记 200 行。
+- **权限和大小**:文件 0600,所在目录 0700;已有的文件权限更宽时会收窄。超过 `maxBytes`(默认 1 MB)就轮转:`daemon.log` → `daemon.log.1` → … 保留 `files` 个(默认 3),最旧的删掉,所以总共不超过 `maxBytes × (files + 1)`(默认 4 MB)。
+- **级别**:`error`、`warn`、`info`(默认)、`debug`,在 `config.json` 的 `log.level` 设。
+- **写不了日志**(磁盘满、目录被占)不影响 daemon 运行,只是不再记。
+- **`daemon.out`**:`cycle proxy` 在后台启动 daemon 时,把它的 stdout 和 stderr 接到这里,留给运行时自己在 daemon 代码之外崩掉时说的话。每次启动时超过 1 MB 就清空。daemon 起不来时,`proxy` 的报错会带上 `daemon.log` 和 `daemon.out` 的末尾。
 
 ## 客户端侧
 

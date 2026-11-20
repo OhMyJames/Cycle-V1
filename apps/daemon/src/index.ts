@@ -14,6 +14,7 @@ export * from "./log/blobs.ts";
 export * from "./log/jsonl.ts";
 export * from "./log/replay.ts";
 export * from "./log/types.ts";
+export * from "./logger.ts";
 export * from "./process-agent.ts";
 export * from "./session.ts";
 export * from "./transport/server.ts";

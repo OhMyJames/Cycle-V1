@@ -8,6 +8,8 @@ const OPTIONS = {
   "data-dir": { type: "string" },
   socket: { type: "string" },
   help: { type: "boolean" },
+  /** `logs`: how many lines from the end. */
+  lines: { type: "string" },
   /** `stop`: stop even when sessions are working, interrupting them. */
   force: { type: "boolean" },
   /** `stop`: wait until no session is working, then stop. */

@@ -1,36 +1,48 @@
 import { closeSync, mkdirSync, openSync, readFileSync, statSync, truncateSync } from "node:fs";
-import { join } from "node:path";
 import type { Paths } from "./config.ts";
 import { selfCommand } from "./self.ts";
 import { bridgeStdio, isListening } from "./transport/server.ts";
 
-const LOG_NAME = "daemon.log";
-const LOG_LIMIT = 1_000_000;
+/** Past this size the raw output is started anew: it holds what the runtime says as it dies, not a history. */
+const OUTPUT_LIMIT = 1_000_000;
 
-export const logPath = (paths: Paths): string => join(paths.dataDir, LOG_NAME);
+/** The daemon's log (docs/daemon.md "日志"). */
+export const logPath = (paths: Paths): string => paths.log;
 
-/** The last of what the daemon wrote, for an error that has to say why it did not start. */
-const logTail = (paths: Paths): string => {
+const tailOf = (path: string, chars: number): string => {
   try {
-    return readFileSync(logPath(paths), "utf8").trim().slice(-1500);
+    return readFileSync(path, "utf8").trim().slice(-chars);
   } catch {
     return "";
   }
 };
 
 /**
- * Starts a daemon that outlives this process, so a session goes on when an ssh connection drops.
- * What it writes goes to `<data dir>/daemon.log`: with nobody watching its output, that file is the only
- * way to learn why it did not start or why it stopped.
+ * The last of what the daemon said, for an error that has to say why it did not start: its log, and what the runtime
+ * wrote when it was not the daemon's own code that stopped it.
+ */
+const logTail = (paths: Paths): string =>
+  [
+    tailOf(paths.log, 1500) !== "" ? `Its log (${paths.log}):\n${tailOf(paths.log, 1500)}` : "",
+    tailOf(paths.output, 1000) !== ""
+      ? `Its output (${paths.output}):\n${tailOf(paths.output, 1000)}`
+      : "",
+  ]
+    .filter((part) => part !== "")
+    .join("\n");
+
+/**
+ * Starts a daemon that outlives this process, so a session goes on when an ssh connection drops. Its log is its own
+ * (`daemon.log`, rotated); its stdout and stderr go to `<data dir>/daemon.out`, for what the runtime itself says when
+ * it fails before or beneath the daemon's code. With nobody watching, those files are the way to learn why.
  */
 export const startDetached = (paths: Paths): { exited: () => boolean } => {
   mkdirSync(paths.dataDir, { recursive: true, mode: 0o700 });
-  const log = logPath(paths);
   // One run's worth is enough to find a reason; the file does not grow for ever.
   try {
-    if (statSync(log).size > LOG_LIMIT) truncateSync(log, 0);
+    if (statSync(paths.output).size > OUTPUT_LIMIT) truncateSync(paths.output, 0);
   } catch {}
-  const fd = openSync(log, "a", 0o600);
+  const fd = openSync(paths.output, "a", 0o600);
   try {
     const child = Bun.spawn(
       [...selfCommand(), "serve", "--data-dir", paths.dataDir, "--socket", paths.socket],
@@ -63,7 +75,7 @@ export const proxy = async (
         const said = logTail(paths);
         throw new Error(
           `The daemon did not start: nothing is listening on ${paths.socket}${
-            said !== "" ? `\nIts log (${logPath(paths)}):\n${said}` : ""
+            said !== "" ? `\n${said}` : ""
           }`,
         );
       }

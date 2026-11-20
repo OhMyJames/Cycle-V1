@@ -1,6 +1,7 @@
 import { ndJsonStream } from "@agentclientprotocol/sdk/experimental/v2";
 import type { PromptCapabilities } from "@cycle/protocol";
 import type { AgentDefinition } from "./agents.ts";
+import type { Logger } from "./logger.ts";
 
 export type ProcessAgentOptions = {
   id: string;
@@ -19,6 +20,30 @@ export type ProcessAgentOptions = {
   cwd?: string;
   /** Whether it can run at all, checked when clients ask which agents there are. */
   available?: () => boolean | Promise<boolean>;
+  /**
+   * Where what the process says on stderr goes, line by line, and how it exited (docs/daemon.md "日志"). Its stdout
+   * is the protocol and is never logged. Without it stderr is the daemon's own.
+   */
+  log?: Logger;
+};
+
+/** The most stderr lines one agent process puts in the log: a process that loops on an error does not fill it. */
+const STDERR_LINES = 200;
+
+/** Reads a stream of text line by line, until it ends. */
+const eachLine = async (stream: ReadableStream<Uint8Array>, line: (text: string) => void) => {
+  const decoder = new TextDecoder();
+  let rest = "";
+  for await (const chunk of stream) {
+    rest += decoder.decode(chunk, { stream: true });
+    let at = rest.indexOf("\n");
+    while (at !== -1) {
+      line(rest.slice(0, at));
+      rest = rest.slice(at + 1);
+      at = rest.indexOf("\n");
+    }
+  }
+  if (rest !== "") line(rest);
 };
 
 /** An agent that is a child process speaking ACP v2 on its stdin and stdout. */
@@ -37,8 +62,27 @@ export const processAgent = (options: ProcessAgentOptions): AgentDefinition => (
       ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
       stdin: "pipe",
       stdout: "pipe",
-      stderr: "inherit",
+      stderr: options.log !== undefined ? "pipe" : "inherit",
     });
+    const { log } = options;
+    if (log !== undefined) {
+      const pid = proc.pid;
+      log.info("agent_process_started", { agent: options.id, pid });
+      let said = 0;
+      void eachLine(proc.stderr as ReadableStream<Uint8Array>, (text) => {
+        if (text.trim() === "") return;
+        said += 1;
+        if (said <= STDERR_LINES) log.warn("agent_stderr", { agent: options.id, pid, line: text });
+        else if (said === STDERR_LINES + 1)
+          log.warn("agent_stderr_dropped", { agent: options.id, pid, after: STDERR_LINES });
+      }).catch(() => {});
+      void proc.exited.then((code) => {
+        const fields = { agent: options.id, pid, code, signal: proc.signalCode ?? undefined };
+        // Stopped by the daemon (a signal it sent) or ended well: noted. Anything else is what to look at.
+        if (code === 0 || proc.killed) log.info("agent_process_exited", fields);
+        else log.warn("agent_process_exited", fields);
+      });
+    }
     const input = new WritableStream<Uint8Array>({
       write: (chunk) => {
         proc.stdin.write(chunk);

@@ -87,7 +87,7 @@ cycle stop --force   # 立即停:进行中的回合标为"已中断",排队的�
 - **主机一直 connecting/closed**:在终端里手动运行和应用同一条命令,比如 `ssh user@host cycle proxy`,看它输出什么(应该是安静地等待输入)。
 - **Claude 不可用(`available: false`)**:`claude` 二进制不在 `cycle` 旁边,重新运行 `install.sh`。
 - **提示没有凭证或认证失败**:检查那台机器上的 config.json;注意 daemon 不读你的 shell 环境变量。
-- **daemon 没有日志文件**:它脱离运行,输出被丢弃。要看输出可以先 `cycle stop`,再前台运行 `cycle serve`。(日志文件是已知缺口。)
+- **看 daemon 的日志**:在那台机器上 `cycle logs`(最后 100 行),`cycle status` 会给出文件位置(`<数据目录>/daemon.log`,只有你能读,自动轮转,最多约 4 MB)。里面只有发生了什么和出了什么错,没有 prompt、回答和凭证。daemon 意外退出时,原因和出错的代码位置在最后几行;要更细的记录,在 `config.json` 里设 `"log": { "level": "debug" }`。
 
 ## 安全
 
