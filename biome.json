@@ -9,6 +9,8 @@
       "!apps/desktop/build",
       "!bun.lock",
       "!**/.claude/skills",
+      "!.agents/worktree",
+      "!.claude/worktrees",
       "!**/skills-lock.json",
       "!**/built.css"
     ]
