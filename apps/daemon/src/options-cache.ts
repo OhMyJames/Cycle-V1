@@ -83,6 +83,13 @@ export class AgentOptionsCache {
     const run = this.#queue.then(async () => {
       const previousAgent = this.#agents.get(agent);
       const current = previousAgent?.[configId];
+      // A list that does not say a model's effort levels (the adapter's fallback before the SDK's catalog
+      // arrives) keeps what an earlier one said, rather than forgetting it.
+      for (const [index, choice] of normalized.entries()) {
+        if (choice.efforts !== undefined) continue;
+        const known = current?.find((c) => c.const === choice.const)?.efforts;
+        if (known !== undefined) normalized[index] = { ...choice, efforts: known };
+      }
       if (current !== undefined && JSON.stringify(current) === JSON.stringify(normalized)) {
         return;
       }

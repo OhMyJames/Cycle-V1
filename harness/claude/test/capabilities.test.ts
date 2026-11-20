@@ -1029,6 +1029,18 @@ test("a compaction with post_tokens tells the usage it left at once, after the c
           session_id: ID,
         } as unknown as SDKMessage,
       ];
+    if (text === "failed") {
+      // A model call measured, then a compaction that said where it would land and failed.
+      const turn = measured(150_000);
+      const result = turn.pop() as SDKMessage;
+      return [
+        ...turn,
+        status("compacting"),
+        boundary(40_000),
+        status(null, { compact_result: "failed", compact_error: "no" }),
+        result,
+      ];
+    }
     if (text === "unknown")
       return [
         status("compacting"),
@@ -1073,6 +1085,14 @@ test("a compaction with post_tokens tells the usage it left at once, after the c
     await prompt(agent, idle, [{ type: "text", text: "unknown" }]);
     // Without post_tokens no number is invented: no usage is told after that compaction.
     expect(kinds().slice(4)).toEqual(["compaction in_progress", "compaction completed"]);
+
+    await prompt(agent, idle, [{ type: "text", text: "failed" }]);
+    // The context was not made smaller: the turn ends with what the model call measured.
+    expect(kinds().slice(6)).toEqual([
+      "compaction in_progress",
+      "compaction failed",
+      "usage 150000/200000",
+    ]);
   });
 });
 

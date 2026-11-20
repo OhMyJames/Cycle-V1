@@ -332,7 +332,7 @@ const modelOptions = (
 };
 
 /** `_meta` key on a model choice: the effort levels it takes (docs/protocol.md §10). Same as `META.efforts`. */
-const EFFORTS_META = "cycle/efforts";
+export const EFFORTS_META = "cycle/efforts";
 
 /**
  * The effort levels a model takes, as the SDK says: `[]` when it takes none, `undefined` when it does not say.
@@ -343,9 +343,11 @@ const effortLevelsOf = (model: ModelInfo): string[] | undefined => {
   if (!Array.isArray(model.supportedEffortLevels) || model.supportedEffortLevels.length === 0)
     return undefined;
   const allowed = new Set<string>(model.supportedEffortLevels);
-  return CLAUDE_EFFORT_LEVELS.filter(
+  const known = CLAUDE_EFFORT_LEVELS.filter(
     (e) => e.value !== DEFAULT_EFFORT_LEVEL && allowed.has(e.value),
   ).map((e) => e.value);
+  // Levels it takes, none of them ones Cycle knows (a newer SDK): not "none", but not known.
+  return known.length > 0 ? known : undefined;
 };
 
 const effortOptions = (session: SessionState, discovered: readonly ModelInfo[] | undefined) => {
@@ -438,6 +440,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     const compactionId = session.compaction;
     if (compactionId === undefined) return;
     session.compaction = undefined;
+    session.compacted = undefined;
     if (session.client === undefined) return;
     void notify(session.client, session.id, {
       sessionUpdate: "compaction_update",
@@ -655,16 +658,22 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           status: failed ? "failed" : "completed",
           ...(failed && typeof m.compact_error === "string" ? { error: m.compact_error } : {}),
         } as SessionUpdate);
-        if (!failed && compacted !== undefined) await compactedUsage(client, session, compacted);
+        if (!failed && compacted !== undefined) {
+          session.turn?.translator.compacted(compacted);
+          await compactedUsage(client, session, compacted);
+        }
       }
     } else if (m.subtype === "compact_boundary") {
       // What the context holds now that it was made smaller. Without `post_tokens` nothing is known
       // until the next model call: the last usage stays, and clients know it is from before (protocol §8).
       const post = (m.compact_metadata as { post_tokens?: unknown } | undefined)?.post_tokens;
       if (typeof post !== "number" || !Number.isFinite(post) || post < 0) return;
-      session.turn?.translator.compacted(post);
+      // Held while the compaction runs: one that then fails left the context as it was.
       if (session.compaction !== undefined) session.compacted = post;
-      else await compactedUsage(client, session, post);
+      else {
+        session.turn?.translator.compacted(post);
+        await compactedUsage(client, session, post);
+      }
     }
   };
 
@@ -925,6 +934,8 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       },
     };
     const query = runQuery({ prompt: input(), options });
+    // A window is this process's word: one from before is not reused for a usage between turns.
+    session.contextSize = undefined;
     const live: Live = {
       query,
       abort,
@@ -1370,6 +1381,8 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       } else if (params.configId === "model" && typeof value === "string") {
         // "default" is no choice: Claude Code picks.
         session.model = value === "default" ? undefined : value;
+        // Another model may have another window: none is known until it reports one.
+        session.contextSize = undefined;
         modelChanged = true;
         const model = session.model;
         apply(session, (query) => query.setModel(model));
