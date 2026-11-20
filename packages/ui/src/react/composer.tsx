@@ -1,6 +1,14 @@
 import { Button } from "@ui-sdk/react/button";
 import { MotionGlobalConfig, useMotionValue, useReducedMotion, useSpring } from "motion/react";
-import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { FileSearch } from "../api.ts";
 import {
   ATTACHMENT_LIMITS,
@@ -20,9 +28,10 @@ import {
   sentTexts,
 } from "../draft.ts";
 import { mentionQuery, mentionRow } from "../mention.ts";
-import { type Status, type Usage, usageLabel } from "../model/conversation.ts";
+import type { ContextState, Status } from "../model/conversation.ts";
 import { type PlanItem, type QueuedPrompt, textOf } from "../model/index.ts";
 import { commandText, filterCommands, slashQuery } from "../slash.ts";
+import { AnchoredPopover } from "./anchored-popover.tsx";
 import { optionsOf, propertiesOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
 import { CloseIcon, PlusIcon, SendIcon, StopIcon } from "./icons.tsx";
@@ -63,8 +72,8 @@ export type ComposerProps = {
   blank?: boolean;
   /** The session's active plan while entries remain unfinished, rendered as a single row in the extension tray. */
   plan?: PlanItem | undefined;
-  /** How full the session's context is, shown in the utility bar on the right. */
-  usage?: Usage | undefined;
+  /** How full the session's context is, and its compactions: the ring on the right of the utility bar. */
+  context?: ContextState | undefined;
 };
 
 /** What a box with no conversation behind it has of a list: one array, so that reading it twice is the same value. */
@@ -106,7 +115,7 @@ export function Composer({
   placeholder: told,
   blank = false,
   plan,
-  usage,
+  context,
 }: ComposerProps) {
   const { t, number } = useI18n();
   const store = useAppStore();
@@ -484,7 +493,7 @@ export function Composer({
       const choices = optionsOf(property);
       return choices !== undefined && choices.length > 0;
     });
-  const hasTools = hasChoiceSettings || usage !== undefined;
+  const hasTools = hasChoiceSettings || context !== undefined;
 
   const sendName = t(steers ? "composer.steer" : "composer.send");
 
@@ -714,7 +723,7 @@ export function Composer({
                 onSet={onSetting}
               />
             ) : null}
-            {usage !== undefined ? <ContextMeter usage={usage} /> : null}
+            {context !== undefined ? <ContextMeter context={context} /> : null}
           </div>
         </div>
       ) : null}
@@ -726,23 +735,60 @@ export function Composer({
 const STOP_KEY = `${MOD}.`;
 
 /**
- * How full the context is: a spring-driven progress ring (underdamped settle + subtle completion swell, inspired by
- * Fluid UI's Progress Ring) paired with a synchronized rolling percentage; full token & cost breakdown in tooltip.
+ * How full the context is: a spring-driven progress ring with a synchronized rolling percentage. It is a button: the
+ * details open in the utility bar's popover, and say only what the agent reported (docs/protocol.md §8, CYCL-74).
  */
-function ContextMeter({ usage }: { usage: Usage }) {
-  const { number } = useI18n();
+function ContextMeter({ context }: { context: ContextState }) {
+  const { t, number } = useI18n();
+  const store = useAppStore();
   const reduced = Boolean(useReducedMotion());
-  const share = usage.size > 0 ? Math.max(0, Math.min(1, usage.used / usage.size)) : 0;
-  const label = usageLabel(usage);
-  const tone = share > 0.9 ? "danger" : share > 0.7 ? "attention" : undefined;
-  const full = share >= 1;
+  const { usage } = context;
+  const measured = usage !== undefined && usage.size > 0;
+  const share = measured ? Math.max(0, Math.min(1, usage.used / usage.size)) : 0;
+  const before = usage?.beforeCompaction === true;
+  // Something in it that rounds to 0% is not empty: it says "<1%".
+  const percentOf = useCallback(
+    (v: number) =>
+      v > 0 && v < 0.005
+        ? t("composer.context.underPercent", { percent: number(0.01, { style: "percent" }) })
+        : number(v, { style: "percent" }),
+    [t, number],
+  );
+  const percent = percentOf(share);
+  const tone =
+    !measured || before
+      ? undefined
+      : share > 0.9
+        ? "danger"
+        : share > 0.7
+          ? "attention"
+          : undefined;
+  const full = measured && !before && share >= 1;
   const r = 5.25;
   const around = 2 * Math.PI * r;
+  const name = !measured
+    ? t("composer.context.ringEmpty")
+    : before
+      ? t("composer.context.ringBefore", { percent })
+      : t("composer.context.ring", { percent });
+
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const detailsId = useId();
+  const close = useCallback((returnFocus: boolean) => {
+    setOpen(false);
+    if (returnFocus) triggerRef.current?.focus();
+  }, []);
+  useEffect(() => {
+    if (open) popoverRef.current?.focus();
+  }, [open]);
 
   const arcRef = useRef<SVGCircleElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const initialShareRef = useRef(share);
-  const initialPercentRef = useRef(number(share, { style: "percent" }));
+  const initialPercentRef = useRef(percent);
   const raw = useMotionValue(share);
   // Fluid UI spring physics (ω ≈ 8, ζ ≈ 0.72 → k = 64, c = 11.5): weighted settle with gentle organic overshoot.
   const spring = useSpring(raw, { stiffness: 64, damping: 11.5, mass: 1 });
@@ -754,12 +800,11 @@ function ContextMeter({ usage }: { usage: Usage }) {
       spring.jump(share);
       if (arcRef.current !== null)
         arcRef.current.style.strokeDashoffset = `${around * (1 - share)}`;
-      if (textRef.current !== null)
-        textRef.current.textContent = number(share, { style: "percent" });
+      if (textRef.current !== null) textRef.current.textContent = percentOf(share);
       return;
     }
     raw.set(share);
-  }, [share, instant, raw, spring, around, number]);
+  }, [share, instant, raw, spring, around, percentOf]);
 
   useEffect(() => {
     if (instant) return;
@@ -768,36 +813,115 @@ function ContextMeter({ usage }: { usage: Usage }) {
       const clamped = Math.max(0, Math.min(1, v));
       if (arcRef.current !== null)
         arcRef.current.style.strokeDashoffset = `${around * (1 - clamped)}`;
-      if (textRef.current !== null)
-        textRef.current.textContent = number(clamped, { style: "percent" });
+      if (textRef.current !== null) textRef.current.textContent = percentOf(clamped);
     });
-  }, [instant, spring, around, number]);
+  }, [instant, spring, around, percentOf]);
+
+  const tokens = (amount: number) => t("composer.context.tokens", { amount });
 
   return (
-    <span
-      data-slot="context-meter"
-      data-tone={tone}
-      data-full={full || undefined}
-      role="img"
-      aria-label={label}
-      title={label}
-    >
-      <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true">
-        <circle cx="7" cy="7" r={r} data-slot="context-track" />
-        <circle
-          ref={arcRef}
-          cx="7"
-          cy="7"
-          r={r}
-          data-slot="context-fill"
-          strokeDasharray={around}
-          strokeDashoffset={around * (1 - initialShareRef.current)}
-          transform="rotate(-90 7 7)"
-        />
-      </svg>
-      <span ref={textRef} aria-hidden="true">
-        {initialPercentRef.current}
-      </span>
+    <span ref={rootRef} data-slot="context-picker">
+      <button
+        ref={triggerRef}
+        type="button"
+        data-slot="context-meter"
+        data-tone={tone}
+        data-full={full || undefined}
+        data-empty={!measured || undefined}
+        data-before={before || undefined}
+        data-open={open || undefined}
+        aria-label={name}
+        title={name}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? detailsId : undefined}
+        onClick={() => {
+          if (open) {
+            close(false);
+            return;
+          }
+          store.track("context_details_opened", {
+            state: !measured ? "empty" : before ? "before_compaction" : "measured",
+          });
+          setOpen(true);
+        }}
+      >
+        <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true">
+          <circle cx="7" cy="7" r={r} data-slot="context-track" />
+          <circle
+            ref={arcRef}
+            cx="7"
+            cy="7"
+            r={r}
+            data-slot="context-fill"
+            strokeDasharray={around}
+            strokeDashoffset={around * (1 - initialShareRef.current)}
+            transform="rotate(-90 7 7)"
+          />
+        </svg>
+        {/* Always there, so the rolling number has somewhere to land; hidden while nothing is measured. */}
+        <span ref={textRef} data-slot="context-percent" aria-hidden="true">
+          {initialPercentRef.current}
+        </span>
+      </button>
+      <AnchoredPopover
+        open={open}
+        anchorRef={triggerRef}
+        ownerRef={rootRef}
+        popoverRef={popoverRef}
+        align="end"
+        onDismiss={close}
+        id={detailsId}
+        role="dialog"
+        label={t("composer.context.title")}
+        kind="context"
+        focusable
+      >
+        <div data-slot="setting-popover-head">{t("composer.context.title")}</div>
+        {measured ? (
+          <dl data-slot="context-details">
+            <div data-slot="context-row">
+              <dt>{t("composer.context.used")}</dt>
+              <dd>
+                {tokens(usage.used)}
+                <span data-slot="context-row-aside">
+                  {t("composer.context.share", { percent })}
+                </span>
+              </dd>
+            </div>
+            <div data-slot="context-row">
+              <dt>{t("composer.context.window")}</dt>
+              <dd>{tokens(usage.size)}</dd>
+            </div>
+            {usage.cost !== undefined ? (
+              <div data-slot="context-row">
+                <dt>{t("composer.context.cost")}</dt>
+                <dd>
+                  {number(usage.cost.amount, {
+                    style: "currency",
+                    currency: usage.cost.currency,
+                    maximumFractionDigits: usage.cost.amount < 0.1 ? 3 : 2,
+                  })}
+                </dd>
+              </div>
+            ) : null}
+            {context.compactions > 0 ? (
+              <div data-slot="context-row">
+                <dt>{t("composer.context.compactions")}</dt>
+                <dd>{number(context.compactions)}</dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : null}
+        <div data-slot="context-notes">
+          {context.compacting ? (
+            <p data-tone="attention">{t("composer.context.compacting")}</p>
+          ) : null}
+          {!measured ? <p>{t("composer.context.empty")}</p> : null}
+          {measured && before ? <p>{t("composer.context.beforeCompaction")}</p> : null}
+          {measured ? <p>{t("composer.context.windowNote")}</p> : null}
+        </div>
+      </AnchoredPopover>
     </span>
   );
 }

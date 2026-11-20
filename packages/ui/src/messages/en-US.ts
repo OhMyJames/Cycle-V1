@@ -92,6 +92,26 @@ export const enUS = {
   "composer.setting": "{setting}: {value}",
   "composer.settingPair": "{first}, {second}",
 
+  // How full the context is: the ring under the input, and its details
+  "composer.context.title": "Context",
+  "composer.context.ring": "Context {percent} full. Show details",
+  "composer.context.ringBefore":
+    "Context was {percent} full before the last compaction. Show details",
+  "composer.context.ringEmpty": "Context usage not reported yet. Show details",
+  "composer.context.used": "Used",
+  "composer.context.window": "Window",
+  "composer.context.tokens": "{amount} tokens",
+  "composer.context.share": "{percent} full",
+  "composer.context.underPercent": "<{percent}",
+  "composer.context.cost": "Session cost",
+  "composer.context.compactions": "Compactions",
+  "composer.context.empty": "No usage yet. The agent reports it when a reply finishes.",
+  "composer.context.windowNote":
+    "Used counts all of the context, cached parts included. The window is the model's; the agent may compact before it is full.",
+  "composer.context.beforeCompaction":
+    "Measured before the last compaction. The new amount comes with the next reply.",
+  "composer.context.compacting": "Compacting the context now.",
+
   // The commands that fit what is typed after a slash
   "composer.commands.label": "Commands",
 

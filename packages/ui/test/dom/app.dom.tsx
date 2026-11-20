@@ -1640,7 +1640,7 @@ test("composer uses a single-line box by default, promotes on attachments or mul
     toolsEnd && within(toolsEnd).getByRole("button", { name: "Model: Opus, Effort: High" }),
   ).toBeTruthy();
 
-  // Usage shows ring + percentage only, keeping exact token/cost detail inside aria-label & title.
+  // Usage shows ring + percentage only; the numbers are in its details.
   emit({
     type: "update",
     environmentId: "local",
@@ -1653,7 +1653,7 @@ test("composer uses a single-line box by default, promotes on attachments or mul
       cost: { amount: 0.88, currency: "USD" },
     } as never,
   });
-  const meter = await screen.findByRole("img", { name: /6%.*0\.88/ });
+  const meter = await screen.findByRole("button", { name: "Context 6% full. Show details" });
   expect(meter.textContent).toBe("6%");
 
   // Plan + queued message dock inside the extension tray above the input box, and multi-action working state promotes to multiline.
@@ -1739,9 +1739,83 @@ test("composer uses a single-line box by default, promotes on attachments or mul
     version: 6,
     update: { sessionUpdate: "usage_update", used: 200_000, size: 200_000 } as never,
   });
-  const fullMeter = await screen.findByRole("img", { name: /100%/ });
+  const fullMeter = await screen.findByRole("button", { name: /Context 100% full/ });
   expect(fullMeter.hasAttribute("data-full")).toBe(true);
   expect(fullMeter.textContent).toBe("100%");
   const fill = fullMeter.querySelector<SVGCircleElement>('[data-slot="context-fill"]');
   expect(fill?.style.strokeDashoffset).toBe("0");
+});
+
+test("the context ring opens into what was reported: nothing yet, now's usage, and one from before a compaction", async () => {
+  const { user, emit, calls } = await mount({
+    configure: (script) => {
+      const session = summary("s1");
+      script.bridge.sessions = async () => [session];
+    },
+  });
+  await openFirstSession(user);
+  await screen.findByRole("textbox", { name: "Message" });
+  const update = (version: number, u: object) =>
+    emit({ type: "update", environmentId: "local", sessionId: "s1", version, update: u as never });
+  const tracked = () =>
+    calls.filter(([name]) => name === "track").map(([, event, props]) => [event, props]);
+
+  // Nothing reported yet: an empty ring, and details that say so rather than a number.
+  const empty = await screen.findByRole("button", {
+    name: "Context usage not reported yet. Show details",
+  });
+  expect(empty.hasAttribute("data-empty")).toBe(true);
+  await user.click(empty);
+  const details = await screen.findByRole("dialog", { name: "Context" });
+  expect(details.textContent).toContain(
+    "No usage yet. The agent reports it when a reply finishes.",
+  );
+  expect(details.textContent).not.toMatch(/tokens|%/);
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Context" })).toBeNull());
+  expect(document.activeElement).toBe(empty);
+
+  // Measured: used and window as the agent gave them, the share, and the session's cost.
+  update(1, {
+    sessionUpdate: "usage_update",
+    used: 84_000,
+    size: 200_000,
+    cost: { amount: 0.52, currency: "USD" },
+  });
+  const ring = await screen.findByRole("button", { name: "Context 42% full. Show details" });
+  await user.click(ring);
+  const now = await screen.findByRole("dialog", { name: "Context" });
+  expect(now.textContent).toContain("Used84,000 tokens42% full");
+  expect(now.textContent).toContain("Window200,000 tokens");
+  expect(now.textContent).toContain("Session cost$0.52");
+  expect(now.textContent).not.toContain("Compactions");
+  expect(now.textContent).not.toContain("before the last compaction");
+  await user.click(ring);
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Context" })).toBeNull());
+
+  // A compaction completed and no usage came after it: the number is kept, and said to be from before.
+  update(2, { sessionUpdate: "compaction_update", compactionId: "k1", status: "in_progress" });
+  update(3, { sessionUpdate: "compaction_update", compactionId: "k1", status: "completed" });
+  const stale = await screen.findByRole("button", {
+    name: "Context was 42% full before the last compaction. Show details",
+  });
+  expect(stale.hasAttribute("data-before")).toBe(true);
+  await user.click(stale);
+  const before = await screen.findByRole("dialog", { name: "Context" });
+  expect(before.textContent).toContain("Measured before the last compaction.");
+  expect(before.textContent).toContain("Compactions1");
+  await user.keyboard("{Escape}");
+
+  // The usage after it is now's again.
+  update(4, { sessionUpdate: "usage_update", used: 30_000, size: 200_000 });
+  await screen.findByRole("button", { name: "Context 15% full. Show details" });
+
+  // Only what kind of state it was is counted; no number goes with it.
+  const opened = tracked().filter(([event]) => event === "context_details_opened");
+  expect(opened).toEqual([
+    ["context_details_opened", { state: "empty" }],
+    ["context_details_opened", { state: "measured" }],
+    ["context_details_opened", { state: "before_compaction" }],
+  ]);
+  expect(JSON.stringify(opened)).not.toMatch(/84|200|0\.52/);
 });
