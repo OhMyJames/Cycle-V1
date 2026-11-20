@@ -254,6 +254,30 @@ test.skipIf(!ready)(
         );
         expect(version).toBe(newer);
       }
+      const runningPid = await until("the replacement daemon", 30_000, async () => {
+        const pid = Number(await readFile(join(data, "daemon.pid"), "utf8"));
+        return Number.isInteger(pid) && pid > 0 && pid !== oldDaemon && alive(pid)
+          ? pid
+          : undefined;
+      });
+      // A synthetic release carries the same daemon version. Match its mapped executable to the
+      // installed file by inode, so a daemon restarted by the old desktop also fails that test.
+      const mapped = Bun.spawnSync([
+        "/usr/sbin/lsof",
+        "-nP",
+        "-a",
+        "-p",
+        String(runningPid),
+        "-d",
+        "txt",
+        join(installed, resources, "bin/cycle"),
+      ]);
+      expect(mapped.success).toBe(true);
+      if (previous) {
+        console.log(
+          `Signed update ${previous.manifest.version} -> ${newer}, team ${previous.team}; daemon ${runningPid} running from installed bundle; range bytes ${ranged}, whole downloads ${whole}.`,
+        );
+      }
       // And nothing of the update is left beside the app.
       expect(await readdir(join(root, "apps"))).toEqual(["Cycle.app"]);
       expect(existsSync(join(root, "apps", ".Cycle-old"))).toBe(false);

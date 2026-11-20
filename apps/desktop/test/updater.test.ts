@@ -185,7 +185,7 @@ test("a check that fails on the timer says nothing, and one the user asked for s
   expect((await updater.check(true)).kind).toBe("up-to-date");
 });
 
-test("it installs: downloads, checks, unpacks, stops what the old app left running, hands off and quits, in that order", async () => {
+test("it installs: downloads, checks, unpacks, hands off and quits, in that order", async () => {
   publish("0.2.0");
   await mkdir(join(dir, "apps"), { recursive: true });
   const { updater, states, log, swaps } = make();
