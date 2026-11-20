@@ -2704,7 +2704,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 /* A setting at hand: refined borderless chip in the utility bar; permission carries a shield icon (attention orange when
-   high-risk), model pairs with reasoning effort in muted secondary text. Opens a portaled hardware-rimmed picker. */
+   high-risk), the model in full ink and its effort beside it, muted like the rest. Each opens its own portaled picker. */
 [data-slot="setting-picker"] {
   position: relative;
   display: inline-flex;
@@ -2737,12 +2737,6 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 [data-slot="setting-icon"] {
   flex: none;
   opacity: 0.85;
-}
-
-[data-slot="setting-subvalue"] {
-  flex: none;
-  color: var(--cycle-ink-muted);
-  font-weight: 400;
 }
 
 :is(
@@ -2948,111 +2942,6 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   font-weight: 600;
 }
 
-/* Paired secondary section: sleek, low-profile draggable elastic Effort slider inside the compact Model picker. */
-[data-slot="setting-section"] {
-  margin: 0.25rem 0 0;
-  padding: 0.375rem 0.25rem 0.125rem;
-  border-top: 1px solid var(--cycle-border-subtle);
-  min-width: 0;
-}
-
-[data-slot="effort-head"] {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0 0.25rem 0.25rem;
-}
-
-[data-slot="setting-section-head"] {
-  font-family: var(--cycle-font-display);
-  font-size: 0.6875rem;
-  font-weight: 500;
-  color: var(--cycle-ink-muted);
-}
-
-[data-slot="effort-value"] {
-  font-family: var(--cycle-font-display);
-  font-size: 0.71875rem;
-  font-weight: 600;
-  color: var(--cycle-ink-muted);
-}
-
-[data-slot="effort-value"][data-active] {
-  color: var(--cycle-accent);
-}
-
-[data-slot="effort-slider"] {
-  position: relative;
-  height: 1.25rem;
-  border-radius: var(--cycle-radius-pill);
-  background: var(--cycle-surface-message);
-  border: 1px solid var(--cycle-border-subtle);
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-}
-
-[data-slot="effort-slider"][data-dragging] {
-  cursor: grabbing;
-}
-
-[data-slot="effort-slider"]:has(:focus-visible) {
-  outline: 1.5px solid var(--cycle-focus-ring);
-  outline-offset: 2px;
-}
-
-[data-slot="effort-fill"] {
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  left: 2px;
-  border-radius: var(--cycle-radius-pill);
-  background: var(--cycle-surface-hover);
-  pointer-events: none;
-}
-
-[data-slot="effort-slider"][data-energized] [data-slot="effort-fill"] {
-  background: var(--cycle-accent);
-}
-
-[data-slot="effort-dots"] {
-  position: absolute;
-  inset: 0 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  pointer-events: none;
-}
-
-[data-slot="effort-dot"] {
-  width: 3px;
-  height: 3px;
-  border-radius: var(--cycle-radius-pill);
-  background: var(--cycle-ink-disabled);
-  opacity: 0.65;
-}
-
-[data-slot="effort-slider"][data-energized] [data-slot="effort-dot"][data-passed] {
-  background: rgb(255 255 255 / 72%);
-  opacity: 1;
-}
-
-[data-slot="effort-thumb"] {
-  position: absolute;
-  top: 50%;
-  width: 0.9375rem;
-  height: 0.9375rem;
-  margin: -0.46875rem 0 0 -0.46875rem;
-  border-radius: var(--cycle-radius-pill);
-  background: #ffffff;
-  border: 1px solid rgb(0 0 0 / 12%);
-  box-shadow:
-    0 1px 3px rgb(0 0 0 / 32%),
-    0 0 0 0.5px rgb(0 0 0 / 8%);
-  pointer-events: none;
-}
-
 @media (forced-colors: active) {
   [data-slot="composer-box"]:has([data-slot="composer-input"]:focus-visible) {
     outline: 2px solid Highlight;
@@ -3062,33 +2951,6 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   [data-slot="button"][data-variant="solid"][data-action="send"][data-disabled] {
     border: 1px solid GrayText;
     color: GrayText;
-  }
-
-  [data-slot="effort-slider"] {
-    forced-color-adjust: none;
-    border-color: ButtonBorder;
-    background: Canvas;
-  }
-
-  [data-slot="effort-fill"] {
-    background: GrayText;
-  }
-
-  [data-slot="effort-slider"][data-energized] [data-slot="effort-fill"] {
-    background: Highlight;
-  }
-
-  [data-slot="effort-dot"] {
-    background: CanvasText;
-  }
-
-  [data-slot="effort-slider"][data-energized] [data-slot="effort-dot"][data-passed] {
-    background: HighlightText;
-  }
-
-  [data-slot="effort-thumb"] {
-    background: ButtonFace;
-    border-color: CanvasText;
   }
 }
 

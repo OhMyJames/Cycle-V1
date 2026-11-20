@@ -1362,8 +1362,8 @@ export const scenarios: Record<string, Scenario> = {
       }),
     ],
   },
-  "composer-model-effort": {
-    title: "Three-part composer with paired Model + Effort picker open",
+  "composer-model": {
+    title: "The Model menu open, the Effort chip beside it",
     attach: true,
     sessions: [
       session("s1", {
@@ -1373,7 +1373,22 @@ export const scenarios: Record<string, Scenario> = {
     ],
     history: conversation,
     after: async (root) => {
-      await clickByLabel(root, "Model: Opus, Effort: High");
+      await clickByLabel(root, "Model: Opus");
+      await new Promise((r) => setTimeout(r, 200));
+    },
+  },
+  "composer-effort": {
+    title: "The Effort menu open: the levels by name, the model's default named as such",
+    attach: true,
+    sessions: [
+      session("s1", {
+        title: "Redesign the composer",
+        config: { mode: "auto", model: "opus", effort: "high" },
+      }),
+    ],
+    history: conversation,
+    after: async (root) => {
+      await clickByLabel(root, "Effort: High");
       await new Promise((r) => setTimeout(r, 200));
     },
   },

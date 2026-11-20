@@ -693,7 +693,7 @@ export function App() {
                     ? { schema: sessionSchema, value: session.config ?? {} }
                     : undefined
                 }
-                onSetting={(key, value) => void store.setSessionConfig(key, value)}
+                onSetting={(key, value) => store.setSessionConfig(key, value)}
                 canSteer={agent?.steer === true}
                 enabled={!view.loading}
                 connected={connected}

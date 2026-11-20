@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createTranslator, SOURCE_LOCALE } from "../../src/i18n.ts";
 import { enUS } from "../../src/messages/en-US.ts";
@@ -316,7 +316,7 @@ describe("SettingChips picker", () => {
     expect(modeChip.hasAttribute("data-disabled")).toBe(true);
   });
 
-  test("pairs compact description-free Model picker and draggable Effort slider on the right", async () => {
+  test("Model and Effort are two chips on the right, each with its own menu", async () => {
     const user = userEvent.setup();
     const calls: [string, string][] = [];
     const schema = {
@@ -369,83 +369,139 @@ describe("SettingChips picker", () => {
       </div>,
     );
 
-    // Permission mode stays on the left; paired Model + Effort lives on the right (no standalone Effort chip).
+    // Permission mode stays on the left; Model and Effort sit on the right, each a chip of its own.
     expect(
       within(screen.getByTestId("left")).getByRole("button", { name: "Permission mode: Auto" }),
     ).toBeTruthy();
     expect(
       within(screen.getByTestId("left")).queryByRole("button", { name: /Model|Effort/ }),
     ).toBeNull();
-    const modelChip = within(screen.getByTestId("right")).getByRole("button", {
-      name: "Model: Opus, Effort: High",
-    });
-    expect(within(screen.getByTestId("right")).getAllByRole("button")).toHaveLength(1);
-    expect(modelChip.querySelector('[data-slot="setting-subvalue"]')?.textContent).toBe("High");
-
-    // Opening the Model chip renders compact description-free Model rows plus the elastic Effort slider.
-    expect(modelChip.getAttribute("aria-haspopup")).toBe("dialog");
-    await user.click(modelChip);
-    const dialog = screen.getByRole("dialog", { name: "Model" });
-    expect(modelChip.getAttribute("aria-controls")).toBe(dialog.id);
-    expect(screen.queryByText("Most capable.")).toBeNull();
-    const slider = screen.getByRole("slider", { name: "Effort" }) as HTMLInputElement;
-    expect(slider.value).toBe("2");
-    expect(slider.getAttribute("aria-valuetext")).toBe("High");
-
-    // Tab cycles focus from Model list into the Effort slider and Shift+Tab cycles back without closing.
-    await user.keyboard("{Tab}");
-    expect(document.activeElement).toBe(slider);
-    expect(modelChip.getAttribute("aria-expanded")).toBe("true");
-    await user.keyboard("{Shift>}{Tab}{/Shift}");
-    expect(document.activeElement).toBe(screen.getByRole("menu", { name: "Model" }));
-    expect(modelChip.getAttribute("aria-expanded")).toBe("true");
-
-    // Adjusting the Effort slider (or clicking a tick) updates effort, keeps focus on the range input, and leaves the popover open.
-    fireEvent.change(slider, { target: { value: "1" } });
-    expect(calls).toEqual([["effort", "low"]]);
-    expect(modelChip.getAttribute("aria-expanded")).toBe("true");
-
-    fireEvent.change(slider, { target: { value: "0" } });
-    expect(slider.getAttribute("aria-valuetext")).toBe("Model default");
-    expect(calls).toEqual([
-      ["effort", "low"],
-      ["effort", "default"],
+    const right = within(screen.getByTestId("right"));
+    expect(right.getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Model: Opus",
+      "Effort: High",
     ]);
-    expect(modelChip.getAttribute("aria-expanded")).toBe("true");
+    const modelChip = right.getByRole("button", { name: "Model: Opus" });
+    const effortChip = right.getByRole("button", { name: "Effort: High" });
 
-    // Pointer scrubbing across the Effort slider track commits the nearest discrete stop.
-    const sliderTrack = dialog.querySelector<HTMLElement>('[data-slot="effort-slider"]');
-    expect(sliderTrack).not.toBeNull();
-    if (sliderTrack !== null) {
-      sliderTrack.getBoundingClientRect = () =>
-        ({ left: 0, width: 116, top: 0, bottom: 20, right: 116, height: 20 }) as DOMRect;
-      fireEvent.pointerDown(sliderTrack, { button: 0, pointerId: 1, clientX: 58 });
-      fireEvent.pointerMove(sliderTrack, { pointerId: 1, clientX: 58 });
-      fireEvent.pointerUp(sliderTrack, { pointerId: 1, clientX: 58 });
-    }
-    expect(calls.at(-1)).toEqual(["effort", "low"]);
-
-    // Selecting a model option updates model and closes the popover.
+    // The Model menu is the models only, without their descriptions.
+    expect(modelChip.getAttribute("aria-haspopup")).toBe("menu");
+    await user.click(modelChip);
+    const models = screen.getByRole("menu", { name: "Model" });
+    expect(modelChip.getAttribute("aria-controls")).toBe(models.id);
+    expect(screen.queryByText("Most capable.")).toBeNull();
+    expect(screen.queryByRole("menu", { name: "Effort" })).toBeNull();
     await user.click(screen.getByRole("menuitemradio", { name: /Sonnet/ }));
     expect(calls.at(-1)).toEqual(["model", "sonnet"]);
     expect(modelChip.getAttribute("aria-expanded")).toBe("false");
 
-    // When effort is unset (`undefined`), the Effort slider displays "Not set" instead of claiming "Default".
-    rerender(
+    // The Effort menu lists the levels by name (what each does is in its title); the model's default is named as such.
+    await user.click(effortChip);
+    const levels = screen.getByRole("menu", { name: "Effort" });
+    expect(
+      within(levels)
+        .getAllByRole("menuitemradio")
+        .map((o) => o.textContent),
+    ).toEqual(["Model default", "Low", "High"]);
+    expect(within(levels).getByRole("menuitemradio", { name: "Low" }).title).toBe(
+      "Minimal reasoning.",
+    );
+    expect(
+      within(levels).getByRole("menuitemradio", { checked: true }).textContent?.startsWith("High"),
+    ).toBe(true);
+    // The keyboard goes through it as through the others: the list has the focus, arrows move, Enter chooses.
+    expect(document.activeElement).toBe(levels);
+    await user.keyboard("{ArrowUp}{Enter}");
+    expect(calls.at(-1)).toEqual(["effort", "low"]);
+    expect(effortChip.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(effortChip);
+
+    // Until the session has the new level, the chip says the one it has: no level shown that it may not get.
+    expect(effortChip.getAttribute("aria-label")).toBe("Effort: High");
+
+    // The model's default reads as the default effort on the chip; a session with none on record reads "Not set".
+    const show = (value: Record<string, string>) =>
+      rerender(
+        <I18nProvider translator={translator}>
+          <SettingChips
+            side="right"
+            settings={{ schema, value }}
+            disabled={false}
+            onSet={(k, v) => calls.push([k, v])}
+          />
+        </I18nProvider>,
+      );
+    show({ mode: "auto", model: "sonnet", effort: "default" });
+    const byDefault = screen.getByRole("button", { name: "Effort: Model default" });
+    expect(byDefault.textContent).toBe("Default effort");
+    show({ mode: "auto", model: "sonnet" });
+    expect(screen.getByRole("button", { name: "Effort: Not set" })).toBeTruthy();
+  });
+
+  test("a choice on its way is what the next one is measured against, so the last choice is the one that lands", async () => {
+    const user = userEvent.setup();
+    const calls: [string, string][] = [];
+    const answers: (() => void)[] = [];
+    const onSet = (k: string, v: string) => {
+      calls.push([k, v]);
+      return new Promise<void>((resolve) => answers.push(resolve));
+    };
+    const render = (value: Record<string, string>) => (
+      <I18nProvider translator={translator}>
+        <SettingChips settings={{ schema: effortSchema, value }} disabled={false} onSet={onSet} />
+      </I18nProvider>
+    );
+    const { rerender } = wrap(render({ model: "odd", effort: "high" }));
+    const pick = async (level: string) => {
+      await user.click(screen.getByRole("button", { name: /^Effort:/ }));
+      await user.click(screen.getByRole("menuitemradio", { name: level }));
+    };
+
+    // Low is asked for and has not landed: the chip still says High. Low again sends nothing more.
+    await pick("low");
+    await pick("low");
+    expect(calls).toEqual([["effort", "low"]]);
+    expect(screen.getByRole("button", { name: "Effort: high" })).toBeTruthy();
+    // Back to High, the level the session has, while Low is on its way: High is asked for, so it is what lands.
+    await pick("high");
+    expect(calls).toEqual([
+      ["effort", "low"],
+      ["effort", "high"],
+    ]);
+
+    // A request that settles with no change (refused) leaves nothing on its way: the same choice can be made again.
+    rerender(render({ model: "odd", effort: "medium" }));
+    await pick("max");
+    await act(async () => answers.at(-1)?.());
+    await pick("max");
+    expect(calls.slice(2)).toEqual([
+      ["effort", "max"],
+      ["effort", "max"],
+    ]);
+  });
+
+  test("the Effort chip sits right after the Model chip, wherever the schema lists it", () => {
+    const { effort, model } = effortSchema.properties;
+    wrap(
       <I18nProvider translator={translator}>
         <SettingChips
-          side="right"
-          settings={{ schema, value: { mode: "auto", model: "sonnet" } }}
+          settings={{
+            schema: {
+              type: "object",
+              properties: { effort, mode: shortSchema.properties.mode, model },
+            },
+            value: { model: "odd", effort: "high", mode: "auto" },
+          }}
           disabled={false}
-          onSet={(k, v) => calls.push([k, v])}
+          onSet={() => {}}
         />
       </I18nProvider>,
     );
-    const conciseChip = screen.getByRole("button", { name: "Model: Sonnet" });
-    expect(conciseChip.querySelector('[data-slot="setting-subvalue"]')).toBeNull();
-    await user.click(conciseChip);
-    const unsetSlider = screen.getByRole("slider", { name: "Effort" });
-    expect(unsetSlider.getAttribute("aria-valuetext")).toBe("Not set");
+    expect(screen.getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Permission mode: Auto",
+      "Model: Odd",
+      "Effort: high",
+    ]);
   });
 
   test("effort follows the model's own levels: none hides it, a few narrow it, the level in force stays shown", async () => {
@@ -461,33 +517,34 @@ describe("SettingChips picker", () => {
       </I18nProvider>
     );
     const { rerender } = wrap(render({ model: "opus", effort: "max" }));
-    const stops = () => document.querySelectorAll('[data-slot="effort-dot"]').length;
+    const levels = async () => {
+      await user.click(screen.getByRole("button", { name: /^Effort:/ }));
+      const names = within(screen.getByRole("menu", { name: "Effort" }))
+        .getAllByRole("menuitemradio")
+        .map((o) => o.textContent);
+      await user.keyboard("{Escape}");
+      return names;
+    };
 
-    // Opus takes low, high and max: the slider offers those and the model's default, nothing else.
-    await user.click(screen.getByRole("button", { name: /^Model: Opus/ }));
-    expect(stops()).toBe(4);
+    // Opus takes low, high and max: the menu offers those and the model's default, nothing else.
+    expect(await levels()).toEqual(["Model default", "low", "high", "max"]);
     // Choosing a model in a session that exists only asks for the model: its agent resets the effort.
+    await user.click(screen.getByRole("button", { name: "Model: Opus" }));
     await user.click(screen.getByRole("menuitemradio", { name: "Haiku" }));
     expect(calls).toEqual([["model", "haiku"]]);
 
     // With Haiku chosen, there is no effort to show.
     rerender(render({ model: "haiku", effort: "default" }));
-    await user.click(screen.getByRole("button", { name: "Model: Haiku" }));
-    expect(screen.queryByRole("slider", { name: "Effort" })).toBeNull();
-    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: /^Effort:/ })).toBeNull();
 
     // A model that does not say keeps every level.
     rerender(render({ model: "odd", effort: "medium" }));
-    await user.click(screen.getByRole("button", { name: /^Model: Odd/ }));
-    expect(stops()).toBe(5);
-    await user.keyboard("{Escape}");
+    expect(await levels()).toHaveLength(5);
 
     // A level the model does not list, still in force until the agent answers, is shown as it is, not as "Not set".
     rerender(render({ model: "opus", effort: "medium" }));
-    await user.click(screen.getByRole("button", { name: /^Model: Opus/ }));
-    expect(screen.getByRole("slider", { name: "Effort" }).getAttribute("aria-valuetext")).toBe(
-      "medium",
-    );
+    expect(screen.getByRole("button", { name: "Effort: medium" })).toBeTruthy();
+    expect(await levels()).toEqual(["Model default", "low", "medium", "high", "max"]);
   });
 
   test("a new session's effort goes back to default when the chosen model does not take it", () => {

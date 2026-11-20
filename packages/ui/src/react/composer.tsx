@@ -60,7 +60,8 @@ export type ComposerProps = {
   onSent?: () => void;
   /** The session's settings and the agent's schema for them; offered in the utility bar under the input. */
   settings?: SettingsOf | undefined;
-  onSetting?: (key: string, value: string) => void;
+  /** Asks for a setting; a promise it returns settles when the asking is over. */
+  onSetting?: (key: string, value: string) => unknown;
   /**
    * Why nothing can be sent yet, though the box takes what is written (a blank conversation with no folder): said in
    * the extension tray above the box, and Send waits.
