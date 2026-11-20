@@ -1,5 +1,6 @@
 import { Button } from "@ui-sdk/react/button";
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { MotionGlobalConfig, useMotionValue, useReducedMotion, useSpring } from "motion/react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { FileSearch } from "../api.ts";
 import {
   ATTACHMENT_LIMITS,
@@ -20,13 +21,14 @@ import {
 } from "../draft.ts";
 import { mentionQuery, mentionRow } from "../mention.ts";
 import { type Status, type Usage, usageLabel } from "../model/conversation.ts";
-import { type QueuedPrompt, textOf } from "../model/index.ts";
+import { type PlanItem, type QueuedPrompt, textOf } from "../model/index.ts";
 import { commandText, filterCommands, slashQuery } from "../slash.ts";
-import { propertiesOf } from "./config-form.tsx";
+import { optionsOf, propertiesOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
-import { AttachIcon, CloseIcon, SendIcon, SettingsIcon, StopIcon } from "./icons.tsx";
+import { CloseIcon, PlusIcon, SendIcon, StopIcon } from "./icons.tsx";
 import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
 import { optionId, PickerMenu, type PickerRow } from "./picker-menu.tsx";
+import { PlanStrip } from "./plan.tsx";
 import { SettingChips, type SettingsOf } from "./setting-chips.tsx";
 import { MOD } from "./sidebar.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
@@ -47,21 +49,21 @@ export type ComposerProps = {
   canSteer?: boolean;
   /** A message was sent from the box (not yet known to have arrived): the conversation follows it. */
   onSent?: () => void;
-  /** The session's settings and the agent's schema for them; the choices among them are offered under the input. */
+  /** The session's settings and the agent's schema for them; offered in the utility bar under the input. */
   settings?: SettingsOf | undefined;
   onSetting?: (key: string, value: string) => void;
-  /** Opens every setting of the session, the ones that are not a choice too. */
-  onOpenSettings?: () => void;
   /**
-   * Why nothing can be sent yet, though the box takes what is written (a blank conversation with no folder): said above
-   * the box, and Send waits.
+   * Why nothing can be sent yet, though the box takes what is written (a blank conversation with no folder): said in
+   * the extension tray above the box, and Send waits.
    */
   blocked?: string | undefined;
   /** What the empty box says, in place of what it says for a session's state. */
   placeholder?: string | undefined;
   /** A blank conversation: @ looks in its folder, which needs a daemon that says `filesInFolder`. */
   blank?: boolean;
-  /** How full the session's context is, shown in the toolbar beside Send. */
+  /** The session's active plan while entries remain unfinished, rendered as a single row in the extension tray. */
+  plan?: PlanItem | undefined;
+  /** How full the session's context is, shown in the utility bar on the right. */
   usage?: Usage | undefined;
 };
 
@@ -100,10 +102,10 @@ export function Composer({
   onSent,
   settings,
   onSetting,
-  onOpenSettings,
   blocked,
   placeholder: told,
   blank = false,
+  plan,
   usage,
 }: ComposerProps) {
   const { t, number } = useI18n();
@@ -124,8 +126,10 @@ export function Composer({
   const recalled = useRef<Recall>(NOT_RECALLING);
   const [problem, setProblem] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
+  const [wrapped, setWrapped] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
   const input = useRef<InputHandle | null>(null);
   // Something put a message back to be sent again (a failed turn's "Send again"): the box takes the focus, to read it.
   const focusAsked = useAppState((s) => s.composerFocus);
@@ -254,6 +258,51 @@ export function Composer({
                   : "composer.placeholder.busy",
             )
           : t("composer.placeholder.idle"));
+
+  // Single-line by default; once text wraps past one line, contains a newline, carries attachments, or shows multiple
+  // action buttons, the box promotes cleanly into its 3-row layout (2 lines of content + action row) without flickering
+  // back and forth as the widened field reflows.
+  const hasAttachments = attachments.length > 0 || kept.length > 0;
+  const showQueue = working && canQueue;
+  const showSend = !working || steers || !canQueue;
+  const actionCount = Number(showQueue) + Number(showSend) + Number(working);
+  const hasMultipleActions = actionCount > 1;
+  const hasNewline = text.includes("\n");
+  const textRef = useRef(text);
+  textRef.current = text;
+
+  const measureWrap = useRef(() => {
+    const field = fieldRef.current;
+    if (field === null || textRef.current === "") return;
+    const inputEl = field.querySelector<HTMLElement>('[data-slot="composer-input"]');
+    if (inputEl === null || inputEl.scrollHeight === 0) return;
+    const style = getComputedStyle(inputEl);
+    const lineHeight = Number.parseFloat(style.lineHeight) || 22;
+    const paddingY =
+      (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
+    const contentHeight = inputEl.scrollHeight - paddingY;
+    if (contentHeight > Math.ceil(lineHeight * 1.45)) setWrapped(true);
+  });
+
+  useLayoutEffect(() => {
+    if (text === "") {
+      if (wrapped) setWrapped(false);
+      return;
+    }
+    if (wrapped || hasNewline || hasAttachments || hasMultipleActions) return;
+    measureWrap.current();
+  }, [text, wrapped, hasNewline, hasAttachments, hasMultipleActions]);
+
+  useEffect(() => {
+    if (wrapped || hasNewline || hasAttachments || hasMultipleActions) return;
+    const field = fieldRef.current;
+    if (field === null || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => measureWrap.current());
+    observer.observe(field);
+    return () => observer.disconnect();
+  }, [wrapped, hasNewline, hasAttachments, hasMultipleActions]);
+
+  const expanded = hasAttachments || hasMultipleActions || hasNewline || wrapped;
 
   const megabytes = (bytes: number) =>
     number(bytes / 1048576, { style: "unit", unit: "megabyte", maximumFractionDigits: 0 });
@@ -418,73 +467,115 @@ export function Composer({
     };
   }, [canAttach, noImageMessage]);
 
+  const showOffline = !connected && enabled;
+  const showBlocked = blocked !== undefined && blocked !== "" && connected;
+  const hasExtensions =
+    plan !== undefined ||
+    queue.length > 0 ||
+    showOffline ||
+    showBlocked ||
+    dropping ||
+    problem !== undefined;
+
+  const hasChoiceSettings =
+    settings !== undefined &&
+    onSetting !== undefined &&
+    propertiesOf(settings.schema).some(([, property]) => {
+      const choices = optionsOf(property);
+      return choices !== undefined && choices.length > 0;
+    });
+  const hasTools = hasChoiceSettings || usage !== undefined;
+
   const sendName = t(steers ? "composer.steer" : "composer.send");
+
   return (
     <div data-slot="composer" data-dropping={dropping || undefined} ref={root}>
-      {!connected && enabled ? (
-        <span data-slot="hint" role="status">
-          {t("composer.offline")}
-        </span>
-      ) : null}
-      {blocked !== undefined && blocked !== "" && connected ? (
-        <span data-slot="hint" role="status">
-          {blocked}
-        </span>
-      ) : null}
-      {dropping ? <div data-slot="drop-hint">{t("composer.drop")}</div> : null}
-      {queue.length > 0 ? (
-        <ul data-slot="queued" aria-label={t("composer.queued.label")}>
-          {queue.map((entry) => {
-            const preview = previewOf(entry);
-            const label =
-              preview.text !== ""
-                ? preview.text
-                : t("composer.queued.images", { count: preview.images });
-            return (
-              <li key={entry.queueId} data-slot="queued-message">
-                <span data-slot="queued-tag">{t("composer.queued.tag")}</span>
-                <span data-slot="queued-text" title={label}>
-                  {label}
-                </span>
-                <Button
-                  data-variant="ghost"
-                  disabled={!connected}
-                  aria-label={t("composer.queued.edit", { preview: label })}
-                  onClick={() => void edit(entry.queueId)}
-                >
-                  {t("composer.queued.editShort")}
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-      {problem !== undefined ? (
-        <div data-slot="notice" data-severity="error" role="alert">
-          {problem}
+      {/* Part 1: Extension tray — one compact row per extension type, docked cleanly above the input box. */}
+      {hasExtensions ? (
+        <div data-slot="composer-extensions">
+          {plan !== undefined ? (
+            <div data-slot="extension-row" data-kind="plan">
+              <PlanStrip plan={plan} />
+            </div>
+          ) : null}
+          {queue.length > 0 ? (
+            <ul data-slot="queued" aria-label={t("composer.queued.label")}>
+              {queue.map((entry) => {
+                const preview = previewOf(entry);
+                const label =
+                  preview.text !== ""
+                    ? preview.text
+                    : t("composer.queued.images", { count: preview.images });
+                return (
+                  <li key={entry.queueId} data-slot="queued-message">
+                    <span data-slot="queued-tag">{t("composer.queued.tag")}</span>
+                    <span data-slot="queued-text" title={label}>
+                      {label}
+                    </span>
+                    <Button
+                      data-variant="ghost"
+                      disabled={!connected}
+                      aria-label={t("composer.queued.edit", { preview: label })}
+                      onClick={() => void edit(entry.queueId)}
+                    >
+                      {t("composer.queued.editShort")}
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+          {showOffline ? (
+            <div data-slot="extension-row" data-kind="hint" role="status">
+              {t("composer.offline")}
+            </div>
+          ) : null}
+          {showBlocked ? (
+            <div data-slot="extension-row" data-kind="hint" role="status">
+              {blocked}
+            </div>
+          ) : null}
+          {dropping ? (
+            <div data-slot="extension-row" data-kind="drop">
+              {t("composer.drop")}
+            </div>
+          ) : null}
+          {problem !== undefined ? (
+            <div data-slot="extension-row" data-severity="error" role="alert">
+              {problem}
+            </div>
+          ) : null}
         </div>
       ) : null}
-      <div data-slot="composer-box">
-        {attachments.length > 0 || kept.length > 0 ? (
+
+      {/* Part 2: Input box — single-line pill by default; promotes to 3-row layout on wrap, attachments, or multi-action. */}
+      <div
+        data-slot="composer-box"
+        data-multiline={expanded || undefined}
+        data-has-attachments={hasAttachments || undefined}
+        data-no-lead={!canAttach || undefined}
+      >
+        {hasAttachments ? (
           <ul data-slot="attachments" aria-label={t("composer.attached")}>
             {kept.map((k) => (
               <li key={k.id} data-slot="attachment" data-kept="">
                 <span data-slot="attachment-name">{k.name}</span>
                 <button
                   type="button"
+                  data-slot="attachment-remove"
                   aria-label={t("composer.remove", { name: k.name })}
                   onClick={() => store.drafts.removeKept(sessionKey, k.id)}
                 >
-                  <CloseIcon size={12} />
+                  <CloseIcon size={11} />
                 </button>
               </li>
             ))}
             {attachments.map((a) => (
-              <li key={a.id} data-slot="attachment">
+              <li key={a.id} data-slot="attachment" data-kind="image" title={a.name}>
                 <img src={`data:${a.type};base64,${a.data}`} alt="" />
-                <span data-slot="attachment-name">{a.name}</span>
                 <button
                   type="button"
+                  data-slot="attachment-remove"
                   aria-label={t("composer.remove", { name: a.name })}
                   onClick={() =>
                     store.drafts.setAttachments(
@@ -493,13 +584,42 @@ export function Composer({
                     )
                   }
                 >
-                  <CloseIcon size={12} />
+                  <CloseIcon size={11} />
                 </button>
               </li>
             ))}
           </ul>
         ) : null}
-        <div data-slot="composer-field">
+
+        <div data-slot="composer-lead">
+          {canAttach ? (
+            <>
+              <Button
+                data-variant="ghost"
+                data-kind="composer-plus"
+                aria-label={t("composer.attach")}
+                title={t("composer.attach")}
+                disabled={!enabled}
+                onClick={() => picker.current?.click()}
+              >
+                <PlusIcon size={16} />
+              </Button>
+              <input
+                ref={picker}
+                type="file"
+                hidden
+                multiple
+                accept={IMAGE_TYPES.join(",")}
+                onChange={(event) => {
+                  void attach(imagesOf(event.currentTarget.files));
+                  event.currentTarget.value = "";
+                }}
+              />
+            </>
+          ) : null}
+        </div>
+
+        <div data-slot="composer-field" ref={fieldRef}>
           {menuOpen ? (
             <PickerMenu
               id={menuId}
@@ -536,190 +656,148 @@ export function Composer({
             }}
           />
         </div>
-        <div data-slot="composer-toolbar">
-          {canAttach ? (
-            <>
-              <Button
-                data-variant="ghost"
-                aria-label={t("composer.attach")}
-                title={t("composer.attach")}
-                disabled={!enabled}
-                onClick={() => picker.current?.click()}
-              >
-                <AttachIcon />
-              </Button>
-              <input
-                ref={picker}
-                type="file"
-                hidden
-                multiple
-                accept={IMAGE_TYPES.join(",")}
-                onChange={(event) => {
-                  void attach(imagesOf(event.currentTarget.files));
-                  event.currentTarget.value = "";
-                }}
-              />
-            </>
-          ) : null}
-          {settings !== undefined && onSetting !== undefined ? (
-            <SettingChips settings={settings} disabled={!enabled || !connected} onSet={onSetting} />
-          ) : null}
-          {/* Every setting, also those that are text. Not there when the agent has none; open while the history loads. */}
-          {settings !== undefined &&
-          onOpenSettings !== undefined &&
-          propertiesOf(settings.schema).length > 0 ? (
-            <Button
-              data-variant="ghost"
-              aria-label={t("session.settings")}
-              title={t("session.settings")}
-              disabled={!connected}
-              onClick={onOpenSettings}
-            >
-              <SettingsIcon />
-            </Button>
-          ) : null}
-          <span data-slot="composer-spacer" />
-          {usage !== undefined ? <ContextMeter usage={usage} /> : null}
-          {working && canQueue ? (
+
+        <div data-slot="composer-actions">
+          {showQueue ? (
             <Button data-kind="queue" disabled={!canSend} onClick={() => void send()}>
               {t("composer.queue")}
             </Button>
           ) : null}
-          {/* Send is there unless Queue takes its place; while the agent works and nothing can wait, it is there and off. */}
-          {!working || steers || !canQueue ? (
+          {showSend ? (
             <Button
               data-variant="solid"
               data-kind="round"
+              data-action="send"
               disabled={!canSend}
               aria-label={sendName}
               title={sendName}
               onClick={() => void send(steers)}
             >
-              <SendIcon size={16} />
+              <SendIcon size={15} />
             </Button>
           ) : null}
           {working ? (
             <Button
               data-variant="outline"
               data-kind="round"
+              data-action="stop"
               disabled={!connected}
               aria-label={t("composer.stop")}
               title={t("composer.stopKey", { key: STOP_KEY })}
               onClick={() => void store.cancel()}
             >
-              <StopIcon size={12} />
+              <StopIcon size={11} />
             </Button>
           ) : null}
         </div>
       </div>
-      {/* Always there, so the box does not move; it lists keys only when they do what it says. */}
-      <KeyHints
-        keys={
-          enabled && connected && blocked === undefined
-            ? keysFor({
-                working,
-                canQueue,
-                steers,
-                mentions: canFind,
-                commands: commands.length > 0,
-              })
-            : []
-        }
-      />
+
+      {/* Part 3: Utility bar — borderless controls beneath the input box: permission on left, model + effort & context ring on right. */}
+      {hasTools ? (
+        <div data-slot="composer-tools">
+          <div data-slot="composer-tools-start">
+            {settings !== undefined && onSetting !== undefined ? (
+              <SettingChips
+                side="left"
+                settings={settings}
+                disabled={!enabled || !connected}
+                onSet={onSetting}
+              />
+            ) : null}
+          </div>
+          <div data-slot="composer-tools-end">
+            {settings !== undefined && onSetting !== undefined ? (
+              <SettingChips
+                side="right"
+                settings={settings}
+                disabled={!enabled || !connected}
+                onSet={onSetting}
+              />
+            ) : null}
+            {usage !== undefined ? <ContextMeter usage={usage} /> : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 /** How the key that stops a turn is written here: ⌘. on a Mac, Ctrl+. elsewhere (the same test as the handler's). */
 const STOP_KEY = `${MOD}.`;
-/** Shift and Option on a Mac, as its keys are labelled; Shift+ and Alt+ elsewhere. */
-const MAC = MOD === "⌘";
-const SHIFT_ENTER = MAC ? "⇧↵" : "Shift+↵";
-const ALT_ENTER = MAC ? "⌥↵" : "Alt+↵";
 
-/** The keys of the box and what they do now. The keys are symbols, the same in every language; the words are messages. */
-type KeyHint = { key: string; does: string };
-const keysFor = ({
-  working,
-  canQueue,
-  steers,
-  mentions,
-  commands,
-}: {
-  working: boolean;
-  canQueue: boolean;
-  steers: boolean;
-  /** @ finds files here: the daemon says it can look. */
-  mentions: boolean;
-  /** / offers something: the agent has said which commands it takes. */
-  commands: boolean;
-}): KeyHint[] => {
-  if (steers)
-    return [
-      { key: "↵", does: "composer.keys.steer" },
-      { key: SHIFT_ENTER, does: "composer.keys.queue" },
-      { key: ALT_ENTER, does: "composer.keys.newline" },
-    ];
-  if (working && canQueue)
-    return [
-      { key: "↵", does: "composer.keys.queue" },
-      { key: SHIFT_ENTER, does: "composer.keys.newline" },
-    ];
-  if (working) return [];
-  return [
-    { key: "↵", does: "composer.keys.send" },
-    { key: SHIFT_ENTER, does: "composer.keys.newline" },
-    ...(mentions ? [{ key: "@", does: "composer.keys.mention" }] : []),
-    ...(commands ? [{ key: "/", does: "composer.keys.command" }] : []),
-  ];
-};
-
-/** One line under the box, always the same height so the box does not move when what it says changes. */
-function KeyHints({ keys }: { keys: KeyHint[] }) {
-  const { t } = useI18n();
-  return (
-    <ul data-slot="key-hints" aria-label={t("composer.keys.label")}>
-      {keys.map((k) => (
-        <li key={k.does}>
-          <kbd>{k.key}</kbd>
-          <span>{t(k.does)}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** How full the context is: a ring that fills, and the number. The whole sentence is its name and its tooltip. */
+/**
+ * How full the context is: a spring-driven progress ring (underdamped settle + subtle completion swell, inspired by
+ * Fluid UI's Progress Ring) paired with a synchronized rolling percentage; full token & cost breakdown in tooltip.
+ */
 function ContextMeter({ usage }: { usage: Usage }) {
   const { number } = useI18n();
-  const share = usage.size > 0 ? Math.min(1, usage.used / usage.size) : 0;
+  const reduced = Boolean(useReducedMotion());
+  const share = usage.size > 0 ? Math.max(0, Math.min(1, usage.used / usage.size)) : 0;
   const label = usageLabel(usage);
   const tone = share > 0.9 ? "danger" : share > 0.7 ? "attention" : undefined;
+  const full = share >= 1;
   const r = 5.25;
   const around = 2 * Math.PI * r;
+
+  const arcRef = useRef<SVGCircleElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const initialShareRef = useRef(share);
+  const initialPercentRef = useRef(number(share, { style: "percent" }));
+  const raw = useMotionValue(share);
+  // Fluid UI spring physics (ω ≈ 8, ζ ≈ 0.72 → k = 64, c = 11.5): weighted settle with gentle organic overshoot.
+  const spring = useSpring(raw, { stiffness: 64, damping: 11.5, mass: 1 });
+  const instant = reduced || MotionGlobalConfig.skipAnimations;
+
+  useLayoutEffect(() => {
+    if (instant) {
+      raw.jump(share);
+      spring.jump(share);
+      if (arcRef.current !== null)
+        arcRef.current.style.strokeDashoffset = `${around * (1 - share)}`;
+      if (textRef.current !== null)
+        textRef.current.textContent = number(share, { style: "percent" });
+      return;
+    }
+    raw.set(share);
+  }, [share, instant, raw, spring, around, number]);
+
+  useEffect(() => {
+    if (instant) return;
+    return spring.on("change", (v) => {
+      // Clamp to [0, 1] so underdamped spring overshoot settles smoothly without opening a gap at 12 o'clock.
+      const clamped = Math.max(0, Math.min(1, v));
+      if (arcRef.current !== null)
+        arcRef.current.style.strokeDashoffset = `${around * (1 - clamped)}`;
+      if (textRef.current !== null)
+        textRef.current.textContent = number(clamped, { style: "percent" });
+    });
+  }, [instant, spring, around, number]);
+
   return (
-    <span data-slot="context-meter" data-tone={tone} role="img" aria-label={label} title={label}>
-      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+    <span
+      data-slot="context-meter"
+      data-tone={tone}
+      data-full={full || undefined}
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true">
         <circle cx="7" cy="7" r={r} data-slot="context-track" />
         <circle
+          ref={arcRef}
           cx="7"
           cy="7"
           r={r}
           data-slot="context-fill"
-          strokeDasharray={`${share * around} ${around}`}
+          strokeDasharray={around}
+          strokeDashoffset={around * (1 - initialShareRef.current)}
           transform="rotate(-90 7 7)"
         />
       </svg>
-      <span aria-hidden="true">{number(share, { style: "percent" })}</span>
-      {usage.cost !== undefined ? (
-        <span aria-hidden="true">
-          {number(usage.cost.amount, {
-            style: "currency",
-            currency: usage.cost.currency,
-            maximumFractionDigits: usage.cost.amount < 0.1 ? 3 : 2,
-          })}
-        </span>
-      ) : null}
+      <span ref={textRef} aria-hidden="true">
+        {initialPercentRef.current}
+      </span>
     </span>
   );
 }

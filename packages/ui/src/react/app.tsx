@@ -34,7 +34,7 @@ import { thinking } from "../thinking.ts";
 import { AnalyticsNotice } from "./analytics.tsx";
 import { BlankConversationView } from "./blank.tsx";
 import { Composer } from "./composer.tsx";
-import { ConfigForm } from "./config-form.tsx";
+import { ConfigForm, mergeConfigSchema, propertiesOf } from "./config-form.tsx";
 import { ConnectorsDialog } from "./connectors.tsx";
 import { ConversationView } from "./conversation.tsx";
 import {
@@ -49,7 +49,7 @@ import { useI18n } from "./i18n.tsx";
 import { ErrorCircleIcon, MoreIcon, SidebarIcon, WarningIcon } from "./icons.tsx";
 import { useDay, useInFront } from "./in-front.ts";
 import { PermissionCard } from "./permission.tsx";
-import { currentPlan, PlanStrip } from "./plan.tsx";
+import { currentPlan } from "./plan.tsx";
 import { SearchDialog } from "./search.tsx";
 import type { Away } from "./session-list.tsx";
 import { MOD, Sidebar, sessionTitle } from "./sidebar.tsx";
@@ -97,7 +97,17 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
   );
   const session = sessions?.find((x) => x.sessionId === sessionId);
   const agent = agents?.find((a) => a.id === session?.agent);
-  if (session === undefined || agent === undefined) return null;
+  const liveConfigOptions = useAppState((s) =>
+    environment !== undefined && sessionId !== undefined
+      ? s.views[viewKey(environment, sessionId)]?.conversation.configOptions
+      : undefined,
+  );
+  const schema = useMemo(
+    () =>
+      agent === undefined ? undefined : mergeConfigSchema(agent.configSchema, liveConfigOptions),
+    [agent, liveConfigOptions],
+  );
+  if (session === undefined || schema === undefined) return null;
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogBackdrop />
@@ -105,7 +115,7 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
         <DialogTitle>{t("session.settings")}</DialogTitle>
         <DialogDescription>A change applies to the next thing the agent does.</DialogDescription>
         <ConfigForm
-          schema={agent.configSchema}
+          schema={schema}
           value={session.config ?? {}}
           defaults={false}
           onChange={(next) => {
@@ -177,6 +187,13 @@ export function App() {
     selectedEnvironment !== undefined && selectedSession !== undefined
       ? views[viewKey(selectedEnvironment, selectedSession)]
       : undefined;
+  const sessionSchema = useMemo(
+    () =>
+      agent === undefined
+        ? undefined
+        : mergeConfigSchema(agent.configSchema, view?.conversation.configOptions),
+    [agent, view?.conversation.configOptions],
+  );
   const environmentState =
     selectedEnvironment !== undefined ? status[selectedEnvironment]?.state : undefined;
   const connected = environmentState === "connected";
@@ -539,6 +556,7 @@ export function App() {
                       if (value === "rename") open("rename");
                       else if (value === "dismiss-background")
                         void store.dismissBackground(session);
+                      else if (value === "settings") open("settings");
                       else if (value === "archive")
                         void store.archiveSession(session.sessionId, !session.archived);
                       else if (value === "delete") open("delete");
@@ -560,6 +578,11 @@ export function App() {
                         </MenuItem>
                       ) : null}
                       <MenuItem value="rename">Rename</MenuItem>
+                      {sessionSchema !== undefined && propertiesOf(sessionSchema).length > 0 ? (
+                        <MenuItem value="settings" disabled={!connected}>
+                          {t("session.settings")}
+                        </MenuItem>
+                      ) : null}
                       <MenuCheckboxItem
                         value="thinking"
                         checked={showThinking}
@@ -628,7 +651,6 @@ export function App() {
                 )}
               </div>
             )}
-            {plan !== undefined ? <PlanStrip plan={plan} /> : null}
             <div data-slot="permissions">
               {(view?.permissions ?? []).map((request) =>
                 request.form !== undefined ? (
@@ -655,16 +677,16 @@ export function App() {
                 sessionKey={viewKey(view.environmentId, view.sessionId)}
                 canAttach={agent?.promptCapabilities?.image != null}
                 settings={
-                  agent !== undefined && session !== undefined
-                    ? { schema: agent.configSchema, value: session.config ?? {} }
+                  sessionSchema !== undefined && session !== undefined
+                    ? { schema: sessionSchema, value: session.config ?? {} }
                     : undefined
                 }
                 onSetting={(key, value) => void store.setSessionConfig(key, value)}
-                onOpenSettings={() => open("settings")}
                 canSteer={agent?.steer === true}
                 enabled={!view.loading}
                 connected={connected}
                 activity={activity}
+                plan={plan}
                 usage={view.conversation.usage}
                 onSent={() => setSent((n) => n + 1)}
               />

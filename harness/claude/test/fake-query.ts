@@ -1,4 +1,10 @@
-import type { Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  ModelInfo,
+  Options,
+  Query,
+  SDKMessage,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 
 /** What a turn is asked to do: the text of the user message that began it, and the options of its query. */
 export type Call = { prompt: string; options: Options };
@@ -47,13 +53,18 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
   /** The same, as the SDK was given them: a string, or content blocks. */
   const contents: unknown[] = [];
   const state = {
-    /** What `supportedCommands()` answers. */
+    /** What `supportedCommands()` / `initializationResult().commands` answers. */
     commands: [] as { name: string; description: string; argumentHint: string }[],
+    /** What `initializationResult().models` / `supportedModels()` answers. */
+    availableModels: [] as ModelInfo[],
+    /** Make `initializationResult()` reject so fallback queries (`supportedCommands`/`supportedModels`) are exercised. */
+    failInitializationResult: false,
     interrupts: 0,
     /** How long `setPermissionMode` takes, as a process that is busy takes. */
     setterDelayMs: 0,
     permissionModes: [] as string[],
     models: [] as (string | undefined)[],
+    flagSettings: [] as Record<string, unknown>[],
     /** Make `setPermissionMode` and `setModel` throw, as they do on a process that is gone. */
     failSetters: false,
     /** `interrupt` does nothing, as for a process that has hung. */
@@ -200,9 +211,25 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
         state.permissionModes.push(mode);
       },
       supportedCommands: async () => state.commands,
+      supportedModels: async () => state.availableModels,
+      initializationResult: async () => {
+        if (state.failInitializationResult) throw new Error("initializationResult unavailable");
+        return {
+          commands: state.commands,
+          models: state.availableModels,
+          agents: [],
+          output_style: "default",
+          available_output_styles: [],
+          account: {},
+        };
+      },
       setModel: async (model?: string) => {
         if (state.failSetters) throw new Error("the process is gone");
         state.models.push(model);
+      },
+      applyFlagSettings: async (settings: Record<string, unknown>) => {
+        if (state.failSetters) throw new Error("the process is gone");
+        state.flagSettings.push(settings);
       },
     }) as unknown as Query;
   };

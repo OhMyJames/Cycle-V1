@@ -130,6 +130,23 @@ export type Returned = {
 /** A command the agent offers, typed as `/name` at the start of a message. */
 export type Command = { name: string; description: string; hint?: string };
 
+/** One choice in a live ACP `config_option_update` (e.g. a model from Claude's `initializationResult().models`). */
+export type DynamicConfigChoice = {
+  value: string;
+  name: string;
+  description?: string;
+  recommended?: boolean;
+  danger?: boolean;
+};
+
+/** Live configuration options pushed by the agent for a session, overlaying its static `configSchema`. */
+export type DynamicConfigOption = {
+  configId: string;
+  name: string;
+  currentValue?: string;
+  options: DynamicConfigChoice[];
+};
+
 export type Conversation = {
   items: Item[];
   status: Status;
@@ -145,6 +162,8 @@ export type Conversation = {
   /** What the daemon last handed back. Only set when it arrives live: a replay never sets it. */
   returned: Returned | undefined;
   commands: Command[];
+  /** Live config options pushed by the agent (models, per-model effort levels, modes), if any. */
+  configOptions: DynamicConfigOption[];
   /** Updates of a kind this version does not draw. */
   ignored: number;
   /** Sub-agents announced before the call that started them was seen, by that call's id. */
@@ -161,6 +180,7 @@ export const emptyConversation = (): Conversation => ({
   queue: [],
   returned: undefined,
   commands: [],
+  configOptions: [],
   ignored: 0,
   waiting: {},
 });
@@ -174,6 +194,49 @@ const queuedPrompts = (value: unknown): QueuedPrompt[] =>
           : [];
       })
     : [];
+
+const configOptionsOf = (value: unknown): DynamicConfigOption[] => {
+  if (!Array.isArray(value)) return [];
+  const out: DynamicConfigOption[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const e = entry as {
+      configId?: unknown;
+      name?: unknown;
+      currentValue?: unknown;
+      options?: unknown;
+    };
+    if (typeof e.configId !== "string" || !Array.isArray(e.options)) continue;
+    const options: DynamicConfigChoice[] = [];
+    for (const raw of e.options) {
+      if (typeof raw !== "object" || raw === null) continue;
+      const o = raw as {
+        value?: unknown;
+        name?: unknown;
+        description?: unknown;
+        _meta?: Record<string, unknown>;
+      };
+      if (typeof o.value !== "string" || o.value === "") continue;
+      options.push({
+        value: o.value,
+        name: typeof o.name === "string" && o.name !== "" ? o.name : o.value,
+        ...(typeof o.description === "string" && o.description !== ""
+          ? { description: o.description }
+          : {}),
+        ...(o._meta?.["cycle/recommended"] === true ? { recommended: true } : {}),
+        ...(o._meta?.["cycle/danger"] === true ? { danger: true } : {}),
+      });
+    }
+    if (options.length === 0) continue;
+    out.push({
+      configId: e.configId,
+      name: typeof e.name === "string" && e.name !== "" ? e.name : e.configId,
+      ...(typeof e.currentValue === "string" ? { currentValue: e.currentValue } : {}),
+      options,
+    });
+  }
+  return out;
+};
 
 const commandsOf = (value: unknown): Command[] =>
   Array.isArray(value)
@@ -505,7 +568,10 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
       return c;
     case "available_commands_update":
       return { ...c, commands: commandsOf(u.availableCommands) };
-    case "config_option_update":
+    case "config_option_update": {
+      const next = configOptionsOf(u.configOptions);
+      return next.length > 0 ? { ...c, configOptions: next } : c;
+    }
     case "session_info_update":
       // Known, and not drawn in the conversation.
       return c;

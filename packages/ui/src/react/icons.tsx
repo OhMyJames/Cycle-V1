@@ -215,3 +215,23 @@ export const PlugIcon = ({ size = 16, ...rest }: IconProps) => (
     </g>
   </Svg>
 );
+
+/** iconmcp: shield */
+export const ShieldIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <path d="M8 2.25 L13 4.25 V7.75 C13 10.75 10.85 12.95 8 13.75 C5.15 12.95 3 10.75 3 7.75 V4.25 Z" />
+    </g>
+  </Svg>
+);
+
+/** iconmcp: shield-alert */
+export const ShieldAlertIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <path d="M8 2.25 L13 4.25 V7.75 C13 10.75 10.85 12.95 8 13.75 C5.15 12.95 3 10.75 3 7.75 V4.25 Z" />
+      <line x1="8" y1="5.75" x2="8" y2="8.5" />
+      <circle cx="8" cy="10.75" r="0.9" fill="currentColor" stroke="none" />
+    </g>
+  </Svg>
+);

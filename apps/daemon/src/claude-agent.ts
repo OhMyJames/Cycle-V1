@@ -1,9 +1,11 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
+  CLAUDE_EFFORT_LEVELS,
   CLAUDE_MODELS,
   CLAUDE_PERMISSION_MODES,
   CLAUDE_PROMPT_CAPABILITIES,
+  DEFAULT_EFFORT_LEVEL,
   DEFAULT_PERMISSION_MODE,
 } from "@cycle/harness-claude";
 import { META } from "@cycle/protocol";
@@ -30,10 +32,24 @@ export const CLAUDE_CONFIG_SCHEMA = {
     model: {
       type: "string",
       title: "Model",
-      oneOf: CLAUDE_MODELS.map((m) => ({ const: m.value, title: m.name })),
+      oneOf: CLAUDE_MODELS.map((m) => ({
+        const: m.value,
+        title: m.name,
+        ...(m.description !== undefined ? { description: m.description } : {}),
+      })),
       // Claude takes any model name it knows, a full id included: these are the ones offered.
       _meta: { [META.open]: true },
       default: "default",
+    },
+    effort: {
+      type: "string",
+      title: "Effort",
+      oneOf: CLAUDE_EFFORT_LEVELS.map((e) => ({
+        const: e.value,
+        title: e.name,
+        description: e.description,
+      })),
+      default: DEFAULT_EFFORT_LEVEL,
     },
   },
 } as const;

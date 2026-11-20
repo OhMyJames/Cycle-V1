@@ -128,12 +128,48 @@ const messageOf = (error: unknown): string => {
   return text.replace(/^Error invoking remote method '[^']*': (Error: )?/, "");
 };
 
+/** True when a live `config_option_update` reports a model list that differs from the cached agent schema. */
+const hasNewModelCatalog = (
+  agents: readonly AgentInfo[] | undefined,
+  agentId: string | undefined,
+  update: unknown,
+): boolean => {
+  const u = update as {
+    sessionUpdate?: string;
+    configOptions?: {
+      configId?: string;
+      options?: { value?: unknown; _meta?: Record<string, unknown> }[];
+    }[];
+  };
+  if (u.sessionUpdate !== "config_option_update" || !Array.isArray(u.configOptions)) return false;
+  const modelOpt = u.configOptions.find((o) => o.configId === "model");
+  if (!Array.isArray(modelOpt?.options)) return false;
+  const incoming = modelOpt.options
+    .filter(
+      (c): c is { value: string; _meta?: Record<string, unknown> } =>
+        typeof c?.value === "string" && c.value !== "" && c._meta?.["cycle/custom"] !== true,
+    )
+    .map((c) => c.value);
+  if (incoming.length === 0) return false;
+  const agent = agentId !== undefined ? agents?.find((a) => a.id === agentId) : undefined;
+  const properties = (
+    agent?.configSchema as { properties?: Record<string, { oneOf?: { const?: unknown }[] }> }
+  )?.properties;
+  const existing = (properties?.model?.oneOf ?? [])
+    .map((c) => c.const)
+    .filter((v): v is string => typeof v === "string");
+  if (existing.length !== incoming.length) return true;
+  return incoming.some((value, index) => existing[index] !== value);
+};
+
 export class AppStore {
   readonly #bridge: CycleBridge;
   #state: AppState = initial();
   readonly #listeners = new Set<() => void>();
   /** Events about a session that is still being opened, held until its snapshot is in. */
   readonly #held = new Map<string, AppEvent[]>();
+  /** In-flight `agents()` refreshes per environment, coalesced so bursts never spam the daemon. */
+  readonly #loadingAgents = new Map<string, Promise<void>>();
   #stop: (() => void) | undefined;
   /** The blank conversation's folder is being looked up for trust: a second send waits for the first. */
   #checkingTrust = false;
@@ -254,9 +290,18 @@ export class AppStore {
       case "session-gone":
         this.#forgetSession(event.environmentId, event.sessionId);
         return;
-      case "update":
-        this.#onSessionEvent(viewKey(event.environmentId, event.sessionId), event);
+      case "update": {
+        const applied = this.#onSessionEvent(viewKey(event.environmentId, event.sessionId), event);
+        if (applied && this.#state.status[event.environmentId]?.state === "connected") {
+          const agentId = this.#state.sessions[event.environmentId]?.find(
+            (s) => s.sessionId === event.sessionId,
+          )?.agent;
+          if (hasNewModelCatalog(this.#state.agents[event.environmentId], agentId, event.update)) {
+            void this.#loadAgents(event.environmentId);
+          }
+        }
         return;
+      }
       case "permission":
         this.#onSessionEvent(viewKey(event.request.environmentId, event.request.sessionId), event);
         return;
@@ -266,20 +311,21 @@ export class AppStore {
     }
   }
 
-  #onSessionEvent(key: string, event: AppEvent & { version: number }): void {
+  #onSessionEvent(key: string, event: AppEvent & { version: number }): boolean {
     const view = this.#state.views[key];
-    if (view === undefined) return;
+    if (view === undefined) return false;
     if (view.loading) {
       this.#held.set(key, [...(this.#held.get(key) ?? []), event]);
-      return;
+      return false;
     }
-    if (event.version <= view.version) return;
+    if (event.version <= view.version) return false;
     if (event.version > view.version + 1) {
       // One was missed. Ask main for the session again rather than show something wrong.
       void this.#reopen(view.environmentId, view.sessionId);
-      return;
+      return false;
     }
     this.#setView(key, applyToView(view, event));
+    return true;
   }
 
   #setView(key: string, view: SessionView): void {
@@ -373,13 +419,21 @@ export class AppStore {
     }
   };
 
-  async #loadAgents(environmentId: string): Promise<void> {
-    await this.#attempt(async () => {
-      const agents = await this.#bridge.agents(environmentId);
-      this.#set((s) => ({ agents: { ...s.agents, [environmentId]: agents } }));
+  #loadAgents(environmentId: string): Promise<void> {
+    const inflight = this.#loadingAgents.get(environmentId);
+    if (inflight !== undefined) return inflight;
+    const load = (async () => {
+      await this.#attempt(async () => {
+        const agents = await this.#bridge.agents(environmentId);
+        this.#set((s) => ({ agents: { ...s.agents, [environmentId]: agents } }));
+      });
+      // A blank conversation on it was waiting to know which agent it starts.
+      if (this.#state.blank?.environmentId === environmentId) void this.#readBlankDefaults();
+    })().finally(() => {
+      this.#loadingAgents.delete(environmentId);
     });
-    // A blank conversation on it was waiting to know which agent it starts.
-    if (this.#state.blank?.environmentId === environmentId) void this.#readBlankDefaults();
+    this.#loadingAgents.set(environmentId, load);
+    return load;
   }
 
   /** Reads the environment's agents again, e.g. after credentials or binaries are fixed. */

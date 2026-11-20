@@ -1,0 +1,88 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { META } from "@cycle/protocol";
+import { CLAUDE_CONFIG_SCHEMA } from "../src/claude-agent.ts";
+import { AgentOptionsCache, choicesFromConfigOptions } from "../src/options-cache.ts";
+
+const dirs: string[] = [];
+const tempPath = () => {
+  const dir = mkdtempSync(join(tmpdir(), "cycle-options-cache-"));
+  dirs.push(dir);
+  return join(dir, "agent-options.json");
+};
+
+afterEach(() => {
+  while (dirs.length > 0) rmSync(dirs.pop() as string, { recursive: true, force: true });
+});
+
+test("caches discovered model choices to disk and overlays them onto configSchema across restarts", async () => {
+  const path = tempPath();
+  const cache = await AgentOptionsCache.load(path);
+  expect(cache.apply("claude", CLAUDE_CONFIG_SCHEMA)).toBe(CLAUDE_CONFIG_SCHEMA);
+
+  const choices = choicesFromConfigOptions(
+    [
+      {
+        configId: "model",
+        name: "Model",
+        options: [
+          { value: "default", name: "Default model" },
+          { value: "fabel", name: "Fabel", description: "Latest model." },
+          { value: "opus", name: "Opus" },
+        ],
+      },
+    ],
+    "model",
+  );
+  expect(choices).toHaveLength(3);
+  await cache.update("claude", "model", choices ?? []);
+
+  const reloaded = await AgentOptionsCache.load(path);
+  const merged = reloaded.apply("claude", CLAUDE_CONFIG_SCHEMA) as {
+    properties: {
+      model: {
+        oneOf: { const: string; title: string }[];
+        default: string;
+        _meta?: Record<string, unknown>;
+      };
+    };
+  };
+  expect(merged.properties.model.oneOf.map((o) => o.const)).toEqual(["default", "fabel", "opus"]);
+  expect(merged.properties.model.default).toBe("default");
+  expect(merged.properties.model._meta?.[META.open]).toBe(true);
+});
+
+test("ignores corrupt cache files and falls back cleanly to static schema", async () => {
+  const path = tempPath();
+  writeFileSync(path, "{not valid json");
+  const cache = await AgentOptionsCache.load(path);
+  expect(cache.apply("claude", CLAUDE_CONFIG_SCHEMA)).toBe(CLAUDE_CONFIG_SCHEMA);
+});
+
+test("excludes synthetic custom model entries from being cached globally", async () => {
+  const path = tempPath();
+  const cache = await AgentOptionsCache.load(path);
+  const choices = choicesFromConfigOptions(
+    [
+      {
+        configId: "model",
+        options: [
+          { value: "default", name: "Default model" },
+          { value: "fabel", name: "Fabel" },
+          { value: "my-private-model", name: "my-private-model", _meta: { "cycle/custom": true } },
+        ],
+      },
+    ],
+    "model",
+  );
+  expect(choices?.map((c) => c.const)).toEqual(["default", "fabel"]);
+  await cache.update("claude", "model", choices ?? []);
+  await cache.flush();
+  const reloaded = await AgentOptionsCache.load(path);
+  const merged = reloaded.apply("claude", CLAUDE_CONFIG_SCHEMA) as {
+    properties: { model: { oneOf: { const: string }[] } };
+  };
+  expect(merged.properties.model.oneOf.map((o) => o.const)).toEqual(["default", "fabel"]);
+});

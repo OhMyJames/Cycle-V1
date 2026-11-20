@@ -1667,3 +1667,49 @@ test("a form's answer stays out of the log", async () => {
   const disk = await readFile(join(dir, "sessions", `${sessionId}.jsonl`), "utf8");
   expect(disk).not.toContain("form-answer-value");
 });
+
+test("resuming restores model before effort and ignores intermediate config_option_update notifications", async () => {
+  const options = [
+    { configId: "model", currentValue: "default" },
+    { configId: "effort", currentValue: "default" },
+  ];
+  const configSchema = {
+    type: "object",
+    properties: {
+      model: { type: "string", enum: ["default", "opus"] },
+      effort: { type: "string", enum: ["default", "high"] },
+    },
+  };
+  const first = await start(
+    fakeAgent(
+      {},
+      { configSchema, configOptions: options, resumeConfigOptions: options, emitConfigOnSet: true },
+    ),
+  );
+  const c1 = await connectClient(first.daemon);
+  const { sessionId } = await c1.agent.request(methods.agent.session.new, {
+    cwd: "/tmp",
+    _meta: { "cycle/config": { effort: "high", model: "opus" } },
+  });
+  await c1.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c1.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("turn 1") });
+  await until(() => c1.ended() >= 1, "first turn to end");
+  await first.daemon.close();
+
+  const resumedFake = fakeAgent(
+    {},
+    { configSchema, configOptions: options, resumeConfigOptions: options, emitConfigOnSet: true },
+  );
+  const second = await start(resumedFake);
+  const c2 = await connectClient(second.daemon);
+  await c2.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await c2.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("turn 2") });
+  await until(() => c2.ended() >= 1, "second turn to end");
+
+  expect(resumedFake.log.configs.map((c) => [c.configId, c.value])).toEqual([
+    ["model", "opus"],
+    ["effort", "high"],
+  ]);
+  const { meta } = await rowOf(c2, sessionId);
+  expect(meta["cycle/config"]).toEqual({ model: "opus", effort: "high" });
+});

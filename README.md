@@ -56,4 +56,4 @@ git worktree、多 provider 和独立 Web 端仍在 v1 范围外。
 
 ## 致谢
 
-Cycle v2 设计语言（字体排版、硬件微高光材质与安全橙点缀）及部分交互形态（实时状态行、展开选择器）的视觉设计受到 [Rare UI](https://www.rareui.com/) 的启发，组件代码均为 Cycle 独立实现。
+Cycle v2 设计语言（字体排版、硬件微高光材质与安全橙点缀）及部分交互形态（实时状态行、展开选择器）的视觉设计受到 [Rare UI](https://www.rareui.com/) 的启发，上下文进度环的弹簧动效受到 [Fluid UI](https://fluidui.willradoux.com/) 的启发，组件代码均为 Cycle 独立实现。

@@ -89,14 +89,8 @@ export const enUS = {
   "composer.steer": "Send now",
   "composer.stop": "Stop",
   "composer.stopKey": "Stop ({key})",
-  "composer.keys.label": "Keys",
-  "composer.keys.send": "Send",
-  "composer.keys.newline": "New line",
-  "composer.keys.queue": "Queue",
-  "composer.keys.steer": "Send now",
-  "composer.keys.mention": "Mention a file",
-  "composer.keys.command": "Commands",
   "composer.setting": "{setting}: {value}",
+  "composer.settingPair": "{first}, {second}",
 
   // The commands that fit what is typed after a slash
   "composer.commands.label": "Commands",

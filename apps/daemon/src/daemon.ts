@@ -51,7 +51,14 @@ import type { z } from "zod";
 import { AgentLink } from "./agent-link.ts";
 import type { AgentDefinition } from "./agents.ts";
 import { ConnectorService } from "./connectors/service.ts";
-import { blobsDir, defaultsPath, indexPath, sessionsDir, trustPath } from "./data-dir.ts";
+import {
+  blobsDir,
+  defaultsPath,
+  indexPath,
+  optionsCachePath,
+  sessionsDir,
+  trustPath,
+} from "./data-dir.ts";
 import { AgentDefaults } from "./defaults-file.ts";
 import {
   INTERNAL_ERROR,
@@ -72,6 +79,7 @@ import { JsonlLogStore } from "./log/jsonl.ts";
 import { attach } from "./log/replay.ts";
 import type { LogRecord, LogStore, NewRecord } from "./log/types.ts";
 import { errorText, type Logger, silentLogger } from "./logger.ts";
+import { AgentOptionsCache, choicesFromConfigOptions } from "./options-cache.ts";
 import { redactParams, redactRecord } from "./redact.ts";
 import {
   type Attachment,
@@ -124,6 +132,16 @@ const currentValues = (options: unknown): Record<string, string> => {
   return config;
 };
 
+/** Keeps existing config order while ensuring `model` is applied before model-dependent `effort`. */
+const orderedConfigEntries = (config: Record<string, string>): [string, string][] => {
+  const entries = Object.entries(config);
+  const effortIndex = entries.findIndex(([key]) => key === "effort");
+  const modelIndex = entries.findIndex(([key]) => key === "model");
+  if (effortIndex === -1 || modelIndex === -1 || effortIndex > modelIndex) return entries;
+  const [effort] = entries.splice(effortIndex, 1);
+  if (effort !== undefined) entries.splice(modelIndex, 0, effort);
+  return entries;
+};
 /**
  * The daemon: Cycle's side of docs/protocol.md. It owns the sessions and their history, runs the
  * agents, and serves any number of clients. A client sees a session through the session's log, so
@@ -207,6 +225,7 @@ export class Daemon {
   readonly #store: LogStore;
   readonly #index: SessionIndex;
   readonly #defaults: AgentDefaults;
+  readonly #optionsCache: AgentOptionsCache;
   readonly #trust: FolderTrust;
   readonly #connectors: ConnectorService;
   readonly #maxAhead: number | undefined;
@@ -222,6 +241,7 @@ export class Daemon {
     options: DaemonOptions,
     index: SessionIndex,
     defaults: AgentDefaults,
+    optionsCache: AgentOptionsCache,
     trust: FolderTrust,
     connectors: ConnectorService,
   ) {
@@ -237,6 +257,7 @@ export class Daemon {
       );
     this.#index = index;
     this.#defaults = defaults;
+    this.#optionsCache = optionsCache;
     this.#trust = trust;
     this.#connectors = connectors;
     connectors.onChanged(() => {
@@ -252,6 +273,7 @@ export class Daemon {
       options,
       await SessionIndex.load(indexPath(options.dataDir)),
       await AgentDefaults.load(defaultsPath(options.dataDir)),
+      await AgentOptionsCache.load(optionsCachePath(options.dataDir)),
       await FolderTrust.load(trustPath(options.dataDir)),
       options.connectors ?? (await ConnectorService.load(options.dataDir)),
     );
@@ -339,6 +361,7 @@ export class Daemon {
     this.#connectors.close();
     // What the sessions noted as they went (an unread mark, a usage) is written by now, not dropped.
     await this.#index.flush();
+    await this.#optionsCache.flush();
   }
 
   #dropped(conn: ClientConn): void {
@@ -539,58 +562,73 @@ export class Daemon {
       session.resuming = true;
       let resumed: unknown;
       try {
-        // What the session was made with goes again: the agent does not keep it across a restart.
-        const { additionalDirectories, systemPrompt } = session.entry;
-        resumed = await link.agent.request(methods.agent.session.resume, {
-          sessionId: session.entry.agentSessionId,
-          cwd: session.entry.cwd,
-          ...(additionalDirectories !== undefined ? { additionalDirectories } : {}),
-          ...(mcpServers.length > 0 ? { mcpServers } : {}),
-          ...(systemPrompt !== undefined ? { systemPrompt } : {}),
-          _meta: {
-            ...trust,
-            // So that an agent that finds no record of a session that had turns says so.
-            ...(session.entry.hadTurn === true ? { [META.hadTurn]: true } : {}),
-          },
-        } as never);
-      } catch (error) {
-        throw new RpcError(CycleErrorCode.ResumeFailed, "The agent could not resume the session", {
-          sessionId: session.id,
-          detail: error instanceof Error ? error.message : String(error),
-        });
+        try {
+          // What the session was made with goes again: the agent does not keep it across a restart.
+          const { additionalDirectories, systemPrompt } = session.entry;
+          resumed = await link.agent.request(methods.agent.session.resume, {
+            sessionId: session.entry.agentSessionId,
+            cwd: session.entry.cwd,
+            ...(additionalDirectories !== undefined ? { additionalDirectories } : {}),
+            ...(mcpServers.length > 0 ? { mcpServers } : {}),
+            ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+            _meta: {
+              ...trust,
+              // So that an agent that finds no record of a session that had turns says so.
+              ...(session.entry.hadTurn === true ? { [META.hadTurn]: true } : {}),
+            },
+          } as never);
+        } catch (error) {
+          throw new RpcError(
+            CycleErrorCode.ResumeFailed,
+            "The agent could not resume the session",
+            {
+              sessionId: session.id,
+              detail: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
+        // A setting not on record (a session older than the record of what it started with) is
+        // whatever the agent resumed it in: on record from now, so a client can show it.
+        const resumedWith = currentValues(
+          (resumed as { configOptions?: unknown } | undefined)?.configOptions,
+        );
+        const missing = Object.fromEntries(
+          Object.entries(resumedWith).filter(([key]) => !(key in (session.entry.config ?? {}))),
+        );
+        if (Object.keys(missing).length > 0) {
+          this.#remember(session, { config: { ...missing, ...(session.entry.config ?? {}) } });
+        }
+        // What was saved is put back, setting by setting. Keep `session.resuming` true until
+        // restoration completes so intermediate `config_option_update` notifications cannot clobber
+        // saved settings that have not been re-applied yet.
+        const refused: { configId: string; wanted: string }[] = [];
+        for (const [configId, value] of orderedConfigEntries(session.entry.config ?? {})) {
+          await link.agent
+            .request(methods.agent.session.setConfigOption, {
+              sessionId: session.entry.agentSessionId,
+              configId,
+              type: "id",
+              value,
+            } as never)
+            .catch((error: unknown) => {
+              // Only the agent's own answer is a refusal. A link that broke is not: the record is kept.
+              if (typeof (error as { code?: unknown } | null)?.code === "number")
+                refused.push({ configId, wanted: value });
+            });
+        }
+        if (refused.length > 0) await this.#configNotRestored(session, refused, resumedWith);
       } finally {
         session.resuming = false;
       }
-      // A setting not on record (a session older than the record of what it started with) is
-      // whatever the agent resumed it in: on record from now, so a client can show it.
-      const resumedWith = currentValues(
+      const resumedModels = choicesFromConfigOptions(
         (resumed as { configOptions?: unknown } | undefined)?.configOptions,
+        "model",
       );
-      const missing = Object.fromEntries(
-        Object.entries(resumedWith).filter(([key]) => !(key in (session.entry.config ?? {}))),
-      );
-      if (Object.keys(missing).length > 0) {
-        this.#remember(session, { config: { ...missing, ...(session.entry.config ?? {}) } });
+      if (resumedModels !== undefined) {
+        void this.#optionsCache
+          .update(session.entry.agent, "model", resumedModels)
+          .catch(() => undefined);
       }
-      // What was saved is put back, setting by setting. One the agent no longer takes is not left on
-      // record as if it were in force: the session carries on with what the agent actually has, the
-      // record says so, and the conversation says so before anything more is sent.
-      const refused: { configId: string; wanted: string }[] = [];
-      for (const [configId, value] of Object.entries(session.entry.config ?? {})) {
-        await link.agent
-          .request(methods.agent.session.setConfigOption, {
-            sessionId: session.entry.agentSessionId,
-            configId,
-            type: "id",
-            value,
-          } as never)
-          .catch((error: unknown) => {
-            // Only the agent's own answer is a refusal. A link that broke is not: the record is kept.
-            if (typeof (error as { code?: unknown } | null)?.code === "number")
-              refused.push({ configId, wanted: value });
-          });
-      }
-      if (refused.length > 0) await this.#configNotRestored(session, refused, resumedWith);
       return { link, created: undefined };
     } catch (error) {
       session.link = undefined;
@@ -1049,9 +1087,18 @@ export class Daemon {
       // cut off, may never have reached it; those prove nothing.)
       this.#remember(session, { hadTurn: true }, false);
     } else if (u.sessionUpdate === "config_option_update" && Array.isArray(u.configOptions)) {
-      // The agent changed a setting itself (a plan approved, say): on record, so a restart keeps it.
-      const config = { ...(session.entry.config ?? {}), ...currentValues(u.configOptions) };
-      this.#remember(session, { config });
+      // The agent changed a setting itself (a plan approved, say) or announced its live model catalog:
+      // keep changed values on record and cache the discovered model list for cold starts and blank sessions.
+      const existing = session.entry.config ?? {};
+      const next = currentValues(u.configOptions);
+      const changed = Object.entries(next).some(([key, value]) => existing[key] !== value);
+      if (changed) {
+        this.#remember(session, { config: { ...existing, ...next } });
+      }
+      const models = choicesFromConfigOptions(u.configOptions, "model");
+      if (models !== undefined) {
+        void this.#optionsCache.update(session.entry.agent, "model", models).catch(() => undefined);
+      }
     } else if (u.sessionUpdate === "usage_update") {
       const usage = SessionUsageSchema.safeParse(update);
       if (usage.success) {
@@ -1550,7 +1597,7 @@ export class Daemon {
         const config = { ...this.#defaults.get(agentId), ...overrides };
         // What the agent says its settings are now: each change answers with the whole set.
         let options = answer.configOptions ?? [];
-        for (const [configId, value] of Object.entries(config)) {
+        for (const [configId, value] of orderedConfigEntries(config)) {
           try {
             const changed = await link.agent.request(methods.agent.session.setConfigOption, {
               sessionId: session.entry.agentSessionId,
@@ -1833,7 +1880,7 @@ export class Daemon {
           id: a.id,
           name: a.name,
           available: (await a.available?.()) ?? true,
-          configSchema: a.configSchema,
+          configSchema: this.#optionsCache.apply(a.id, a.configSchema),
           ...(a.promptCapabilities !== undefined
             ? { promptCapabilities: a.promptCapabilities }
             : {}),

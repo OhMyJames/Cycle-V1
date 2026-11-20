@@ -446,6 +446,7 @@ summary:focus-visible {
     [data-slot="search-title"],
     [data-slot="update-text"] [data-slot="hint"],
     [data-slot="setting-value"],
+    [data-slot="setting-option"] [data-slot="option-description"],
     [data-slot="queued-text"],
     [data-slot="attachment-name"],
     [data-slot="picker-description"],
@@ -479,6 +480,7 @@ summary:focus-visible {
   [data-slot="search-title"],
   [data-slot="update-text"] [data-slot="hint"],
   [data-slot="setting-value"],
+  [data-slot="setting-option"] [data-slot="option-description"],
   [data-slot="queued-text"],
   [data-slot="attachment-name"],
   [data-slot="picker-description"],
@@ -2079,6 +2081,21 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   background: var(--cycle-surface-raised);
 }
 
+/* When docked inside the composer extension tray, the tray provides the frame and hairline dividers. */
+[data-slot="composer-extensions"] [data-kind="plan-strip"] {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+[data-slot="composer-extensions"] [data-kind="plan-strip"] > button {
+  min-height: 2rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0;
+  font-size: var(--cycle-text-meta);
+}
+
 [data-kind="plan-strip"] [data-slot="plan"] {
   padding: 0.25rem 0.75rem 0.5rem;
   max-height: 12rem;
@@ -2414,62 +2431,172 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   font-size: var(--cycle-text-meta);
 }
 
-/* Composer */
+/* Composer: three clean bands — recessed extension tray above, adaptive input card in the middle,
+   borderless utility bar beneath (permission left, model + effort & context ring right). */
 [data-slot="composer"] {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem var(--cycle-column-pad) var(--cycle-gap);
+  gap: 0;
+  padding: 0.375rem var(--cycle-column-pad) 0.625rem;
 }
 
-/* One box holds what is being written: the images, the text, and under it the controls that act on it.
-   Corners nest concentrically: 24 outer with 14 padding holds controls of 10 and capsule pills. */
-[data-slot="composer-box"] {
+/* Part 1: Extension tray — docked cleanly above the input box, strictly one compact row per extension type.
+   Inset matches the flat top span of the capsule (single-line) or card (multiline) beneath it. */
+[data-slot="composer-extensions"] {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.875rem 0.875rem 0.625rem;
-  border: 1px solid var(--cycle-input-border);
-  border-radius: var(--cycle-radius-composer);
-  background: var(--cycle-surface-raised);
-  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-composer);
+  max-height: 12rem;
+  overflow-y: auto;
+  margin: 0 1.5rem;
+  border: 1px solid var(--cycle-border-subtle);
+  border-bottom: 0;
+  border-radius: var(--cycle-radius-card) var(--cycle-radius-card) 0 0;
+  background: color-mix(in srgb, var(--cycle-surface-raised) 55%, var(--cycle-surface-canvas));
 }
 
-/* The text is what has the focus, but the seamless ring and soft halo wrap the whole composer box. */
+[data-slot="composer-extensions"]:has(+ [data-slot="composer-box"][data-multiline]) {
+  margin: 0 1.125rem;
+}
+
+[data-slot="composer-extensions"] > * + * {
+  border-top: 1px solid var(--cycle-border-subtle);
+}
+
+[data-slot="extension-row"] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+  padding: 0.25rem 0.75rem;
+  font-size: var(--cycle-text-meta);
+  line-height: var(--cycle-leading-meta);
+  color: var(--cycle-ink-muted);
+}
+
+[data-slot="extension-row"][data-kind="plan"] {
+  display: block;
+  padding: 0;
+}
+
+[data-slot="extension-row"][data-kind="drop"] {
+  color: var(--cycle-accent);
+  font-weight: 500;
+}
+
+[data-slot="extension-row"][data-severity="error"] {
+  color: var(--ui-destructive);
+}
+
+/* Part 2: Input box — sleek single-line bar by default ([+] input [Send]); promotes to a 3-row layout
+   (attachments above, 2-line content region, bottom action row) when text wraps, attachments are added,
+   or multiple action buttons are shown. Restrained hairline border at rest, crisp focus lift, and high-contrast fallback. */
+[data-slot="composer-box"] {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "lead field actions";
+  align-items: center;
+  column-gap: 0.375rem;
+  padding: 0.4375rem 0.5rem;
+  border: 1px solid var(--cycle-border-default);
+  border-radius: 26px;
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-composer);
+  transition:
+    border-color var(--cycle-motion-state) var(--cycle-ease),
+    box-shadow var(--cycle-motion-state) var(--cycle-ease);
+}
+
+@media (prefers-contrast: more) {
+  [data-slot="composer-box"] {
+    border-color: var(--cycle-input-border);
+  }
+}
+
+[data-slot="composer-box"][data-no-lead]:not([data-multiline]) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "field actions";
+  padding-left: 0.9375rem;
+  column-gap: 0.5rem;
+}
+
+[data-slot="composer-box"][data-multiline] {
+  grid-template-areas:
+    "field field field"
+    "lead . actions";
+  align-items: end;
+  row-gap: 0.5rem;
+  padding: 0.75rem 0.75rem 0.5625rem;
+  border-radius: 20px;
+}
+
+[data-slot="composer-box"][data-multiline][data-has-attachments] {
+  grid-template-areas:
+    "attachments attachments attachments"
+    "field field field"
+    "lead . actions";
+}
+
+/* Quiet hardware focus: subtle border lift + soft halo around the whole composer box. */
 [data-slot="composer-box"]:has([data-slot="composer-input"]:focus-visible) {
   border-color: var(--cycle-focus-ring);
-  outline: 1.5px solid var(--cycle-focus-ring);
-  outline-offset: -1px;
-  box-shadow: var(--cycle-focus-halo), var(--cycle-edge-hardware), var(--cycle-shadow-composer);
+  box-shadow:
+    0 0 0 1px var(--cycle-focus-ring),
+    var(--cycle-focus-halo),
+    var(--cycle-edge-hardware),
+    var(--cycle-shadow-composer);
 }
 
 [data-slot="composer"][data-dropping] [data-slot="composer-box"] {
-  outline: 2px dashed var(--cycle-accent);
+  border-color: var(--cycle-accent);
+  outline: 1.5px dashed var(--cycle-accent);
   outline-offset: 2px;
 }
 
-[data-slot="composer-toolbar"] {
+[data-slot="composer-lead"] {
+  grid-area: lead;
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  min-width: 0;
 }
 
-[data-slot="composer-spacer"] {
-  flex: 1;
+[data-slot="composer-box"][data-no-lead]:not([data-multiline]) [data-slot="composer-lead"] {
+  display: none;
 }
 
-[data-slot="composer-toolbar"] > :is([data-kind="round"], [data-kind="queue"]) {
-  margin-left: 0.25rem;
+[data-slot="composer-actions"] {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
 }
 
-/* Send and Stop: round, the size of a control's height, so the toolbar's end is one shape (old-cycle's). Send is the
-   screen's one accent; Stop has an edge. Their names are their labels and tooltips. */
+[data-slot="button"][data-variant="ghost"][data-kind="composer-plus"] {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: var(--cycle-radius-pill);
+  color: var(--cycle-ink-muted);
+}
+
+[data-slot="button"][data-variant="ghost"][data-kind="composer-plus"]:hover:not([data-disabled]) {
+  color: var(--cycle-ink);
+}
+
+/* Send and Stop: crisp 32px circles. Empty/disabled Send stays neutral and quiet instead of dimming accent orange
+   into muddy brown; once ready to send it lights up in Cycle safety orange. */
 [data-kind="round"] {
   width: 2rem;
   height: 2rem;
   padding: 0;
   border-radius: var(--cycle-radius-pill);
+}
+
+[data-slot="button"][data-variant="solid"][data-action="send"][data-disabled] {
+  opacity: 1;
+  border-color: transparent;
+  background: var(--cycle-surface-hover);
+  color: var(--cycle-ink-disabled);
+  box-shadow: none;
 }
 
 /* Queue while the agent works: words, on a quiet pill fill, because it is not the next step the way Send is. */
@@ -2479,6 +2606,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   border-color: transparent;
   border-radius: var(--cycle-radius-pill);
   background: var(--cycle-surface-hover);
+  font-size: var(--cycle-text-meta);
   font-weight: 500;
 }
 
@@ -2486,24 +2614,47 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   background: var(--cycle-surface-selected);
 }
 
-/* How full the context is: a ring and the number, beside Send. Amber past 70%, red past 90%. */
+/* Part 3: Utility bar — borderless, compact row beneath the input box. Permission left, model + effort & context ring right. */
+[data-slot="composer-tools"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.75rem;
+  margin-top: 0.375rem;
+  padding: 0 0.5rem;
+  min-width: 0;
+}
+
+[data-slot="composer-tools-start"],
+[data-slot="composer-tools-end"] {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+/* How full the context is: Fluid UI–inspired spring progress ring and synchronized percentage on the right;
+   full token/cost detail in tooltip. Swells softly on 100% completion. */
 [data-slot="context-meter"] {
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 0.375rem;
+  gap: 0.3125rem;
+  height: 1.625rem;
   padding-inline: 0.375rem;
   font-size: var(--cycle-text-meta);
   font-variant-numeric: tabular-nums;
-  color: var(--ui-muted-foreground);
+  color: var(--cycle-ink-muted);
 }
 
 [data-slot="context-meter"] circle {
   fill: none;
-  stroke-width: 1.5;
+  stroke-width: 1.75;
 }
 
 [data-slot="context-track"] {
-  stroke: var(--cycle-border-default);
+  stroke: color-mix(in srgb, var(--cycle-ink) 12%, transparent);
 }
 
 [data-slot="context-fill"] {
@@ -2511,50 +2662,56 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   stroke-linecap: round;
 }
 
-/* The keys under the box: keeps its baseline height so the box does not jump, and wraps cleanly on narrow windows. */
-[data-slot="key-hints"] {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.125rem 0.75rem;
-  min-height: 1.125rem;
-  margin: -0.25rem 0 0;
-  padding: 0 0.5rem;
-  list-style: none;
-  font-size: var(--cycle-text-meta);
-  line-height: var(--cycle-leading-meta);
-  color: var(--ui-muted-foreground);
+[data-slot="context-meter"][data-full] [data-slot="context-fill"] {
+  animation: cycle-ring-swell 600ms cubic-bezier(0.3, 1.6, 0.5, 1);
 }
 
-[data-slot="key-hints"] li {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
+@keyframes cycle-ring-swell {
+  40% {
+    stroke-width: 2.35;
+  }
 }
 
-[data-slot="key-hints"] kbd {
-  min-width: 1.125rem;
-  padding: 0 0.25rem;
-  border-radius: var(--cycle-radius-sm);
-  background: var(--cycle-surface-message);
-  font: inherit;
-  text-align: center;
-}
-
-/* A setting at hand: quiet ghost pill with a subtle chevron cue; high-risk modes warn in attention colour.
-   Opens a hardware-rimmed Model Picker popover with sliding highlight and optional inline filter. */
+/* A setting at hand: refined borderless chip in the utility bar; permission carries a shield icon (attention orange when
+   high-risk), model pairs with reasoning effort in muted secondary text. Opens a portaled hardware-rimmed picker. */
 [data-slot="setting-picker"] {
   position: relative;
   display: inline-flex;
   min-width: 0;
 }
 
-[data-kind="setting-chip"] {
+[data-slot="button"][data-variant="ghost"][data-kind="setting-chip"] {
   min-width: 0;
-  max-width: 12rem;
-  gap: 0.25rem;
-  padding-inline: 0.625rem;
+  max-width: 15rem;
+  height: 1.625rem;
+  gap: 0.3125rem;
+  padding-inline: 0.5rem;
   border-radius: var(--cycle-radius-pill);
+  font-size: var(--cycle-text-meta);
   font-weight: 500;
+  color: var(--cycle-ink-muted);
+}
+
+[data-slot="button"][data-variant="ghost"][data-kind="setting-chip"]:is(
+  :hover:not([data-disabled]),
+  [data-open]
+) {
+  color: var(--cycle-ink);
+}
+
+[data-slot="button"][data-variant="ghost"][data-kind="setting-chip"][data-setting="model"] {
+  color: var(--cycle-ink);
+}
+
+[data-slot="setting-icon"] {
+  flex: none;
+  opacity: 0.85;
+}
+
+[data-slot="setting-subvalue"] {
+  flex: none;
+  color: var(--cycle-ink-muted);
+  font-weight: 400;
 }
 
 :is(
@@ -2580,7 +2737,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 
 [data-slot="setting-chevron"] {
   flex: none;
-  opacity: 0.7;
+  opacity: 0.65;
   transition: transform var(--cycle-motion-disclosure) var(--cycle-ease);
 }
 
@@ -2597,21 +2754,26 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   position: fixed;
   z-index: 40;
   box-sizing: border-box;
-  min-width: 14.5rem;
+  min-width: 13.5rem;
   width: max-content;
-  max-width: min(21rem, calc(100vw - 1.5rem));
-  padding: 0.375rem;
+  max-width: min(19.5rem, calc(100vw - 1.5rem));
+  padding: 0.3125rem;
   border: 1px solid var(--cycle-border-default);
   border-radius: var(--cycle-radius-card);
   background: var(--cycle-surface-raised);
   box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-popover);
 }
 
+[data-slot="setting-popover"][data-compact] {
+  min-width: 13.25rem;
+  max-width: min(16.5rem, calc(100vw - 1.5rem));
+}
+
 [data-slot="setting-popover-head"] {
-  padding: 0.25rem 0.5rem 0.375rem;
+  padding: 0.1875rem 0.5rem 0.25rem;
   font-family: var(--cycle-font-display);
-  font-size: var(--cycle-text-meta);
-  font-weight: 600;
+  font-size: 0.6875rem;
+  font-weight: 500;
   color: var(--cycle-ink-muted);
 }
 
@@ -2619,7 +2781,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   display: flex;
   align-items: center;
   gap: 0.375rem;
-  margin: 0 0.125rem 0.375rem;
+  margin: 0 0.125rem 0.3125rem;
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--cycle-input-border);
   border-radius: var(--ui-radius);
@@ -2642,8 +2804,8 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   background: transparent;
   color: var(--cycle-ink);
   font-family: var(--ui-font-sans);
-  font-size: var(--cycle-text-ui);
-  line-height: var(--cycle-leading-ui);
+  font-size: var(--cycle-text-meta);
+  line-height: var(--cycle-leading-meta);
   outline: none;
 }
 
@@ -2654,8 +2816,8 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 [data-slot="setting-list"] {
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
-  max-height: min(26rem, 62vh);
+  gap: 0.0625rem;
+  max-height: min(22rem, 56vh);
   overflow-y: auto;
   outline: none;
 }
@@ -2663,23 +2825,33 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 [data-slot="setting-option"] {
   position: relative;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.5rem;
   width: 100%;
-  padding: 0.4375rem 0.5rem;
+  padding: 0.3125rem 0.5rem;
   border: 0;
   border-radius: var(--ui-radius);
   background: transparent;
   color: var(--cycle-ink);
   font-family: var(--ui-font-sans);
   font-size: var(--cycle-text-ui);
-  line-height: var(--cycle-leading-ui);
+  line-height: 1.3;
   text-align: left;
   cursor: pointer;
 }
 
+[data-slot="setting-option"] [data-slot="option"] {
+  gap: 0.0625rem;
+}
+
 [data-slot="setting-option"] [data-slot="option"]:has([data-slot="option-description"]) {
   padding: 0;
+}
+
+[data-slot="setting-option"] [data-slot="option-description"] {
+  font-size: 0.71875rem;
+  line-height: 1.35;
+  color: var(--cycle-ink-muted);
 }
 
 [data-slot="setting-highlight"] {
@@ -2697,8 +2869,13 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   display: grid;
   place-items: center;
   width: 1rem;
-  height: 1.25rem;
+  height: 1rem;
   color: var(--cycle-accent);
+}
+
+[data-slot="setting-option"][data-danger] [data-slot="option-name"],
+[data-slot="setting-option"][data-danger] [data-slot="setting-check"] {
+  color: var(--cycle-attention);
 }
 
 [data-slot="setting-option-body"] {
@@ -2710,6 +2887,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 
 [data-slot="setting-option"] [data-slot="option-name"] {
   font-family: var(--cycle-font-display);
+  font-size: 0.8125rem;
   font-weight: 500;
 }
 
@@ -2718,40 +2896,226 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 [data-slot="setting-empty"] {
-  padding: 0.75rem 0.5rem;
+  padding: 0.625rem 0.5rem;
   font-size: var(--cycle-text-meta);
   color: var(--cycle-ink-muted);
   text-align: center;
 }
 
-[data-slot="drop-hint"] {
-  color: var(--cycle-accent);
-  font-size: var(--cycle-text-meta);
+/* Paired secondary section: sleek, low-profile draggable elastic Effort slider inside the compact Model picker. */
+[data-slot="setting-section"] {
+  margin: 0.25rem 0 0;
+  padding: 0.375rem 0.25rem 0.125rem;
+  border-top: 1px solid var(--cycle-border-subtle);
+  min-width: 0;
 }
 
-/* Messages sent while the agent works: dashed, for what has not happened yet. */
+[data-slot="effort-head"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.25rem 0.25rem;
+}
+
+[data-slot="setting-section-head"] {
+  font-family: var(--cycle-font-display);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--cycle-ink-muted);
+}
+
+[data-slot="effort-value"] {
+  font-family: var(--cycle-font-display);
+  font-size: 0.71875rem;
+  font-weight: 600;
+  color: var(--cycle-ink-muted);
+}
+
+[data-slot="effort-value"][data-active] {
+  color: var(--cycle-accent);
+}
+
+[data-slot="effort-slider"] {
+  position: relative;
+  height: 1.25rem;
+  border-radius: var(--cycle-radius-pill);
+  background: var(--cycle-surface-message);
+  border: 1px solid var(--cycle-border-subtle);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+[data-slot="effort-slider"][data-dragging] {
+  cursor: grabbing;
+}
+
+[data-slot="effort-slider"]:has(:focus-visible) {
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: 2px;
+}
+
+[data-slot="effort-fill"] {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  border-radius: var(--cycle-radius-pill);
+  background: var(--cycle-surface-hover);
+  pointer-events: none;
+}
+
+[data-slot="effort-slider"][data-energized] [data-slot="effort-fill"] {
+  background: var(--cycle-accent);
+}
+
+[data-slot="effort-dots"] {
+  position: absolute;
+  inset: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+[data-slot="effort-dot"] {
+  width: 3px;
+  height: 3px;
+  border-radius: var(--cycle-radius-pill);
+  background: var(--cycle-ink-disabled);
+  opacity: 0.65;
+}
+
+[data-slot="effort-slider"][data-energized] [data-slot="effort-dot"][data-passed] {
+  background: rgb(255 255 255 / 72%);
+  opacity: 1;
+}
+
+[data-slot="effort-thumb"] {
+  position: absolute;
+  top: 50%;
+  width: 0.9375rem;
+  height: 0.9375rem;
+  margin: -0.46875rem 0 0 -0.46875rem;
+  border-radius: var(--cycle-radius-pill);
+  background: #ffffff;
+  border: 1px solid rgb(0 0 0 / 12%);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 32%),
+    0 0 0 0.5px rgb(0 0 0 / 8%);
+  pointer-events: none;
+}
+
+[data-slot="effort-ticks"] {
+  display: grid;
+  align-items: center;
+  padding: 0.25rem 0 0;
+}
+
+[data-slot="effort-tick"] {
+  padding: 0.0625rem 0.125rem;
+  border: 0;
+  border-radius: var(--cycle-radius-sm);
+  background: transparent;
+  color: var(--cycle-ink-muted);
+  font-family: var(--cycle-font-display);
+  font-size: 0.65625rem;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+  transition: color var(--cycle-motion-state) var(--cycle-ease);
+}
+
+[data-slot="effort-tick"]:first-child {
+  text-align: left;
+  padding-left: 0.1875rem;
+}
+
+[data-slot="effort-tick"]:last-child {
+  text-align: right;
+  padding-right: 0.1875rem;
+}
+
+[data-slot="effort-tick"]:hover {
+  color: var(--cycle-ink);
+}
+
+[data-slot="effort-tick"][data-selected] {
+  color: var(--cycle-ink);
+  font-weight: 600;
+}
+
+@media (forced-colors: active) {
+  [data-slot="composer-box"]:has([data-slot="composer-input"]:focus-visible) {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  [data-slot="button"][data-variant="solid"][data-action="send"][data-disabled] {
+    border: 1px solid GrayText;
+    color: GrayText;
+  }
+
+  [data-slot="effort-slider"] {
+    forced-color-adjust: none;
+    border-color: ButtonBorder;
+    background: Canvas;
+  }
+
+  [data-slot="effort-fill"] {
+    background: GrayText;
+  }
+
+  [data-slot="effort-slider"][data-energized] [data-slot="effort-fill"] {
+    background: Highlight;
+  }
+
+  [data-slot="effort-dot"] {
+    background: CanvasText;
+  }
+
+  [data-slot="effort-slider"][data-energized] [data-slot="effort-dot"][data-passed] {
+    background: HighlightText;
+  }
+
+  [data-slot="effort-thumb"] {
+    background: ButtonFace;
+    border-color: CanvasText;
+  }
+}
+
+/* Queued messages inside the composer extension tray: one clean row per message. */
 [data-slot="queued"] {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+[data-slot="queued"] > li + li {
+  border-top: 1px solid var(--cycle-border-subtle);
 }
 
 [data-slot="queued-message"] {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.25rem 0.25rem 0.25rem 0.5rem;
-  border: 1px dashed var(--ui-border);
-  border-radius: var(--ui-radius);
-  color: var(--ui-muted-foreground);
+  min-height: 2rem;
+  padding: 0.1875rem 0.375rem 0.1875rem 0.75rem;
+  color: var(--cycle-ink-muted);
   font-size: var(--cycle-text-meta);
 }
 
 [data-slot="queued-tag"] {
   flex: none;
+  padding: 0.0625rem 0.375rem;
+  border-radius: var(--cycle-radius-sm);
+  background: var(--cycle-surface-hover);
+  color: var(--cycle-ink-muted);
+  font-weight: 500;
 }
 
 [data-slot="queued-text"] {
@@ -2762,31 +3126,44 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   white-space: nowrap;
 }
 
+/* Attachments inside the input box, directly above the message field. */
 [data-slot="attachments"] {
+  grid-area: attachments;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
   margin: 0;
-  padding: 0;
+  padding: 0 0.125rem 0.625rem;
+  border-bottom: 1px solid var(--cycle-border-subtle);
   list-style: none;
 }
 
 [data-slot="attachment"] {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.375rem;
   max-width: 14rem;
-  padding: 0.25rem 0.5rem 0.25rem 0.25rem;
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
-  background: var(--ui-muted);
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--cycle-border-default);
+  border-radius: var(--cycle-radius-control);
+  background: var(--cycle-surface-message);
   font-size: var(--cycle-text-meta);
 }
 
-[data-slot="attachment"] img {
-  width: 2rem;
-  height: 2rem;
-  border-radius: var(--cycle-radius-sm);
+[data-slot="attachment"][data-kind="image"] {
+  width: 3rem;
+  height: 3rem;
+  padding: 0;
+  background: var(--cycle-surface-message);
+}
+
+[data-slot="attachment"][data-kind="image"] img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: calc(var(--cycle-radius-control) - 1px);
   object-fit: cover;
 }
 
@@ -2796,29 +3173,50 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   white-space: nowrap;
 }
 
-[data-slot="attachment"] button {
+[data-slot="attachment-remove"] {
   display: grid;
   place-items: center;
   padding: 0.125rem;
   border: 0;
+  border-radius: var(--cycle-radius-pill);
   background: none;
-  color: var(--ui-muted-foreground);
+  color: var(--cycle-ink-muted);
   cursor: pointer;
+}
+
+[data-slot="attachment"][data-kind="image"] [data-slot="attachment-remove"] {
+  position: absolute;
+  top: -0.3125rem;
+  right: -0.3125rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  padding: 0;
+  border: 1px solid var(--cycle-border-default);
+  background: var(--cycle-surface-raised);
+  color: var(--cycle-ink);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 28%);
+  opacity: 0.85;
+  transition: opacity var(--cycle-motion-state) var(--cycle-ease);
+}
+
+[data-slot="attachment"][data-kind="image"]:is(:hover, :focus-within)
+  [data-slot="attachment-remove"] {
+  opacity: 1;
 }
 
 /* The input: a document that reads as Markdown while it is written. Its own elements are styled by what they are. */
 [data-slot="composer-field"] {
+  grid-area: field;
   position: relative;
-  flex: 1;
   min-width: 0;
 }
 
 [data-slot="composer-input"] {
   box-sizing: border-box;
-  min-height: calc(var(--cycle-leading-body) * 1em * 2);
+  min-height: calc(var(--cycle-leading-body) * 1em);
   max-height: 14rem;
   overflow-y: auto;
-  padding: 0 0.25rem;
+  padding: 0.25rem 0.25rem;
   border: 0;
   background: transparent;
   color: var(--ui-foreground);
@@ -2827,6 +3225,11 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   outline: none;
+}
+
+[data-slot="composer-box"][data-multiline] [data-slot="composer-input"] {
+  min-height: calc(var(--cycle-leading-body) * 1em * 2);
+  padding: 0 0.25rem;
 }
 
 [data-slot="composer-input"]:focus-visible {
@@ -2878,18 +3281,18 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   white-space: pre;
 }
 
-/* What fits what is typed after a slash or an @: above the input, which keeps the focus. */
+/* What fits what is typed after a slash or an @: above the input, aligned in craft with SettingPicker. */
 [data-slot="picker"] {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 0.375rem);
+  bottom: calc(100% + 0.5rem);
   left: 0;
-  z-index: 1;
-  max-height: 14rem;
+  z-index: 20;
+  max-height: 15rem;
   margin: 0;
   padding: 0.375rem;
   overflow-y: auto;
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--cycle-border-default);
   border-radius: var(--cycle-radius-card);
   background: var(--cycle-surface-raised);
   box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-popover);
@@ -2900,7 +3303,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
-  padding: 0.25rem 0.5rem;
+  padding: 0.375rem 0.5rem;
   border-radius: var(--ui-radius);
   cursor: pointer;
   font-size: var(--cycle-text-ui);
@@ -2913,12 +3316,13 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 [data-slot="picker"] > [role="option"][data-active] {
-  background: var(--ui-muted);
+  background: var(--cycle-surface-hover);
 }
 
 [data-slot="picker-name"] {
   flex: none;
   font-family: var(--ui-font-mono, ui-monospace, monospace);
+  font-weight: 500;
 }
 
 [data-slot="picker-hint"] {
@@ -2936,15 +3340,19 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 
 [data-slot="composer-placeholder"] {
   position: absolute;
-  top: 0;
+  top: 0.25rem;
   left: 0.25rem;
   right: 0.25rem;
   overflow: hidden;
-  color: var(--ui-muted-foreground);
+  color: var(--cycle-ink-muted);
   font-size: var(--cycle-text-body);
   line-height: var(--cycle-leading-body);
   pointer-events: none;
   white-space: nowrap;
+}
+
+[data-slot="composer-box"][data-multiline] [data-slot="composer-placeholder"] {
+  top: 0;
 }
 
 [data-slot="config-form"] {

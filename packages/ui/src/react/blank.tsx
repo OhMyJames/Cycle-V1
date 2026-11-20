@@ -12,6 +12,7 @@ import {
 } from "@ui-sdk/react/dialog";
 import { Field, FieldLabel } from "@ui-sdk/react/field";
 import { Input } from "@ui-sdk/react/input";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
 import {
   Select,
   SelectContent,
@@ -24,11 +25,11 @@ import type { EnvironmentConfig } from "../api.ts";
 import { applyUpdate, emptyConversation } from "../model/index.ts";
 import { BLANK_KEY, type BlankConversation } from "../store/index.ts";
 import { Composer } from "./composer.tsx";
-import { ConfigForm, propertiesOf } from "./config-form.tsx";
+import { ConfigForm, optionsOf, propertiesOf } from "./config-form.tsx";
 import { ConversationView } from "./conversation.tsx";
 import { FolderBrowser } from "./folder-browser.tsx";
 import { useI18n } from "./i18n.tsx";
-import { WarningIcon } from "./icons.tsx";
+import { MoreIcon, WarningIcon } from "./icons.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 
 /**
@@ -71,6 +72,12 @@ export function BlankConversationView({
   const [browsing, setBrowsing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [answering, setAnswering] = useState(false);
+  const hasExtraSettings =
+    agent !== undefined &&
+    propertiesOf(agent.configSchema).some(([, property]) => {
+      const choices = optionsOf(property);
+      return choices === undefined || choices.length === 0;
+    });
   const answer = async (trusted: boolean | undefined) => {
     setAnswering(true);
     try {
@@ -196,7 +203,6 @@ export function BlankConversationView({
           : undefined
       }
       onSetting={(key, value) => store.changeBlank({ setting: { key, value } })}
-      onOpenSettings={() => setSettingsOpen(true)}
       enabled={!starting}
       connected={connected}
       activity="idle"
@@ -212,6 +218,29 @@ export function BlankConversationView({
         <div data-slot="session-heading">
           <h1>{t("blank.title")}</h1>
         </div>
+        {hasExtraSettings && blank.config !== undefined ? (
+          <div data-slot="row">
+            <Menu
+              onAction={(value) => {
+                if (value === "settings") setSettingsOpen(true);
+              }}
+            >
+              <MenuTrigger
+                aria-label={t("blank.settings")}
+                title={t("blank.settings")}
+                data-variant="ghost"
+                disabled={starting}
+              >
+                <MoreIcon />
+              </MenuTrigger>
+              <MenuContent>
+                <MenuItem value="settings" disabled={starting}>
+                  {t("session.settings")}
+                </MenuItem>
+              </MenuContent>
+            </Menu>
+          </div>
+        ) : null}
       </header>
       {/* One tree before and after the first message is sent, so the box and the choices keep their focus and state when a
           start fails and they come back: only the stage's layout changes (data-starting). */}
@@ -300,6 +329,23 @@ export function BlankConversationView({
           </div>
         </DialogContent>
       </Dialog>
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogBackdrop />
+        <DialogContent>
+          <DialogTitle>{t("blank.settings")}</DialogTitle>
+          <DialogDescription>{t("blank.settings.lead")}</DialogDescription>
+          {settingsOpen && agent !== undefined && blank.config !== undefined ? (
+            <ConfigForm
+              schema={agent.configSchema}
+              value={{ ...defaultsOf(agent.configSchema), ...blank.config }}
+              onChange={(config) => store.changeBlank({ config })}
+            />
+          ) : null}
+          <div data-slot="row" data-dialog-footer="">
+            <DialogClose>{t("common.close")}</DialogClose>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={browsing} onOpenChange={setBrowsing}>
         <DialogBackdrop />
         <DialogContent>
@@ -317,23 +363,6 @@ export function BlankConversationView({
           ) : null}
         </DialogContent>
       </Dialog>
-      {settingsOpen && agent !== undefined && blank.config !== undefined ? (
-        <Dialog open onOpenChange={(open) => !open && setSettingsOpen(false)}>
-          <DialogBackdrop />
-          <DialogContent>
-            <DialogTitle>{t("blank.settings")}</DialogTitle>
-            <DialogDescription>{t("blank.settings.lead")}</DialogDescription>
-            <ConfigForm
-              schema={agent.configSchema}
-              value={blank.config}
-              onChange={(config) => store.changeBlank({ config })}
-            />
-            <div data-slot="row" data-dialog-footer="">
-              <DialogClose>{t("common.close")}</DialogClose>
-            </div>
-          </DialogContent>
-        </Dialog>
-      ) : null}
     </>
   );
 }

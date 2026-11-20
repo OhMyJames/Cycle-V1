@@ -7,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@ui-sdk/react/select";
+import type { DynamicConfigOption } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
 
 type Choice = {
@@ -57,6 +58,45 @@ export const optionsOf = (property: Property): Option[] | undefined => {
 export const propertiesOf = (schema: Record<string, unknown>): [string, Property][] => {
   const properties = (schema.properties ?? {}) as Record<string, Property>;
   return Object.entries(properties).filter(([, p]) => p.type === undefined || p.type === "string");
+};
+
+/**
+ * Overlays live ACP `config_option_update` choices (such as models discovered from `initializationResult().models`
+ * and per-model effort levels) onto an agent's static `configSchema`, preserving defaults and metadata.
+ */
+export const mergeConfigSchema = (
+  schema: Record<string, unknown>,
+  live: readonly DynamicConfigOption[] | undefined,
+): Record<string, unknown> => {
+  if (live === undefined || live.length === 0) return schema;
+  const properties = (schema.properties ?? {}) as Record<string, Property>;
+  let changed = false;
+  const nextProperties: Record<string, Property> = { ...properties };
+  for (const option of live) {
+    if (option.options.length === 0) continue;
+    const existing = properties[option.configId];
+    const oneOf: Choice[] = option.options.map((c) => ({
+      const: c.value,
+      title: c.name,
+      ...(c.description !== undefined ? { description: c.description } : {}),
+      ...(c.recommended || c.danger
+        ? {
+            _meta: {
+              ...(c.recommended ? { [RECOMMENDED]: true } : {}),
+              ...(c.danger ? { [DANGER]: true } : {}),
+            },
+          }
+        : {}),
+    }));
+    nextProperties[option.configId] = {
+      ...existing,
+      type: existing?.type ?? "string",
+      title: existing?.title ?? option.name,
+      oneOf,
+    };
+    changed = true;
+  }
+  return changed ? { ...schema, properties: nextProperties } : schema;
 };
 
 /** How a choice is drawn wherever it is offered: its name, a mark if it is the one suggested, and what it does. */
