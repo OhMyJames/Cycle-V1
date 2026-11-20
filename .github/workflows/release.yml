@@ -31,7 +31,38 @@ permissions:
   contents: read
 
 jobs:
+  probe:
+    timeout-minutes: 4
+    runs-on: [self-hosted, macOS, ARM64]
+    env:
+      PROFILE: ${{ vars.APPLE_NOTARY_PROFILE }}
+    steps:
+      - name: Sign a disposable executable with each Developer ID Application identity
+        shell: bash
+        run: |
+          set -eu
+          work=$(mktemp -d "$RUNNER_TEMP/cycle-probe.XXXXXX")
+          trap 'rm -rf "$work"' EXIT
+          security find-identity -v -p codesigning | awk '/"Developer ID Application:/ {print $2}' > "$work/identities"
+          successes=0
+          while read -r certificate; do
+            cp /usr/bin/true "$work/sample"
+            if /usr/bin/codesign --force --timestamp=none --sign "$certificate" "$work/sample" && /usr/bin/codesign --verify --strict "$work/sample"; then
+              echo "Signing succeeded using public certificate $certificate"
+              successes=$((successes + 1))
+            else
+              echo "Signing failed using public certificate $certificate"
+            fi
+          done < "$work/identities"
+          test "$successes" -gt 0
+      - name: Authenticate the configured notarytool profile
+        if: always()
+        run: |
+          test -n "$PROFILE"
+          xcrun notarytool history --keychain-profile "$PROFILE" --output-format json >/dev/null
+
   check:
+    if: github.ref_name != 'codex/cycl-105-keychain-check'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
