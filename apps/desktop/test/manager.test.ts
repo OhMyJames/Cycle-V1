@@ -1017,7 +1017,15 @@ test("what a person does is reported as counts and words, and never as what they
   ]);
   expect(named("session_opened")).toEqual([{ agent: "other", environment: "local" }]);
   expect(named("prompt_sent")).toEqual([
-    { agent: "other", environment: "local", size: "short", images: 1, mentions: 1, steered: false },
+    {
+      agent: "other",
+      environment: "local",
+      size: "short",
+      images: 1,
+      mentions: 1,
+      steered: false,
+      via: "other",
+    },
   ]);
   expect(named("permission_answered")).toEqual([{ outcome: "allowed", remembered: false }]);
   expect(named("session_config_changed")).toEqual([{ setting: "mode" }, { setting: "effort" }]);
@@ -1030,6 +1038,27 @@ test("what a person does is reported as counts and words, and never as what they
   const everything = JSON.stringify(reported);
   for (const content of ["hunter2", "secret-project", "secret.ts", "Nightshade", id, "fake"])
     expect(everything).not.toContain(content);
+});
+
+test("what sent a message is reported as one of its words, and a word main does not know as other", async () => {
+  const { manager } = await setup();
+  const reported: [string, unknown][] = [];
+  const { m } = await manager("app", undefined, undefined, (name, props) =>
+    reported.push([name, props]),
+  );
+  await m.connect("local");
+  const vias: unknown[] = ["enter", "shortcut", "button", "voice"];
+  for (const via of vias) {
+    // A session each: the fake agent's turn would still be running for a second prompt.
+    const id = await m.createSession("local", { cwd: "/tmp" });
+    await m.openSession("local", id);
+    await m.prompt("local", id, "hello", { via });
+  }
+  const sent = reported
+    .filter(([n]) => n === "prompt_sent")
+    .map(([, p]) => (p as { via: string }).via);
+  expect(sent).toEqual(["enter", "shortcut", "button", "other"]);
+  expect(JSON.stringify(reported)).not.toContain("voice");
 });
 
 test("a refused answer or a failing call reports nothing", async () => {

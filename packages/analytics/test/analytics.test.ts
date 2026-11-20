@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { agentOf, settingOf, sizeOf } from "../src/events.ts";
+import { agentOf, settingOf, sizeOf, viaOf } from "../src/events.ts";
 import { createAnalytics, EVENTS, isUiEvent, noAnalytics, type Sink } from "../src/index.ts";
 
 const recording = () => {
@@ -36,6 +36,7 @@ describe("track", () => {
       images: 1,
       mentions: 0,
       steered: false,
+      via: "enter",
     });
     expect(sent).toEqual([
       {
@@ -48,6 +49,7 @@ describe("track", () => {
           images: 1,
           mentions: 0,
           steered: false,
+          via: "enter",
           ...context,
           $session_id: "launch-1",
           $geoip_disable: true,
@@ -201,6 +203,11 @@ describe("the dictionary", () => {
     expect(settingOf("mode")).toBe("mode");
     expect(settingOf("model")).toBe("model");
     expect(settingOf("effort")).toBe("effort");
+    expect(viaOf("shortcut")).toBe("shortcut");
+    expect(viaOf("enter")).toBe("enter");
+    expect(viaOf("button")).toBe("button");
+    expect(viaOf("voice")).toBe("other");
+    expect(viaOf(undefined)).toBe("other");
     expect(settingOf("anything")).toBe("other");
     expect([sizeOf(0), sizeOf(199), sizeOf(200), sizeOf(1999), sizeOf(2000)]).toEqual([
       "short",

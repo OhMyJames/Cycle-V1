@@ -5,6 +5,7 @@ import {
   type EventProps,
   settingOf,
   sizeOf,
+  viaOf,
 } from "@cycle/analytics/events";
 import {
   type Channel,
@@ -768,7 +769,7 @@ export class ConnectionManager
     environmentId: string,
     sessionId: string,
     content: string | PromptBlock[],
-    options: { steer?: boolean } = {},
+    options: { steer?: boolean; via?: unknown } = {},
   ): Promise<void> {
     const blocks =
       typeof content === "string" ? [{ type: "text" as const, text: content }] : content;
@@ -788,6 +789,8 @@ export class ConnectionManager
       images: blocks.filter((b) => b.type === "image").length,
       mentions: blocks.filter((b) => b.type === "resource_link").length,
       steered: options.steer === true,
+      // The page says which key or button; only the dictionary's words are counted, anything else is "other".
+      via: viaOf(options.via),
     });
   }
 

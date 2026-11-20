@@ -311,6 +311,12 @@ export type TrackProps = Record<string, string | number | boolean>;
 
 export type NewSession = { cwd: string; agent?: string; config?: Record<string, string> };
 
+/**
+ * What sent a message: Enter, the ⌘Enter shortcut, or a button in the composer. The words of `prompt_sent.via` in
+ * `@cycle/analytics/events` (this file may import nothing of it), which main checks them against.
+ */
+export type SendVia = "enter" | "shortcut" | "button";
+
 /** What the renderer asks of main. Every method can fail; the renderer shows the message. */
 export type AppApi = {
   /**
@@ -332,12 +338,15 @@ export type AppApi = {
   createSession(environmentId: string, params: NewSession): Promise<string>;
   /** Starts watching a session and returns it whole. Call again after a reload. */
   openSession(environmentId: string, sessionId: string): Promise<SessionSnapshot>;
-  /** A text, or blocks: text and images. `steer`: into the running turn rather than the queue. */
+  /**
+   * A text, or blocks: text and images. `steer`: into the running turn rather than the queue. `via`: what the person
+   * pressed, for the count of how messages are sent (never their content).
+   */
   prompt(
     environmentId: string,
     sessionId: string,
     content: string | PromptBlock[],
-    options?: { steer?: boolean },
+    options?: { steer?: boolean; via?: SendVia },
   ): Promise<void>;
   cancel(environmentId: string, sessionId: string): Promise<void>;
   /**

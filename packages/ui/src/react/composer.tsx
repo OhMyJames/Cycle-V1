@@ -9,7 +9,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { FileSearch } from "../api.ts";
+import type { FileSearch, SendVia } from "../api.ts";
 import {
   ATTACHMENT_LIMITS,
   type AttachmentProblem,
@@ -124,11 +124,13 @@ export function Composer({
   const working = activity !== "idle";
   const queue = useAppState((s) => s.views[sessionKey]?.conversation.queue ?? NONE);
   const commands = useAppState((s) => s.views[sessionKey]?.conversation.commands ?? NONE);
+  // A permission waiting for an answer: ⌘Enter is its "Allow once" (app.tsx), the same test as there.
+  const permissionWaits = useAppState((s) => (s.views[sessionKey]?.permissions.length ?? 0) > 0);
   const { text, attachments, kept } = draft;
   // A daemon that has not said it queues is asked nothing it would refuse: a message waits for the turn to end.
   const capabilities = useAppState((s) => s.status[environmentId]?.capabilities);
   const canQueue = capabilities?.queue === true;
-  // While it works, Enter puts the message into the running turn where the agent and the daemon can; Shift+Enter queues it.
+  // While it works, Enter puts the message into the running turn where the agent and the daemon can; ⌘Enter queues it.
   const steers = working && canQueue && canSteer && capabilities?.steer === true;
   const canFind =
     connected && (blank ? capabilities?.filesInFolder === true : capabilities?.files === true);
@@ -205,11 +207,12 @@ export function Composer({
   const chosen = pointed.query === query ? pointed.index : 0;
   const active = Math.min(chosen, Math.max(rows.length - 1, 0));
   // Something was named that is not there: it is said, once, instead of showing nothing.
+  // A bare @ says so only when the search went through the folder: one cut short by its time limit proves nothing.
   const nothingFound =
     kind === undefined &&
     typed.mention !== undefined &&
-    typed.mention !== "" &&
     found?.query === typed.mention &&
+    (typed.mention !== "" || found.result.truncated !== true) &&
     hits.length === 0 &&
     mentionQueryText !== dismissed;
   const lookAtCaret = () => {
@@ -265,17 +268,16 @@ export function Composer({
                 : canQueue
                   ? "composer.placeholder.working"
                   : "composer.placeholder.busy",
+              { key: QUEUE_KEY },
             )
           : t("composer.placeholder.idle"));
 
-  // Single-line by default; once text wraps past one line, contains a newline, carries attachments, or shows multiple
-  // action buttons, the box promotes cleanly into its 3-row layout (2 lines of content + action row) without flickering
+  // Single-line by default; once text wraps past one line, contains a newline or carries attachments, the box promotes
+  // cleanly into its 3-row layout (2 lines of content + action row) without flickering
   // back and forth as the widened field reflows.
   const hasAttachments = attachments.length > 0 || kept.length > 0;
   const showQueue = working && canQueue;
   const showSend = !working || steers || !canQueue;
-  const actionCount = Number(showQueue) + Number(showSend) + Number(working);
-  const hasMultipleActions = actionCount > 1;
   const hasNewline = text.includes("\n");
   const textRef = useRef(text);
   textRef.current = text;
@@ -298,20 +300,21 @@ export function Composer({
       if (wrapped) setWrapped(false);
       return;
     }
-    if (wrapped || hasNewline || hasAttachments || hasMultipleActions) return;
+    if (wrapped || hasNewline || hasAttachments) return;
     measureWrap.current();
-  }, [text, wrapped, hasNewline, hasAttachments, hasMultipleActions]);
+  }, [text, wrapped, hasNewline, hasAttachments]);
 
   useEffect(() => {
-    if (wrapped || hasNewline || hasAttachments || hasMultipleActions) return;
+    if (wrapped || hasNewline || hasAttachments) return;
     const field = fieldRef.current;
     if (field === null || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => measureWrap.current());
     observer.observe(field);
     return () => observer.disconnect();
-  }, [wrapped, hasNewline, hasAttachments, hasMultipleActions]);
+  }, [wrapped, hasNewline, hasAttachments]);
 
-  const expanded = hasAttachments || hasMultipleActions || hasNewline || wrapped;
+  // Several buttons (Queue, Send now, Stop) fit beside one line: they do not make the box taller (CYCL-75).
+  const expanded = hasAttachments || hasNewline || wrapped;
 
   const megabytes = (bytes: number) =>
     number(bytes / 1048576, { style: "unit", unit: "megabyte", maximumFractionDigits: 0 });
@@ -373,12 +376,12 @@ export function Composer({
   };
 
   /** `steer`: into the running turn; otherwise, while the agent works, into the queue. */
-  const send = async (steer = false) => {
+  const send = async (steer: boolean, via: SendVia) => {
     if (!canSend) return;
     recalled.current = NOT_RECALLING;
     setProblem(undefined);
     onSent?.();
-    await store.send(steer ? { steer: true } : {});
+    await store.send(steer ? { steer: true, via } : { via });
   };
 
   const edit = async (queueId: string) => {
@@ -388,9 +391,8 @@ export function Composer({
   };
 
   /**
-   * The keys the box asks about first. Enter sends: while the agent works, into its turn where it can take it. Shift+Enter
-   * is a new line, or while Enter steers the queue (a new line is then Alt+Enter, as it is at any time). The arrows walk through what
-   * was sent.
+   * The keys the box asks about first. Enter sends: while the agent works, into its turn where it can take it, else to
+   * the queue. ⌘Enter queues. Shift+Enter (or Alt+Enter) is a new line, always. The arrows walk through what was sent.
    */
   const onKey = (key: InputKey, event: KeyboardEvent): boolean => {
     // An open menu has the keys first: the arrows choose, Enter and Tab take, Escape closes.
@@ -413,16 +415,21 @@ export function Composer({
         setDismissed(query);
         return true;
       }
+      // ⌘Enter with a menu open sends nothing: half a command or a file name is not the message.
+      if (key === "enter" && (event.metaKey || event.ctrlKey)) return true;
     }
     if (key === "enter") {
-      if (event.altKey || event.metaKey || event.ctrlKey) return false;
-      if (event.shiftKey) {
-        // The queue only where Enter steers; otherwise Shift+Enter is a new line, as it always was.
-        if (!steers) return false;
-        void send();
+      // ⌘Enter (Ctrl+Enter off a Mac) queues while the agent works and sends when it does not. While a permission
+      // waits, it is the card's "Allow once" (app.tsx), so it is left to go on to the window.
+      if (QUEUE_MOD(event) && !event.shiftKey && !event.altKey) {
+        if (permissionWaits) return false;
+        void send(false, "shortcut");
         return true;
       }
-      void send(steers);
+      // Shift+Enter (and Alt+Enter) is always a new line.
+      if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return false;
+      // Enter sends: into the running turn where it can steer, to the queue where it cannot.
+      void send(steers, "enter");
       return true;
     }
     if (key !== "up" && key !== "down") return false;
@@ -496,6 +503,7 @@ export function Composer({
   const hasTools = hasChoiceSettings || context !== undefined;
 
   const sendName = t(steers ? "composer.steer" : "composer.send");
+  const menuLabel = t(kind === "command" ? "composer.commands.label" : "composer.mentions.label");
 
   return (
     <div data-slot="composer" data-dropping={dropping || undefined} ref={root}>
@@ -564,6 +572,22 @@ export function Composer({
         data-has-attachments={hasAttachments || undefined}
         data-no-lead={!canAttach || undefined}
       >
+        {/* Over the whole box, not the field: beside the buttons of one line the field can be narrow. */}
+        {menuOpen ? (
+          <PickerMenu
+            id={menuId}
+            label={menuLabel}
+            rows={rows}
+            active={active}
+            onPick={pick}
+            onHover={(index) => setPointed({ query, index })}
+          />
+        ) : nothingFound ? (
+          <div data-slot="picker" role="status">
+            {/* A bare @ in a folder with nothing in it says so, rather than opening nothing. */}
+            {t(typed.mention === "" ? "composer.mentions.none" : "composer.mentions.empty")}
+          </div>
+        ) : null}
         {hasAttachments ? (
           <ul data-slot="attachments" aria-label={t("composer.attached")}>
             {kept.map((k) => (
@@ -629,22 +653,6 @@ export function Composer({
         </div>
 
         <div data-slot="composer-field" ref={fieldRef}>
-          {menuOpen ? (
-            <PickerMenu
-              id={menuId}
-              label={
-                kind === "command" ? t("composer.commands.label") : t("composer.mentions.label")
-              }
-              rows={rows}
-              active={active}
-              onPick={pick}
-              onHover={(index) => setPointed({ query, index })}
-            />
-          ) : nothingFound ? (
-            <div data-slot="picker" role="status">
-              {t("composer.mentions.empty")}
-            </div>
-          ) : null}
           <MarkdownInput
             value={text}
             onChange={(markdown) => {
@@ -668,7 +676,13 @@ export function Composer({
 
         <div data-slot="composer-actions">
           {showQueue ? (
-            <Button data-kind="queue" disabled={!canSend} onClick={() => void send()}>
+            <Button
+              data-kind="queue"
+              disabled={!canSend}
+              title={t("composer.queueKey", { key: QUEUE_KEY })}
+              aria-keyshortcuts={MOD === "⌘" ? "Meta+Enter" : "Control+Enter"}
+              onClick={() => void send(false, "button")}
+            >
               {t("composer.queue")}
             </Button>
           ) : null}
@@ -680,7 +694,7 @@ export function Composer({
               disabled={!canSend}
               aria-label={sendName}
               title={sendName}
-              onClick={() => void send(steers)}
+              onClick={() => void send(steers, "button")}
             >
               <SendIcon size={15} />
             </Button>
@@ -733,6 +747,9 @@ export function Composer({
 
 /** How the key that stops a turn is written here: ⌘. on a Mac, Ctrl+. elsewhere (the same test as the handler's). */
 const STOP_KEY = `${MOD}.`;
+/** The key that queues: ⌘Enter on a Mac, Ctrl+Enter elsewhere. One name, in the placeholder and on the button. */
+const QUEUE_KEY = `${MOD}Enter`;
+const QUEUE_MOD = (event: KeyboardEvent) => (MOD === "⌘" ? event.metaKey : event.ctrlKey);
 
 /**
  * How full the context is: a spring-driven progress ring with a synchronized rolling percentage. It is a button: the

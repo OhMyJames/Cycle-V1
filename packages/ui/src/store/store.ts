@@ -19,6 +19,7 @@ import type {
   FormAnswer,
   PermissionRequest,
   PromptBlock,
+  SendVia,
   SessionSnapshot,
   SessionSummary,
   UpdateState,
@@ -674,7 +675,7 @@ export class AppStore {
    * moment it goes; if it cannot go, what was in it comes back, in front of anything written since. `steer`: while the
    * agent works, into the turn that is running instead of the queue.
    */
-  send = async (options: { steer?: boolean } = {}): Promise<void> => {
+  send = async (options: { steer?: boolean; via?: SendVia } = {}): Promise<void> => {
     const { selectedEnvironment: environmentId, selectedSession: sessionId, blank } = this.#state;
     if (blank !== undefined) return this.#sendBlank(blank);
     if (environmentId === undefined || sessionId === undefined) return;
@@ -685,8 +686,12 @@ export class AppStore {
     this.#resending.delete(key);
     this.drafts.clear(key);
     const sent = await this.#attempt(async () => {
-      if (options.steer === true)
-        await this.#bridge.prompt(environmentId, sessionId, content, { steer: true });
+      const how = {
+        ...(options.steer === true ? { steer: true } : {}),
+        ...(options.via !== undefined ? { via: options.via } : {}),
+      };
+      if (Object.keys(how).length > 0)
+        await this.#bridge.prompt(environmentId, sessionId, content, how);
       else await this.#bridge.prompt(environmentId, sessionId, content);
       return true;
     });
