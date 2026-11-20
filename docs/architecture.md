@@ -55,6 +55,6 @@ apps/desktop               Electron(main:ssh 与 daemon 连接;renderer:UI)
 docs/
 ```
 
-## v1 范围外
+## v1 桌面端范围
 
-git worktree、终端、diff 视图、多 provider、Web 端。
+范围以 [README 的桌面端规划](../README.md#v1-桌面端规划)为准。桌面交互式终端供用户操作，与 L2 中 agent 请求的 ACP `terminal/*` 能力分开设计。
