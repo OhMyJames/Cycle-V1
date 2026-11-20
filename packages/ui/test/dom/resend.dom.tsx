@@ -68,6 +68,10 @@ test("a failed turn's message goes back in the box to be read, not sent, and is 
     "turn_resend_opened",
     { failure: "agent_exited", changed: false },
   ]);
+  // A second press does not put it there twice.
+  await user.click(within(alert).getByRole("button", { name: "Send again" }));
+  expect(boxText(box)).toBe("Fix the flaky test in queue.test.ts");
+  expect(tracked().filter(([event]) => event === "turn_resend_opened")).toHaveLength(1);
 
   await press(box, "Enter");
   await waitFor(() => expect(script.named("prompt")).toHaveLength(1));

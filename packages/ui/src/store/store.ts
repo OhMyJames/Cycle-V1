@@ -144,7 +144,7 @@ export class AppStore {
    * Sessions whose box holds a message put back to send again, with what the box then held: whether it went as it was
    * is counted when it is sent. Forgotten when the box is emptied without sending it.
    */
-  readonly #resending = new Map<string, string>();
+  readonly #resending = new Map<string, { turn: number; sent: string }>();
 
   constructor(bridge: CycleBridge, drafts: DraftStore = new DraftStore()) {
     this.#bridge = bridge;
@@ -640,7 +640,7 @@ export class AppStore {
       this.drafts.restore(key, [content]);
       if (resending !== undefined) this.#resending.set(key, resending);
     } else if (resending !== undefined) {
-      this.track("turn_resent", { edited: JSON.stringify(content) !== resending });
+      this.track("turn_resent", { edited: JSON.stringify(content) !== resending.sent });
     }
   };
 
@@ -653,12 +653,18 @@ export class AppStore {
     const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
     if (environmentId === undefined || sessionId === undefined) return;
     const key = viewKey(environmentId, sessionId);
-    this.drafts.restore(key, resend.prompts);
-    this.#resending.set(key, JSON.stringify(promptBlocks(this.drafts.get(key)) ?? null));
-    this.track("turn_resend_opened", {
-      failure: resend.failure,
-      changed: resend.changed.length > 0,
-    });
+    // Already in the box, and neither sent nor cleared away since: a second press only shows it, it does not add it again.
+    if (this.#resending.get(key)?.turn !== resend.turn) {
+      this.drafts.restore(key, resend.prompts);
+      this.#resending.set(key, {
+        turn: resend.turn,
+        sent: JSON.stringify(promptBlocks(this.drafts.get(key)) ?? null),
+      });
+      this.track("turn_resend_opened", {
+        failure: resend.failure,
+        changed: resend.changed.length > 0,
+      });
+    }
     this.#set((s) => ({ composerFocus: s.composerFocus + 1 }));
   };
 
