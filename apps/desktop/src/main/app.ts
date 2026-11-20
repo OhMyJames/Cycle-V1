@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isUiEvent } from "@cycle/analytics/events";
@@ -128,6 +129,7 @@ const runOnHost = (environment: EnvironmentConfig, command: string): Promise<voi
  */
 export const startApp = async (options: AppOptions) => {
   await app.whenReady();
+  if (process.platform === "darwin") createRequire(options.preloadPath)("./ime-paste.node");
   const indexUrl = pathToFileURL(join(options.rendererDir, "index.html")).href;
   let window: BrowserWindow | undefined;
 

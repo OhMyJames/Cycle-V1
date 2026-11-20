@@ -35,7 +35,7 @@ bun install      # 安装依赖,并启用 pre-commit 钩子
 bun run check    # 边界、类型、lint、测试
 ```
 
-`apps/daemon`(daemon,可编译成单文件)、`apps/desktop`(Electron 应用)、`harness/*`(agent 适配,当前为 Claude)、`packages/*`(协议、客户端与传输、埋点、界面)。门禁约 7 秒;集成测试(`bun run test:integration`)启动真实进程;`bun run build` 构建 daemon 和桌面端,`bun run start` 启动。详见 [docs/testing.md](docs/testing.md)。
+`apps/daemon`(daemon,可编译成单文件)、`apps/desktop`(Electron 应用)、`harness/*`(agent 适配,当前为 Claude)、`packages/*`(协议、客户端与传输、埋点、界面)。门禁约 7 秒;集成测试(`bun run test:integration`)启动真实进程;`bun run build` 构建 daemon 和桌面端（macOS 需安装 Xcode Command Line Tools 来编译输入法粘贴处理模块）,`bun run start` 启动。详见 [docs/testing.md](docs/testing.md)。
 
 ## v1 桌面端规划
 

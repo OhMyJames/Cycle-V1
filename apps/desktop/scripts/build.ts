@@ -1,12 +1,38 @@
 // Builds the app into dist/: main (node, esm), the preload (cjs: a sandboxed preload cannot be esm),
 // and the page (a browser bundle, its html, and the css Tailwind builds).
 import { cp, mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const root = new URL("..", import.meta.url).pathname;
 const dist = join(root, "dist");
 await rm(dist, { recursive: true, force: true });
 await mkdir(join(dist, "renderer"), { recursive: true });
+
+// Compile against the stable Node-API. The bundle runs on the same minimum macOS as Electron.
+if (process.platform === "darwin") {
+  const headers = dirname(Bun.resolveSync("node-api-headers/package.json", root));
+  const result = Bun.spawnSync(
+    [
+      "/usr/bin/clang",
+      "-arch",
+      process.arch === "arm64" ? "arm64" : "x86_64",
+      "-mmacosx-version-min=13.0",
+      "-fobjc-arc",
+      "-bundle",
+      "-undefined",
+      "dynamic_lookup",
+      "-framework",
+      "AppKit",
+      "-I",
+      join(headers, "include"),
+      join(root, "src/native/ime-paste.m"),
+      "-o",
+      join(dist, "ime-paste.node"),
+    ],
+    { stderr: "inherit" },
+  );
+  if (!result.success) throw new Error("Could not build the macOS paste handler");
+}
 
 const bundle = async (config: Parameters<typeof Bun.build>[0]) => {
   const result = await Bun.build(config);
