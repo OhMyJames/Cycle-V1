@@ -91,8 +91,8 @@ export const enUS = {
   "composer.stop": "Stop",
   "composer.stopKey": "Stop ({key})",
   "composer.setting": "{setting}: {value}",
-  "composer.settingPair": "{first}, {second}",
   "composer.effort.modelDefault": "Model default",
+  "composer.effort.chip": "Default effort",
 
   // How full the context is: the ring under the input, and its details
   "composer.context.title": "Context",

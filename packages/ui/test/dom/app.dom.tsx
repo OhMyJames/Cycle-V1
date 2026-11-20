@@ -1714,15 +1714,14 @@ test("composer uses a single-line box by default, stays one line with several bu
   expect(document.querySelector('[data-slot="composer-extensions"]')).toBeNull();
   expect(document.querySelector('[data-slot="key-hints"]')).toBeNull();
 
-  // Utility bar puts permission on the left, model + effort and context ring on the right.
+  // Utility bar puts permission on the left, model, effort and context ring on the right.
   const toolsStart = document.querySelector<HTMLElement>('[data-slot="composer-tools-start"]');
   const toolsEnd = document.querySelector<HTMLElement>('[data-slot="composer-tools-end"]');
   expect(
     toolsStart && within(toolsStart).getByRole("button", { name: "Permission mode: Auto" }),
   ).toBeTruthy();
-  expect(
-    toolsEnd && within(toolsEnd).getByRole("button", { name: "Model: Opus, Effort: High" }),
-  ).toBeTruthy();
+  expect(toolsEnd && within(toolsEnd).getByRole("button", { name: "Model: Opus" })).toBeTruthy();
+  expect(toolsEnd && within(toolsEnd).getByRole("button", { name: "Effort: High" })).toBeTruthy();
 
   // Usage shows ring + percentage only; the numbers are in its details.
   emit({
@@ -1813,8 +1812,8 @@ test("composer uses a single-line box by default, stays one line with several bu
   const modelButton = await screen.findByRole("button", { name: "Model: Opus" });
   await user.click(modelButton);
   expect(await screen.findByRole("menuitemradio", { name: "Fabel" })).toBeTruthy();
-  // Model with only "default" effort hides the Effort slider.
-  expect(screen.queryByRole("slider", { name: "Effort" })).toBeNull();
+  // Model with only "default" effort has no Effort chip.
+  expect(screen.queryByRole("button", { name: /^Effort:/ })).toBeNull();
 
   // Reaching 100% context marks the ring as full and settles cleanly at offset 0.
   emit({
