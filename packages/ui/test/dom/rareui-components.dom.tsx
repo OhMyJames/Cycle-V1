@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createTranslator, SOURCE_LOCALE } from "../../src/i18n.ts";
 import { enUS } from "../../src/messages/en-US.ts";
@@ -416,12 +416,7 @@ describe("SettingChips picker", () => {
     expect(effortChip.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(effortChip);
 
-    // Until the session has the new level, the chip and its menu say the one it has: no level shown that it may not
-    // get. Asking for Low and then High again (the level it has) leaves both reading High, and High is not asked for.
-    expect(effortChip.getAttribute("aria-label")).toBe("Effort: High");
-    await user.click(effortChip);
-    await user.click(screen.getByRole("menuitemradio", { name: /^High/ }));
-    expect(calls.at(-1)).toEqual(["effort", "low"]);
+    // Until the session has the new level, the chip says the one it has: no level shown that it may not get.
     expect(effortChip.getAttribute("aria-label")).toBe("Effort: High");
 
     // The model's default reads as the default effort on the chip; a session with none on record reads "Not set".
@@ -437,9 +432,76 @@ describe("SettingChips picker", () => {
         </I18nProvider>,
       );
     show({ mode: "auto", model: "sonnet", effort: "default" });
-    expect(screen.getByRole("button", { name: "Effort: Default effort" })).toBeTruthy();
+    const byDefault = screen.getByRole("button", { name: "Effort: Model default" });
+    expect(byDefault.textContent).toBe("Default effort");
     show({ mode: "auto", model: "sonnet" });
     expect(screen.getByRole("button", { name: "Effort: Not set" })).toBeTruthy();
+  });
+
+  test("a choice on its way is what the next one is measured against, so the last choice is the one that lands", async () => {
+    const user = userEvent.setup();
+    const calls: [string, string][] = [];
+    const answers: (() => void)[] = [];
+    const onSet = (k: string, v: string) => {
+      calls.push([k, v]);
+      return new Promise<void>((resolve) => answers.push(resolve));
+    };
+    const render = (value: Record<string, string>) => (
+      <I18nProvider translator={translator}>
+        <SettingChips settings={{ schema: effortSchema, value }} disabled={false} onSet={onSet} />
+      </I18nProvider>
+    );
+    const { rerender } = wrap(render({ model: "odd", effort: "high" }));
+    const pick = async (level: string) => {
+      await user.click(screen.getByRole("button", { name: /^Effort:/ }));
+      await user.click(screen.getByRole("menuitemradio", { name: level }));
+    };
+
+    // Low is asked for and has not landed: the chip still says High. Low again sends nothing more.
+    await pick("low");
+    await pick("low");
+    expect(calls).toEqual([["effort", "low"]]);
+    expect(screen.getByRole("button", { name: "Effort: high" })).toBeTruthy();
+    // Back to High, the level the session has, while Low is on its way: High is asked for, so it is what lands.
+    await pick("high");
+    expect(calls).toEqual([
+      ["effort", "low"],
+      ["effort", "high"],
+    ]);
+
+    // A request that settles with no change (refused) leaves nothing on its way: the same choice can be made again.
+    rerender(render({ model: "odd", effort: "medium" }));
+    await pick("max");
+    await act(async () => answers.at(-1)?.());
+    await pick("max");
+    expect(calls.slice(2)).toEqual([
+      ["effort", "max"],
+      ["effort", "max"],
+    ]);
+  });
+
+  test("the Effort chip sits right after the Model chip, wherever the schema lists it", () => {
+    const { effort, model } = effortSchema.properties;
+    wrap(
+      <I18nProvider translator={translator}>
+        <SettingChips
+          settings={{
+            schema: {
+              type: "object",
+              properties: { effort, mode: shortSchema.properties.mode, model },
+            },
+            value: { model: "odd", effort: "high", mode: "auto" },
+          }}
+          disabled={false}
+          onSet={() => {}}
+        />
+      </I18nProvider>,
+    );
+    expect(screen.getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Permission mode: Auto",
+      "Model: Odd",
+      "Effort: high",
+    ]);
   });
 
   test("effort follows the model's own levels: none hides it, a few narrow it, the level in force stays shown", async () => {

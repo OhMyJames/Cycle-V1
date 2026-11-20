@@ -39,7 +39,7 @@ function SettingPickerChip({
   compact?: boolean;
   align?: "start" | "end";
   disabled: boolean;
-  onSet: (key: string, value: string) => void;
+  onSet: SetSetting;
 }) {
   const { t } = useI18n();
   const pickerId = useId();
@@ -55,9 +55,19 @@ function SettingPickerChip({
 
   const chosen = current === undefined ? undefined : options.find((o) => o.value === current);
   // A value the schema does not list (a model named in full, say) is still what the session runs on: it is shown as it is.
-  const label =
-    current === undefined ? t("config.notSet") : (valueLabel ?? chosen?.label ?? current);
-  const name = t("composer.setting", { setting: heading, value: label });
+  const named = current === undefined ? t("config.notSet") : (chosen?.label ?? current);
+  const label = current === undefined ? named : (valueLabel ?? named);
+  const name = t("composer.setting", { setting: heading, value: named });
+  // What was last asked for and is not the session's yet. Not shown (the chip says what the session has), but it is
+  // what a choice is measured against: asking again for it sends nothing, and going back to the session's value while
+  // it is on its way sends that, so the last choice is the one that lands.
+  const [asked, setAsked] = useState<string | undefined>(undefined);
+  const [seen, setSeen] = useState(current);
+  if (seen !== current) {
+    // The session's value moved: what was asked is answered, or overtaken.
+    setSeen(current);
+    setAsked(undefined);
+  }
 
   const close = useCallback((returnFocus: boolean) => {
     setOpen(false);
@@ -73,7 +83,14 @@ function SettingPickerChip({
   };
 
   const choose = (option: Option) => {
-    if (option.value !== current) onSet(settingKey, option.value);
+    if (option.value !== (asked ?? current)) {
+      const value = option.value;
+      setAsked(value);
+      // Settled with no change (refused, say): nothing is on its way any more, so the same choice can be made again.
+      void Promise.resolve(onSet(settingKey, value)).finally(() =>
+        setAsked((now) => (now === value ? undefined : now)),
+      );
+    }
     close(true);
   };
 
@@ -252,6 +269,9 @@ function SettingPickerChip({
   );
 }
 
+/** Asks for a setting; what it returns, if anything, settles when the asking is over. */
+export type SetSetting = (key: string, value: string) => unknown;
+
 type ChoiceEntry = {
   key: string;
   heading: string;
@@ -274,7 +294,7 @@ export function SettingChips({
 }: {
   settings: SettingsOf;
   disabled: boolean;
-  onSet: (key: string, value: string) => void;
+  onSet: SetSetting;
   /** Partition settings across the composer utility bar: permission/other on the left, model and effort on the right. */
   side?: "left" | "right" | "all";
 }) {
@@ -291,6 +311,12 @@ export function SettingChips({
     });
   }
   const modelEntry = entries.find((entry) => entry.key === "model");
+  // The effort is the model's second word: right after it, wherever the schema lists it.
+  const effortAt = entries.findIndex((entry) => entry.key === "effort");
+  if (modelEntry !== undefined && effortAt >= 0) {
+    const [effort] = entries.splice(effortAt, 1);
+    if (effort !== undefined) entries.splice(entries.indexOf(modelEntry) + 1, 0, effort);
+  }
   // The levels the chosen model takes; a model that takes none has no effort to show.
   const levels =
     modelEntry !== undefined ? effortsFor(modelEntry.options, modelEntry.current) : undefined;
@@ -301,7 +327,7 @@ export function SettingChips({
     if (side === "right" && !isRight) return null;
     let options = entry.options;
     let valueLabel: string | undefined;
-    if (entry.key === "effort") {
+    if (entry.key === "effort" && modelEntry !== undefined) {
       if (levels !== undefined)
         options = options.filter(
           // The level in force stays shown until the agent says otherwise, rather than reading "Not set".
