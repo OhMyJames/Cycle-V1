@@ -51,7 +51,7 @@ export type ToolItem = InTurn & {
 
 /** A sub-agent, as far as the session is told: announced, its progress, its end. Never its own conversation. */
 export type Subagent = {
-  state: "running" | "done" | "failed" | "stopped";
+  state: "running" | "done" | "failed" | "stopped" | "unknown" | "dismissed";
   background: boolean;
   /** What it is doing now, in a line the SDK wrote (only with progress summaries on). */
   summary?: string;
@@ -105,7 +105,12 @@ export type StopReason = {
 export type QueuedPrompt = { queueId: string; prompt: Block[] };
 
 /** Prompts the daemon handed back, to be put in the input box. `serial` changes each time, so one is acted on once. */
-export type Returned = { serial: number; prompts: QueuedPrompt[]; reason?: string };
+export type Returned = {
+  serial: number;
+  returnId?: string;
+  prompts: QueuedPrompt[];
+  reason?: string;
+};
 
 /** A command the agent offers, typed as `/name` at the start of a message. */
 export type Command = { name: string; description: string; hint?: string };
@@ -308,6 +313,7 @@ const subagentUpdate = (c: Conversation, update: Fields): Conversation => {
           ? "failed"
           : "stopped";
   }
+  if (meta.status === "unknown" || meta.status === "dismissed") next.state = meta.status;
   if (typeof meta.background === "boolean") next.background = meta.background;
   if (typeof meta.summary === "string") next.summary = meta.summary;
   if (typeof meta.lastTool === "string") next.lastTool = meta.lastTool;
@@ -424,13 +430,14 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
       const returned = queuedPrompts(u.returned);
       return {
         ...c,
-        queue: queuedPrompts(u.entries),
+        queue: typeof u.returnId === "string" ? c.queue : queuedPrompts(u.entries),
         // Handed back is an event: heard live, it goes to the input box once; in a replay it is history.
         ...(returned.length > 0 && !c.replaying
           ? {
               returned: {
                 serial: (c.returned?.serial ?? 0) + 1,
                 prompts: returned,
+                ...(typeof u.returnId === "string" ? { returnId: u.returnId } : {}),
                 ...(typeof u.reason === "string" ? { reason: u.reason } : {}),
               },
             }

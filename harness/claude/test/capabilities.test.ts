@@ -1249,3 +1249,39 @@ test("a turn Claude began by itself can be cancelled, and the next prompt is ans
     { cancelGraceMs: 50 },
   );
 });
+
+test("the background roster reconciles a missed terminal across turns and accepts the late outcome", async () => {
+  const child = {
+    task_id: "child",
+    run_id: "2",
+    task_type: "local_agent",
+    tool_use_id: "call",
+    is_backgrounded: true,
+  };
+  const fake = fakeQuery(({ prompt }) => [
+    ...(prompt === "start"
+      ? [task("task_started", child), task("background_tasks_changed", { tasks: [child] })]
+      : prompt === "missing"
+        ? [task("background_tasks_changed", { tasks: [] })]
+        : [task("task_notification", { ...child, status: "completed" })]),
+    ...textTurn(ID, "m", "ok"),
+  ]);
+  await connect(
+    fake.run,
+    async ({ agent, idle, updates }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "start" }]);
+      await Bun.sleep(90);
+      expect(subs(updates)).toHaveLength(1);
+      await prompt(agent, idle, [{ type: "text", text: "missing" }]);
+      expect(subs(updates).at(-1)).toMatchObject({
+        _meta: { "cycle/subagent": { status: "unknown", toolCallId: "call" } },
+      });
+      expect(subs(updates).at(-1)?.state).toBeUndefined();
+      await prompt(agent, idle, [{ type: "text", text: "end" }]);
+      expect(subs(updates).at(-1)?.state).toEqual({ state: "idle", stopReason: "end_turn" });
+    },
+    {},
+    { idleMs: 40 },
+  );
+});

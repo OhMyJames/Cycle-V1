@@ -298,6 +298,15 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     else setTimeout(() => live.abort.abort(), 2_000).unref?.();
   };
 
+  const scheduleIdle = (session: SessionState) => {
+    const live = session.live;
+    if (!live || session.turn) return;
+    clearTimeout(live.idle);
+    if (session.subagents.hasBackground) return;
+    live.idle = setTimeout(() => release(session, false), idleMs);
+    live.idle.unref?.();
+  };
+
   /**
    * Whether Claude has this session on disk, so that the next process resumes it (it has the id) instead of
    * starting it (it would refuse an id it already knows, or has none to resume). Claude writes the session
@@ -382,9 +391,16 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
   const aside = async (client: AgentContext, session: SessionState, message: SDKMessage) => {
     if (message.type !== "system") return;
     const m = message as unknown as Record<string, unknown> & { subtype: string };
-    if (m.subtype.startsWith("task_")) {
+    if (message.subtype === "background_tasks_changed") {
+      const updates = session.subagents.reconcile(message.tasks);
+      scheduleIdle(session);
+      for (const update of updates) await notify(client, session.id, update);
+    } else if (m.subtype.startsWith("task_")) {
       const update = session.subagents.update(m);
-      if (update !== undefined) await notify(client, session.id, update);
+      if (update !== undefined) {
+        scheduleIdle(session);
+        await notify(client, session.id, update);
+      }
     } else if (m.subtype === "commands_changed") {
       await announceCommands(client, session, m.commands as SlashCommand[]);
     } else if (m.subtype === "status") {
@@ -434,11 +450,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     turn.done = true;
     clearTimeout(turn.killTimer);
     if (session.turn === turn) session.turn = undefined;
-    if (session.live !== undefined) {
-      clearTimeout(session.live.idle);
-      session.live.idle = setTimeout(() => release(session, false), idleMs);
-      session.live.idle.unref?.();
-    }
+    scheduleIdle(session);
     try {
       for (const update of turn.translator.unfinished()) await notify(client, session.id, update);
       if (usage !== undefined && !turn.cancelled) await notify(client, session.id, usage);
@@ -905,8 +917,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
             release(old, false);
           }
           // Not used soon: let it go, as any idle process is.
-          live.idle = setTimeout(() => release(session, false), idleMs);
-          live.idle.unref?.();
+          scheduleIdle(session);
         } catch {
           // A process that cannot start now is started, or fails, at the first prompt.
         }

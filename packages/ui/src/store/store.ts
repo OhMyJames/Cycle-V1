@@ -24,7 +24,12 @@ import type {
   UpdateState,
 } from "../api.ts";
 import { DraftStore, promptBlocks, returnedId } from "../draft.ts";
-import { applyUpdate, type Conversation, emptyConversation } from "../model/index.ts";
+import {
+  applyUpdate,
+  type Conversation,
+  emptyConversation,
+  type Returned,
+} from "../model/index.ts";
 
 export const viewKey = (environmentId: string, sessionId: string): string =>
   `${environmentId}:${sessionId}`;
@@ -130,6 +135,7 @@ export class AppStore {
   #checkingTrust = false;
   /** What each session's box holds, written and not sent. */
   readonly drafts: DraftStore;
+  readonly #acks = new WeakSet<Returned>();
 
   constructor(bridge: CycleBridge, drafts: DraftStore = new DraftStore()) {
     this.#bridge = bridge;
@@ -274,12 +280,21 @@ export class AppStore {
     const returned = view.conversation.returned;
     if (returned === undefined || view.loading) return;
     const id = returnedId(returned.prompts);
-    if (this.drafts.handled(key, id)) return;
-    this.drafts.markHandled(key, id);
-    this.drafts.restore(
-      key,
-      returned.prompts.map((p) => p.prompt),
-    );
+    if (!this.drafts.handled(key, id)) {
+      this.drafts.restore(
+        key,
+        returned.prompts.map((p) => p.prompt),
+        id,
+      );
+    }
+    if (returned.returnId && !this.#acks.has(returned)) {
+      this.#acks.add(returned);
+      void this.#bridge
+        .ackReturn(view.environmentId, view.sessionId, returned.returnId)
+        .catch(() => {
+          this.#acks.delete(returned);
+        });
+    }
   }
 
   async #reopen(environmentId: string, sessionId: string): Promise<void> {
@@ -683,6 +698,14 @@ export class AppStore {
     } catch (error) {
       return messageOf(error);
     }
+  };
+
+  dismissBackground = async (session: SessionSummary): Promise<void> => {
+    const ids = session.unknownBackground;
+    if (ids?.length)
+      await this.#attempt(() =>
+        this.#bridge.dismissBackground(session.environmentId, session.sessionId, ids),
+      );
   };
 
   archiveSession = async (sessionId: string, archived: boolean): Promise<void> => {

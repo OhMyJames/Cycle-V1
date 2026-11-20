@@ -25,3 +25,7 @@ Until now `session/prompt` on a busy session failed with `session_busy`, so the 
 
 - Which client's input box takes `returned` when several are attached is open (protocol.md §13). 8 and "only `end_turn` continues" are the author's choices, not measured.
 - A queued prompt appears in history as a `user_message` only when it is sent, so history order is the order things happened.
+
+## Related
+
+多窗口领取方式后来由[单一领取者决策](2026-11-20-queue-return-recipient.md)确定。

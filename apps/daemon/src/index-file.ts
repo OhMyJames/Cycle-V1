@@ -25,7 +25,7 @@ export const SessionEntrySchema = z.object({
   /** The agent's latest `usage_update`: shown in the session list. */
   usage: SessionUsageSchema.optional(),
   archived: z.boolean().optional(),
-  /** True while prompts wait in the session's queue, so that loading a session knows to read it back from the log. */
+  /** True while prompts wait for the agent or a return receipt. Loading reads these from the log. */
   queued: z.boolean().optional(),
   /**
    * How far the clients have seen the session (`_cycle/session/mark_read`), and the seq of the last

@@ -30,6 +30,7 @@ import {
   foldersList,
   META,
   NOTIFICATIONS,
+  promptAckReturn,
   promptDequeue,
   QUEUE_LIMIT,
   QUEUE_UPDATE,
@@ -39,6 +40,7 @@ import {
   ReplayFromSeqSchema,
   SessionUsageSchema,
   sessionArchive,
+  sessionDismissBackground,
   sessionMarkRead,
   sessionSetTitle,
   sessionUnarchive,
@@ -68,7 +70,7 @@ import { type SessionEntry, SessionIndex } from "./index-file.ts";
 import { BlobLogStore } from "./log/blobs.ts";
 import { JsonlLogStore } from "./log/jsonl.ts";
 import { attach } from "./log/replay.ts";
-import type { LogRecord, LogStore, NewRecord, SessionLog } from "./log/types.ts";
+import type { LogRecord, LogStore, NewRecord } from "./log/types.ts";
 import { redactParams, redactRecord } from "./redact.ts";
 import {
   type Attachment,
@@ -255,6 +257,7 @@ export class Daemon {
       notify: (method, params) => client.notify(method as never, params as never),
       request: (method, params) => client.request(method as never, params as never),
       elicitation: false,
+      ackReturns: false,
     };
     holder.value = conn;
     this.#conns.add(conn);
@@ -325,6 +328,10 @@ export class Daemon {
           session.attachments.delete(attachment);
         }
       }
+      if (session.returnOwner?.conn === conn && !session.returnOwner.acknowledging) {
+        session.returnOwner = undefined;
+        this.#offerReturn(session);
+      }
       this.#abandonForms(session);
     }
   }
@@ -378,7 +385,7 @@ export class Daemon {
       const log = await this.#store.open(sessionId, "existing");
       const session = new Session(sessionId, entry, log);
       // The queue is the last snapshot in the log; the index says whether there is anything to look for.
-      if (entry.queued === true) session.queue = await this.#queueIn(log);
+      if (entry.queued === true) await this.#restoreQueue(session);
       this.#clamp(session);
       this.#watch(session);
       await this.#endTurnLeftOpen(session);
@@ -639,9 +646,14 @@ export class Daemon {
     // Called in the order the updates arrive, so seq follows the agent's order.
     // The list shows what a session is doing, not what it said: only a change of state is announced
     // (docs/protocol.md §6). Anything else that changes the list says so where it changes it.
-    const announce = state.sessionUpdate === "state_update";
+    // Update before yielding to storage so a concurrent dismissal checks the latest agent signal.
+    const backgroundChanged =
+      state.sessionUpdate === "subagent_update" &&
+      session.noteSubagent(update as unknown as Record<string, unknown>);
+    const announce = state.sessionUpdate === "state_update" || backgroundChanged;
     void this.#write(session, { kind: "update", data: update }).then((written) => {
       if (written && announce) this.#changed();
+      if (written && backgroundChanged) this.#restartIfStale(session);
     });
     // A turn ended (an idle that says why, not a snapshot): the next prompt goes, or the queue is handed back.
     const ended = update as { sessionUpdate: string; state?: string; stopReason?: unknown };
@@ -666,16 +678,29 @@ export class Daemon {
 
   // ---- the queue (docs/protocol.md §8) ----
 
-  /** The queue as the last snapshot in a log left it. */
-  async #queueIn(log: SessionLog): Promise<QueueEntry[]> {
-    const records = await log.read();
-    for (let i = records.length - 1; i >= 0; i--) {
-      const record = records[i];
-      if (record?.kind !== "update") continue;
-      const parsed = QueueUpdateSchema.safeParse(record.data);
-      if (parsed.success) return parsed.data.entries;
+  async #restoreQueue(session: Session): Promise<void> {
+    for (const record of await session.log.read()) {
+      if (record.kind === "meta") {
+        const ack = (record.data as { acknowledgedReturn?: string }).acknowledgedReturn;
+        if (ack) session.returns.delete(ack);
+      } else if (
+        record.kind === "update" &&
+        (record.data as { sessionUpdate?: string } | null)?.sessionUpdate === QUEUE_UPDATE
+      ) {
+        const parsed = QueueUpdateSchema.safeParse(record.data);
+        if (!parsed.success) continue;
+        const { entries, returnId, returned, reason } = parsed.data;
+        session.queue = entries;
+        if (returnId && returned && reason)
+          session.returns.set(returnId, { returned, reason, durable: true });
+      }
     }
-    return [];
+  }
+
+  #indexQueue(session: Session): void {
+    const queued = session.queue.length > 0 || session.returns.size > 0;
+    if ((session.entry.queued === true) !== queued)
+      this.#remember(session, { queued: queued ? true : undefined } as Partial<SessionEntry>);
   }
 
   /**
@@ -684,12 +709,9 @@ export class Daemon {
    */
   #publishQueue(
     session: Session,
-    back?: { returned: QueueEntry[]; reason: QueueReason },
+    back?: { returnId: string; returned: QueueEntry[]; reason: QueueReason },
   ): Promise<boolean> {
-    const queued = session.queue.length > 0;
-    if ((session.entry.queued === true) !== queued) {
-      this.#remember(session, { queued: queued ? true : undefined } as Partial<SessionEntry>);
-    }
+    this.#indexQueue(session);
     return this.#write(session, {
       kind: "update",
       data: {
@@ -717,23 +739,60 @@ export class Daemon {
     const returned = session.queue;
     session.queue = [];
     session.heldReason = undefined;
-    // It is on record, but no one is attached to take it from there (a client that reads a history ignores what was
-    // handed back in it): kept, to be handed back live to the first that attaches.
-    if (session.attachments.size === 0)
-      session.unclaimed = {
-        returned: [...(session.unclaimed?.returned ?? []), ...returned],
-        // The first reason stands for what was kept first: it is the oldest that no one has taken.
-        reason: session.unclaimed?.reason ?? reason,
-      };
-    this.#publishQueue(session, { returned, reason });
+    const returnId = randomUUID();
+    const batch = { returned, reason, durable: false };
+    session.returns.set(returnId, batch);
+    void this.#publishQueue(session, { returnId, returned, reason }).then((written) => {
+      batch.durable = written;
+      this.#offerReturn(session);
+    });
   }
 
-  /** What was handed back to no one is handed back to the client that has attached now, as if live. */
-  #handBackUnclaimed(session: Session): void {
-    const { unclaimed } = session;
-    if (unclaimed === undefined || session.attachments.size === 0) return;
-    session.unclaimed = undefined;
-    this.#publishQueue(session, unclaimed);
+  #offerReturn(session: Session): void {
+    if (session.closed || session.historyError || session.returnOwner) return;
+    const first = session.returns.entries().next().value;
+    const recipient = [...session.attachments].find((a) => a.ready);
+    if (!first || !first[1].durable || !recipient) return;
+    const [returnId, { returned, reason }] = first;
+    const { conn } = recipient;
+    session.returnOwner = { conn, id: returnId, acknowledging: false };
+    void conn
+      .notify(SESSION_UPDATE, {
+        sessionId: session.id,
+        update: {
+          sessionUpdate: QUEUE_UPDATE,
+          entries: [...session.queue],
+          returnId,
+          returned,
+          reason,
+        },
+      })
+      .then(
+        () => {
+          if (!conn.ackReturns) return this.#ackReturn(session, conn, returnId);
+        },
+        () => {
+          recipient.ready = false;
+          if (session.returnOwner?.conn === conn && session.returnOwner.id === returnId) {
+            session.returnOwner = undefined;
+            this.#offerReturn(session);
+          }
+        },
+      )
+      .catch(() => {});
+  }
+
+  async #ackReturn(session: Session, conn: ClientConn, id: string): Promise<boolean> {
+    const owner = session.returnOwner;
+    if (!owner || owner.id !== id || owner.conn !== conn || owner.acknowledging) return false;
+    owner.acknowledging = true;
+    if (!(await this.#write(session, { kind: "meta", data: { acknowledgedReturn: id } })))
+      throw logUnavailable(session.id, session.historyError ?? HISTORY_NOT_SAVED);
+    session.returns.delete(id);
+    session.returnOwner = undefined;
+    this.#indexQueue(session);
+    this.#offerReturn(session);
+    return true;
   }
 
   /** A queue left behind with no turn to send it: the reason it was held, or a restart's. */
@@ -918,11 +977,6 @@ export class Daemon {
         this.#remember(session, { attentionSeq: record.seq }, false);
         // A turn that has already been followed by the next (a queued prompt goes as the idle is written) is not the ended one.
         if (update.state === "idle") session.turnEnded = session.agentState === "idle";
-      }
-    } else if (update.sessionUpdate === "subagent_update") {
-      if (session.noteSubagent(update)) {
-        this.#changed();
-        this.#restartIfStale(session);
       }
     }
   }
@@ -1216,9 +1270,17 @@ export class Daemon {
   #deliver(session: Session, attachment: Attachment) {
     return async (record: LogRecord) => {
       if (record.kind === "update") {
+        const update = record.data as {
+          sessionUpdate: string;
+          entries?: QueueEntry[];
+          returnId?: string;
+        };
         await attachment.conn.notify(SESSION_UPDATE, {
           sessionId: session.id,
-          update: record.data,
+          update:
+            update.sessionUpdate === QUEUE_UPDATE && update.returnId
+              ? { sessionUpdate: QUEUE_UPDATE, entries: update.entries }
+              : record.data,
           _meta: { [META.seq]: record.seq },
         });
       } else if (record.kind === "request") {
@@ -1249,6 +1311,9 @@ export class Daemon {
         [META.state]: session.status(),
         [META.lastSeq]: session.log.lastSeq(),
         [META.unread]: session.unread(),
+        ...(session.unknownBackground.size
+          ? { [META.backgroundUnknown]: [...session.unknownBackground.keys()] }
+          : {}),
         ...(background > 0 ? { [META.background]: background } : {}),
         ...(session.historyError !== undefined ? { [META.historyFailed]: true } : {}),
         ...(entry.config !== undefined ? { [META.config]: entry.config } : {}),
@@ -1306,6 +1371,7 @@ export class Daemon {
         META.protocolVersion
       ];
       // Whether this client can answer a form: only then is it asked one (decision 0011).
+      me().ackReturns = params._meta?.[META.ackReturns] === true;
       me().elicitation = params.capabilities?.elicitation?.form != null;
       if (
         typeof requested === "string" &&
@@ -1501,7 +1567,7 @@ export class Daemon {
           session.attachments.delete(old);
         }
       }
-      const attachment: Attachment = { conn, detach: () => {} };
+      const attachment: Attachment = { conn, ready: false, detach: () => {} };
       session.attachments.add(attachment);
       const deliver = this.#deliver(session, attachment);
       try {
@@ -1525,8 +1591,9 @@ export class Daemon {
       for (const pending of session.pending.values()) this.#offer(session, pending, attachment);
       // A queue with no turn behind it was cut short by a restart. It is handed back now, after the
       // replay and the snapshot, so the client that attached is told while it is listening.
+      attachment.ready = true;
       this.#returnStale(session);
-      this.#handBackUnclaimed(session);
+      this.#offerReturn(session);
       // Which they are, so a client that had one before can tell it is not among them: answered elsewhere.
       return {
         configOptions: [],
@@ -1745,6 +1812,37 @@ export class Daemon {
         this.#changed();
         return {};
       };
+    cycle(sessionDismissBackground, async ({ sessionId, taskIds }) => {
+      const session = await this.#session(sessionId);
+      let dismissed = 0;
+      for (const id of new Set(taskIds)) {
+        const task = session.unknownBackground.get(id);
+        if (!task || task.dismissing) continue;
+        task.dismissing = true;
+        if (
+          !(await this.#write(session, {
+            kind: "update",
+            data: {
+              sessionUpdate: "subagent_update",
+              sessionId: id,
+              _meta: { [META.subagent]: { toolCallId: task.toolCallId, status: "dismissed" } },
+            },
+          }))
+        ) {
+          task.dismissing = false;
+          throw logUnavailable(sessionId, session.historyError ?? HISTORY_NOT_SAVED);
+        }
+        if (session.unknownBackground.get(id) === task) session.unknownBackground.delete(id);
+        dismissed++;
+      }
+      if (dismissed) this.#changed();
+      return { dismissed };
+    });
+    cycle(promptAckReturn, async ({ sessionId, returnId }) => {
+      return {
+        acknowledged: await this.#ackReturn(await this.#session(sessionId), me(), returnId),
+      };
+    });
     cycle(promptDequeue, async (params) => {
       const session = await this.#session(params.sessionId);
       const at = session.queue.findIndex((entry) => entry.queueId === params.queueId);

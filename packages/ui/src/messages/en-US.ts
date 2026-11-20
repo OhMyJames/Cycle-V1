@@ -174,6 +174,12 @@ export const enUS = {
   "tool.facts.exitCode": "exited with code {code}",
   "tool.facts.timedOut": "ran past {duration}, now in the background",
   "tool.facts.background": "in the background",
+  "session.dismissBackground": {
+    one: "Mark 1 unconfirmed background task as ended",
+    other: "Mark {count} unconfirmed background tasks as ended",
+  },
+  "subagent.unknown": "Background task status unknown",
+  "subagent.dismissed": "Marked as ended",
   "subagent.using": "using {tool}",
   "subagent.done": "done",
   "subagent.failed": "failed",

@@ -25,6 +25,7 @@ export type QueueReason = z.infer<typeof QueueReasonSchema>;
 export const QueueUpdateSchema = z.object({
   sessionUpdate: z.literal(QUEUE_UPDATE),
   entries: z.array(QueueEntrySchema),
+  returnId: z.string().optional(),
   returned: z.array(QueueEntrySchema).optional(),
   reason: QueueReasonSchema.optional(),
 });
@@ -35,4 +36,10 @@ export const promptDequeue = cycleMethod(
   "_cycle/prompt/dequeue",
   z.object({ sessionId: z.string(), queueId: z.string() }),
   z.object({ prompt: z.array(z.unknown()) }),
+);
+
+export const promptAckReturn = cycleMethod(
+  "_cycle/prompt/ack_return",
+  z.object({ sessionId: z.string(), returnId: z.string() }),
+  z.object({ acknowledged: z.boolean() }),
 );

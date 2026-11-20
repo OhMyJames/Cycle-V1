@@ -93,6 +93,7 @@ export type SessionSummary = {
   unread?: boolean;
   /** How many background sub-agents are working (`cycle/background`). Absent from an older daemon. */
   background?: number;
+  unknownBackground?: string[];
   /**
    * When something last happened in the session (ISO 8601). Absent from a daemon older than protocol 0.2:
    * then the sessions of that daemon are ordered by `lastSeq`, which only compares within one daemon.
@@ -358,6 +359,7 @@ export type AppApi = {
   /** Records whether a folder on that environment's machine is trusted; the folders under it follow. */
   setTrust(environmentId: string, path: string, trusted: boolean): Promise<FolderTrust>;
   /** Takes a prompt back out of the queue, to be edited. Answers with its blocks; fails if it has gone. */
+  ackReturn(environmentId: string, sessionId: string, returnId: string): Promise<void>;
   dequeue(environmentId: string, sessionId: string, queueId: string): Promise<PromptBlock[]>;
   setSessionConfig(
     environmentId: string,
@@ -366,6 +368,7 @@ export type AppApi = {
     value: string,
   ): Promise<void>;
   renameSession(environmentId: string, sessionId: string, title: string): Promise<void>;
+  dismissBackground(environmentId: string, sessionId: string, taskIds: string[]): Promise<void>;
   archiveSession(environmentId: string, sessionId: string, archived: boolean): Promise<void>;
   /** Says the session has been seen: its unread mark clears. Does nothing on a daemon that cannot. */
   markRead(environmentId: string, sessionId: string): Promise<void>;
@@ -449,12 +452,14 @@ export const API_METHODS = [
   "prompt",
   "cancel",
   "dequeue",
+  "ackReturn",
   "searchFiles",
   "listFolders",
   "readTrust",
   "setTrust",
   "setSessionConfig",
   "renameSession",
+  "dismissBackground",
   "archiveSession",
   "markRead",
   "deleteSession",

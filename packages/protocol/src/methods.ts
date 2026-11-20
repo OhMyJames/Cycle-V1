@@ -40,6 +40,12 @@ export const agentDefaultsSet = cycleMethod(
   DoneSchema,
 );
 
+export const sessionDismissBackground = cycleMethod(
+  "_cycle/session/dismiss_background",
+  z.object({ sessionId: SessionId, taskIds: z.array(z.string()).min(1) }),
+  z.object({ dismissed: z.number().int().nonnegative() }),
+);
+
 export const sessionArchive = cycleMethod(
   "_cycle/session/archive",
   z.object({ sessionId: SessionId }),

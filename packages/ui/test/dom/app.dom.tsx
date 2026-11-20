@@ -674,6 +674,22 @@ test("the session's settings are at hand under the message box, and a choice the
   );
 });
 
+test("the session menu marks only the displayed unknown background tasks as ended", async () => {
+  const { user, named } = await mount({
+    configure: ({ bridge }) => {
+      bridge.sessions = async () => [{ ...summary("s1"), unknownBackground: ["child"] }];
+    },
+  });
+  await openFirstSession(user);
+  await user.click(await screen.findByRole("button", { name: "Session actions" }));
+  await user.click(
+    await screen.findByRole("menuitem", { name: "Mark 1 unconfirmed background task as ended" }),
+  );
+  await waitFor(() =>
+    expect(named("dismissBackground")).toEqual([["dismissBackground", "local", "s1", ["child"]]]),
+  );
+});
+
 test("deleting a session asks first", async () => {
   const { user, named } = await mount();
   await openFirstSession(user);
