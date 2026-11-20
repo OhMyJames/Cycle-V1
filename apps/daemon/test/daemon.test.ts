@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { appendFile, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { methods } from "@agentclientprotocol/sdk/experimental/v2";
 import { CycleErrorCode } from "@cycle/protocol";
@@ -70,6 +70,62 @@ test("a working directory that does not exist on the daemon's machine is refused
     /does not exist on the machine the daemon runs on/,
   );
   expect((await c.agent.request(methods.agent.session.list, {})).sessions).toHaveLength(0);
+});
+
+test("paged lists filter the index, keep equal-time rows stable across deletion, and bound hidden pages", async () => {
+  const time = "2026-01-02T00:00:00.000Z";
+  const entries = [
+    ["b", "/tmp", "fake", time, true],
+    ["a", "/tmp", "fake", time, false],
+    ["c", "/tmp", "fake", time, true],
+    ["child", "/tmp/sub", "fake", time, true],
+    ["other", "/tmp", "other", time, true],
+    ["old", "/tmp", "fake", "2026-01-01T23:59:59.999Z", true],
+    ["new", "/tmp", "fake", "2026-01-03T00:00:00.000Z", true],
+  ] as const;
+  const sessions = Object.fromEntries(
+    entries.map(([id, cwd, agent, createdAt, prompted]) => [
+      id,
+      { cwd, agent, createdAt, prompted, turnOpen: false, agentSessionId: id },
+    ]),
+  );
+  await Bun.write(join(dir, "index.json"), JSON.stringify({ version: 1, sessions }));
+  for (const [id] of entries) await Bun.write(join(dir, "sessions", `${id}.jsonl`), "");
+  const { daemon } = await start();
+  const c = await connectClient(daemon);
+  const list = (cursor?: string | null) =>
+    c.agent.request(methods.agent.session.list, {
+      cwd: "/tmp",
+      ...(cursor != null ? { cursor } : {}),
+      _meta: {
+        "cycle/onlyPrompted": true,
+        "cycle/page": {
+          limit: 1,
+          agent: "fake",
+          createdFrom: time,
+          createdBefore: "2026-01-03T00:00:00Z",
+        },
+      },
+    });
+  const hidden = await list();
+  expect(hidden.sessions).toEqual([]);
+  expect(hidden.nextCursor).toBeString();
+  const first = await list(hidden.nextCursor);
+  expect(first.sessions.map((r) => r.sessionId)).toEqual(["b"]);
+  expect(first.nextCursor).toBeString();
+  await c.agent.request(methods.agent.session.delete, { sessionId: "b" });
+  const last = await list(first.nextCursor);
+  expect(last.sessions.map((r) => r.sessionId)).toEqual(["c"]);
+  expect(last.nextCursor == null).toBe(true);
+  await expect(list("bad")).rejects.toMatchObject({ code: -32602 });
+  for (const page of [{ limit: 0 }, { limit: 201 }, { createdFrom: "yesterday" }])
+    await expect(
+      c.agent.request(methods.agent.session.list, { _meta: { "cycle/page": page } }),
+    ).rejects.toMatchObject({ code: -32602 });
+  const legacy = await c.agent.request(methods.agent.session.list, {});
+  expect(legacy.sessions).toHaveLength(entries.length - 1);
+  expect(legacy.sessions.some((row) => row.sessionId === "a")).toBe(true);
+  expect(legacy.nextCursor == null).toBe(true);
 });
 
 test("a second client replays the whole history, then goes live", async () => {
@@ -530,6 +586,59 @@ test("a default value the agent does not list is refused when it is saved, and o
   });
   await set({ mode: "plan", level: "high", model: "claude-some-full-id" });
   await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+});
+
+test("explicit creation settings are checked before starting or storing a session", async () => {
+  const { daemon, fake } = await start(
+    fakeAgent(
+      {},
+      {
+        configSchema: {
+          properties: {
+            mode: { oneOf: [{ const: "plan" }] },
+            model: { enum: ["default"], _meta: { "cycle/open": true } },
+          },
+        },
+      },
+    ),
+  );
+  const c = await connectClient(daemon);
+  const create = (config: unknown) =>
+    c.agent.request(methods.agent.session.new, {
+      cwd: "/tmp",
+      _meta: { "cycle/config": config },
+    });
+  for (const [key, value] of [
+    ["mode", "typo"],
+    ["model", 12],
+    ["toString", "x"],
+  ]) {
+    await expect(create({ [String(key)]: value })).rejects.toMatchObject({
+      code: CycleErrorCode.InvalidConfig,
+      data: { configId: key },
+    });
+  }
+  for (const invalid of [[], null, "plan"])
+    await expect(create(invalid)).rejects.toMatchObject({
+      code: CycleErrorCode.InvalidConfig,
+    });
+  expect(fake.log.launchRequests).toBe(0);
+  expect((await c.agent.request(methods.agent.session.list, {})).sessions).toEqual([]);
+  expect(existsSync(join(dir, "sessions"))).toBe(false);
+  fake.control.rejectConfig.add("model");
+  await expect(create({ mode: "plan", model: "unavailable" })).rejects.toMatchObject({
+    code: CycleErrorCode.InvalidConfig,
+    data: { configId: "model" },
+  });
+  expect((await c.agent.request(methods.agent.session.list, {})).sessions).toEqual([]);
+  expect(await readdir(join(dir, "sessions"))).toEqual([]);
+  fake.control.rejectConfig.clear();
+  fake.log.configs.length = 0;
+  await create({ mode: "plan", model: "custom-model" });
+  expect(fake.log.configs.map(({ configId, value }) => [configId, value])).toEqual([
+    ["mode", "plan"],
+    ["model", "custom-model"],
+  ]);
 });
 
 test("a default for a setting the agent does not have is refused, and defaults survive a restart", async () => {

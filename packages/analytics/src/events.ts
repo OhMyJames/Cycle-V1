@@ -56,6 +56,7 @@ export const EVENTS = {
   }),
 
   // ---- sessions ----
+  session_list_loaded: o({ pages: z.number().int().positive() }),
   session_created: o({ agent, environment: environment, configured: z.boolean() }),
   session_opened: o({ agent, environment: environment }),
   session_renamed: o({}),

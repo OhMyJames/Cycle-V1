@@ -57,6 +57,13 @@ export const SessionEntrySchema = z.object({
 });
 export type SessionEntry = z.infer<typeof SessionEntrySchema>;
 
+export type SessionPosition = readonly [createdAt: string, sessionId: string];
+export const comparePosition = (
+  [time, id]: SessionPosition,
+  [otherTime, otherId]: SessionPosition,
+): number =>
+  time > otherTime ? -1 : time < otherTime ? 1 : id < otherId ? -1 : id > otherId ? 1 : 0;
+
 const IndexSchema = z.object({
   version: z.literal(1),
   sessions: z.record(z.string(), SessionEntrySchema),
@@ -79,6 +86,7 @@ export class IndexUnreadableError extends Error {
  */
 export class SessionIndex {
   readonly #path: string;
+  #createdOrder: [string, string][] | undefined;
   #sessions: Map<string, SessionEntry>;
   #queue: Promise<unknown> = Promise.resolve();
 
@@ -107,8 +115,19 @@ export class SessionIndex {
     return [...this.#sessions.entries()];
   }
 
+  /** Stable keys for paging. Metadata edits keep the order, and a cursor survives deletion of its row. */
+  createdOrder(): ReadonlyArray<readonly [string, string]> {
+    this.#createdOrder ??= this.list()
+      .map(([id, e]): [string, string] => [e.createdAt, id])
+      .sort(comparePosition);
+    return this.#createdOrder;
+  }
+
   put(sessionId: string, entry: SessionEntry): Promise<void> {
-    return this.#change(() => this.#sessions.set(sessionId, SessionEntrySchema.parse(entry)));
+    return this.#change(() => {
+      this.#createdOrder = undefined;
+      this.#sessions.set(sessionId, SessionEntrySchema.parse(entry));
+    });
   }
 
   /**
@@ -124,6 +143,8 @@ export class SessionIndex {
       const entry = this.#sessions.get(sessionId);
       if (entry === undefined) throw new Error(`No session ${sessionId} in the index`);
       const patch = typeof change === "function" ? change(entry) : change;
+      if (patch.createdAt !== undefined && patch.createdAt !== entry.createdAt)
+        this.#createdOrder = undefined;
       this.#sessions.set(sessionId, SessionEntrySchema.parse({ ...entry, ...patch }));
     });
   }
@@ -134,7 +155,10 @@ export class SessionIndex {
   }
 
   delete(sessionId: string): Promise<void> {
-    return this.#change(() => this.#sessions.delete(sessionId));
+    return this.#change(() => {
+      this.#createdOrder = undefined;
+      this.#sessions.delete(sessionId);
+    });
   }
 
   #change(apply: () => void): Promise<void> {
@@ -144,6 +168,7 @@ export class SessionIndex {
         apply();
         await this.#save();
       } catch (error) {
+        this.#createdOrder = undefined;
         this.#sessions = before;
         throw error;
       }

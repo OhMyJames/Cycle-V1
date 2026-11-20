@@ -1,7 +1,26 @@
 import { expect, test } from "bun:test";
 import { CLAUDE_PERMISSION_MODES } from "@cycle/harness-claude";
 import { META } from "@cycle/protocol";
-import { CLAUDE_CONFIG_SCHEMA } from "../src/claude-agent.ts";
+import { CLAUDE_CONFIG_SCHEMA, claudeEnv } from "../src/claude-agent.ts";
+
+import { ConfigSchema } from "../src/config.ts";
+
+test("the default Claude environment keeps host login tokens and the host home out", () => {
+  const env = claudeEnv(ConfigSchema.parse({}).claude, "/isolated/cycle", {
+    PATH: "/bin",
+    HOME: "/host-home",
+    CLAUDE_CONFIG_DIR: "/host-config",
+    CLAUDE_CODE_OAUTH_TOKEN: "oauth-canary",
+    ANTHROPIC_API_KEY: "api-canary",
+    SSO_TOKEN: "sso-canary",
+  });
+  expect(env).toEqual({
+    PATH: "/bin",
+    HOME: "/isolated/cycle/claude",
+    CLAUDE_CONFIG_DIR: "/isolated/cycle/claude",
+    CLAUDE_CODE_ENABLE_TODO_TOOLS: "1",
+  });
+});
 
 test("Claude's settings list every mode the adapter takes, and leave the model open", () => {
   const { mode, model } = CLAUDE_CONFIG_SCHEMA.properties;

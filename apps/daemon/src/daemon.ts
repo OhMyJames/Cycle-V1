@@ -81,6 +81,7 @@ import {
   Session,
   type SessionStatus,
 } from "./session.ts";
+import { sessionPage } from "./session-page.ts";
 import { checkToolResult } from "./tool-result.ts";
 import { FolderTrust, realFolder, within } from "./trust-file.ts";
 import { type Activity, opensOrEndsTurn, turnLeftOpen } from "./turns.ts";
@@ -118,16 +119,6 @@ const currentValues = (options: unknown): Record<string, string> => {
       if (typeof option?.configId === "string" && typeof option.currentValue === "string") {
         config[option.configId] = option.currentValue;
       }
-    }
-  }
-  return config;
-};
-
-const stringConfig = (value: unknown): Record<string, string> => {
-  const config: Record<string, string> = {};
-  if (typeof value === "object" && value !== null) {
-    for (const [key, item] of Object.entries(value)) {
-      if (typeof item === "string") config[key] = item;
     }
   }
   return config;
@@ -183,6 +174,31 @@ const closedChoices = (property: unknown): unknown[] | undefined => {
     return consts.every((value) => value !== undefined) ? consts : undefined;
   }
   return undefined;
+};
+
+/** The same declared choices apply to saved defaults and explicit creation overrides. */
+const checkedConfig = (agent: AgentDefinition, raw: unknown): Record<string, string> => {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    throw new RpcError(CycleErrorCode.InvalidConfig, "Expected a configuration object", {
+      agent: agent.id,
+    });
+  const properties = agent.configSchema.properties as Record<string, unknown> | undefined;
+  const entries = Object.entries(raw);
+  for (const [configId, value] of entries) {
+    const field = { agent: agent.id, configId };
+    if (properties !== undefined && !Object.hasOwn(properties, configId))
+      throw new RpcError(CycleErrorCode.InvalidConfig, `Unknown setting: ${configId}`, field);
+    if (typeof value !== "string")
+      throw new RpcError(CycleErrorCode.InvalidConfig, `Expected a string for ${configId}`, field);
+    const allowed = closedChoices(properties?.[configId]);
+    if (allowed && !allowed.includes(value))
+      throw new RpcError(CycleErrorCode.InvalidConfig, `Unsupported value for ${configId}`, {
+        ...field,
+        value,
+        allowed,
+      });
+  }
+  return raw as Record<string, string>;
 };
 
 export class Daemon {
@@ -1451,6 +1467,7 @@ export class Daemon {
           [META.capabilities]: {
             replay: ["start", "_cycle.seq"],
             agents: [...this.#agents.keys()],
+            sessionListPages: true,
             sessionOps: ["archive", "rename", "delete", "markRead"],
             queue: true,
             steer: true,
@@ -1472,7 +1489,11 @@ export class Daemon {
           : [...this.#agents.keys()][0];
       if (agentId === undefined)
         throw new RpcError(CycleErrorCode.AgentUnavailable, "No agent is configured");
-      this.#definition(agentId);
+      const definition = this.#definition(agentId);
+      const overrides = checkedConfig(
+        definition,
+        meta[META.config] === undefined ? {} : meta[META.config],
+      );
       // The directories are paths on THIS machine (the daemon's), not the client's. Say so up front.
       const directories = [params.cwd, ...(params.additionalDirectories ?? [])];
       for (const [index, directory] of directories.entries()) {
@@ -1517,7 +1538,7 @@ export class Daemon {
           kind: "meta",
           data: { event: "created", agent: agentId, cwd: params.cwd },
         });
-        const { created } = await this.#startAgent(session, "new", {
+        const { link, created } = await this.#startAgent(session, "new", {
           cwd: params.cwd,
           additionalDirectories: params.additionalDirectories,
           mcpServers: params.mcpServers,
@@ -1525,24 +1546,18 @@ export class Daemon {
         });
         const answer = created as { sessionId: string; configOptions?: unknown[] };
         session.entry = { ...session.entry, agentSessionId: answer.sessionId };
-        // The agent may have taken our id or kept its own; either way the pair is on record.
-        await this.#index.put(id, session.entry);
-        this.#sessions.set(id, session);
         // What the user set as the agent's defaults, then what they asked of this one.
-        const config = { ...this.#defaults.get(agentId), ...stringConfig(meta[META.config]) };
+        const config = { ...this.#defaults.get(agentId), ...overrides };
         // What the agent says its settings are now: each change answers with the whole set.
         let options = answer.configOptions ?? [];
         for (const [configId, value] of Object.entries(config)) {
           try {
-            const changed = await session.link?.agent.request(
-              methods.agent.session.setConfigOption,
-              {
-                sessionId: session.entry.agentSessionId,
-                configId,
-                type: "id",
-                value,
-              } as never,
-            );
+            const changed = await link.agent.request(methods.agent.session.setConfigOption, {
+              sessionId: session.entry.agentSessionId,
+              configId,
+              type: "id",
+              value,
+            } as never);
             const latest = (changed as { configOptions?: unknown[] } | undefined)?.configOptions;
             if (Array.isArray(latest) && latest.length > 0) options = latest;
           } catch (error) {
@@ -1566,8 +1581,10 @@ export class Daemon {
         };
         if (Object.keys(recorded).length > 0) {
           session.entry = { ...session.entry, config: recorded };
-          await this.#index.update(id, { config: recorded });
         }
+        // Publish the session only after every requested setting has been accepted.
+        this.#sessions.set(id, session);
+        await this.#index.put(id, session.entry);
         this.#changed();
         this.#letGoOfOldestAhead(session);
         return { sessionId: id, configOptions: options } as never;
@@ -1588,7 +1605,8 @@ export class Daemon {
       const said =
         (params?._meta as Record<string, unknown> | null | undefined)?.[META.onlyPrompted] === true;
       const rows = [];
-      for (const [sessionId, entry] of this.#index.list()) {
+      const page = sessionPage(this.#index, params ?? {});
+      for (const [sessionId, entry] of page.entries) {
         try {
           const row = await this.#row(sessionId, entry, said);
           if (row !== undefined) rows.push(row);
@@ -1602,7 +1620,7 @@ export class Daemon {
           rows.push(this.#unreadableRow(sessionId, entry));
         }
       }
-      return { sessions: rows } as never;
+      return { sessions: rows, nextCursor: page.nextCursor } as never;
     });
 
     app.onRequest(methods.agent.session.resume, async ({ params }) => {
@@ -1829,31 +1847,7 @@ export class Daemon {
     });
     cycle(agentDefaultsSet, async (params) => {
       const definition = this.#definition(params.agent);
-      // Only settings the agent says it has, when it says: a typo should not be saved and then ignored.
-      const known = (definition.configSchema as { properties?: Record<string, unknown> })
-        .properties;
-      if (known !== undefined) {
-        for (const [key, value] of Object.entries(params.config)) {
-          if (!(key in known)) {
-            throw new RpcError(CycleErrorCode.InvalidConfig, "The agent has no such setting", {
-              agent: params.agent,
-              configId: key,
-            });
-          }
-          // A value the agent lists as the only ones it takes is checked now, not at the next new
-          // session, which it would otherwise stop from being made.
-          const choices = closedChoices(known[key]);
-          if (choices !== undefined && !choices.includes(value)) {
-            throw new RpcError(CycleErrorCode.InvalidConfig, "The agent has no such value", {
-              agent: params.agent,
-              configId: key,
-              value,
-              allowed: choices,
-            });
-          }
-        }
-      }
-      await this.#defaults.set(params.agent, params.config as Record<string, string>);
+      await this.#defaults.set(params.agent, checkedConfig(definition, params.config));
       for (const conn of this.#conns) {
         void conn
           .notify(NOTIFICATIONS.agentDefaultsChanged, { agent: params.agent })

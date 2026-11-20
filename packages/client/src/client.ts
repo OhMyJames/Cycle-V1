@@ -33,6 +33,7 @@ import {
   promptAckReturn,
   promptDequeue,
   type ResultOf,
+  type SessionPageOptions,
   seqOf,
   sessionArchive,
   sessionDismissBackground,
@@ -233,12 +234,41 @@ export class CycleClient {
    * message (docs/protocol.md §6). An older daemon lists them all.
    */
   async listSessions(): Promise<SessionRow[]> {
-    const answer = (await this.#request(methods.agent.session.list, {
-      _meta: { [META.onlyPrompted]: true },
-    })) as {
-      sessions: SessionRow[];
-    };
-    return answer.sessions;
+    const rows: SessionRow[] = [];
+    for await (const page of this.sessionPages()) rows.push(...page.sessions);
+    return rows;
+  }
+
+  /** Each bounded response, including empty intermediate pages. Older daemons answer once. */
+  async *sessionPages(
+    options: SessionPageOptions & { cwd?: string } = {},
+  ): AsyncGenerator<{ sessions: SessionRow[]; hasMore: boolean }> {
+    const api = this.#api();
+    const { cwd, ...page } = options;
+    const paged = this.capabilities.sessionListPages === true;
+    if (
+      !paged &&
+      (cwd !== undefined ||
+        page.agent !== undefined ||
+        page.createdFrom !== undefined ||
+        page.createdBefore !== undefined)
+    )
+      throw new Error("This daemon does not support session list filters");
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const answer = await api.request(methods.agent.session.list, {
+        ...(cwd !== undefined ? { cwd } : {}),
+        ...(cursor !== undefined ? { cursor } : {}),
+        _meta: { [META.onlyPrompted]: true, ...(paged ? { [META.page]: page } : {}) },
+      });
+      cursor = answer.nextCursor ?? undefined;
+      if (cursor !== undefined) {
+        if (seen.has(cursor)) throw new Error("The daemon repeated a session list cursor");
+        seen.add(cursor);
+      }
+      yield { sessions: answer.sessions, hasMore: cursor !== undefined };
+    } while (cursor !== undefined);
   }
 
   async newSession(params: {

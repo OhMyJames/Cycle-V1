@@ -131,3 +131,9 @@ Claude Agent SDK 0.3.327,模型 haiku,账号的 OAuth token(`CLAUDE_CODE_OAUTH_T
 - **计划**:SDK 里 Claude **默认没有任务列表工具**(`TodoWrite` 和 `TaskCreate` 都被 `ToolSearch` 报"没有匹配");要设 `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` 才出现,而且出现的是 `TaskCreate`/`TaskUpdate`,不是 `TodoWrite`。daemon 现在给 Claude 的环境里默认带上它(`config.json` 的 `claude.env` 可覆盖)。`TaskCreate` 的任务 id 只在结果里(`tool_use_result.task.id`),所以要等结果再进列表。真实运行:建两个任务、更新一个,界面里出现这两项。
 
 这次真实运行里没有出现的:`notice`、`compaction_update`、子 agent(适配器本来就没发)。图片、长输出、很长的会话没试过。
+
+### 隔离登录验证
+
+2026-11-20（CYCL-110），用临时 HOME、Claude 配置和工作目录运行官方 CLI。初始 `auth status --json` 返回 `loggedIn: false`、`authMethod: "none"`。`claude auth login --claudeai` 打开了浏览器授权流程；按本轮验收范围在用户授权前停止。另用临时 Cycle 数据目录运行 `cycle claude auth status --json`，宿主环境中的模拟 OAuth、API 和 SSO 凭证均未使 Claude 进入登录态。单元测试检查了实际传给 Claude 的环境白名单、HOME 和配置路径。
+
+待验证的是在隔离目录完成账号授权后，经 Cycle 创建会话并完成一个模型回合。已有的显式 token 模型测试覆盖另一条凭证路径。

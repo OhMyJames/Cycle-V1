@@ -14,6 +14,7 @@ import {
   type PermissionAnswer,
   ProtocolMismatchError,
 } from "../src/index.ts";
+import { connectorsDaemon } from "./fake-connectors-daemon.ts";
 
 let dir: string;
 let cleanup: (() => void | Promise<void>)[] = [];
@@ -101,6 +102,22 @@ test("starts, makes a session, and shows a turn as it happens", async () => {
   );
   expect(seqs(seen)).toEqual([2, 3, 4, 5]);
   expect((await client.listSessions()).map((s) => s.sessionId)).toEqual([sessionId]);
+});
+
+test("an older daemon supplies its complete list once and unsupported filters are explicit", async () => {
+  const old = await connectorsDaemon(dir, { capable: false });
+  const client = new CycleClient({ connect: () => connectUnix(old.socket) });
+  cleanup.push(
+    () => old.close(),
+    () => client.close(),
+  );
+  await client.start();
+  const pages = [];
+  for await (const page of client.sessionPages()) pages.push(page);
+  expect(pages).toEqual([{ sessions: [], hasMore: false }]);
+  await expect(client.sessionPages({ agent: "claude" }).next()).rejects.toThrow(
+    "does not support session list filters",
+  );
 });
 
 test("after a drop it reconnects and shows what it missed once, in order", async () => {
