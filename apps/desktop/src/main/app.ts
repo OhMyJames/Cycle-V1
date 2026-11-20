@@ -75,12 +75,18 @@ const isWeb = (url: string): boolean => {
 };
 
 /** How each kind of environment is reached. The one place that knows. */
-const channelFor = (options: AppOptions) => (environment: EnvironmentConfig) => async () => {
-  if (environment.kind === "local")
-    return commandChannel({ command: options.localCommand, env: options.localEnv });
-  const { transport } = environment;
-  return sshChannel({ host: transport.host, command: transport.command ?? ["cycle", "proxy"] });
-};
+const channelFor =
+  (options: AppOptions, localHandoff: () => Promise<void> | undefined) =>
+  (environment: EnvironmentConfig) =>
+  async () => {
+    if (environment.kind === "local") {
+      const paused = localHandoff();
+      if (paused) await paused;
+      return commandChannel({ command: options.localCommand, env: options.localEnv });
+    }
+    const { transport } = environment;
+    return sshChannel({ host: transport.host, command: transport.command ?? ["cycle", "proxy"] });
+  };
 
 /** What went wrong in what ssh said: its last line, which is the cause (earlier lines are warnings and progress). */
 const lastLine = (stderr: string): string =>
@@ -132,10 +138,11 @@ export const startApp = async (options: AppOptions) => {
     if (window !== undefined && !window.isDestroyed())
       window.webContents.send(EVENT_CHANNEL, event);
   };
+  let handoff: ReturnType<typeof Promise.withResolvers<void>> | undefined;
   const manager = new ConnectionManager({
     ...(options.update !== undefined ? { appVersion: options.update.current.version } : {}),
     settings: fileSettings(join(app.getPath("userData"), "settings.json")),
-    channelFor: channelFor(options),
+    channelFor: channelFor(options, () => handoff?.promise),
     runOnHost,
     emit,
     track: (name, props) => analytics.track(name, props),
@@ -171,10 +178,19 @@ export const startApp = async (options: AppOptions) => {
       repo: "",
       fetch,
       extract: async () => {},
-      beforeSwap: async () => {},
-      handOff: () => {},
       disabled: "Updates are for the installed app.",
     }),
+    handOff: async (swap) => {
+      // Stopping the daemon drops its socket. A reconnect would start another copy from the old bundle.
+      handoff = Promise.withResolvers<void>();
+      try {
+        await options.update?.handOff(swap);
+      } catch (error) {
+        handoff.resolve();
+        handoff = undefined;
+        throw error;
+      }
+    },
     emit: (state) => emit({ type: "app-update", state }),
     quit: () => app.quit(),
   });

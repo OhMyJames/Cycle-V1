@@ -45,10 +45,8 @@ export type UpdaterDeps = {
   extract: (zip: string, into: string) => Promise<void>;
   /** Throws unless the new bundle may replace this one (the same signing team, when there is one). */
   verifyBundle?: (newApp: string, currentApp: string) => Promise<void>;
-  /** Before the swap: whatever the old app left running that would outlive it (the local daemon). */
-  beforeSwap: () => Promise<void>;
-  /** Starts the script that swaps the bundles once this process is gone, and returns. */
-  handOff: (swap: Swap) => void;
+  /** Stops the local daemon and starts the script that swaps the bundles once this process has exited. */
+  handOff: (swap: Swap) => Promise<void>;
   /** Closes the app. */
   quit: () => void;
   emit: (state: UpdateState) => void;
@@ -320,8 +318,7 @@ export class Updater {
     try {
       await this.#preflight();
       const newApp = await this.#obtain(pending, staging);
-      await this.#d.beforeSwap();
-      this.#d.handOff({
+      await this.#d.handOff({
         appPath: this.#d.appPath,
         newApp,
         oldApp: oldOf(this.#d.appPath),
