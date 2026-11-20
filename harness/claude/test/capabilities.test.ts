@@ -1501,16 +1501,85 @@ test("a turn's usage carries what the window holds, as Claude Code counts it, in
     });
 
     // A process that cannot say (an older CLI, an answer that is not one) ends the turn with the usage alone.
+    // A process that cannot say this time keeps the window it last told: the ring does not jump to the model's 1M.
     fake.state.contextUsage = undefined;
     await prompt(agent, idle, [{ type: "text", text: "again" }]);
     expect(usages(updates).at(-1)).toEqual({
       sessionUpdate: "usage_update",
       used: 161_300,
-      size: 1_000_000,
+      size: 200_000,
     });
     fake.state.contextUsage = { categories: "no" };
     await prompt(agent, idle, [{ type: "text", text: "again" }]);
     expect(usages(updates).at(-1)).not.toHaveProperty("_meta");
+  });
+
+  // A new process has told no window yet: without an answer, the model's is the one.
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "work" }]);
+    expect(usages(updates).at(-1)?.size).toBe(1_000_000);
+  });
+});
+
+test("a prompt steered in while the turn's context is asked is answered in the same turn, by the same process", async () => {
+  const fake = fakeQuery(() => {
+    const [init, start, block, d1, d2, assistant] = textTurn(ID, "m", "ok") as unknown as Record<
+      string,
+      unknown
+    >[];
+    return [
+      init,
+      start,
+      block,
+      d1,
+      d2,
+      {
+        ...assistant,
+        message: { ...(assistant?.message as object), usage: { input_tokens: 100 } },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        stop_reason: "end_turn",
+        session_id: ID,
+        modelUsage: { opus: { contextWindow: 200_000 } },
+      },
+    ] as unknown as SDKMessage[];
+  });
+  const answer = { rawMaxTokens: 200_000, categories: [] };
+  let asked = 0;
+  let answerFirst: () => void = () => {};
+  fake.state.contextUsage = () => {
+    asked++;
+    // The first ask waits until a steer has come in; the next answers at once.
+    return asked === 1
+      ? new Promise((resolve) => {
+          answerFirst = () => resolve(answer);
+        })
+      : Promise.resolve(answer);
+  };
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    const ended = idle();
+    await agent.request(methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "work" }],
+    });
+    for (let i = 0; i < 100 && asked === 0; i++) await new Promise((r) => setTimeout(r, 5));
+    expect(asked).toBe(1);
+    await agent.request(methods.agent.session.prompt, {
+      sessionId: ID,
+      prompt: [{ type: "text", text: "mind this" }],
+      _meta: { "cycle/steer": true },
+    });
+    answerFirst();
+    await ended;
+    // Claude answered the steer in the same process, inside the one turn: one idle, one usage, at its end.
+    expect(fake.prompts).toEqual(["work", "mind this"]);
+    expect(fake.calls).toHaveLength(1);
+    expect(updates.filter((u) => (u as { state?: string }).state === "idle")).toHaveLength(1);
+    expect(updates.filter((u) => u.sessionUpdate === "usage_update")).toHaveLength(1);
   });
 });
 

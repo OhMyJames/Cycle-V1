@@ -322,6 +322,7 @@ test("a usage carries what the window holds when the agent said, and only that u
           // What does not read as a part is left out.
           { id: "odd", name: "Odd", tokens: 5, kind: "sideways" },
           { id: "neg", name: "Neg", tokens: -1, kind: "used" },
+          { id: "none", name: "None", tokens: 0, kind: "used" },
           { tokens: 3, kind: "used" },
           "no",
         ],
@@ -337,10 +338,16 @@ test("a usage carries what the window holds when the agent said, and only that u
       { name: "New", tokens: 30, kind: "used" },
     ],
   });
-  // The next usage without parts has none: an earlier count says nothing of the window now.
+  // The next usage without parts has none: an earlier count says nothing of the window now. Where it compacts stays
+  // while the window is the same one (the usage told after a compaction does not repeat it), and goes with it.
   expect(at(counted, { sessionUpdate: "usage_update", used: 40, size: 200 }).usage).toEqual({
     used: 40,
     size: 200,
+    autoCompactAt: 170,
+  });
+  expect(at(counted, { sessionUpdate: "usage_update", used: 40, size: 1000 }).usage).toEqual({
+    used: 40,
+    size: 1000,
   });
   // A `_meta` that is not one is no parts.
   expect(

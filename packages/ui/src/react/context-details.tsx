@@ -80,15 +80,23 @@ export function ContextDetails({
   // Parts measured before a compaction say nothing of what is in the window now.
   const rows = measured && !before && usage.parts !== undefined ? rowsOf(usage.parts) : [];
   let shade = 0;
-  const toned = rows.map((part) => ({
-    part,
-    tone: part.kind === "used" ? String(Math.min(++shade, SHADES)) : part.kind,
-  }));
+  // Keyed by what the part is, and how many like it came before: two parts may share a name.
+  const seen = new Map<string, number>();
+  const toned = rows.map((part) => {
+    const self = `${part.kind}:${part.id ?? part.name}`;
+    const before = seen.get(self) ?? 0;
+    seen.set(self, before + 1);
+    return {
+      part,
+      key: `${self}:${before}`,
+      tone: part.kind === "used" ? String(Math.min(++shade, SHADES)) : part.kind,
+    };
+  });
   // Without parts the bar is the used share alone.
   const segments = measured
     ? toned.length > 0
       ? toned.filter((r) => r.tone !== "free")
-      : [{ part: { name: "", tokens: usage.used, kind: "used" as const }, tone: "1" }]
+      : [{ part: { name: "", tokens: usage.used, kind: "used" as const }, key: "used", tone: "1" }]
     : [];
   const state = context.compacting
     ? t("composer.context.compacting")
@@ -113,9 +121,9 @@ export function ContextDetails({
         ) : null}
       </div>
       <div data-slot="context-bar" data-before={before || undefined} aria-hidden="true">
-        {segments.map(({ part, tone }) => (
+        {segments.map(({ part, key, tone }) => (
           <span
-            key={`${part.id ?? part.name}:${tone}`}
+            key={key}
             data-slot="context-segment"
             data-tone={tone}
             style={{ flexGrow: part.tokens }}
@@ -141,8 +149,8 @@ export function ContextDetails({
       ) : null}
       {toned.length > 0 ? (
         <ul data-slot="context-parts" aria-label={t("composer.context.parts")}>
-          {toned.map(({ part, tone }) => (
-            <li key={`${part.id ?? part.name}:${part.kind}`} data-slot="context-part">
+          {toned.map(({ part, key, tone }) => (
+            <li key={key} data-slot="context-part">
               <span data-slot="context-swatch" data-tone={tone} aria-hidden="true" />
               <span data-slot="context-part-name">{nameOf(part)}</span>
               <span data-slot="context-part-tokens">{tokensOf(part.tokens)}</span>

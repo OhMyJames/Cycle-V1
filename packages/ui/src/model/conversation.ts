@@ -224,8 +224,8 @@ const contextOfMeta = (
         if (typeof p !== "object" || p === null) return [];
         const { id, name, tokens, kind } = p as Record<string, unknown>;
         const n = tokensOf(tokens);
-        if (typeof name !== "string" || n === undefined || !PART_KINDS.includes(kind as string))
-          return [];
+        // An empty part is no part (docs/protocol.md §8).
+        if (typeof name !== "string" || !n || !PART_KINDS.includes(kind as string)) return [];
         return [
           {
             ...(typeof id === "string" ? { id } : {}),
@@ -600,6 +600,10 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
       const context = contextOfMeta(
         (u._meta as Record<string, unknown> | null | undefined)?.["cycle/context"],
       );
+      // Where it compacts stays with the window it was told for: the usage told after a compaction does not repeat it.
+      const autoCompactAt =
+        context?.autoCompactAt ??
+        (c.usage?.size === Number(u.size) ? c.usage?.autoCompactAt : undefined);
       return {
         ...c,
         usage: {
@@ -607,7 +611,7 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
           size: Number(u.size),
           ...(cost !== undefined ? { cost } : {}),
           ...(context?.parts !== undefined ? { parts: context.parts } : {}),
-          ...(context?.autoCompactAt !== undefined ? { autoCompactAt: context.autoCompactAt } : {}),
+          ...(autoCompactAt !== undefined ? { autoCompactAt } : {}),
         },
       };
     }

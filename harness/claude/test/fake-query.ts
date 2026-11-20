@@ -67,7 +67,7 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
     flagSettings: [] as Record<string, unknown>[],
     /** Make `setPermissionMode` and `setModel` throw, as they do on a process that is gone. */
     failSetters: false,
-    /** What `getContextUsage()` answers; absent: it fails, as on a CLI that does not know it. */
+    /** What `getContextUsage()` answers (a function: called for each ask); absent: it fails, as on a CLI that does not know it. */
     contextUsage: undefined as unknown,
     /** `interrupt` does nothing, as for a process that has hung. */
     ignoreInterrupt: false,
@@ -215,7 +215,7 @@ export const fakeQuery = (turns: (call: Call) => SDKMessage[] | Promise<SDKMessa
       supportedCommands: async () => state.commands,
       getContextUsage: async () => {
         if (state.contextUsage === undefined) throw new Error("unknown control request");
-        return state.contextUsage;
+        return typeof state.contextUsage === "function" ? state.contextUsage() : state.contextUsage;
       },
       supportedModels: async () => state.availableModels,
       initializationResult: async () => {

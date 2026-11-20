@@ -1926,7 +1926,8 @@ test("the context ring opens into what was reported: nothing yet, now's usage pa
   await user.keyboard("{Escape}");
 
   // A usage with no parts (the one after a compaction, or an agent that does not count them) is the total alone,
-  // and no parts of an earlier usage come with it. A currency Intl does not know is written as given.
+  // and no parts of an earlier usage come with it; where it compacts stays, the window being the same. A currency
+  // Intl does not know is written as given.
   update(4, {
     sessionUpdate: "usage_update",
     used: 30_000,
@@ -1938,7 +1939,7 @@ test("the context ring opens into what was reported: nothing yet, now's usage pa
   const plain = await dialog();
   expect(rows(plain)).toEqual([]);
   expect(plain.textContent).toContain("Session cost3 credits");
-  expect(plain.textContent).not.toContain("Auto-compacts");
+  expect(plain.textContent).toContain("Auto-compacts at167K");
   await user.keyboard("{Escape}");
 
   // Only what kind of state it was, and whether parts were shown, is counted; no number goes with it.
