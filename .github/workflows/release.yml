@@ -31,49 +31,74 @@ permissions:
   contents: read
 
 jobs:
-  validation:
-    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'codex/cycl-105-validation'
+  control:
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'codex/cycl-105-negative-control'
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 15
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: 15cae9eaf7d58d8f4e4af4ff96c8aed78e0ec619
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
-      - name: Prepare a fixed source app for the signed regression
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Signed 0.3.6 refuses the public ad hoc 0.3.7 archive
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          parent="$HOME/Library/Caches/CycleTesting/CYCL-105"
-          work=$(mktemp -d "$parent/fixed.XXXXXX")
-          mkdir "$work/0.3.6"
-          git archive 3f4d05d78743c0aea0db100352f758218a2f4b0a | tar -xf - -C "$work/0.3.6"
-          git diff a7f4239 15cae9e -- apps/desktop/src/main > "$work/reconnect.patch"
-          cd "$work/0.3.6"
-          git apply "$work/reconnect.patch"
-          bun install --frozen-lockfile --ignore-scripts
-          bun run --cwd apps/desktop package
-          ln -s "$(command -v bun)" "$work/bun"
-          sed 's/for version in 0.3.6 0.3.7/for version in 0.3.6/' "$GITHUB_WORKSPACE/.github/cycl-105/sign-builds.sh" > "$work/sign-builds.sh"
-          chmod 700 "$work/sign-builds.sh"
-          echo "Fixed source command: $work/sign-builds.sh"
-          echo "FIXED_SOURCE=$work" >> "$GITHUB_ENV"
-      - name: Signed 0.3.7 window with an old daemon over isolated real SSH
+          release=$(mktemp -d "$RUNNER_TEMP/cycl105-public.XXXXXX")
+          gh release download v0.3.7 --repo "$GITHUB_REPOSITORY" -p '*darwin-arm64*' -D "$release"
+          unset GH_TOKEN
+          export CYCLE_SIGNED_FROM="$HOME/Library/Caches/CycleTesting/CYCL-105/fixtures.JHhQKj/0.3.6/apps/desktop/build/release"
+          export CYCLE_SIGNED_TO="$release"
+          export CYCLE_EXPECT_DIFFERENT_TEAM=1
+          # This control checks for an explicitly ad hoc candidate, separately from the two-Developer-ID case.
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          path=Path('apps/desktop/test/integration/update-release.ts')
+          source=path.read_text()
+          old='const team = signedTeam(app);'
+          assert source.count(old)==1
+          path.write_text(source.replace(old, """
+            let team: string;
+            if (dir === process.env.CYCLE_SIGNED_TO) {
+              const listing = Bun.spawnSync(["/usr/bin/codesign", "-dv", "--verbose=4", app]);
+              const details = listing.stderr.toString();
+              if (!listing.success || !/^Signature=adhoc$/m.test(details) || !/^TeamIdentifier=not set$/m.test(details))
+                throw new Error("Expected the public ad hoc build.");
+              run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app]);
+              team = "ad hoc";
+            } else {
+              team = signedTeam(app);
+            }"""))
+          PYTHON
+          bun test ./apps/desktop/test/integration/update.integration.ts
+      - name: Recheck original daemon version five seconds after reopening
+        if: always()
         run: |
-          set -euo pipefail
-          old=$(mktemp -d "$RUNNER_TEMP/cycle020.XXXXXX")
-          git archive a945018f5ee70e7f52b52567c1c05f5df728fe38 | tar -xf - -C "$old"
-          (cd "$old" && bun install --frozen-lockfile --ignore-scripts && bun run --cwd apps/daemon build --no-tarball)
-          app="$HOME/Library/Caches/CycleTesting/CYCL-105/fixtures.JHhQKj/0.3.7/apps/desktop/build/Cycle.app"
-          bash .github/cycl-105/banner.sh "$old/apps/daemon/dist/cycle-darwin-arm64/cycle" "$app"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: signed-remote-banner
-          path: ${{ runner.temp }}/cycl105-*-remote.png
+          git restore apps/desktop/test/integration/update-release.ts
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          path=Path('apps/desktop/test/integration/update.integration.ts')
+          source=path.read_text()
+          old='expect(version).toBe(newer);'
+          assert source.count(old)==1
+          path.write_text(source.replace(old, """console.log("Daemon on first connection:", version);
+                  await Bun.sleep(5000);
+                  const later = await daemonVersion(data);
+                  console.log("Daemon after five seconds:",later);
+                  console.log("Bundled daemon CLI version:",run([join(installed, resources, "bin/cycle"), "version"]).trim());
+                  expect(later).toBe(newer);"""))
+          PYTHON
+          work="$HOME/Library/Caches/CycleTesting/CYCL-105/fixtures.JHhQKj"
+          export CYCLE_SIGNED_FROM="$work/0.3.6/apps/desktop/build/release"
+          export CYCLE_SIGNED_TO="$work/0.3.7/apps/desktop/build/release"
+          bun test ./apps/desktop/test/integration/update.integration.ts
   check:
-    if: github.ref_name != 'codex/cycl-105-validation'
+    if: github.ref_name != 'codex/cycl-105-negative-control'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
