@@ -2175,6 +2175,13 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   margin-top: 0.1875rem;
 }
 
+/* "Send again": at the end of the line, whole, whatever the length of the reason before it. */
+[data-kind="turn-end"][data-severity="error"] > button {
+  flex: none;
+  margin-inline-start: auto;
+  margin-block: -0.25rem;
+}
+
 [data-kind="turn-end"][data-severity="warning"] {
   color: var(--ui-muted-foreground);
 }

@@ -16,6 +16,8 @@ import {
   type Conversation,
   earlierAnchor,
   type LaidBlock,
+  type Resend,
+  resendOf,
   textOf,
   windowStart,
 } from "../model/index.ts";
@@ -103,12 +105,15 @@ const BlockView = memo(function BlockView({
   block,
   streaming,
   live,
+  resend,
 }: {
   block: LaidBlock;
   /** This is the agent message that is still arriving. */
   streaming: boolean;
   /** This block is in the turn that is going. */
   live: boolean;
+  /** The end of a turn that failed, whose message can be sent again. */
+  resend?: Resend | undefined;
 }) {
   const { t } = useI18n();
   switch (block.kind) {
@@ -141,7 +146,7 @@ const BlockView = memo(function BlockView({
     case "failed":
       return <ToolCard tool={block.tool} />;
     case "end":
-      return <EndBlock stop={block.stop} />;
+      return <EndBlock stop={block.stop} resend={resend} />;
     case "plan":
       return <PlanBlock item={block.item} />;
     case "compaction":
@@ -199,6 +204,8 @@ export function ConversationView({
     () => blocksOf(conversation, { showThinking }, cache.current),
     [conversation, showThinking],
   );
+  // The last turn, when it failed: its end offers to send its message again.
+  const resend = useMemo(() => resendOf(conversation), [conversation]);
 
   // A long conversation shows its end. While the reader is at the end the window is the last page, and slides as blocks
   // arrive; once they leave the end it is pinned to its first block (the anchor), so what arrives does not move the top.
@@ -314,6 +321,7 @@ export function ConversationView({
             block={block}
             streaming={working && start + at === lastAgent && block.turn === conversation.turns}
             live={working && block.turn === conversation.turns}
+            resend={block.kind === "end" && resend?.turn === block.turn ? resend : undefined}
           />
         </div>
       ))}

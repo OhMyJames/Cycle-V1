@@ -14,6 +14,7 @@
 | `src/process-agent.ts`           | 把一个子进程作为 agent 启动,显式环境,不继承                                      |
 | `src/session.ts`                 | 一个已加载的 session 的状态                                                      |
 | `src/daemon.ts`                  | 面向客户端的 ACP 应用:session 的创建、列表、附着、prompt、取消、权限、归档、删除 |
+| `src/logger.ts`                  | daemon 自己的运行日志:按事件记、过滤凭证、0600、按大小轮转(见"日志")             |
 
 客户端看到的一切都经过 session 的日志:补发和实时是同一条路径。
 
@@ -40,6 +41,35 @@
 - **`_cycle/agent_defaults/*`**:读写都有实现,存在 `<数据目录>/agent-defaults.json`,新 session 按它开始,session 自己的配置覆盖它(此前这份文档误写成占位)。
 - **`_cycle/connectors/*`**(protocol.md §14):清单在 `<数据目录>/connectors/catalog.json`,密钥和 token 在同目录的 `credentials.json`(目录 0700,文件 0600),两个文件各在一个接口后面(`ConnectorCatalog`、`CredentialVault`),以后可以换成 cloud。任一文件读不了,daemon 拒绝启动,不覆盖它。OAuth 全在 daemon 里做(`connectors/oauth.ts`)。第一个用到 connector 的 agent 启动时,daemon 在 `127.0.0.1` 的随机端口上开 MCP 网关(`connectors/gateway.ts`),agent 只拿到网关地址和本 session 的 key;stdio 的 connector 由 daemon 启动(`connectors/stdio-bridge.ts`),环境变量只有固定白名单和它自己的值。
 
+## 停止和升级
+
+agent 是 daemon 的子进程,daemon 停止时进行中的 turn 不会继续。所以停之前先看,停了以后历史要说清楚(协议见 [protocol.md](protocol.md) §8"daemon 停止时进行中的 turn")。
+
+**`cycle stop`** 先用 `session/list` 问 daemon 有哪些会话在工作:turn 在跑、在等权限或表单的回答、或还有后台任务(`cycle/background` 大于 0)。没有就直接停。有就逐个列出,然后:
+
+- 在终端里:问"等待 / 强停 / 取消"。
+- `--wait`:每 2 秒看一次,都结束了再停;Ctrl-C 离开,daemon 照常运行。
+- `--force`:先说会丢什么(turn 被打断、等待中的请求取消、后台任务停掉不重建,排队的消息保留),再停。
+- 不在终端、也没给选项:不停,列出在工作的会话,退出码 4。
+- 问不到 daemon(超时、不是 Cycle 的 socket):只有 `--force` 才停。
+
+问用的是已有的 `session/list`,协议版本不同时按 daemon 说的版本再问一次,所以新的 `cycle` 可以这样停一个旧 daemon,升级时正是这样(`src/stop.ts`)。
+
+**daemon 停止时**(收到 `SIGTERM`/`SIGINT`):对每个有进行中 turn 的 session,先把等待中的权限请求和表单写成 `aborted`(按取消回给 agent),再写一条 turn 的终态:`state_update` 为 `idle`、`stopReason: "error"`、`error.code` 为 `-32018`(`daemon_stopped`),然后结束 agent。此后 agent 发来的更新不再记录。终态算"值得看",所以会话显示未读;客户端重连补发时看到它。
+
+**没来得及写的**(崩溃、`kill -9`、比这条规则早的 daemon):索引里的 `turnOpen` 记着日志里有没有没结束的 turn。下一次加载这个 session 时(第一次 `session/list` 或附着),`turnOpen` 不是 `false` 就读一次日志核对,确有没结束的 turn 就补写同样的终态。旧索引里没有 `turnOpen` 的,各读一次日志。
+
+**队列**:终态不退回队列。排队的 prompt 按"排队"的重启规则留着,下一次有客户端附着时以 `reason: "interrupted"` 退回输入框。
+
+**`Daemon.activity()`**:daemon 里同一个"有没有在工作"的判断(turn、待回答的请求、后台任务、排队数),给以后的空闲退出(CYCL-104)用:只在它为空时退出。
+
+**从桌面端升级远端 daemon**:确认框先看那个环境的会话列表。没有在工作的会话,命令末尾是 `cycle stop`(若这期间有会话开始工作,它不在终端里,会拒绝并报错,不会中断它们)。有就列出会话名,让人选:
+
+- "Update when they finish":安装新版本,然后在远端后台跑 `nohup cycle stop --wait`,ssh 结束后它继续等;横幅改成"已安装,会话结束后重启为新版本",按钮变成"Update now"。连接断开、重连到新 daemon 后横幅消失。
+- "Update now and interrupt":安装后 `cycle stop --force`。
+
+埋点 `daemon_upgraded` 带 `when`(`idle`/`now`/`later`),见 [analytics.md](analytics.md)。
+
 ## 没做
 
 - **配置校验**:`cycle/config` 不按 `configSchema` 校验,直接交给 agent,由 agent 拒绝(映射为 `invalid_config`)。
@@ -48,8 +78,8 @@
 - **日志里的敏感字段过滤**。
 - **一个 session 一个 agent 进程**:没有复用。
 - **daemon 的打包和安装**:现在是 `bun apps/daemon/src/main.ts`;没有 `cycle` 可执行文件,也没有远端机器上的安装步骤。ssh 通道里的命令得由调用方写全。
-- **daemon 退出时对客户端的通知**:客户端靠连接断开发现,然后重连。
-- **多个 daemon 版本之间的升级**:daemon 重启会丢掉进行中的 turn(agent 是它的子进程),这一点没变。
+- **daemon 退出时对客户端的通知**:客户端仍靠连接断开发现,然后重连;重连后按 `cycle/seq` 补发,看到被打断的 turn 的终态(`daemon_stopped`),由此知道发生了什么(见下面"停止和升级")。没有另发一条"要停了"的通知。
+- **重启后续接 agent**:进行中的 turn 被打断,不续接(agent 是 daemon 的子进程,状态在进程里);后台子 agent 也不重建。
 - **空闲退出和 session 的内存回收**:已加载的 session 一直在内存里。
 - **客户端先于 `initialize` 发请求的处理**:交给 SDK(返回 `-32600`)。
 
@@ -77,11 +107,19 @@ bun run --cwd apps/daemon build
 - `cycle`:daemon 本身,一个可执行文件(`bun build --compile`,约 110 MB,里面带着 Bun 和 Claude 适配)。
 - `claude`:Claude Code 的二进制(约 370 MB,取自 SDK 的平台包),放在它旁边,适配通过 `claudeExecutable` 找到它。
 
+2026-11-20，GitHub 原生 Ubuntu 24.04 runner 构建同一提交并用已安装的单文件 daemon 跑通后端集成测试。耗时包含压缩，大小按十进制 MB 计算。[两种架构的构建日志](https://github.com/OhMyJames/Cycle-V1/actions/runs/44699952120)
+
+| 架构  | 构建耗时 | 峰值 RSS | 解包目录 |   压缩包 |
+| ----- | -------: | -------: | -------: | -------: |
+| x64   | 23.79 秒 |  253 MiB | 484.2 MB | 222.6 MB |
+| ARM64 | 16.96 秒 |  247 MiB | 483.2 MB | 221.9 MB |
+
 机器上不需要 Bun、Node,也不需要装 `claude`。适配器作为同一个可执行文件的子命令(`cycle adapter claude`)运行,所以只有这一个文件加 `claude`。
 
 ```bash
-cycle status   # 在运行返回 0,不在运行返回 1
-cycle stop     # 发 SIGTERM,等 socket 关闭
+cycle status   # 在运行返回 0,不在运行返回 1;并给出日志的位置
+cycle logs     # 日志的最后 100 行(--lines <n> 改行数)
+cycle stop     # 停掉;有会话在工作时先列出来,问等待还是强停(见下面"停止和升级")
 cycle login    # 为这个 daemon 登录 Claude(跑 claude auth login),在 daemon 所在的机器上执行
 cycle claude auth status   # 用同样的环境跑 claude 的其他命令
 ```
@@ -105,6 +143,19 @@ cycle claude auth status   # 用同样的环境跑 claude 的其他命令
 - **Claude 进程看到的环境只有三样**:`allowEnv` 里点名的、daemon 自己环境中存在的变量;`CLAUDE_CONFIG_DIR`;`env` 里写明的值。daemon 自己的环境变量不会传下去。端到端测试里给 daemon 设了 `ANTHROPIC_API_KEY`,检查 Claude 一侧的请求里没有它。
 - `configDir` 默认是 `<数据目录>/claude`,一个独立目录,里面没有登录。要用已有登录,把它**有意地**指向那个目录(比如 `~/.claude`);要新登录,用 `CLAUDE_CONFIG_DIR=<目录> claude login`。
 - `HOME` 默认不传(回落到 `configDir`),免得 Claude 找到没人打算共享的登录或设置。
+- `log`(可省):`{ "level": "info", "maxBytes": 1000000, "files": 3 }`,见下面"日志"。
+
+## 日志
+
+daemon 在后台运行,没人看它的输出,所以它把自己做了什么、哪里出了错写进 `<数据目录>/daemon.log`。`cycle status` 给出位置,`cycle logs` 打印最后几行。前台在终端里跑 `cycle serve` 时同样的内容也打到 stderr。
+
+- **一行一个事件**:时间、级别、事件名,然后 `key=value`。例如 `2026-11-20T08:00:00.000Z WARN  turn_ended session=… stopReason=error code=-32012`。
+- **记什么**:启动(版本、pid、级别)、开始监听、客户端连上和离开、收到的信号、停止(当时有几个会话在工作)、agent 进程的启动和退出码、agent 的 stderr、每个 turn 怎么结束(`stopReason`,失败时带错误码)、prompt 发不出去、历史写不进去、daemon 停止时被打断的 turn,以及没被捕获的异常和 promise(带调用栈,然后退出码 1)。`debug` 级再加上 session 的加载。启动失败(比如 `config.json` 读不了)也写进去,用默认设置。
+- **不记什么**:prompt、agent 的回答和工具调用的内容、凭证。这些只在 session 自己的历史里(§12 的过滤同样适用)。日志里出现的字符串只有事件名、id、退出码和错误信息;每个值都过一遍历史用的同一个凭证过滤(`redactText`,CYCL-7),并截到 500 字符。agent 的 stderr 是它的诊断输出,不是对话,也照此过滤和截断,每个 agent 进程最多记 200 行。
+- **权限和大小**:文件 0600,所在目录 0700;已有的文件权限更宽时会收窄。超过 `maxBytes`(默认 1 MB)就轮转:`daemon.log` → `daemon.log.1` → … 保留 `files` 个(默认 3),最旧的删掉,所以总共不超过 `maxBytes × (files + 1)`(默认 4 MB)。
+- **级别**:`error`、`warn`、`info`(默认)、`debug`,在 `config.json` 的 `log.level` 设。
+- **写不了日志**(磁盘满、目录被占)不影响 daemon 运行,只是不再记。
+- **`daemon.out`**:`cycle proxy` 在后台启动 daemon 时,把它的 stdout 和 stderr 接到这里,留给运行时自己在 daemon 代码之外崩掉时说的话。每次启动时超过 1 MB 就清空。daemon 起不来时,`proxy` 的报错会带上 `daemon.log` 和 `daemon.out` 的末尾。
 
 ## 客户端侧
 

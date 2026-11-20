@@ -772,3 +772,94 @@ test("a prompt steered in as the model finishes its answer is answered before th
     await config.dispose();
   }
 }, 60_000);
+
+test("a real Claude background Agent outlives its parent turn and reports its end", async () => {
+  const held = heldTextReply("Checking ", "finished.");
+  let launched = false;
+  let childStarted = false;
+  const mock = startMock((requests) => {
+    const messages = sentText(asked(requests).at(-1)?.body);
+    if (
+      !launched &&
+      !messages.includes("<session>") &&
+      messages.includes("Start the background check")
+    ) {
+      launched = true;
+      return toolReply("Agent", {
+        description: "Check the fixture",
+        subagent_type: "general-purpose",
+        prompt: "Respond to CHILD-FIXTURE-921.",
+        run_in_background: true,
+      });
+    }
+    if (
+      !childStarted &&
+      messages.includes("CHILD-FIXTURE-921") &&
+      !messages.includes("Start the background check")
+    ) {
+      childStarted = true;
+      return held.body;
+    }
+    return textReply("Parent turn finished.");
+  });
+  const config = await tempConfigDir();
+  try {
+    await withAdapter(
+      {
+        mockUrl: mock.url,
+        configDir: config.dir,
+        adapter: { idleMs: 150 },
+        onPermission: () => "allow",
+      },
+      async ({ agent, updates, idle }) => {
+        const sessionId = "d2026374-5555-4666-8777-d8889990aa1c";
+        await agent.request(methods.agent.session.new, {
+          cwd,
+          _meta: { "cycle/sessionId": sessionId },
+        });
+        await agent.request(methods.agent.session.setConfigOption, {
+          sessionId,
+          configId: "mode",
+          type: "id",
+          value: "default",
+        } as never);
+        const done = idle();
+        await agent.request(methods.agent.session.prompt, {
+          sessionId,
+          prompt: [{ type: "text", text: "Start the background check" }],
+        });
+        expect(await done).toMatchObject({ stopReason: "end_turn" });
+        const states = () =>
+          updates
+            .filter((u) => u.sessionUpdate === "subagent_update")
+            .map(
+              (u) =>
+                u as unknown as {
+                  state?: { state?: string };
+                  _meta?: Record<string, { background?: boolean }>;
+                },
+            );
+        const deadline = Date.now() + 12_000;
+        while (
+          (!childStarted || !states().some((u) => u._meta?.["cycle/subagent"]?.background)) &&
+          Date.now() < deadline
+        )
+          await Bun.sleep(20);
+        expect(childStarted).toBe(true);
+        expect(states().some((u) => u._meta?.["cycle/subagent"]?.background)).toBe(true);
+        expect(states().some((u) => u.state?.state === "idle")).toBe(false);
+        await Bun.sleep(350);
+        expect(states().some((u) => u.state?.state === "idle")).toBe(false);
+        held.release();
+        const end = Date.now() + 12_000;
+        while (!states().some((u) => u.state?.state === "idle") && Date.now() < end)
+          await Bun.sleep(20);
+        expect(states().some((u) => u.state?.state === "idle")).toBe(true);
+      },
+    );
+  } finally {
+    held.release();
+    mock.stop();
+    await config.dispose();
+  }
+}, 45_000);

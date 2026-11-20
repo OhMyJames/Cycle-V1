@@ -61,30 +61,7 @@ jobs:
 
   daemon-linux:
     needs: check
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.4
-      - run: bun install --frozen-lockfile --ignore-scripts
-      - run: bun run --cwd apps/daemon build
-      - name: The built daemon runs, with nothing around it
-        run: |
-          D=apps/daemon/dist/cycle-linux-x64
-          ! env -i PATH=/usr/bin:/bin "$D/cycle" status --data-dir "$RUNNER_TEMP/d"
-          env -i PATH=/usr/bin:/bin "$D/claude" --version
-          test "$(env -i PATH=/usr/bin:/bin "$D/cycle" version)" = "$(jq -r .version apps/desktop/package.json)"
-      - name: Checksum
-        working-directory: apps/daemon/dist
-        run: sha256sum cycle-linux-x64.tar.gz > cycle-linux-x64.tar.gz.sha256
-      - uses: actions/upload-artifact@v4
-        with:
-          name: daemon-linux-x64
-          path: |
-            apps/daemon/dist/cycle-linux-x64.tar.gz
-            apps/daemon/dist/cycle-linux-x64.tar.gz.sha256
+    uses: ./.github/workflows/daemon-linux.yml
 
   macos:
     needs: check

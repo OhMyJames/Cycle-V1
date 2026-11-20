@@ -61,6 +61,12 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 - 客户端不认识的能力忽略。daemon 不认识的客户端能力同样忽略。
 - ACP 的 `fs/*` 和 `terminal/*` 能力 v1 不支持(v2 稳定版里本来也没有 `fs/*`)。`initialize` 的客户端能力里相应字段缺省即视为不支持。
 
+### 桌面端规划中的扩展
+
+右侧面板、diff 视图、交互式终端、内置浏览器及 browser use、plugins 和 settings 页如需新增 L1 方法，沿用 `_cycle/*` 命名空间，在各功能工单中定义方法、参数及对应的能力声明。纯客户端交互无需增加 L1 方法。客户端只在 daemon 声明相应能力后调用新方法，旧 daemon 缺少声明时跳过调用。
+
+此处仅预留扩展位置。终端通道由 CYCL-96 决定，browser use 的权限和回传通道由 CYCL-100 决定。上面的握手示例只列已定义的能力。
+
 ## 4. ACP v2 方法在 L1 的使用
 
 下表中"客户端 → daemon"的方法,daemon 按 `sessionId` 路由到对应 agent 并转发,除非标注"daemon 处理"。
@@ -151,7 +157,8 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 - `cycle/lastSeq`:该 session 的最新序号。**只用于补发**(§7):它是每个 session 自己数的记录条数,不是时间,不能在 session 之间比较,客户端不得用它排序。
 - `cycle/unread`:布尔。有值得看的新记录晚于客户端上次标记已读的位置,见"已读"。
 - `cycle/historyFailed`:布尔,为 `true` 时这个 session 的历史不可用:写不进去了(§12“写入失败”),或读不了(日志里有损坏的整行,§12)。没有时省略。读不了的 session 照样出现在列表里,行里没有 `cycle/lastSeq` 和 `cycle/unread`(它们来自日志),`updatedAt` 是创建时间,`cycle/state` 是 `stopped`;打开它(`session/resume`)以 `-32015` 失败。一个 session 的日志读不了,不影响列表里的其他 session。
-- `cycle/background`:整数,仍在运行的后台子 agent 数(`subagent_update` 里 `_meta["cycle/subagent"].background` 为 true 且 `state` 还不是终态,见 §9)。为 0 时省略。它只记在内存里:daemon 重启后 agent 进程不在了,归 0,不写进索引。
+- `cycle/background`:整数,仍在运行的后台子 agent 数(`subagent_update` 里 `_meta["cycle/subagent"].background` 为 true 且 `state` 还不是终态,见 §9)。清单里已消失、但收不到具体结束原因的任务 ID 列入 `cycle/backgroundUnknown`（字符串数组）。计数为零或数组为空时分别省略。Claude 按 SDK 的全量后台任务清单核对，不按静默时长或主 turn 的结束推断。它只记在内存里:daemon 重启后 agent 进程不在了,归 0,不写进索引。
+- Claude 的全量清单不再列出一个曾在后台运行的任务时，以 `cycle/subagent.status = "unknown"` 更新；只知道它已不在后台清单，结束原因仍未知。后续进度可重新确认运行，终态可补全结果。用户可通过 `_cycle/session/dismiss_background {sessionId, taskIds}` 将指定的未知记录标记为已结束；只清理仍未知的项。已确认在运行的任务阻止空闲回收，已从清单消失的未知记录不单独阻止回收（CYCL-104）。
 - `cycle/usage`:最近一次 `usage_update`,`{used, size, cost?: {amount, currency}}`:已用的上下文 token、窗口大小、累计费用。daemon 存在索引里,列表不用重放日志就能显示;还没有过 `usage_update` 的 session 没有这个字段。
 
 列表变化(出现第一条用户消息、删除、归档、`cycle/state` 改变、`cycle/unread` 改变、`cycle/background` 的值改变)通过通知 `_cycle/session_list_changed` 告诉所有客户端,通知里不带内容,客户端收到后重新拉列表。
@@ -246,6 +253,10 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 
 附件和图片进入日志的 `user_message`,历史补发时和文字一起到达。
 
+**agent 自己在重试请求**:agent 的模型请求失败、它自己会等一会儿再试时(Claude SDK 的 `api_retry`),agent 发一条 `notice`,`severity: "info"`,`title` 是给人看的一句话,`_meta["cycle/retry"]` 为 `{attempt, maxRetries, delayMs, status?}`(第几次、最多几次、要等多久、HTTP 状态码,连接错误时没有 `status`)。它进日志,但不是 turn 的结束,也不需要人做什么:客户端只在它是进行中 turn 的最后一项时,把它当作"正在重试"的状态显示,turn 有了新内容就不再显示;不在会话里画成一行。重试用完仍失败时,turn 照常以 `stopReason: "error"` 结束。
+
+**失败后重新发送**是客户端的事,协议不变:客户端把失败那个 turn 的 `user_message` 放回输入框,由人核对后作为新的 `session/prompt` 发出。它和别的 prompt 一样走权限流程,之前的批准不沿用。
+
 多个客户端同时附着的规则:
 
 - session 不是 `idle` 时,`session/prompt` 进入队列,不再被拒绝,见下面的"排队"。队列满了才以 `-32010`(`session_busy`)拒绝。daemon 的 `cycle/capabilities` 没有 `queue` 时,客户端只在 session 空闲时发送。
@@ -266,16 +277,18 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 {
   "sessionUpdate": "_cycle/queue_update",
   "entries": [{ "queueId": "…", "prompt": [{ "type": "text", "text": "…" }] }],
+  "returnId": "…",
   "returned": [{ "queueId": "…", "prompt": [] }],
   "reason": "cancelled"
 }
 ```
 
-- **`entries` 是状态,`returned` 是事件。** 客户端以最后一条的 `entries` 为当前队列,所以从任意位置补发都能得到它。`returned` 和 `reason` 只在队列被退回的那一条里出现,客户端**只在它实时到达时**(`replay_complete` 之后)把内容放回输入框;补发过程中遇到的 `returned` 一律忽略,否则重启应用后每次历史里的退回都会再放一遍。
+- **`entries` 是状态,`returned` 是事件。** 客户端以最后一条的 `entries` 为当前队列,所以从任意位置补发都能得到它。`returned` 和 `reason` 只在队列被退回的那一条里出现,daemon 只交给最早完成附着且仍在线的一个客户端。客户端**只在它实时到达时**(`replay_complete` 之后)把内容放回输入框;补发过程中遇到的 `returned` 一律忽略,否则重启应用后每次历史里的退回都会再放一遍。
 - **附件字节**照决策 0013 存进 blob(daemon 的提取是递归的,覆盖快照里的 `entries[].prompt[]` 和 `returned[].prompt[]`),同一份内容按 sha256 只存一次,快照反复出现不会反复占用空间。
 - **发出**:turn 以 `idle` 加 `stopReason: "end_turn"` 结束时,daemon 取队头发给 agent,再发一条新的 `_cycle/queue_update`。它的 `user_message` 和直接发的 prompt 一样,来自 agent 收到时的回显(Claude 适配会发),所以也是此时才进历史,历史里的顺序就是真实发生的顺序。
 - **退回,不自动发**:turn 以 `end_turn` 之外的原因结束(`cancelled`、`error`、`max_tokens`、`max_turn_requests`、`refusal`),或者 `session/cancel`、`session/close` 到达时,队列里剩下的**整体退回**:`entries` 清空,原内容放在 `returned`,`reason` 说明原因(`cancelled`、`error`、`closed`、`interrupted`)。客户端把 `returned` 的内容放回输入框,不当作错误显示。宁可退回,也不在用户已经叫停或出错之后替他发出他可能想改的消息。
-- **退回时没有客户端附着**(窗口都关了),或者 **daemon 重启**(进程被中断,没有机会退回):daemon 不退回,也不自动发送,队列留着。下一次有客户端附着时,daemon 在补发、`replay_complete` 和状态快照**之后**退回:原因照旧(重启则是 `interrupted`)。这条 `_cycle/queue_update` 是新写的记录(占新的序号),所以附着的客户端是实时收到它的。daemon 自己关闭时杀掉 agent 进程,不算退回的理由。
+- **退回时没有客户端附着**(窗口都关了),或者 **daemon 重启**(进程被中断,没有机会退回):daemon 不退回,也不自动发送,队列留着。下一次有客户端附着时,daemon 在补发、`replay_complete` 和状态快照**之后**退回:原因照旧(重启则是 `interrupted`)。队列清空的快照占新的序号，领取通知单独发送。daemon 自己关闭时杀掉 agent 进程,不算退回的理由。
+- 排队退回时,多个客户端附着:先完成附着的客户端领取一批，原发送者断线不影响领取。新客户端握手声明 `_meta["cycle/ackReturns"]`，将退回的内容放入草稿后调用 `_cycle/prompt/ack_return {sessionId, returnId}`。daemon 将确认写入日志并返回 `{acknowledged: true}`；重复确认或来自其他连接的确认返回 `false`。未确认前掉线则转交下一位，重启后仍可领。领取通知没有 seq，普通队列快照照常广播；重放不触发领取。旧客户端按通知送达确认。丢失确认时可能重投，客户端用 queueId 去重。
 - **撤回**:`_cycle/prompt/dequeue`(客户端 → daemon),参数 `{sessionId, queueId}`。成功时响应里带那条 prompt 的内容(`{prompt}`),客户端放回输入框编辑,并发一条 `_cycle/queue_update`。那条已经发出或不在队列里,以 `-32016`(`not_queued`)拒绝。
 
 ### 插入(steer:把 prompt 放进正在运行的 turn)
@@ -288,6 +301,17 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 - **agent 的处理**(L2):agent 在当前 turn 收下这条 prompt,立即发它的 `user_message`(带同一个 `messageId`),然后继续这个 turn,不另起 `state_update`。turn 在 agent 处理完它之前结束的(例如 Claude 恰好已经说完),agent 让 turn 继续,把它当作同一个 turn 的后续处理,turn 只以一条 `idle` 结束。turn 被取消时还没处理的插入,agent 必须保证它不会在之后悄悄运行(Claude 适配会结束进程,下一条 prompt 启动新进程恢复会话)。
 - **历史**:插入的 `user_message` 在 agent 收下时进日志,所以它在历史里出现在 turn 中间,位置就是它被收下的时刻。
 - 插入不经过队列,也不改变队列:队列里等着的 prompt 仍在 turn 正常结束后发出。
+
+### daemon 停止时进行中的 turn
+
+agent 是 daemon 的子进程,daemon 停止(`cycle stop`、升级、崩溃、机器重启)时 agent 跟着结束,进行中的 turn 不会继续,重启后也不续接。历史里这个 turn 必须有一个终态,不能停在"进行中":
+
+- **终态记录**:一条 `state_update`,`state: "idle"`、`stopReason: "error"`、`error.code` 为 `-32018`(`daemon_stopped`,§11),`error.message` 供人阅读。它和其他 turn 结束一样占一个序号、写进日志、算"值得看"(§6"已读"),所以 session 显示为未读;客户端断线重连后按 `cycle/seq` 补发就能看到它,知道 turn 是被 daemon 的停止打断的。客户端按 `error.code` 识别它,不解析 `message`。
+- **什么时候写**:daemon 正常关闭时(收到 `SIGTERM`/`SIGINT`),对每个有进行中 turn 的 session 先写终态,再结束 agent;此后 agent 发来的更新不再记录。等待回答的权限请求和表单写 `aborted`,按取消回给 agent。没来得及写的(崩溃、`kill -9`、还没有这个规则的旧 daemon 停的),daemon 下一次加载这个 session 时补写(加载发生在第一次 `session/list` 或附着时)。
+- **怎么知道 turn 还开着**:按日志判断:最后一条 `user_message` 或 `running`/`requires_action` 的 `state_update` 之后没有任何 `idle`。索引里的 `turnOpen` 记着这个结论(§12),加载时只有它为 `true`(或旧索引里没有它)才读日志核对,所以重启后不必读每个 session 的日志两次。
+- **队列不丢**:终态记录不退回队列。排队的 prompt 照"排队"一节的重启规则留着,下一次有客户端附着时以 `reason: "interrupted"` 退回到输入框。
+- 后台子 agent 随 agent 进程结束,不写记录(它们不属于某个 turn,`cycle/background` 归 0)。
+- **停之前先问**:`cycle stop` 先用 `session/list` 看有没有在工作的 session(`cycle/state` 为 `running` 或 `requires_action`,或 `cycle/background` 大于 0),有就列出来,由人选等待(`--wait`)或强停(`--force`),见 [daemon.md](daemon.md)。用的是已有的方法,所以新的 `cycle` 也能这样停一个旧 daemon(升级时正是这样)。daemon 里同一个判断是 `Daemon.activity()`,空闲退出(CYCL-104)只在它为空时发生。
 
 ### 提及(@)文件与文件夹
 
@@ -343,7 +367,7 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 
 agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需要回答的请求**,必须能跨越客户端的断线和重连。
 
-1. daemon 收到请求后先写入日志(占一个序号),再转发给所有附着的客户端,同时把 session 的状态置为 `requires_action`。
+1. daemon 收到请求后先写入日志(占一个序号),再转发给所有附着的客户端,同时把 session 的状态置为 `requires_action`:agent 不一定自己发 `requires_action`(Claude 适配就不发),所以 daemon 在状态因此改变时,给已附着的客户端发一条状态快照(和附着时那条一样:`state_update`,没有 `stopReason`,没有 `cycle/seq`,不进日志)。请求被回答或中止、session 不再等人时同样发一次,状态回到 agent 的(通常是 `running`)。这样一直在线的客户端和断线后重连、拿到附着快照的客户端看到的是同一个状态。
 2. **第一个到达的响应生效**,daemon 把它转给 agent,并把响应写入日志(占一个序号)。随后给其他客户端发 `_cycle/request_resolved` 通知,带上 `requestId` 和被选中的结果,让它们关闭各自的对话框。后到的响应被丢弃,不报错。
 3. 没有客户端附着时,请求保持挂起。新客户端附着时,daemon 在补发之后重新发送所有未解决的请求,并在 `session/resume` 的应答里用 `_meta["cycle/pending"]` 列出它们的 `requestId`。客户端断线前收到过、这里没有列出的请求,在它离线时已被别的客户端答复(或已中止),应关闭对应的对话框。旧 daemon 的应答没有这个字段:客户端不据此关闭任何东西。
 4. 客户端收到 `session/cancel` 之后,按 ACP 的规定,所有未解决的权限请求必须以"已取消"的结果回复。这一步由 daemon 代为完成,不依赖客户端。
@@ -461,16 +485,17 @@ daemon 启动 agent 时只传入显式白名单里的环境变量,不继承自�
 - 协议版本不兼容:用 ACP 的 `-32022`。
 - 其余是 Cycle 自己的,取 -32010 到 -32019,避开 ACP 已用的码:
 
-| 码     | 名称                | 含义                                                              |
-| ------ | ------------------- | ----------------------------------------------------------------- |
-| -32010 | `session_busy`      | session 正在工作,不接受该操作                                     |
-| -32011 | `agent_unavailable` | agent 不可用(未安装、启动失败)                                    |
-| -32012 | `agent_exited`      | agent 进程在操作中退出                                            |
-| -32013 | `resume_failed`     | agent 无法恢复该 session。历史仍可读,但不能继续对话               |
-| -32014 | `invalid_config`    | 配置不符合 `configSchema`                                         |
-| -32015 | `log_unavailable`   | 历史日志读写失败。写入失败后,该 session 的 prompt 都以它拒绝(§12) |
-| -32016 | `not_queued`        | 要撤回的 prompt 不在队列里(已发出或已退回)                        |
-| -32017 | `connector_failed`  | connector 的授权服务器拒绝、不可达(§14)                           |
+| 码     | 名称                | 含义                                                                    |
+| ------ | ------------------- | ----------------------------------------------------------------------- |
+| -32010 | `session_busy`      | session 正在工作,不接受该操作                                           |
+| -32011 | `agent_unavailable` | agent 不可用(未安装、启动失败)                                          |
+| -32012 | `agent_exited`      | agent 进程在操作中退出                                                  |
+| -32013 | `resume_failed`     | agent 无法恢复该 session。历史仍可读,但不能继续对话                     |
+| -32014 | `invalid_config`    | 配置不符合 `configSchema`                                               |
+| -32015 | `log_unavailable`   | 历史日志读写失败。写入失败后,该 session 的 prompt 都以它拒绝(§12)       |
+| -32016 | `not_queued`        | 要撤回的 prompt 不在队列里(已发出或已退回)                              |
+| -32017 | `connector_failed`  | connector 的授权服务器拒绝、不可达(§14)                                 |
+| -32018 | `daemon_stopped`    | daemon 停止时 turn 还在进行,turn 被打断(§8"daemon 停止时进行中的 turn") |
 
 ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集中定义,升级 ACP 时对照检查。
 
@@ -508,7 +533,7 @@ ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集
   3. **不过滤**:用户和模型说的话(`user_message`、`agent_message_chunk` 等):它们分块到达,模式跨不过块;也是用户自己的话。表单(elicitation)的答案不进日志,见 §9。
      这是已知凭证的过滤,不是保证:没有固定形态、也不在带名字的键里的秘密(命令输出里的一串随机字符)认不出来。已经写下的历史不会被改写,回放时也不会补过滤:升级前的会话里原有的内容仍在盘上,也仍会回放给客户端。
 
-session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session id、`cwd`、归档标记、标题、创建时间,以及 `readSeq` 和 `attentionSeq`(§6"已读")。`lastSeq` 和 `updatedAt` 不存在索引里,以日志为准(`updatedAt` 取最后一条非 `meta` 记录的 `ts`),避免每条记录都改写索引。`attentionSeq` 在每条值得看的记录(通常每个 turn 一两条)后改写一次,`readSeq` 每次标记已读改写一次,都不是每条记录一次。daemon 打开 session 时,若 `readSeq` 或 `attentionSeq` 超过日志的 `lastSeq`(崩溃截掉了日志末尾的半行,之后的 seq 会重新分配),把它们压回 `lastSeq`。
+session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session id、`cwd`、归档标记、标题、创建时间,`readSeq` 和 `attentionSeq`(§6"已读"),以及 `turnOpen`(日志里有没有还没结束的 turn,§8"daemon 停止时进行中的 turn";turn 开始和结束时各改写一次,旧索引里没有它时加载时读一次日志)。`lastSeq` 和 `updatedAt` 不存在索引里,以日志为准(`updatedAt` 取最后一条非 `meta` 记录的 `ts`),避免每条记录都改写索引。`attentionSeq` 在每条值得看的记录(通常每个 turn 一两条)后改写一次,`readSeq` 每次标记已读改写一次,都不是每条记录一次。daemon 打开 session 时,若 `readSeq` 或 `attentionSeq` 超过日志的 `lastSeq`(崩溃截掉了日志末尾的半行,之后的 seq 会重新分配),把它们压回 `lastSeq`。
 
 从没有这两个字段的旧索引升级时,两个都按 0 算,所以旧 session 不是未读(升级不会让所有旧 session 变成未读);之后第一个值得看的记录才会让它变成未读。索引整体写入:先写临时文件再改名,崩溃后留下的是旧索引或新索引,不会是半个。索引存在但无法读取时 daemon 拒绝启动,不覆盖它(决策 0002)。
 
@@ -528,7 +553,8 @@ session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session
 
 ## 13. 待定
 
-- 排队退回时,多个客户端附着:现在是**每个**附着的客户端都把 `returned` 放进自己那个 session 的输入框(桌面端是每个窗口的渲染进程各放一份;一个窗口里,重载页面不会再放第二次,按 `queueId` 去重)。两个窗口同时开着同一个 session 时,同一批消息会在两边都出现;要不要只让发出那条 prompt 的客户端接收,留到实际用起来再定。
+多客户端领取和后台任务清单的规则分别见 §8 和 §6。
+
 - 排队的上限(8)和"只有 `end_turn` 才自动发下一条"是否合适。
 - L3:Claude 适配需要产生哪些 `session/update` 变体,以及配置 schema 的具体字段。
 - 日志过滤的规则能否让用户加自己的键名和模式;已有历史是否提供一次性清理。
@@ -539,7 +565,6 @@ session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session
 - `attentionSeq` 里"值得看"的记录是否还要包括用户取消的 turn(`stopReason: cancelled`)。现在按"都算",因为取消时用户通常在看,客户端会立刻标记已读。
 - `cycle/background` 要不要在 daemon 重启后重建:agent 进程已不在,v1 不重建。
 - connector(§14):loopback 回调的随机端口哪些授权服务器接受(没有在真实服务器上验证);agent 在云端 sandbox 时网关的地址;正在运行的 agent 要不要在 connector 变化后重启。
-- 一个后台子 agent 一直不报 `idle`(agent 丢了终态通知)时,`cycle/background` 会一直不为 0,直到 agent 进程退出。v1 不另设超时:后台子 agent 本来就可以活过 turn,所以不能用 turn 结束去清。
 
 ## 14. Connector
 

@@ -9,6 +9,7 @@ import {
 import { META } from "@cycle/protocol";
 import type { AgentDefinition } from "./agents.ts";
 import type { Config } from "./config.ts";
+import type { Logger } from "./logger.ts";
 import { processAgent } from "./process-agent.ts";
 import { claudeExecutable, selfCommand } from "./self.ts";
 
@@ -60,6 +61,7 @@ export const agentsFor = (
   config: Config,
   dataDir: string,
   inherited: Record<string, string | undefined> = process.env,
+  log?: Logger,
 ): AgentDefinition[] => [
   processAgent({
     id: "claude",
@@ -70,6 +72,7 @@ export const agentsFor = (
     // In the executable, the Claude binary shipped beside it must be there: say so now, not on the first prompt.
     available: () => claudeExecutable() === undefined || existsSync(claudeExecutable() as string),
     command: [...selfCommand(), "adapter", "claude"],
+    ...(log !== undefined ? { log } : {}),
     env: {
       PATH: inherited.PATH ?? "",
       CYCLE_ADAPTER_CONFIG: JSON.stringify({

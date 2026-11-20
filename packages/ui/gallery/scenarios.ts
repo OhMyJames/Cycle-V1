@@ -13,6 +13,15 @@ import type {
 import { type CodeThemeId, codeTheme } from "../src/code-theme.ts";
 import { applyUpdate, emptyConversation } from "../src/model/index.ts";
 import { thinking } from "../src/thinking.ts";
+import {
+  BEFORE_DROP,
+  OLD_UPDATES_SENT,
+  PARALLEL,
+  PARALLEL_PROMPT,
+  RECONNECT_PROMPT,
+  turnOf,
+  WHILE_AWAY,
+} from "../test/samples.ts";
 import { SAMPLE_PNG } from "./sample-image.ts";
 
 export type Scenario = {
@@ -882,6 +891,111 @@ export const scenarios: Record<string, Scenario> = {
       running(),
       idle({ stopReason: "error", error: { code: -32012, message: "The agent exited" } }),
     ],
+  },
+  "turn-error-changed": {
+    title:
+      "A turn that failed after running a command: Send again asks first, as the message may do it again",
+    sessions: [session("s1")],
+    history: [
+      you("u1", "Bump the version and publish the package."),
+      running(),
+      ...done("b1", "Bash", { command: "npm version patch" }, { content: text("v1.4.3") }),
+      u({ sessionUpdate: "tool_call_update", toolCallId: "b1", kind: "execute" }),
+      idle({
+        stopReason: "error",
+        error: { message: "API Error: 529 Overloaded. The service is busy; try again later." },
+      }),
+    ],
+    after: async (root) => {
+      const button = [...root.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent === "Send again",
+      );
+      button?.click();
+      await until(() => document.querySelector('[role="alertdialog"]') !== null, "the dialog");
+      await frames(4);
+    },
+  },
+  "turn-error-resent": {
+    title: "Send again: the message is back in the input box, to read and send",
+    sessions: [session("s1")],
+    history: [
+      you("u1", "Summarise the open issues by label."),
+      running(),
+      idle({
+        stopReason: "error",
+        error: { code: -32018, message: "Cycle was stopped while this turn was running" },
+      }),
+    ],
+    after: async (root) => {
+      [...root.querySelectorAll<HTMLButtonElement>("button")]
+        .find((b) => b.textContent === "Send again")
+        ?.click();
+      await frames(4);
+    },
+  },
+  "turn-retrying": {
+    title: "The agent's request failed and it is trying again by itself: a state, not a row",
+    sessions: [session("s1", { state: "running" })],
+    history: [
+      you("u1", "Explain the queue hand-off."),
+      running(),
+      u({
+        sessionUpdate: "notice",
+        severity: "info",
+        title: "Retrying the request (attempt 2 of 10)",
+        _meta: { "cycle/retry": { attempt: 2, maxRetries: 10, delayMs: 1200, status: 529 } },
+      }),
+    ],
+  },
+  // CYCL-50: the samples the tests compare live, replayed and after a reconnect (packages/ui/test/samples.ts).
+  parallel: {
+    title:
+      "Calls made together, results back out of order: one card in call order; counts only where whose is known",
+    sessions: [session("s1")],
+    history: turnOf("u1", PARALLEL_PROMPT, PARALLEL),
+    after: async (root) => {
+      root.querySelector<HTMLElement>('[data-kind="work"] > button')?.click();
+      (document.activeElement as HTMLElement | null)?.blur();
+      await frames(4);
+    },
+  },
+  reconnected: {
+    title:
+      "Back after a dropped connection mid-turn: what was missed is drawn once, the open permission and form once",
+    sessions: [session("s1", { state: "requires_action", title: "Run the tests" })],
+    history: [
+      you("u1", RECONNECT_PROMPT),
+      running(),
+      ...BEFORE_DROP,
+      ...WHILE_AWAY,
+      u({ sessionUpdate: "state_update", state: "requires_action" }),
+    ],
+    permissions: [
+      { ...permission("Allow it?", "bun test"), key: "local:s1:r1" },
+      {
+        key: "local:s1:r2",
+        environmentId: "local",
+        sessionId: "s1",
+        title: "Which one?",
+        options: [],
+        form: {
+          message: "Which one?",
+          schema: { type: "object", properties: { pick: { type: "string" } } },
+        },
+      },
+    ],
+  },
+  "history-0.3.4": {
+    title:
+      "A history written before 0.3.5, replayed: plain rows, no counts or diffs, TaskCreate shown as then",
+    sessions: [session("s1", { title: "Add a --verbose flag" })],
+    history: OLD_UPDATES_SENT,
+    after: async (root) => {
+      for (const button of root.querySelectorAll<HTMLElement>('[data-kind="work"] > button'))
+        button.click();
+      (document.activeElement as HTMLElement | null)?.blur();
+      await frames(4);
+    },
   },
   "host-down": {
     title: "The remote host cannot be reached (its own words shown)",

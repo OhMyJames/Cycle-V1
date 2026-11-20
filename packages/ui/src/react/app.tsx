@@ -537,6 +537,8 @@ export function App() {
                   <Menu
                     onAction={(value) => {
                       if (value === "rename") open("rename");
+                      else if (value === "dismiss-background")
+                        void store.dismissBackground(session);
                       else if (value === "archive")
                         void store.archiveSession(session.sessionId, !session.archived);
                       else if (value === "delete") open("delete");
@@ -550,6 +552,13 @@ export function App() {
                       <MoreIcon />
                     </MenuTrigger>
                     <MenuContent>
+                      {session.unknownBackground?.length ? (
+                        <MenuItem value="dismiss-background">
+                          {t("session.dismissBackground", {
+                            count: session.unknownBackground.length,
+                          })}
+                        </MenuItem>
+                      ) : null}
                       <MenuItem value="rename">Rename</MenuItem>
                       <MenuCheckboxItem
                         value="thinking"

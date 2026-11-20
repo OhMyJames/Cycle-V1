@@ -24,7 +24,13 @@ import type {
   UpdateState,
 } from "../api.ts";
 import { DraftStore, promptBlocks, returnedId } from "../draft.ts";
-import { applyUpdate, type Conversation, emptyConversation } from "../model/index.ts";
+import {
+  applyUpdate,
+  type Conversation,
+  emptyConversation,
+  type Resend,
+  type Returned,
+} from "../model/index.ts";
 
 export const viewKey = (environmentId: string, sessionId: string): string =>
   `${environmentId}:${sessionId}`;
@@ -94,6 +100,8 @@ export type AppState = {
   update: UpdateState | undefined;
   /** Whether the app reports how it is used (docs/analytics.md). Undefined until main has said. */
   analytics: AnalyticsStatus | undefined;
+  /** Counts the times something asked for the input box to take the focus (a message put back to send again). */
+  composerFocus: number;
 };
 
 const initial = (): AppState => ({
@@ -111,6 +119,7 @@ const initial = (): AppState => ({
   error: undefined,
   update: undefined,
   analytics: undefined,
+  composerFocus: 0,
 });
 
 const messageOf = (error: unknown): string => {
@@ -130,10 +139,22 @@ export class AppStore {
   #checkingTrust = false;
   /** What each session's box holds, written and not sent. */
   readonly drafts: DraftStore;
+  readonly #acks = new WeakSet<Returned>();
+  /**
+   * Sessions whose box holds a message put back to send again, with what the box then held: whether it went as it was
+   * is counted when it is sent. Forgotten when the box is emptied without sending it.
+   */
+  readonly #resending = new Map<string, { turn: number; sent: string }>();
 
   constructor(bridge: CycleBridge, drafts: DraftStore = new DraftStore()) {
     this.#bridge = bridge;
     this.drafts = drafts;
+    // A message put back to send again and then cleared away was not sent again: what is sent next is something else.
+    drafts.subscribe(() => {
+      for (const key of this.#resending.keys()) {
+        if (promptBlocks(drafts.get(key)) === undefined) this.#resending.delete(key);
+      }
+    });
   }
 
   getState = (): AppState => this.#state;
@@ -274,12 +295,21 @@ export class AppStore {
     const returned = view.conversation.returned;
     if (returned === undefined || view.loading) return;
     const id = returnedId(returned.prompts);
-    if (this.drafts.handled(key, id)) return;
-    this.drafts.markHandled(key, id);
-    this.drafts.restore(
-      key,
-      returned.prompts.map((p) => p.prompt),
-    );
+    if (!this.drafts.handled(key, id)) {
+      this.drafts.restore(
+        key,
+        returned.prompts.map((p) => p.prompt),
+        id,
+      );
+    }
+    if (returned.returnId && !this.#acks.has(returned)) {
+      this.#acks.add(returned);
+      void this.#bridge
+        .ackReturn(view.environmentId, view.sessionId, returned.returnId)
+        .catch(() => {
+          this.#acks.delete(returned);
+        });
+    }
   }
 
   async #reopen(environmentId: string, sessionId: string): Promise<void> {
@@ -597,6 +627,8 @@ export class AppStore {
     const key = viewKey(environmentId, sessionId);
     const content: PromptBlock[] | undefined = promptBlocks(this.drafts.get(key));
     if (content === undefined) return;
+    const resending = this.#resending.get(key);
+    this.#resending.delete(key);
     this.drafts.clear(key);
     const sent = await this.#attempt(async () => {
       if (options.steer === true)
@@ -604,7 +636,36 @@ export class AppStore {
       else await this.#bridge.prompt(environmentId, sessionId, content);
       return true;
     });
-    if (sent !== true) this.drafts.restore(key, [content]);
+    if (sent !== true) {
+      this.drafts.restore(key, [content]);
+      if (resending !== undefined) this.#resending.set(key, resending);
+    } else if (resending !== undefined) {
+      this.track("turn_resent", { edited: JSON.stringify(content) !== resending.sent });
+    }
+  };
+
+  /**
+   * "Send again" on a turn that failed (DESIGN.md 4.4): what was said in it goes back in front of the box, and the box takes
+   * the focus. Nothing is sent: the person reads it, may change it, and sends it as any message, asked for permissions
+   * afresh. Only for the session in view.
+   */
+  resend = (resend: Resend): void => {
+    const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
+    if (environmentId === undefined || sessionId === undefined) return;
+    const key = viewKey(environmentId, sessionId);
+    // Already in the box, and neither sent nor cleared away since: a second press only shows it, it does not add it again.
+    if (this.#resending.get(key)?.turn !== resend.turn) {
+      this.drafts.restore(key, resend.prompts);
+      this.#resending.set(key, {
+        turn: resend.turn,
+        sent: JSON.stringify(promptBlocks(this.drafts.get(key)) ?? null),
+      });
+      this.track("turn_resend_opened", {
+        failure: resend.failure,
+        changed: resend.changed.length > 0,
+      });
+    }
+    this.#set((s) => ({ composerFocus: s.composerFocus + 1 }));
   };
 
   /** What fits an @ in the selected session's box. Quiet when it cannot say: a menu that is not there is enough. */
@@ -683,6 +744,14 @@ export class AppStore {
     } catch (error) {
       return messageOf(error);
     }
+  };
+
+  dismissBackground = async (session: SessionSummary): Promise<void> => {
+    const ids = session.unknownBackground;
+    if (ids?.length)
+      await this.#attempt(() =>
+        this.#bridge.dismissBackground(session.environmentId, session.sessionId, ids),
+      );
   };
 
   archiveSession = async (sessionId: string, archived: boolean): Promise<void> => {
@@ -907,8 +976,8 @@ export class AppStore {
   };
 
   /** How it goes comes back in the environment's status. */
-  upgradeDaemon = async (environmentId: string): Promise<void> => {
-    await this.#attempt(() => this.#bridge.upgradeDaemon(environmentId));
+  upgradeDaemon = async (environmentId: string, when?: "now" | "later"): Promise<void> => {
+    await this.#attempt(() => this.#bridge.upgradeDaemon(environmentId, when));
   };
 
   /** Main says how it goes through app-update events; an error it throws is shown as any other. */

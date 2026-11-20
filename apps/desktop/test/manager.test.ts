@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { type Channel, connectUnix } from "@cycle/client";
 import { Daemon, listenUnix } from "@cycle/daemon";
 import { type AppEvent, applyUpdate, type EnvironmentConfig, emptyConversation } from "@cycle/ui";
+import { AppStore, viewKey } from "../../../packages/ui/src/store/store.ts";
+import { fakeBridge } from "../../../packages/ui/test/fake-bridge.ts";
 import { fakeAgent } from "../../daemon/test/fake-agent.ts";
 import {
   type AttentionNotice,
@@ -436,7 +438,7 @@ test("a remote host whose daemon is below the least the app works with is told s
   const daemon = connectedStatus(events, "far")?.daemon;
   expect(daemon?.version).toBe("0.1.0");
   expect(daemon?.upgrade?.to).toBe("9.9.9");
-  expect(daemon?.upgrade?.command).toContain("releases/download/v9.9.9/cycle-linux-x64.tar.gz");
+  expect(daemon?.upgrade?.command).toContain("releases/download/v9.9.9/install.sh");
   expect(daemon?.upgrade?.command).toContain("sha256sum -c");
   expect(daemon?.upgrade?.command).toContain("install.sh");
 });
@@ -475,7 +477,9 @@ test("updating a daemon runs its command on that host, says it is running, and i
   await m.upgradeDaemon("far");
   expect(ran).toHaveLength(1);
   expect(ran[0]).toContain("far: cd ");
-  expect(tracked).toContainEqual(["daemon_upgraded", { ok: true }]);
+  // Nothing was working there: the plain stop, which refuses rather than interrupt something started since.
+  expect(ran[0]).toEndWith('"$HOME/.local/bin/cycle" stop');
+  expect(tracked).toContainEqual(["daemon_upgraded", { ok: true, when: "idle" }]);
   // If the connection never drops, the wait ends and the button is back.
   await until(() => lastStatus(events)?.daemon?.upgrade?.running === undefined, "the wait to end");
 });
@@ -523,9 +527,91 @@ test("a daemon update that fails says why in the status and keeps the command", 
   expect(upgrade?.error).toBe("Permission denied (publickey).");
   expect(upgrade?.running).toBeUndefined();
   expect(upgrade?.command).toContain("install.sh");
-  expect(tracked).toContainEqual(["daemon_upgraded", { ok: false }]);
+  expect(tracked).toContainEqual(["daemon_upgraded", { ok: false, when: "idle" }]);
   // What was said is not what is reported: only that it did not work.
   expect(JSON.stringify(tracked)).not.toContain("publickey");
+});
+
+test("with sessions working, updating later installs and leaves the old daemon to stop when they finish", async () => {
+  const { manager } = await setup(fakeAgent(), "0.1.0");
+  const ran: string[] = [];
+  const tracked: unknown[] = [];
+  const { m, events } = await manager(
+    "app",
+    "9.9.9",
+    undefined,
+    (name, props) => tracked.push([name, props]),
+    {
+      runOnHost: async (_environment, command) => {
+        ran.push(command);
+      },
+      settle: 10,
+    },
+  );
+  await m.saveEnvironment(far);
+  await m.connect("far");
+  await m.upgradeDaemon("far", "later");
+  expect(ran).toHaveLength(1);
+  expect(ran[0]).toContain("stop --wait");
+  expect(ran[0]).not.toContain("--force");
+  expect(tracked).toContainEqual(["daemon_upgraded", { ok: true, when: "later" }]);
+  // Said until the connection comes back to the new daemon, not taken back after a while.
+  await Bun.sleep(30);
+  const upgrade = lastStatus(events)?.daemon?.upgrade;
+  expect(upgrade?.waiting).toBe(true);
+  expect(upgrade?.running).toBeUndefined();
+  // While it waits, only interrupting is still to choose.
+  await m.upgradeDaemon("far");
+  await m.upgradeDaemon("far", "later");
+  expect(ran).toHaveLength(1);
+  await m.upgradeDaemon("far", "now");
+  expect(ran).toHaveLength(2);
+  expect(ran[1]).toContain("stop --force");
+  expect(tracked).toContainEqual(["daemon_upgraded", { ok: true, when: "now" }]);
+  expect(lastStatus(events)?.daemon?.upgrade?.waiting).toBeUndefined();
+});
+
+test("the page can only ask for the ways to stop there are", async () => {
+  const { manager } = await setup(fakeAgent(), "0.1.0");
+  const ran: string[] = [];
+  const tracked: unknown[] = [];
+  const { m } = await manager(
+    "app",
+    "9.9.9",
+    undefined,
+    (name, props) => tracked.push([name, props]),
+    {
+      runOnHost: async (_environment, command) => {
+        ran.push(command);
+      },
+      settle: 10,
+    },
+  );
+  await m.saveEnvironment(far);
+  await m.connect("far");
+  await m.upgradeDaemon("far", "; rm -rf ~");
+  expect(ran[0]).toEndWith('"$HOME/.local/bin/cycle" stop');
+  expect(tracked).toContainEqual(["daemon_upgraded", { ok: true, when: "idle" }]);
+});
+
+test("after a daemon update failed, trying again runs it again", async () => {
+  const { manager } = await setup(fakeAgent(), "0.1.0");
+  let runs = 0;
+  const { m, events } = await manager("app", "9.9.9", undefined, undefined, {
+    runOnHost: async () => {
+      runs += 1;
+      // The first time, sessions there had started working: the plain stop refused.
+      if (runs === 1) throw new Error("Not stopped. 1 session is working.");
+    },
+    settle: 10,
+  });
+  await m.saveEnvironment(far);
+  await m.connect("far");
+  await m.upgradeDaemon("far");
+  expect(lastStatus(events)?.daemon?.upgrade?.error).toContain("Not stopped");
+  await m.upgradeDaemon("far", "later");
+  expect(runs).toBe(2);
+  expect(lastStatus(events)?.daemon?.upgrade?.error).toBeUndefined();
 });
 
 test("nothing is run for a daemon that is not too old", async () => {
@@ -1114,4 +1200,109 @@ test("a form's answer that is not one is a dismissal", () => {
   expect(
     formAnswerOf({ action: "accept", content: { pick: "a", injected: "b" } }, new Set(["pick"])),
   ).toEqual({ action: "accept", content: { pick: "a" } });
+});
+
+test("two attached desktop windows restore one draft, and an unacknowledged return survives the recipient disconnecting", async () => {
+  const { manager } = await setup(fakeAgent({ onPrompt: ({ cancelled }) => cancelled }));
+  const window = async (name: string) => {
+    const ipc = fakeBridge();
+    const receipts: unknown[] = [];
+    const { m } = await manager(
+      name,
+      undefined,
+      undefined,
+      (event, props) => {
+        if (event === "queue_return_restored") receipts.push(props);
+      },
+      { emit: ipc.emit },
+    );
+    await m.connect("local");
+    const acknowledged: string[] = [];
+    const store = new AppStore({
+      ...ipc.bridge,
+      environments: () => m.environments(),
+      openSession: (env, id) => m.openSession(env, id),
+      ackReturn: async (env, id, batch) => {
+        await m.ackReturn(env, id, batch);
+        acknowledged.push(batch);
+      },
+    });
+    await store.start();
+    return { m, store, acknowledged, receipts };
+  };
+  const a = await window("first");
+  const id = await a.m.createSession("local", { cwd: dir });
+  await a.store.selectSession("local", id);
+  await said(a.m, id, "working");
+  const b = await window("second");
+  await b.store.selectSession("local", id);
+  await b.m.prompt("local", id, "from second");
+  await a.m.cancel("local", id);
+  await until(() => a.acknowledged.length === 1, "the first window to save its draft");
+  const key = viewKey("local", id);
+  expect(a.store.drafts.get(key).text).toBe("from second");
+  expect(b.store.drafts.get(key).text).toBe("");
+
+  // The first renderer disappears while its main process is still attached.
+  a.store.stop();
+  await b.m.prompt("local", id, "working again");
+  await b.m.prompt("local", id, "recover this");
+  await b.m.cancel("local", id);
+  const deadline = Date.now() + 3000;
+  while (
+    (await a.m.openSession("local", id)).conversation.returned?.prompts[0]?.prompt[0]?.text !==
+    "recover this"
+  ) {
+    if (Date.now() > deadline) throw new Error("the return never reached the first main process");
+    await Bun.sleep(5);
+  }
+  expect(b.store.drafts.get(key).text).toBe("");
+  await a.m.close();
+  await until(() => b.acknowledged.length === 1, "the surviving renderer to acknowledge");
+  expect(b.store.drafts.get(key).text).toBe("recover this");
+  expect(a.store.drafts.get(key).text).toBe("from second");
+  expect(a.receipts).toEqual([{}]);
+  expect(b.receipts).toEqual([{}]);
+  b.store.stop();
+});
+
+test("marking unknown background tasks as ended reports only the count and preserves running tasks", async () => {
+  const { manager } = await setup(
+    fakeAgent({
+      onPrompt: async ({ say }) => {
+        for (const id of ["private-task", "still-working"])
+          await say({
+            sessionUpdate: "subagent_update",
+            sessionId: id,
+            state: { state: "running" },
+            _meta: { "cycle/subagent": { background: true, toolCallId: id } },
+          });
+        await say({
+          sessionUpdate: "subagent_update",
+          sessionId: "private-task",
+          _meta: { "cycle/subagent": { status: "unknown", toolCallId: "private-task" } },
+        });
+      },
+    }),
+  );
+  const reported: unknown[] = [];
+  const { m } = await manager("app", undefined, undefined, (name, props) => {
+    if (name === "background_dismissed") reported.push(props);
+  });
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: dir });
+  await said(m, id);
+  const deadline = Date.now() + 2000;
+  while (!first(await m.sessions("local")).unknownBackground) {
+    if (Date.now() > deadline) throw new Error("the missing background task was never reconciled");
+    await Bun.sleep(5);
+  }
+  const before = first(await m.sessions("local"));
+  expect(before.unknownBackground).toEqual(["private-task"]);
+  expect(before.background).toBe(1);
+  await m.dismissBackground("local", id, ["private-task", "still-working"]);
+  await m.dismissBackground("local", id, ["private-task"]);
+  expect(first(await m.sessions("local")).unknownBackground).toBeUndefined();
+  expect(first(await m.sessions("local")).background).toBe(1);
+  expect(reported).toEqual([{ count: 1 }]);
 });

@@ -42,13 +42,14 @@ daemon 启动 Claude 时**不继承**你 shell 的环境变量(防止你环境�
 
 ## 3. 在远端 Linux 机器上装 daemon
 
-从 Release 下载 `cycle-linux-x64.tar.gz` 和 `.sha256`(只有 x64)。在那台机器上:
+在远端 Linux x64 或 ARM64 机器上，从同一 Release 下载 `install.sh` 和 `install.sh.sha256`，把下面的版本换成该 Release 的标签。安装器识别架构，下载对应包并校验 SHA-256。
 
 ```bash
-sha256sum -c cycle-linux-x64.tar.gz.sha256
-tar xzf cycle-linux-x64.tar.gz
-sh cycle-linux-x64/install.sh
+sha256sum -c install.sh.sha256
+sh install.sh v0.3.1
 ```
+
+离线安装时，将对应的 `cycle-linux-x64.tar.gz` 或 `cycle-linux-arm64.tar.gz` 及其 `.sha256` 放在安装器旁，执行 `sh install.sh`。
 
 `install.sh` 只装给当前用户,不要 root:程序放在 `~/.local/share/cycle/`,`~/.local/bin/cycle` 是一个启动器。机器上不需要 Bun、Node,也不需要装 `claude`。然后按第 2 节在那台机器上写 config.json。
 
@@ -56,10 +57,12 @@ sh cycle-linux-x64/install.sh
 
 ```bash
 cycle status   # 是否在运行
-cycle stop     # 停掉(会话中的回合会中断)
+cycle stop     # 停掉;有会话在工作时会列出来,问你等它们结束还是立即中断
+cycle stop --wait    # 等所有会话结束再停
+cycle stop --force   # 立即停:进行中的回合标为"已中断",排队的消息保留
 ```
 
-**升级**:重新下载,再运行一次 `install.sh`。已经在运行的 daemon 继续用旧文件,直到你 `stop` 它,下一次连接会起新的。
+**升级**:重新下载,再运行一次 `install.sh`。已经在运行的 daemon 继续用旧文件,直到你 `stop` 它,下一次连接会起新的。被中断的回合在历史里会标明是 daemon 停止打断的,重新连上后可以看到;重启后不会自动接着做。
 
 ## 4. 在应用里添加远端主机
 
@@ -84,7 +87,7 @@ cycle stop     # 停掉(会话中的回合会中断)
 - **主机一直 connecting/closed**:在终端里手动运行和应用同一条命令,比如 `ssh user@host cycle proxy`,看它输出什么(应该是安静地等待输入)。
 - **Claude 不可用(`available: false`)**:`claude` 二进制不在 `cycle` 旁边,重新运行 `install.sh`。
 - **提示没有凭证或认证失败**:检查那台机器上的 config.json;注意 daemon 不读你的 shell 环境变量。
-- **daemon 没有日志文件**:它脱离运行,输出被丢弃。要看输出可以先 `cycle stop`,再前台运行 `cycle serve`。(日志文件是已知缺口。)
+- **看 daemon 的日志**:在那台机器上 `cycle logs`(最后 100 行),`cycle status` 会给出文件位置(`<数据目录>/daemon.log`,只有你能读,自动轮转,最多约 4 MB)。里面只有发生了什么和出了什么错,没有 prompt、回答和凭证。daemon 意外退出时,原因和出错的代码位置在最后几行;要更细的记录,在 `config.json` 里设 `"log": { "level": "debug" }`。
 
 ## 安全
 

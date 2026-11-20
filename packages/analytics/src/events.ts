@@ -43,8 +43,12 @@ export const EVENTS = {
   // ---- environments ----
   environment_saved: o({ transport: z.enum(["ssh"]) }),
   environment_removed: o({ kind: environment }),
-  /** The person had the app update the daemon of a remote environment (not the hand-run command), and it worked or not. */
-  daemon_upgraded: o({ ok: z.boolean() }),
+  /**
+   * The person had the app update the daemon of a remote environment (not the hand-run command), and it worked or not.
+   * `when`: nothing was working there (`idle`), or sessions were and the person chose to interrupt them (`now`) or to
+   * have the old daemon stop once they finish (`later`).
+   */
+  daemon_upgraded: o({ ok: z.boolean(), when: z.enum(["idle", "now", "later"]) }),
   /** An environment's connection changed: it is up, it dropped and is trying again, or it is closed. */
   environment_connection: o({
     kind: environment,
@@ -55,6 +59,8 @@ export const EVENTS = {
   session_created: o({ agent, environment: environment, configured: z.boolean() }),
   session_opened: o({ agent, environment: environment }),
   session_renamed: o({}),
+  queue_return_restored: o({}),
+  background_dismissed: o({ count: z.number().int().positive() }),
   session_archived: o({ archived: z.boolean() }),
   /** After the person confirmed it (AGENTS.md: a delete is confirmed by the client first). */
   session_deleted: o({}),
@@ -100,6 +106,16 @@ export const EVENTS = {
   tool_link_opened: o({}),
   code_theme_changed: o({}),
   slash_command_used: o({}),
+  /**
+   * "Send again" on a turn that failed: its message went back in the box. `failure` is the kind (from Cycle's error code,
+   * never the message); `changed`: the turn had run a command or changed a file first, and the person was warned.
+   */
+  turn_resend_opened: o({
+    failure: z.enum(["agent_exited", "daemon_stopped", "history", "resume", "agent_error"]),
+    changed: z.boolean(),
+  }),
+  /** The message put back by "Send again" was sent; `edited`: not as it was. */
+  turn_resent: o({ edited: z.boolean() }),
 } as const;
 
 export type EventName = keyof typeof EVENTS;
@@ -115,6 +131,8 @@ export const UI_EVENTS = [
   "tool_output_expanded",
   "plan_opened",
   "tool_link_opened",
+  "turn_resend_opened",
+  "turn_resent",
 ] as const satisfies readonly EventName[];
 export type UiEventName = (typeof UI_EVENTS)[number];
 

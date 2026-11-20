@@ -781,6 +781,47 @@ test("a compaction is announced as it starts and as it ends, or fails", async ()
   });
 });
 
+test("Claude trying its request again is a notice with the counts, not the end of the turn", async () => {
+  const retry = (attempt: number, status: number | null) =>
+    ({
+      type: "system",
+      subtype: "api_retry",
+      attempt,
+      max_retries: 10,
+      retry_delay_ms: 1200,
+      error_status: status,
+      error: "rate_limit",
+    }) as unknown as SDKMessage;
+  const fake = fakeQuery(() => [retry(1, 529), retry(2, null), ...textTurn(ID, "m", "ok")]);
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "one" }]);
+    const notices = updates.filter((u) => u.sessionUpdate === "notice") as unknown as {
+      severity: string;
+      title: string;
+      _meta: Record<string, unknown>;
+    }[];
+    expect(notices.map((n) => n.title)).toEqual([
+      "Retrying the request (attempt 1 of 10)",
+      "Retrying the request (attempt 2 of 10)",
+    ]);
+    expect(notices.every((n) => n.severity === "info")).toBe(true);
+    expect(notices[0]?._meta["cycle/retry"]).toEqual({
+      attempt: 1,
+      maxRetries: 10,
+      delayMs: 1200,
+      status: 529,
+    });
+    // A connection error has no status.
+    expect(notices[1]?._meta["cycle/retry"]).toEqual({ attempt: 2, maxRetries: 10, delayMs: 1200 });
+    // The turn went on and ended well.
+    const ends = updates.filter(
+      (u) => u.sessionUpdate === "state_update" && (u as { state?: string }).state === "idle",
+    ) as unknown as { stopReason?: string }[];
+    expect(ends.at(-1)?.stopReason).toBe("end_turn");
+  });
+});
+
 test("the title Claude gave the session is told once, and a first prompt is not a title", async () => {
   const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
   const infos = [
@@ -1247,5 +1288,41 @@ test("a turn Claude began by itself can be cancelled, and the next prompt is ans
     },
     {},
     { cancelGraceMs: 50 },
+  );
+});
+
+test("the background roster reconciles a missed terminal across turns and accepts the late outcome", async () => {
+  const child = {
+    task_id: "child",
+    run_id: "2",
+    task_type: "local_agent",
+    tool_use_id: "call",
+    is_backgrounded: true,
+  };
+  const fake = fakeQuery(({ prompt }) => [
+    ...(prompt === "start"
+      ? [task("task_started", child), task("background_tasks_changed", { tasks: [child] })]
+      : prompt === "missing"
+        ? [task("background_tasks_changed", { tasks: [] })]
+        : [task("task_notification", { ...child, status: "completed" })]),
+    ...textTurn(ID, "m", "ok"),
+  ]);
+  await connect(
+    fake.run,
+    async ({ agent, idle, updates }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "start" }]);
+      await Bun.sleep(90);
+      expect(subs(updates)).toHaveLength(1);
+      await prompt(agent, idle, [{ type: "text", text: "missing" }]);
+      expect(subs(updates).at(-1)).toMatchObject({
+        _meta: { "cycle/subagent": { status: "unknown", toolCallId: "call" } },
+      });
+      expect(subs(updates).at(-1)?.state).toBeUndefined();
+      await prompt(agent, idle, [{ type: "text", text: "end" }]);
+      expect(subs(updates).at(-1)?.state).toEqual({ state: "idle", stopReason: "end_turn" });
+    },
+    {},
+    { idleMs: 40 },
   );
 });

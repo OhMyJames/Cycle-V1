@@ -2,7 +2,7 @@
 
 一个 ADE(agentic development environment)。cycle 的重写版:协议先行,更小、更容易维护和改造。
 
-> 状态:v1 可用。桌面应用(macOS,Apple 芯片)加 Linux daemon,Claude 为唯一的 agent。应用会自动更新自己,也能在应用里升级远端的 Linux x64 daemon,图标已有。签名和公证的发布流水线已经实现(默认关,由仓库变量或手动触发打开);某个发行包是否已签名公证以 [docs/getting-started.md](docs/getting-started.md) 的说明为准。使用见 [docs/getting-started.md](docs/getting-started.md)。
+> 状态:v1 可用。桌面应用(macOS,Apple 芯片)加 Linux daemon,Claude 为唯一的 agent。应用会自动更新自己,也能在应用里升级远端的 Linux x64 或 ARM64 daemon,图标已有。签名和公证的发布流水线已经实现(默认关,由仓库变量或手动触发打开);某个发行包是否已签名公证以 [docs/getting-started.md](docs/getting-started.md) 的说明为准。使用见 [docs/getting-started.md](docs/getting-started.md)。
 
 ## 目标(v1)
 
@@ -37,9 +37,11 @@ bun run check    # 边界、类型、lint、测试
 
 `apps/daemon`(daemon,可编译成单文件)、`apps/desktop`(Electron 应用)、`harness/*`(agent 适配,当前为 Claude)、`packages/*`(协议、客户端与传输、埋点、界面)。门禁约 7 秒;集成测试(`bun run test:integration`)启动真实进程;`bun run build` 构建 daemon 和桌面端,`bun run start` 启动。详见 [docs/testing.md](docs/testing.md)。
 
-## v1 不做
+## v1 桌面端规划
 
-git worktree、终端、diff 视图、多 provider、Web 端。
+右侧面板、diff 视图、交互式终端、内置浏览器及 agent 操作浏览器（browser use）、插件（plugins）和设置页（settings）已纳入 v1 规划。已发布功能见[使用指南](docs/getting-started.md)。
+
+git worktree、多 provider 和独立 Web 端仍在 v1 范围外。
 
 ## 文档
 

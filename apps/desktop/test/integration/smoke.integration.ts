@@ -94,6 +94,8 @@ test.skipIf(!ready)(
           "createSession",
           "deleteSession",
           "dequeue",
+          "ackReturn",
+          "dismissBackground",
           "disconnect",
           "environments",
           "installUpdate",

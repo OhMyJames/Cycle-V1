@@ -38,7 +38,7 @@ import {
   type SessionSnapshot,
   type SessionSummary,
 } from "@cycle/ui";
-import { daemonTooOld, daemonUpgradeCommand } from "../shared/release.ts";
+import { type DaemonStop, daemonTooOld, daemonUpgradeCommand } from "../shared/release.ts";
 import { authorizeInBrowser, type OpenBrowser } from "./connector-auth.ts";
 import { environmentOf, LOCAL_ENVIRONMENT, type Settings } from "./settings.ts";
 
@@ -123,6 +123,9 @@ type Connection = {
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+/** How a daemon update was asked for, as `daemon_upgraded` reports it: nothing was working, interrupt, or wait. */
+const whenOf = (stop: DaemonStop): "idle" | "now" | "later" => (stop === "ask" ? "idle" : stop);
+
 const PROBLEMS: readonly ConnectorProblem[] = [
   "invalid_name",
   "reserved_header",
@@ -172,7 +175,10 @@ export class ConnectionManager
   readonly #options: ManagerOptions;
   #environments: EnvironmentConfig[] = [LOCAL_ENVIRONMENT];
   /** Environments whose daemon is being updated from here, and the last one's failure. */
-  readonly #upgrading = new Map<string, { running: true } | { error: string }>();
+  readonly #upgrading = new Map<
+    string,
+    { running: true } | { error: string } | { waiting: true }
+  >();
   readonly #connections = new Map<string, Connection>();
   /** The last list read from each environment, kept when its connection goes: what the interface greys out. */
   readonly #lastSessions = new Map<string, SessionSummary[]>();
@@ -310,6 +316,7 @@ export class ConnectionManager
     connection.client = new CycleClient({
       connect: this.#options.channelFor(environment),
       name: "cycle-desktop",
+      ackReturns: true,
       ...(this.#options.protocolVersion !== undefined
         ? { protocolVersion: this.#options.protocolVersion }
         : {}),
@@ -479,16 +486,27 @@ export class ConnectionManager
    * Updates the daemon of a remote environment by running the command on its machine. The command stops the old daemon,
    * so the connection drops and comes back to the new one by itself (what is open stays open). A failure is said in the
    * status, with the command left there to run by hand.
+   *
+   * `when` is the person's answer when sessions there were working (docs/daemon.md "停止和升级"): `now` interrupts
+   * them, `later` installs now and stops the old daemon once nothing is working, which the status says until then.
+   * Without it nothing was working, and the stop refuses if something has started since.
    */
-  async upgradeDaemon(environmentId: string): Promise<void> {
+  async upgradeDaemon(environmentId: string, when?: unknown): Promise<void> {
+    // From the page: only the words it may send.
+    const stop: DaemonStop = when === "now" || when === "later" ? when : "ask";
     const connection = this.#connections.get(environmentId);
     const environment = this.#environments.find((e) => e.id === environmentId);
     const { runOnHost } = this.#options;
     const upgrade = connection?.status.daemon?.upgrade;
     if (connection === undefined || environment === undefined || upgrade === undefined) return;
-    if (this.#upgrading.has(environmentId) || runOnHost === undefined) return;
+    // Only an update that is running holds a click back. After a failure the person tries again (the plain stop
+    // refuses when sessions started working since, and they then choose); while it waits for the sessions, what is
+    // left to choose is to interrupt them.
+    const doing = this.#upgrading.get(environmentId);
+    if (runOnHost === undefined || (doing !== undefined && "running" in doing)) return;
+    if (doing !== undefined && "waiting" in doing && stop !== "now") return;
     // Kept here and not in the status, which every change of the connection builds anew.
-    const say = (now: { running: true } | { error: string } | undefined) => {
+    const say = (now: { running: true } | { error: string } | { waiting: true } | undefined) => {
       if (now === undefined) this.#upgrading.delete(environmentId);
       else this.#upgrading.set(environmentId, now);
       if (this.#connections.get(environmentId) !== connection) return;
@@ -500,13 +518,18 @@ export class ConnectionManager
     };
     say({ running: true });
     try {
-      await runOnHost(environment, upgrade.command);
+      await runOnHost(environment, daemonUpgradeCommand(upgrade.to, stop));
     } catch (error) {
-      this.#track("daemon_upgraded", { ok: false });
+      this.#track("daemon_upgraded", { ok: false, when: whenOf(stop) });
       say({ error: messageOf(error) });
       return;
     }
-    this.#track("daemon_upgraded", { ok: true });
+    this.#track("daemon_upgraded", { ok: true, when: whenOf(stop) });
+    // Installed; the old daemon goes when its sessions are done. Said until the connection comes back to the new one.
+    if (stop === "later") {
+      say({ waiting: true });
+      return;
+    }
     // Stopping the daemon drops the connection, and the status that comes with the new one has no upgrade. If it never
     // drops, the person is shown the button again after a while, not a wait without end. Not awaited: the click is done.
     setTimeout(() => {
@@ -563,6 +586,13 @@ export class ConnectionManager
         ...(typeof meta["cycle/unread"] === "boolean" ? { unread: meta["cycle/unread"] } : {}),
         ...(typeof meta["cycle/background"] === "number"
           ? { background: meta["cycle/background"] }
+          : {}),
+        ...(Array.isArray(meta["cycle/backgroundUnknown"])
+          ? {
+              unknownBackground: meta["cycle/backgroundUnknown"].filter(
+                (id): id is string => typeof id === "string",
+              ),
+            }
           : {}),
         ...(typeof row.updatedAt === "string" ? { updatedAt: row.updatedAt } : {}),
         ...(typeof meta["cycle/config"] === "object" && meta["cycle/config"] !== null
@@ -773,6 +803,11 @@ export class ConnectionManager
     );
   }
 
+  async ackReturn(environmentId: string, sessionId: string, returnId: string): Promise<void> {
+    if (await this.#connection(environmentId).client.ackReturn(sessionId, returnId))
+      this.#track("queue_return_restored", {});
+  }
+
   async dequeue(environmentId: string, sessionId: string, queueId: string): Promise<PromptBlock[]> {
     return (await this.#connection(environmentId).client.dequeue(
       sessionId,
@@ -793,6 +828,18 @@ export class ConnectionManager
   async renameSession(environmentId: string, sessionId: string, title: string): Promise<void> {
     await this.#connection(environmentId).client.rename(sessionId, title);
     this.#track("session_renamed", {});
+  }
+
+  async dismissBackground(
+    environmentId: string,
+    sessionId: string,
+    taskIds: string[],
+  ): Promise<void> {
+    const count = await this.#connection(environmentId).client.dismissBackground(
+      sessionId,
+      taskIds,
+    );
+    if (count > 0) this.#track("background_dismissed", { count });
   }
 
   async archiveSession(environmentId: string, sessionId: string, archived: boolean): Promise<void> {

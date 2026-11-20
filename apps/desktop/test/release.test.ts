@@ -49,12 +49,24 @@ test("the command for a remote machine downloads this release's daemon, checks i
   const command = daemonUpgradeCommand("0.1.1");
   const steps = command.split(" && ");
   expect(steps[1]).toBe(
-    "curl -fsSLO https://github.com/OhMyJames/Cycle-V1/releases/download/v0.1.1/cycle-linux-x64.tar.gz",
+    "curl -fsSLO 'https://github.com/OhMyJames/Cycle-V1/releases/download/v0.1.1/install.sh'",
   );
-  expect(steps.indexOf("sha256sum -c cycle-linux-x64.tar.gz.sha256")).toBeLessThan(
-    steps.indexOf("sh cycle-linux-x64/install.sh"),
+  expect(steps.indexOf("sha256sum -c install.sh.sha256")).toBeLessThan(
+    steps.indexOf("sh install.sh 'v0.1.1'"),
   );
   expect(steps.at(-1)).toBe('"$HOME/.local/bin/cycle" stop');
+});
+
+test("the command stops the old daemon as the person chose: ask, interrupt now, or wait in the background", () => {
+  const last = (stop?: "ask" | "now" | "later") =>
+    daemonUpgradeCommand("0.1.1", stop).split(" && ").at(-1);
+  expect(last()).toBe('"$HOME/.local/bin/cycle" stop');
+  expect(last("ask")).toBe('"$HOME/.local/bin/cycle" stop');
+  expect(last("now")).toBe('"$HOME/.local/bin/cycle" stop --force');
+  // Only the stop goes to the background, detached from the ssh session, after the install has worked.
+  expect(last("later")).toBe(
+    '{ nohup "$HOME/.local/bin/cycle" stop --wait >/dev/null 2>&1 </dev/null & }',
+  );
 });
 
 const TREE: TreeEntry[] = [

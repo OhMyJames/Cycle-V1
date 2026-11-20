@@ -25,7 +25,7 @@ export const SessionEntrySchema = z.object({
   /** The agent's latest `usage_update`: shown in the session list. */
   usage: SessionUsageSchema.optional(),
   archived: z.boolean().optional(),
-  /** True while prompts wait in the session's queue, so that loading a session knows to read it back from the log. */
+  /** True while prompts wait for the agent or a return receipt. Loading reads these from the log. */
   queued: z.boolean().optional(),
   /**
    * How far the clients have seen the session (`_cycle/session/mark_read`), and the seq of the last
@@ -45,6 +45,12 @@ export const SessionEntrySchema = z.object({
    * False from creation until then. Absent from an entry written before the list asked: read from the log once.
    */
   prompted: z.boolean().optional(),
+  /**
+   * True from the record that opens a turn (the person's message, a `running` or `requires_action`) until an idle: a
+   * turn is open in the log. Loading a session finds by it a turn the daemon stopped in the middle of, which gets its
+   * end on record (docs/protocol.md §8). Absent from an entry written before it existed: then the log is read once.
+   */
+  turnOpen: z.boolean().optional(),
   /** What was asked of the agent with `session/set_config_option`, applied again when it is restarted. */
   config: z.record(z.string(), z.string()).optional(),
   createdAt: z.string(),

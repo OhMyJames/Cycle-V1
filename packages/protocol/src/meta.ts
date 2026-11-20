@@ -28,6 +28,7 @@ export const META = {
   unread: "cycle/unread",
   /** In a `session/list` row: how many background sub-agents are still running. Absent when none. */
   background: "cycle/background",
+  backgroundUnknown: "cycle/backgroundUnknown",
   /** In a session/list row, and in the state_update a client opens a session with: true once the session's history could not be written (docs/protocol.md section 12). Absent otherwise. */
   historyFailed: "cycle/historyFailed",
   /**
@@ -52,6 +53,7 @@ export const META = {
   noClient: "cycle/noClient",
   /** On the answer to a `session/prompt` that was queued, not sent: the agent was still working. */
   queued: "cycle/queued",
+  ackReturns: "cycle/ackReturns",
   /** On `session/list`: leave out the sessions nothing has been said in yet (docs/protocol.md §6). */
   onlyPrompted: "cycle/onlyPrompted",
   /**
@@ -67,6 +69,11 @@ export const META = {
    * nobody has decided, and the agent leaves what it had as it was.
    */
   trusted: "cycle/trusted",
+  /**
+   * On a `notice`: the agent's model request failed and the agent tries it again by itself, `{attempt, maxRetries,
+   * delayMs, status?}` (docs/protocol.md §8). Shown as a state while it is the last thing in the turn, never as a row.
+   */
+  retry: "cycle/retry",
 } as const;
 
 /** The version of Cycle's protocol, "major.minor". A different major is refused. */

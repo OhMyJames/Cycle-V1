@@ -30,6 +30,7 @@ import {
   foldersList,
   META,
   NOTIFICATIONS,
+  promptAckReturn,
   promptDequeue,
   QUEUE_LIMIT,
   QUEUE_UPDATE,
@@ -39,6 +40,7 @@ import {
   ReplayFromSeqSchema,
   SessionUsageSchema,
   sessionArchive,
+  sessionDismissBackground,
   sessionMarkRead,
   sessionSetTitle,
   sessionUnarchive,
@@ -68,7 +70,8 @@ import { type SessionEntry, SessionIndex } from "./index-file.ts";
 import { BlobLogStore } from "./log/blobs.ts";
 import { JsonlLogStore } from "./log/jsonl.ts";
 import { attach } from "./log/replay.ts";
-import type { LogRecord, LogStore, NewRecord, SessionLog } from "./log/types.ts";
+import type { LogRecord, LogStore, NewRecord } from "./log/types.ts";
+import { errorText, type Logger, silentLogger } from "./logger.ts";
 import { redactParams, redactRecord } from "./redact.ts";
 import {
   type Attachment,
@@ -76,9 +79,11 @@ import {
   HISTORY_NOT_SAVED,
   type Pending,
   Session,
+  type SessionStatus,
 } from "./session.ts";
 import { checkToolResult } from "./tool-result.ts";
 import { FolderTrust, realFolder, within } from "./trust-file.ts";
+import { type Activity, opensOrEndsTurn, turnLeftOpen } from "./turns.ts";
 
 export type DaemonOptions = {
   /** Where the daemon keeps its data. Always given: nothing here guesses a home. */
@@ -97,6 +102,8 @@ export type DaemonOptions = {
   maxAheadAgents?: number;
   /** For tests: replaces the connectors kept in `$CYCLE_HOME/connectors/` (docs/protocol.md §14). */
   connectors?: ConnectorService;
+  /** Where what it does and what goes wrong is told (docs/daemon.md "日志"): events and ids, never content. */
+  log?: Logger;
 };
 
 const SESSION_UPDATE = methods.client.session.update;
@@ -187,6 +194,7 @@ export class Daemon {
   readonly #trust: FolderTrust;
   readonly #connectors: ConnectorService;
   readonly #maxAhead: number | undefined;
+  readonly #log: Logger;
   readonly #sessions = new Map<string, Session>();
   /** Sessions being loaded, so a second request for one waits for the first load. */
   readonly #loading = new Map<string, Promise<Session>>();
@@ -203,6 +211,7 @@ export class Daemon {
   ) {
     this.#version = options.version ?? "dev";
     this.#maxAhead = options.maxAheadAgents;
+    this.#log = options.log ?? silentLogger;
     this.#agents = new Map(options.agents.map((a) => [a.id, a]));
     this.#store =
       options.store ??
@@ -254,6 +263,7 @@ export class Daemon {
       notify: (method, params) => client.notify(method as never, params as never),
       request: (method, params) => client.request(method as never, params as never),
       elicitation: false,
+      ackReturns: false,
     };
     holder.value = conn;
     this.#conns.add(conn);
@@ -261,10 +271,49 @@ export class Daemon {
     return { closed: connection.closed, close: () => connection.close() };
   }
 
+  /**
+   * What a stop would cut short, session by session: a turn in progress (with any request waiting on the owner) or
+   * background sub-agents still working. Empty when the daemon can stop without losing anything; an idle exit
+   * (CYCL-104) waits for that. Only loaded sessions can be doing anything.
+   */
+  activity(): Activity[] {
+    const active: Activity[] = [];
+    for (const session of this.#sessions.values()) {
+      if (session.closed) continue;
+      const turn = this.#turnInProgress(session);
+      const background = session.backgroundCount();
+      if (!turn && background === 0) continue;
+      active.push({
+        sessionId: session.id,
+        ...(session.entry.title !== undefined ? { title: session.entry.title } : {}),
+        turn,
+        pending: session.pending.size,
+        background,
+        queued: session.queue.length,
+      });
+    }
+    return active;
+  }
+
+  /** A turn has started and not ended: on record, or as the daemon has it (a prompt still on its way to the agent). */
+  #turnInProgress(session: Session): boolean {
+    const status = session.status();
+    return (
+      session.entry.turnOpen === true ||
+      status === "running" ||
+      status === "requires_action" ||
+      session.pending.size > 0
+    );
+  }
+
   async close(): Promise<void> {
     // Stopping the agents is not a reason to hand anything back: what waits stays for the next start.
     this.#closing = true;
     for (const session of this.#sessions.values()) {
+      // A turn cut short says so in the history before the agent goes (docs/protocol.md §8): it is not left running.
+      if (!session.closed && this.#turnInProgress(session)) {
+        await this.#interrupt(session, "Cycle was stopped while this turn was running");
+      }
       session.closed = true;
       session.link?.kill();
       for (const attachment of session.attachments) attachment.detach();
@@ -284,6 +333,10 @@ export class Daemon {
           attachment.detach();
           session.attachments.delete(attachment);
         }
+      }
+      if (session.returnOwner?.conn === conn && !session.returnOwner.acknowledging) {
+        session.returnOwner = undefined;
+        this.#offerReturn(session);
       }
       this.#abandonForms(session);
     }
@@ -338,10 +391,12 @@ export class Daemon {
       const log = await this.#store.open(sessionId, "existing");
       const session = new Session(sessionId, entry, log);
       // The queue is the last snapshot in the log; the index says whether there is anything to look for.
-      if (entry.queued === true) session.queue = await this.#queueIn(log);
+      if (entry.queued === true) await this.#restoreQueue(session);
       this.#clamp(session);
       this.#watch(session);
+      await this.#endTurnLeftOpen(session);
       this.#sessions.set(sessionId, session);
+      this.#log.debug("session_loaded", { session: sessionId, queued: session.queue.length });
       return session;
     })().finally(() => {
       this.#loading.delete(sessionId);
@@ -582,7 +637,8 @@ export class Daemon {
   }
 
   #onUpdate(session: Session, update: SessionUpdate): void {
-    if (session.resuming || session.historyError !== undefined) return;
+    // Once the daemon is stopping, the turn's end is on record: what the agent says after it is not.
+    if (session.resuming || session.historyError !== undefined || this.#closing) return;
     const state = update as { sessionUpdate: string; state?: string };
     if (state.sessionUpdate === "state_update" && typeof state.state === "string") {
       if (
@@ -597,12 +653,33 @@ export class Daemon {
     // Called in the order the updates arrive, so seq follows the agent's order.
     // The list shows what a session is doing, not what it said: only a change of state is announced
     // (docs/protocol.md §6). Anything else that changes the list says so where it changes it.
-    const announce = state.sessionUpdate === "state_update";
+    // Update before yielding to storage so a concurrent dismissal checks the latest agent signal.
+    const backgroundChanged =
+      state.sessionUpdate === "subagent_update" &&
+      session.noteSubagent(update as unknown as Record<string, unknown>);
+    const announce = state.sessionUpdate === "state_update" || backgroundChanged;
     void this.#write(session, { kind: "update", data: update }).then((written) => {
       if (written && announce) this.#changed();
+      if (written && backgroundChanged) this.#restartIfStale(session);
     });
     // A turn ended (an idle that says why, not a snapshot): the next prompt goes, or the queue is handed back.
-    const ended = update as { sessionUpdate: string; state?: string; stopReason?: unknown };
+    const ended = update as {
+      sessionUpdate: string;
+      state?: string;
+      stopReason?: unknown;
+      error?: { code?: unknown } | null;
+    };
+    if (
+      ended.sessionUpdate === "state_update" &&
+      ended.state === "idle" &&
+      typeof ended.stopReason === "string"
+    ) {
+      const code = typeof ended.error?.code === "number" ? ended.error.code : undefined;
+      // How it ended, and the code of a failure: what the agent said about it is in the history, not here.
+      if (ended.stopReason === "error")
+        this.#log.warn("turn_ended", { session: session.id, stopReason: ended.stopReason, code });
+      else this.#log.info("turn_ended", { session: session.id, stopReason: ended.stopReason });
+    }
     if (
       ended.sessionUpdate === "state_update" &&
       ended.state === "idle" &&
@@ -624,16 +701,29 @@ export class Daemon {
 
   // ---- the queue (docs/protocol.md §8) ----
 
-  /** The queue as the last snapshot in a log left it. */
-  async #queueIn(log: SessionLog): Promise<QueueEntry[]> {
-    const records = await log.read();
-    for (let i = records.length - 1; i >= 0; i--) {
-      const record = records[i];
-      if (record?.kind !== "update") continue;
-      const parsed = QueueUpdateSchema.safeParse(record.data);
-      if (parsed.success) return parsed.data.entries;
+  async #restoreQueue(session: Session): Promise<void> {
+    for (const record of await session.log.read()) {
+      if (record.kind === "meta") {
+        const ack = (record.data as { acknowledgedReturn?: string }).acknowledgedReturn;
+        if (ack) session.returns.delete(ack);
+      } else if (
+        record.kind === "update" &&
+        (record.data as { sessionUpdate?: string } | null)?.sessionUpdate === QUEUE_UPDATE
+      ) {
+        const parsed = QueueUpdateSchema.safeParse(record.data);
+        if (!parsed.success) continue;
+        const { entries, returnId, returned, reason } = parsed.data;
+        session.queue = entries;
+        if (returnId && returned && reason)
+          session.returns.set(returnId, { returned, reason, durable: true });
+      }
     }
-    return [];
+  }
+
+  #indexQueue(session: Session): void {
+    const queued = session.queue.length > 0 || session.returns.size > 0;
+    if ((session.entry.queued === true) !== queued)
+      this.#remember(session, { queued: queued ? true : undefined } as Partial<SessionEntry>);
   }
 
   /**
@@ -642,12 +732,9 @@ export class Daemon {
    */
   #publishQueue(
     session: Session,
-    back?: { returned: QueueEntry[]; reason: QueueReason },
+    back?: { returnId: string; returned: QueueEntry[]; reason: QueueReason },
   ): Promise<boolean> {
-    const queued = session.queue.length > 0;
-    if ((session.entry.queued === true) !== queued) {
-      this.#remember(session, { queued: queued ? true : undefined } as Partial<SessionEntry>);
-    }
+    this.#indexQueue(session);
     return this.#write(session, {
       kind: "update",
       data: {
@@ -675,23 +762,60 @@ export class Daemon {
     const returned = session.queue;
     session.queue = [];
     session.heldReason = undefined;
-    // It is on record, but no one is attached to take it from there (a client that reads a history ignores what was
-    // handed back in it): kept, to be handed back live to the first that attaches.
-    if (session.attachments.size === 0)
-      session.unclaimed = {
-        returned: [...(session.unclaimed?.returned ?? []), ...returned],
-        // The first reason stands for what was kept first: it is the oldest that no one has taken.
-        reason: session.unclaimed?.reason ?? reason,
-      };
-    this.#publishQueue(session, { returned, reason });
+    const returnId = randomUUID();
+    const batch = { returned, reason, durable: false };
+    session.returns.set(returnId, batch);
+    void this.#publishQueue(session, { returnId, returned, reason }).then((written) => {
+      batch.durable = written;
+      this.#offerReturn(session);
+    });
   }
 
-  /** What was handed back to no one is handed back to the client that has attached now, as if live. */
-  #handBackUnclaimed(session: Session): void {
-    const { unclaimed } = session;
-    if (unclaimed === undefined || session.attachments.size === 0) return;
-    session.unclaimed = undefined;
-    this.#publishQueue(session, unclaimed);
+  #offerReturn(session: Session): void {
+    if (session.closed || session.historyError || session.returnOwner) return;
+    const first = session.returns.entries().next().value;
+    const recipient = [...session.attachments].find((a) => a.ready);
+    if (!first || !first[1].durable || !recipient) return;
+    const [returnId, { returned, reason }] = first;
+    const { conn } = recipient;
+    session.returnOwner = { conn, id: returnId, acknowledging: false };
+    void conn
+      .notify(SESSION_UPDATE, {
+        sessionId: session.id,
+        update: {
+          sessionUpdate: QUEUE_UPDATE,
+          entries: [...session.queue],
+          returnId,
+          returned,
+          reason,
+        },
+      })
+      .then(
+        () => {
+          if (!conn.ackReturns) return this.#ackReturn(session, conn, returnId);
+        },
+        () => {
+          recipient.ready = false;
+          if (session.returnOwner?.conn === conn && session.returnOwner.id === returnId) {
+            session.returnOwner = undefined;
+            this.#offerReturn(session);
+          }
+        },
+      )
+      .catch(() => {});
+  }
+
+  async #ackReturn(session: Session, conn: ClientConn, id: string): Promise<boolean> {
+    const owner = session.returnOwner;
+    if (!owner || owner.id !== id || owner.conn !== conn || owner.acknowledging) return false;
+    owner.acknowledging = true;
+    if (!(await this.#write(session, { kind: "meta", data: { acknowledgedReturn: id } })))
+      throw logUnavailable(session.id, session.historyError ?? HISTORY_NOT_SAVED);
+    session.returns.delete(id);
+    session.returnOwner = undefined;
+    this.#indexQueue(session);
+    this.#offerReturn(session);
+    return true;
   }
 
   /** A queue left behind with no turn to send it: the reason it was held, or a restart's. */
@@ -719,6 +843,11 @@ export class Daemon {
 
   /** A prompt that could not be given to the agent: a turn that ended in failure is a turn end like any other, on record, so the session shows as unread. */
   #promptFailed(session: Session, error: unknown): void {
+    this.#log.warn("prompt_failed", {
+      session: session.id,
+      code: (error as { code?: unknown } | null)?.code as number | undefined,
+      error: errorText(error),
+    });
     session.agentState = "idle";
     this.#changed();
     const code = (error as { code?: unknown } | null)?.code;
@@ -795,6 +924,7 @@ export class Daemon {
    */
   #historyFailed(session: Session, error: unknown): void {
     if (session.historyError !== undefined) return;
+    this.#log.error("history_write_failed", { session: session.id, error: errorText(error) });
     session.historyError = error instanceof Error ? error.message : String(error);
     for (const pending of [...session.pending.values()]) {
       pending.settled = true;
@@ -856,6 +986,10 @@ export class Daemon {
     }
     if (record.kind !== "update") return;
     const update = record.data as Record<string, unknown>;
+    // Whether a turn is open on record, for a restart to find one that was cut short (docs/protocol.md §8).
+    const turnOpen = opensOrEndsTurn(update);
+    if (turnOpen !== undefined && session.entry.turnOpen !== turnOpen)
+      this.#remember(session, { turnOpen }, false);
     // The person's first message: from now on the session is in the list.
     if (update.sessionUpdate === "user_message" && session.entry.prompted !== true) {
       this.#remember(session, { prompted: true });
@@ -872,11 +1006,6 @@ export class Daemon {
         this.#remember(session, { attentionSeq: record.seq }, false);
         // A turn that has already been followed by the next (a queued prompt goes as the idle is written) is not the ended one.
         if (update.state === "idle") session.turnEnded = session.agentState === "idle";
-      }
-    } else if (update.sessionUpdate === "subagent_update") {
-      if (session.noteSubagent(update)) {
-        this.#changed();
-        this.#restartIfStale(session);
       }
     }
   }
@@ -946,6 +1075,22 @@ export class Daemon {
     );
   }
 
+  /**
+   * A request asked or settled changed what the session is doing (it waits on the owner, or no longer does): the
+   * clients attached are told, as a state snapshot like the one an attach ends with (docs/protocol.md §9). The agent
+   * may say nothing of it, and a client that stayed must not see other than one that came back.
+   */
+  #stateChanged(session: Session, before: SessionStatus): void {
+    if (session.status() === before || session.closed) return;
+    const update = session.snapshot();
+    for (const attachment of session.attachments) {
+      if (!attachment.ready) continue;
+      void attachment.conn
+        .notify(SESSION_UPDATE, { sessionId: session.id, update })
+        .catch(() => {});
+    }
+  }
+
   /** Puts a request to the clients, waits for the answer, and writes the request to the log. */
   async #ask(
     session: Session,
@@ -953,6 +1098,8 @@ export class Daemon {
     params: Record<string, unknown>,
     how: { cancelled: unknown; answer: (response: unknown) => unknown },
   ): Promise<unknown> {
+    // A stopping daemon puts nothing more to anyone: the agent is told no, as at a cancel.
+    if (this.#closing) return how.cancelled;
     const requestId = session.nextRequestId();
     // The id is in _meta so a client can match `_cycle/request_resolved` to the dialog it is showing.
     const meta = (params._meta ?? {}) as Record<string, unknown>;
@@ -976,6 +1123,7 @@ export class Daemon {
       asked: new Set(),
       resolve,
     };
+    const before = session.status();
     session.pending.set(requestId, pending);
     // Delivery is by the log: attached clients get it as the record is written. A request that
     // could not be written was shown to no one: the agent is told it was cancelled.
@@ -988,6 +1136,7 @@ export class Daemon {
       session.pending.delete(requestId);
       return how.cancelled;
     }
+    this.#stateChanged(session, before);
     // A request written while nobody is attached waits here until a client attaches.
     return outcome;
   }
@@ -1034,7 +1183,9 @@ export class Daemon {
   #settle(session: Session, pending: Pending, outcome: unknown, by?: Attachment): void {
     if (pending.settled) return;
     pending.settled = true;
+    const before = session.status();
     session.pending.delete(pending.requestId);
+    this.#stateChanged(session, before);
     // The session is no longer waiting on the owner: the list says so (the agent may say nothing).
     this.#changed();
     // What a person typed into a form can be a password or a token: the agent gets all of it, the
@@ -1083,16 +1234,16 @@ export class Daemon {
     });
   }
 
-  #onAgentClosed(session: Session, link: AgentLink | undefined): void {
-    if (session.link !== link && link !== undefined) return;
-    const wasWorking = session.agentState !== "idle";
-    session.link = undefined;
-    // Its key to the gateway goes with it, and the connector processes it had.
-    this.#connectors.release(session.id);
+  /** Every request still waiting on the owner ends unanswered: aborted on record, cancelled to the agent and the clients asked. */
+  #abortPending(session: Session): Promise<unknown> {
+    const writes: Promise<boolean>[] = [];
+    const before = session.status();
     for (const pending of [...session.pending.values()]) {
       pending.settled = true;
       session.pending.delete(pending.requestId);
-      void this.#write(session, { kind: "aborted", data: { requestId: pending.requestId } });
+      writes.push(
+        this.#write(session, { kind: "aborted", data: { requestId: pending.requestId } }),
+      );
       pending.resolve(pending.cancelled);
       for (const attachment of pending.asked) {
         void attachment.conn
@@ -1104,6 +1255,63 @@ export class Daemon {
           .catch(() => {});
       }
     }
+    this.#stateChanged(session, before);
+    return Promise.all(writes);
+  }
+
+  /**
+   * The daemon stops, or stopped, in the middle of a turn: the turn ends on record as interrupted (docs/protocol.md §8),
+   * so the history does not stay at "working". What was queued is not handed back here: it stays, for the next client.
+   */
+  async #interrupt(session: Session, message: string): Promise<void> {
+    this.#log.warn("turn_interrupted", {
+      session: session.id,
+      pending: session.pending.size,
+      queued: session.queue.length,
+    });
+    await this.#abortPending(session);
+    session.turnEnded = true;
+    session.agentState = "idle";
+    await this.#write(session, {
+      kind: "update",
+      data: {
+        sessionUpdate: "state_update",
+        state: "idle",
+        stopReason: "error",
+        error: { code: CycleErrorCode.DaemonStopped, message },
+      },
+    });
+  }
+
+  /**
+   * A session loaded after a restart whose log has a turn that never ended: the daemon before this one stopped in the
+   * middle of it without saying so (it crashed, was killed, or was older than this rule). Its end is put on record now.
+   * The index says whether to look; an entry from before it said reads the log once.
+   */
+  async #endTurnLeftOpen(session: Session): Promise<void> {
+    if (session.entry.turnOpen === false) return;
+    let open: boolean;
+    try {
+      open = turnLeftOpen(await session.log.read(undefined, { stored: true }));
+    } catch {
+      // A log that cannot be read is reported where it is read; there is nothing to end here.
+      return;
+    }
+    if (open) await this.#interrupt(session, "Cycle stopped while this turn was running");
+    else this.#remember(session, { turnOpen: false }, false);
+  }
+
+  #onAgentClosed(session: Session, link: AgentLink | undefined): void {
+    if (session.link !== link && link !== undefined) return;
+    const wasWorking = session.agentState !== "idle";
+    // Its exit code is in the agent's own lines; here, what it left behind.
+    const closed = { session: session.id, working: wasWorking, pending: session.pending.size };
+    if (wasWorking) this.#log.warn("agent_closed", closed);
+    else this.#log.info("agent_closed", closed);
+    session.link = undefined;
+    // Its key to the gateway goes with it, and the connector processes it had.
+    this.#connectors.release(session.id);
+    this.#abortPending(session);
     void this.#write(session, { kind: "meta", data: { event: "agent_exited" } });
     // The sub-agents went with the process. The list is announced as changed at the end.
     session.endSubagents();
@@ -1122,9 +1330,17 @@ export class Daemon {
   #deliver(session: Session, attachment: Attachment) {
     return async (record: LogRecord) => {
       if (record.kind === "update") {
+        const update = record.data as {
+          sessionUpdate: string;
+          entries?: QueueEntry[];
+          returnId?: string;
+        };
         await attachment.conn.notify(SESSION_UPDATE, {
           sessionId: session.id,
-          update: record.data,
+          update:
+            update.sessionUpdate === QUEUE_UPDATE && update.returnId
+              ? { sessionUpdate: QUEUE_UPDATE, entries: update.entries }
+              : record.data,
           _meta: { [META.seq]: record.seq },
         });
       } else if (record.kind === "request") {
@@ -1155,6 +1371,9 @@ export class Daemon {
         [META.state]: session.status(),
         [META.lastSeq]: session.log.lastSeq(),
         [META.unread]: session.unread(),
+        ...(session.unknownBackground.size
+          ? { [META.backgroundUnknown]: [...session.unknownBackground.keys()] }
+          : {}),
         ...(background > 0 ? { [META.background]: background } : {}),
         ...(session.historyError !== undefined ? { [META.historyFailed]: true } : {}),
         ...(entry.config !== undefined ? { [META.config]: entry.config } : {}),
@@ -1212,6 +1431,7 @@ export class Daemon {
         META.protocolVersion
       ];
       // Whether this client can answer a form: only then is it asked one (decision 0011).
+      me().ackReturns = params._meta?.[META.ackReturns] === true;
       me().elicitation = params.capabilities?.elicitation?.form != null;
       if (
         typeof requested === "string" &&
@@ -1281,6 +1501,7 @@ export class Daemon {
         createdAt: new Date().toISOString(),
         // Not in the list until the person's first message is on record (docs/protocol.md §6).
         prompted: false,
+        turnOpen: false,
         // Kept to send again each time the agent starts. Not in the log: that goes to every client.
         ...(params.additionalDirectories?.length
           ? { additionalDirectories: params.additionalDirectories }
@@ -1406,7 +1627,7 @@ export class Daemon {
           session.attachments.delete(old);
         }
       }
-      const attachment: Attachment = { conn, detach: () => {} };
+      const attachment: Attachment = { conn, ready: false, detach: () => {} };
       session.attachments.add(attachment);
       const deliver = this.#deliver(session, attachment);
       try {
@@ -1430,8 +1651,9 @@ export class Daemon {
       for (const pending of session.pending.values()) this.#offer(session, pending, attachment);
       // A queue with no turn behind it was cut short by a restart. It is handed back now, after the
       // replay and the snapshot, so the client that attached is told while it is listening.
+      attachment.ready = true;
       this.#returnStale(session);
-      this.#handBackUnclaimed(session);
+      this.#offerReturn(session);
       // Which they are, so a client that had one before can tell it is not among them: answered elsewhere.
       return {
         configOptions: [],
@@ -1650,6 +1872,37 @@ export class Daemon {
         this.#changed();
         return {};
       };
+    cycle(sessionDismissBackground, async ({ sessionId, taskIds }) => {
+      const session = await this.#session(sessionId);
+      let dismissed = 0;
+      for (const id of new Set(taskIds)) {
+        const task = session.unknownBackground.get(id);
+        if (!task || task.dismissing) continue;
+        task.dismissing = true;
+        if (
+          !(await this.#write(session, {
+            kind: "update",
+            data: {
+              sessionUpdate: "subagent_update",
+              sessionId: id,
+              _meta: { [META.subagent]: { toolCallId: task.toolCallId, status: "dismissed" } },
+            },
+          }))
+        ) {
+          task.dismissing = false;
+          throw logUnavailable(sessionId, session.historyError ?? HISTORY_NOT_SAVED);
+        }
+        if (session.unknownBackground.get(id) === task) session.unknownBackground.delete(id);
+        dismissed++;
+      }
+      if (dismissed) this.#changed();
+      return { dismissed };
+    });
+    cycle(promptAckReturn, async ({ sessionId, returnId }) => {
+      return {
+        acknowledged: await this.#ackReturn(await this.#session(sessionId), me(), returnId),
+      };
+    });
     cycle(promptDequeue, async (params) => {
       const session = await this.#session(params.sessionId);
       const at = session.queue.findIndex((entry) => entry.queueId === params.queueId);

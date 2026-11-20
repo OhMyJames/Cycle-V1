@@ -36,15 +36,36 @@ export const ConfigSchema = z.object({
       maxWarm: 3,
       progressSummaries: true,
     }),
+  /** The daemon's own log, `<dataDir>/daemon.log` (docs/daemon.md "日志"). Events only, never content. */
+  log: z
+    .object({
+      /** `debug` adds sessions loaded and clients attaching; `warn` and `error` keep only what went wrong. */
+      level: z.enum(["error", "warn", "info", "debug"]).default("info"),
+      /** Past this size the file is rotated. */
+      maxBytes: z.number().int().min(10_000).default(1_000_000),
+      /** Rotated files kept beside the current one: the log takes at most maxBytes × (files + 1). */
+      files: z.number().int().min(0).max(20).default(3),
+    })
+    .default({ level: "info", maxBytes: 1_000_000, files: 3 }),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
-export type Paths = { dataDir: string; socket: string; config: string };
+export type Paths = {
+  dataDir: string;
+  socket: string;
+  config: string;
+  /** The daemon's log (docs/daemon.md "日志"). */
+  log: string;
+  /** What a daemon started in the background writes to its stdout and stderr: what the runtime says as it dies. */
+  output: string;
+};
 
 export const pathsFor = (dataDir: string, socket?: string): Paths => ({
   dataDir,
   socket: socket ?? join(dataDir, "daemon.sock"),
   config: join(dataDir, "config.json"),
+  log: join(dataDir, "daemon.log"),
+  output: join(dataDir, "daemon.out"),
 });
 
 export const loadConfig = async (path: string): Promise<Config> => {

@@ -174,6 +174,12 @@ export const enUS = {
   "tool.facts.exitCode": "exited with code {code}",
   "tool.facts.timedOut": "ran past {duration}, now in the background",
   "tool.facts.background": "in the background",
+  "session.dismissBackground": {
+    one: "Mark 1 unconfirmed background task as ended",
+    other: "Mark {count} unconfirmed background tasks as ended",
+  },
+  "subagent.unknown": "Background task status unknown",
+  "subagent.dismissed": "Marked as ended",
   "subagent.using": "using {tool}",
   "subagent.done": "done",
   "subagent.failed": "failed",
@@ -216,9 +222,19 @@ export const enUS = {
   "turn.end.maxTurnRequests": "Stopped: the agent took too many steps.",
   "turn.end.refusal": "The agent declined to continue.",
   "turn.end.other": "Ended: {reason}",
+  // On the end of a turn that failed: puts its message back in the input box, for the person to check and send
+  "turn.resend": "Send again",
+  "turn.resend.changedTitle": "This turn had already done some of its work",
+  "turn.resend.changedBody":
+    "Before it failed, it used {tools}. Sending the message again may do that again. The message goes back in the input box first, for you to check.",
+  "turn.resend.changedConfirm": "Put the message back",
+  "turn.resend.more": "{count} more",
   "step.approval": "Waiting for your answer",
   "step.thinking": "Thinking…",
   "step.working": "Working…",
+  // The agent's request to the model failed and it is trying again by itself: nothing for the person to do
+  "step.retrying": "The request failed, trying again…",
+  "step.retryingCount": "The request failed, trying again ({attempt} of {max})…",
   "step.run": "Running a command",
   "step.read": "Reading a file",
   "step.edit": "Editing a file",
@@ -431,8 +447,17 @@ export const enUS = {
   "daemon.byHand": "Run this on {environment}",
   "daemon.confirmTitle": "Update Cycle on {environment} to {to}?",
   "daemon.confirmBody":
-    "Cycle on that machine is stopped and starts again as the new version. Sessions there that are working are interrupted.",
+    "Cycle on that machine is stopped and starts again as the new version. No session there is working now.",
   "daemon.confirm": "Update",
+  // Sessions on that machine are working: wait for them, or interrupt them
+  "daemon.confirmBusy":
+    "Sessions there are working: {sessions}. Updating now interrupts them: each turn ends as interrupted, and queued messages are kept. Or Cycle there can restart as the new version when they finish.",
+  "daemon.confirmLater": "Update when they finish",
+  "daemon.confirmNow": "Update now and interrupt",
+  "daemon.untitled": "Untitled session",
+  "daemon.waiting":
+    "Cycle {to} is installed on {environment}. It restarts as the new version when its sessions finish.",
+  "daemon.updateNow": "Update now",
   "app.analyticsOff": "Turn off usage statistics",
   "app.analyticsOn": "Turn on usage statistics",
 
