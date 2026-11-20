@@ -79,6 +79,7 @@ import {
   HISTORY_NOT_SAVED,
   type Pending,
   Session,
+  type SessionStatus,
 } from "./session.ts";
 import { checkToolResult } from "./tool-result.ts";
 import { FolderTrust, realFolder, within } from "./trust-file.ts";
@@ -1074,6 +1075,22 @@ export class Daemon {
     );
   }
 
+  /**
+   * A request asked or settled changed what the session is doing (it waits on the owner, or no longer does): the
+   * clients attached are told, as a state snapshot like the one an attach ends with (docs/protocol.md §9). The agent
+   * may say nothing of it, and a client that stayed must not see other than one that came back.
+   */
+  #stateChanged(session: Session, before: SessionStatus): void {
+    if (session.status() === before || session.closed) return;
+    const update = session.snapshot();
+    for (const attachment of session.attachments) {
+      if (!attachment.ready) continue;
+      void attachment.conn
+        .notify(SESSION_UPDATE, { sessionId: session.id, update })
+        .catch(() => {});
+    }
+  }
+
   /** Puts a request to the clients, waits for the answer, and writes the request to the log. */
   async #ask(
     session: Session,
@@ -1106,6 +1123,7 @@ export class Daemon {
       asked: new Set(),
       resolve,
     };
+    const before = session.status();
     session.pending.set(requestId, pending);
     // Delivery is by the log: attached clients get it as the record is written. A request that
     // could not be written was shown to no one: the agent is told it was cancelled.
@@ -1118,6 +1136,7 @@ export class Daemon {
       session.pending.delete(requestId);
       return how.cancelled;
     }
+    this.#stateChanged(session, before);
     // A request written while nobody is attached waits here until a client attaches.
     return outcome;
   }
@@ -1164,7 +1183,9 @@ export class Daemon {
   #settle(session: Session, pending: Pending, outcome: unknown, by?: Attachment): void {
     if (pending.settled) return;
     pending.settled = true;
+    const before = session.status();
     session.pending.delete(pending.requestId);
+    this.#stateChanged(session, before);
     // The session is no longer waiting on the owner: the list says so (the agent may say nothing).
     this.#changed();
     // What a person typed into a form can be a password or a token: the agent gets all of it, the
@@ -1216,6 +1237,7 @@ export class Daemon {
   /** Every request still waiting on the owner ends unanswered: aborted on record, cancelled to the agent and the clients asked. */
   #abortPending(session: Session): Promise<unknown> {
     const writes: Promise<boolean>[] = [];
+    const before = session.status();
     for (const pending of [...session.pending.values()]) {
       pending.settled = true;
       session.pending.delete(pending.requestId);
@@ -1233,6 +1255,7 @@ export class Daemon {
           .catch(() => {});
       }
     }
+    this.#stateChanged(session, before);
     return Promise.all(writes);
   }
 
