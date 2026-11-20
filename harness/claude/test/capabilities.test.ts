@@ -5,8 +5,8 @@ import {
   RequestError,
   type SessionUpdate,
 } from "@agentclientprotocol/sdk/experimental/v2";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { type AdapterConfig, createAgent } from "../src/index.ts";
+import type { Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { type AdapterConfig, askContext, createAgent } from "../src/index.ts";
 import { fakeQuery, textTurn } from "./fake-query.ts";
 
 const ID = "5b0c3a3e-8a52-4d3f-9a0e-1c2d3e4f5a6b";
@@ -1410,6 +1410,117 @@ for (const [name, answers] of [
     expect(mcp.seen.result).toEqual({ action: "decline" });
   });
 }
+
+test("a turn's usage carries what the window holds, as Claude Code counts it, in the window it counts against", async () => {
+  const fake = fakeQuery(() => {
+    const [init, start, block, d1, d2, assistant] = textTurn(ID, "m", "ok") as unknown as Record<
+      string,
+      unknown
+    >[];
+    return [
+      init,
+      start,
+      block,
+      d1,
+      d2,
+      {
+        ...assistant,
+        message: {
+          ...(assistant?.message as object),
+          usage: { input_tokens: 10, cache_read_input_tokens: 161_280, output_tokens: 10 },
+        },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        stop_reason: "end_turn",
+        session_id: ID,
+        modelUsage: { opus: { contextWindow: 1_000_000 } },
+      },
+    ] as unknown as SDKMessage[];
+  });
+  fake.state.contextUsage = {
+    totalTokens: 161_300,
+    maxTokens: 200_000,
+    rawMaxTokens: 200_000,
+    percentage: 81,
+    isAutoCompactEnabled: true,
+    autoCompactThreshold: 167_000,
+    categories: [
+      { id: "system_prompt", name: "System prompt", tokens: 6_000, kind: "used", color: "x" },
+      { id: "messages", name: "Messages", tokens: 155_300, kind: "used", color: "x" },
+      { id: "mcp_tools", name: "MCP tools", tokens: 0, kind: "used", color: "x" },
+      {
+        id: "mcp_tools_deferred",
+        name: "MCP tools (deferred)",
+        tokens: 89_300,
+        kind: "deferred",
+        color: "x",
+      },
+      { name: "Something new", tokens: 12, kind: "used", color: "x" },
+      { id: "odd", name: "Odd", tokens: 5, kind: "sideways", color: "x" },
+      {
+        id: "autocompact_buffer",
+        name: "Autocompact buffer",
+        tokens: 33_000,
+        kind: "buffer",
+        color: "x",
+      },
+      { id: "free_space", name: "Free space", tokens: 5_700, kind: "free", color: "x" },
+    ],
+  };
+  const usages = (updates: SessionUpdate[]) =>
+    updates.filter((u) => u.sessionUpdate === "usage_update") as unknown as Record<
+      string,
+      unknown
+    >[];
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "work" }]);
+    const usage = usages(updates).at(-1);
+    // The window is the one the parts are counted in, not the model's 1M: the share and the parts agree.
+    expect(usage?.used).toBe(161_300);
+    expect(usage?.size).toBe(200_000);
+    // Empty parts and kinds it does not know are left out; a part with no id keeps its name.
+    expect((usage?._meta as Record<string, unknown> | undefined)?.["cycle/context"]).toEqual({
+      window: 200_000,
+      autoCompactAt: 167_000,
+      parts: [
+        { id: "system_prompt", name: "System prompt", tokens: 6_000, kind: "used" },
+        { id: "messages", name: "Messages", tokens: 155_300, kind: "used" },
+        {
+          id: "mcp_tools_deferred",
+          name: "MCP tools (deferred)",
+          tokens: 89_300,
+          kind: "deferred",
+        },
+        { name: "Something new", tokens: 12, kind: "used" },
+        { id: "autocompact_buffer", name: "Autocompact buffer", tokens: 33_000, kind: "buffer" },
+        { id: "free_space", name: "Free space", tokens: 5_700, kind: "free" },
+      ],
+    });
+
+    // A process that cannot say (an older CLI, an answer that is not one) ends the turn with the usage alone.
+    fake.state.contextUsage = undefined;
+    await prompt(agent, idle, [{ type: "text", text: "again" }]);
+    expect(usages(updates).at(-1)).toEqual({
+      sessionUpdate: "usage_update",
+      used: 161_300,
+      size: 1_000_000,
+    });
+    fake.state.contextUsage = { categories: "no" };
+    await prompt(agent, idle, [{ type: "text", text: "again" }]);
+    expect(usages(updates).at(-1)).not.toHaveProperty("_meta");
+  });
+});
+
+test("asking for the context's parts gives up in time: the turn does not wait on a process that does not answer", async () => {
+  const query = { getContextUsage: () => new Promise(() => {}) } as unknown as Query;
+  const started = performance.now();
+  expect(await askContext(query, 20)).toBeUndefined();
+  expect(performance.now() - started).toBeLessThan(1000);
+  expect(await askContext(undefined)).toBeUndefined();
+});
 
 test("a compaction cut short by the process going is ended, and the next one is announced", async () => {
   const status = (s: string | null) =>

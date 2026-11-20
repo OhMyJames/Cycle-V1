@@ -305,6 +305,49 @@ test("usage keeps its cost until a new one comes, and null clears it", () => {
   ).toEqual({ used: 2, size: 10 });
 });
 
+test("a usage carries what the window holds when the agent said, and only that usage does", () => {
+  const at = (...updates: object[]) =>
+    updates.reduce<Conversation>((c, x) => applyUpdate(c, x as never), emptyConversation());
+  const counted = {
+    sessionUpdate: "usage_update",
+    used: 150,
+    size: 200,
+    _meta: {
+      "cycle/context": {
+        window: 200,
+        autoCompactAt: 170,
+        parts: [
+          { id: "messages", name: "Messages", tokens: 120, kind: "used" },
+          { name: "New", tokens: 30, kind: "used" },
+          // What does not read as a part is left out.
+          { id: "odd", name: "Odd", tokens: 5, kind: "sideways" },
+          { id: "neg", name: "Neg", tokens: -1, kind: "used" },
+          { tokens: 3, kind: "used" },
+          "no",
+        ],
+      },
+    },
+  };
+  expect(at(counted).usage).toEqual({
+    used: 150,
+    size: 200,
+    autoCompactAt: 170,
+    parts: [
+      { id: "messages", name: "Messages", tokens: 120, kind: "used" },
+      { name: "New", tokens: 30, kind: "used" },
+    ],
+  });
+  // The next usage without parts has none: an earlier count says nothing of the window now.
+  expect(at(counted, { sessionUpdate: "usage_update", used: 40, size: 200 }).usage).toEqual({
+    used: 40,
+    size: 200,
+  });
+  // A `_meta` that is not one is no parts.
+  expect(
+    at({ sessionUpdate: "usage_update", used: 1, size: 10, _meta: { "cycle/context": "x" } }).usage,
+  ).toEqual({ used: 1, size: 10 });
+});
+
 test("a usage measured before a compaction says so until a newer one comes", () => {
   const at = (...updates: object[]) =>
     updates.reduce<Conversation>((c, x) => applyUpdate(c, x as never), emptyConversation());

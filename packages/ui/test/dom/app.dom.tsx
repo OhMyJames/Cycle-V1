@@ -1830,7 +1830,7 @@ test("composer uses a single-line box by default, stays one line with several bu
   expect(fill?.style.strokeDashoffset).toBe("0");
 });
 
-test("the context ring opens into what was reported: nothing yet, now's usage, and one from before a compaction", async () => {
+test("the context ring opens into what was reported: nothing yet, now's usage part by part, and one from before a compaction", async () => {
   const { user, emit, calls } = await mount({
     configure: (script) => {
       const session = summary("s1");
@@ -1843,6 +1843,11 @@ test("the context ring opens into what was reported: nothing yet, now's usage, a
     emit({ type: "update", environmentId: "local", sessionId: "s1", version, update: u as never });
   const tracked = () =>
     calls.filter(([name]) => name === "track").map(([, event, props]) => [event, props]);
+  const dialog = () => screen.findByRole("dialog", { name: "Context window" });
+  const rows = (root: HTMLElement) =>
+    [...root.querySelectorAll('[data-slot="context-part"]')].map((row) =>
+      [...row.children].map((cell) => cell.textContent).join("|"),
+    );
 
   // Nothing reported yet: an empty ring, and details that say so rather than a number.
   const empty = await screen.findByRole("button", {
@@ -1850,47 +1855,78 @@ test("the context ring opens into what was reported: nothing yet, now's usage, a
   });
   expect(empty.hasAttribute("data-empty")).toBe(true);
   await user.click(empty);
-  const details = await screen.findByRole("dialog", { name: "Context" });
-  expect(details.textContent).toContain(
-    "No usage yet. The agent reports it when a reply finishes.",
-  );
-  expect(details.textContent).not.toMatch(/tokens|%/);
+  const details = await dialog();
+  expect(details.textContent).toBe("Context windowNo usage reported yet");
   await user.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Context" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Context window" })).toBeNull());
   expect(document.activeElement).toBe(empty);
 
-  // Measured: used and window as the agent gave them, the share, and the session's cost.
+  // Measured with what the window holds: the total and its share, then a row a part (used ones largest first, then
+  // what is kept for compaction and what is free; a part not loaded is not one of them), then the facts. No notes.
   update(1, {
     sessionUpdate: "usage_update",
-    used: 84_000,
+    used: 161_300,
     size: 200_000,
     cost: { amount: 0.52, currency: "USD" },
+    _meta: {
+      "cycle/context": {
+        window: 200_000,
+        autoCompactAt: 167_000,
+        parts: [
+          { id: "system_prompt", name: "System prompt", tokens: 6_000, kind: "used" },
+          { id: "messages", name: "Messages", tokens: 155_300, kind: "used" },
+          {
+            id: "mcp_tools_deferred",
+            name: "MCP tools (deferred)",
+            tokens: 89_300,
+            kind: "deferred",
+          },
+          { name: "Something new", tokens: 40, kind: "used" },
+          { id: "free_space", name: "Free space", tokens: 5_700, kind: "free" },
+          { id: "autocompact_buffer", name: "Autocompact buffer", tokens: 33_000, kind: "buffer" },
+        ],
+      },
+    },
   });
-  const ring = await screen.findByRole("button", { name: "Context 42% full. Show details" });
+  const ring = await screen.findByRole("button", { name: "Context 81% full. Show details" });
   await user.click(ring);
-  const now = await screen.findByRole("dialog", { name: "Context" });
-  expect(now.textContent).toContain("Used84,000 tokens42% full");
-  expect(now.textContent).toContain("Window200,000 tokens");
-  expect(now.textContent).toContain("Session cost$0.52");
-  expect(now.textContent).not.toContain("Compactions");
-  expect(now.textContent).not.toContain("before the last compaction");
+  const now = await dialog();
+  expect(now.querySelector('[data-slot="context-total"]')?.textContent).toBe("161.3K / 200K (81%)");
+  expect(rows(now)).toEqual([
+    "|Messages|155.3K|77.7%",
+    "|System prompt|6.0K|3.0%",
+    "|Something new|40|<0.1%",
+    "|Autocompact buffer|33.0K|16.5%",
+    "|Free space|5.7K|2.9%",
+  ]);
+  expect(now.querySelector('[data-slot="context-facts"]')?.textContent).toBe(
+    "Auto-compacts at167KSession cost$0.52",
+  );
+  expect(now.querySelector('[data-slot="context-state"]')).toBeNull();
   await user.click(ring);
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Context" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Context window" })).toBeNull());
 
-  // A compaction completed and no usage came after it: the number is kept, and said to be from before.
+  // A compaction completed and no usage came after it: the total is kept and said to be from before; its parts,
+  // which say nothing of the window now, are not shown.
   update(2, { sessionUpdate: "compaction_update", compactionId: "k1", status: "in_progress" });
   update(3, { sessionUpdate: "compaction_update", compactionId: "k1", status: "completed" });
   const stale = await screen.findByRole("button", {
-    name: "Context was 42% full before the last compaction. Show details",
+    name: "Context was 81% full before the last compaction. Show details",
   });
   expect(stale.hasAttribute("data-before")).toBe(true);
   await user.click(stale);
-  const before = await screen.findByRole("dialog", { name: "Context" });
-  expect(before.textContent).toContain("Measured before the last compaction.");
-  expect(before.textContent).toContain("Compactions1");
+  const before = await dialog();
+  expect(before.querySelector('[data-slot="context-state"]')?.textContent).toBe(
+    "From before the last compaction",
+  );
+  expect(rows(before)).toEqual([]);
+  expect(before.querySelector('[data-slot="context-facts"]')?.textContent).toContain(
+    "Compactions1",
+  );
   await user.keyboard("{Escape}");
 
-  // The usage after it is now's again. A currency Intl does not know is written as given, not thrown on.
+  // A usage with no parts (the one after a compaction, or an agent that does not count them) is the total alone,
+  // and no parts of an earlier usage come with it. A currency Intl does not know is written as given.
   update(4, {
     sessionUpdate: "usage_update",
     used: 30_000,
@@ -1899,18 +1935,19 @@ test("the context ring opens into what was reported: nothing yet, now's usage, a
   });
   const fresh = await screen.findByRole("button", { name: "Context 15% full. Show details" });
   await user.click(fresh);
-  expect((await screen.findByRole("dialog", { name: "Context" })).textContent).toContain(
-    "Session cost3 credits",
-  );
+  const plain = await dialog();
+  expect(rows(plain)).toEqual([]);
+  expect(plain.textContent).toContain("Session cost3 credits");
+  expect(plain.textContent).not.toContain("Auto-compacts");
   await user.keyboard("{Escape}");
 
-  // Only what kind of state it was is counted; no number goes with it.
+  // Only what kind of state it was, and whether parts were shown, is counted; no number goes with it.
   const opened = tracked().filter(([event]) => event === "context_details_opened");
   expect(opened).toEqual([
-    ["context_details_opened", { state: "empty" }],
-    ["context_details_opened", { state: "measured" }],
-    ["context_details_opened", { state: "before_compaction" }],
-    ["context_details_opened", { state: "measured" }],
+    ["context_details_opened", { state: "empty", parts: false }],
+    ["context_details_opened", { state: "measured", parts: true }],
+    ["context_details_opened", { state: "before_compaction", parts: false }],
+    ["context_details_opened", { state: "measured", parts: false }],
   ]);
-  expect(JSON.stringify(opened)).not.toMatch(/84|200|0\.52/);
+  expect(JSON.stringify(opened)).not.toMatch(/161|200|0\.52/);
 });

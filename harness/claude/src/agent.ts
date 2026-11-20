@@ -19,6 +19,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { answersOf, formOf, type Question, questionsOf } from "./ask.ts";
 import { type SdkContent, toSdkContent } from "./content.ts";
+import { askContext, CONTEXT_META, type ContextBreakdown } from "./context.ts";
 import { NO_SETUP, type SessionSetup, setupOf } from "./setup.ts";
 import { Subagents } from "./subagents.ts";
 import { PlanState, type StopReason, stopReasonOf, TurnTranslator, toolKind } from "./translate.ts";
@@ -330,6 +331,15 @@ const modelOptions = (
   }
   return [...base, { value: session.model, name: session.model, _meta: { "cycle/custom": true } }];
 };
+
+/**
+ * The turn's usage with what the window holds, when the process said: the window is then the one Claude Code measures
+ * against (its compaction window when that is smaller than the model's), so the share and the parts agree.
+ */
+const withContext = (usage: SessionUpdate, context: ContextBreakdown | undefined): SessionUpdate =>
+  context === undefined
+    ? usage
+    : ({ ...usage, size: context.window, _meta: { [CONTEXT_META]: context } } as SessionUpdate);
 
 /** `_meta` key on a model choice: the effort levels it takes (docs/protocol.md §10). Same as `META.efforts`. */
 export const EFFORTS_META = "cycle/efforts";
@@ -1048,13 +1058,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
             // would answer it afterwards, with no turn to show it in. The process goes before it can begin
             // that; the next prompt starts another, which resumes the session.
             if (turn.steers.size > 0) release(session, true);
-            await finish(
-              client,
-              session,
-              turn,
-              stopReasonOf(message),
-              turn.translator.usageOf(message),
-            );
+            // Asked while the turn is still this one's, so nothing of a next turn comes before its end.
+            let usage = turn.translator.usageOf(message);
+            if (usage !== undefined) usage = withContext(usage, await askContext(live.query));
+            await finish(client, session, turn, stopReasonOf(message), usage);
           }
         }
       } catch (error) {

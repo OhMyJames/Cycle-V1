@@ -261,6 +261,57 @@ const hostAction = async (root: HTMLElement, item: string) => {
   await click(root, item);
 };
 
+// The context ring opened into its details, in each of the states it has something to say about.
+const openContext = async (root: HTMLElement) => {
+  await until(() => root.querySelector('[data-slot="context-meter"]') !== null, "the context ring");
+  root.querySelector<HTMLElement>('[data-slot="context-meter"]')?.click();
+  await until(
+    () => document.querySelector('[data-kind="context"]') !== null,
+    "the context details",
+  );
+  await new Promise((r) => setTimeout(r, 250));
+};
+const contextScenario = (title: string, history: SessionUpdate[]): Scenario => ({
+  title,
+  sessions: [
+    session("s1", {
+      title: "Redesign the composer",
+      config: { mode: "auto", model: "opus", effort: "high" },
+    }),
+  ],
+  history,
+  after: openContext,
+});
+// A turn's usage as Claude Code counts it: the window it measures against, and what is in it.
+const part = (id: string, name: string, tokens: number, kind = "used") => ({
+  id,
+  name,
+  tokens,
+  kind,
+});
+const measured = u({
+  sessionUpdate: "usage_update",
+  used: 161_300,
+  size: 200_000,
+  cost: { amount: 2.37, currency: "USD" },
+  _meta: {
+    "cycle/context": {
+      window: 200_000,
+      autoCompactAt: 167_000,
+      parts: [
+        part("system_prompt", "System prompt", 6_000),
+        part("system_tools", "System tools", 8_700),
+        part("mcp_tools", "MCP tools", 1_500),
+        part("mcp_tools_deferred", "MCP tools (deferred)", 89_300, "deferred"),
+        part("skills", "Skills", 2_900),
+        part("messages", "Messages", 142_200),
+        part("autocompact_buffer", "Autocompact buffer", 33_000, "buffer"),
+        part("free_space", "Free space", 5_700, "free"),
+      ],
+    },
+  },
+});
+
 export const scenarios: Record<string, Scenario> = {
   empty: { title: "Connected, no sessions", sessions: [] },
   conversation: {
@@ -1452,6 +1503,51 @@ export const scenarios: Record<string, Scenario> = {
         cost: { amount: 0.88, currency: "USD" },
       }),
     ],
+  },
+  "composer-context": contextScenario(
+    "The context ring's details: the total, a bar of the parts, a row a part, then when it compacts and the cost",
+    [you("u1", "Why does the remote session fail, and fix it."), say("a1", "Fixed."), measured],
+  ),
+  "composer-context-plain": contextScenario(
+    "The context ring's details from an agent that does not say what the window holds",
+    [
+      you("u1", "Why does the remote session fail, and fix it."),
+      say("a1", "Fixed."),
+      u({ sessionUpdate: "usage_update", used: 41_200, size: 200_000 }),
+    ],
+  ),
+  "composer-context-empty": contextScenario(
+    "The context ring's details before any usage is reported",
+    [you("u1", "Why does the remote session fail, and fix it.")],
+  ),
+  "composer-context-compacted": contextScenario(
+    "The context ring's details after a compaction, before the next reply reports usage",
+    [
+      you("u1", "Why does the remote session fail, and fix it."),
+      say("a1", "Fixed."),
+      measured,
+      u({ sessionUpdate: "compaction_update", compactionId: "k1", status: "started" }),
+      u({ sessionUpdate: "compaction_update", compactionId: "k1", status: "completed" }),
+    ],
+  ),
+  "composer-working": {
+    title:
+      "The composer while the agent works: one line, Enter queues, the queue key on the button",
+    status: [
+      {
+        environmentId: "local",
+        state: "connected",
+        capabilities: { queue: true, files: true, folders: true },
+      },
+    ],
+    sessions: [
+      session("s1", {
+        title: "Redesign the composer",
+        state: "running",
+        config: { mode: "auto", model: "opus", effort: "high" },
+      }),
+    ],
+    history: [you("u1", "Refactor the composer into three bands."), running(), measured],
   },
 };
 

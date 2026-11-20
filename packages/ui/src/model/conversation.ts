@@ -65,11 +65,26 @@ export type Subagent = {
   usage?: { tokens: number; toolUses: number; durationMs: number };
 };
 export type PlanEntry = { content: string; priority: string; status: string };
+/** One part of what the context window holds, as the agent counts it (`_meta["cycle/context"]`, docs/protocol.md §8). */
+export type ContextPart = {
+  /** Which part (`messages`, `system_tools`, …): what a client names it by; absent when the agent did not say. */
+  id?: string;
+  /** The agent's own name for it, for a part this client does not know. */
+  name: string;
+  tokens: number;
+  /** `used` is in the window; `free` is what is left; `buffer` is kept for compaction; `deferred` is not loaded. */
+  kind: "used" | "free" | "buffer" | "deferred";
+};
+
 export type Usage = {
   /** Tokens in context after the last model call (cache reads and writes included). */
   used: number;
-  /** The model's context window. */
+  /** The window the usage is measured against: the agent's, or the model's when the agent did not say. */
   size: number;
+  /** What the window holds, by part, when the agent said; only for this usage, never carried over to the next. */
+  parts?: ContextPart[];
+  /** Where the agent compacts by itself, in tokens. */
+  autoCompactAt?: number;
   /** What the session has cost so far. */
   cost?: { amount: number; currency: string };
   /**
@@ -193,6 +208,40 @@ export const emptyConversation = (): Conversation => ({
   ignored: 0,
   waiting: {},
 });
+
+const PART_KINDS: readonly string[] = ["used", "free", "buffer", "deferred"];
+const tokensOf = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+
+/** The parts in a `usage_update`'s `_meta["cycle/context"]`, keeping only what reads as one. */
+const contextOfMeta = (
+  value: unknown,
+): { parts?: ContextPart[]; autoCompactAt?: number } | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const v = value as Record<string, unknown>;
+  const parts = Array.isArray(v.parts)
+    ? v.parts.flatMap((p): ContextPart[] => {
+        if (typeof p !== "object" || p === null) return [];
+        const { id, name, tokens, kind } = p as Record<string, unknown>;
+        const n = tokensOf(tokens);
+        if (typeof name !== "string" || n === undefined || !PART_KINDS.includes(kind as string))
+          return [];
+        return [
+          {
+            ...(typeof id === "string" ? { id } : {}),
+            name,
+            tokens: n,
+            kind: kind as ContextPart["kind"],
+          },
+        ];
+      })
+    : undefined;
+  const autoCompactAt = tokensOf(v.autoCompactAt);
+  return {
+    ...(parts !== undefined && parts.length > 0 ? { parts } : {}),
+    ...(autoCompactAt !== undefined ? { autoCompactAt } : {}),
+  };
+};
 
 export const contextOf = (c: Conversation): ContextState => {
   let compactions = 0;
@@ -548,12 +597,17 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
       // The cost: omitted keeps the last one, null clears it, a value replaces it.
       const given = u.cost as { amount: number; currency: string } | null | undefined;
       const cost = given === undefined ? c.usage?.cost : (given ?? undefined);
+      const context = contextOfMeta(
+        (u._meta as Record<string, unknown> | null | undefined)?.["cycle/context"],
+      );
       return {
         ...c,
         usage: {
           used: Number(u.used),
           size: Number(u.size),
           ...(cost !== undefined ? { cost } : {}),
+          ...(context?.parts !== undefined ? { parts: context.parts } : {}),
+          ...(context?.autoCompactAt !== undefined ? { autoCompactAt: context.autoCompactAt } : {}),
         },
       };
     }

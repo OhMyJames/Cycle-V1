@@ -262,11 +262,16 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 **上下文用量(`usage_update`,CYCL-72)**:字段沿用 ACP:`used`、`size`、可选的 `cost: {amount, currency}`。Claude 的取法:
 
 - `used`:主线程最近一次模型调用的 `input_tokens + cache_read_input_tokens + cache_creation_input_tokens + output_tokens`,即下一次调用开始时上下文里有的。缓存读写的 token 照样占上下文,所以算在里面,不单独报。子 agent 的调用不算(它们有自己的上下文)。
-- `size`:这一轮 `result.modelUsage` 里各模型 `contextWindow` 的最大值,是模型标称的窗口。Claude Code 自动压缩用的窗口可能更小(例如 1M 窗口的模型在 200K 处压缩),这个协议里没有它。
+- `size`:带了下面的 `_meta["cycle/context"]` 时,是它的 `window`,即 Claude Code 自己衡量用量的窗口(模型的窗口,或更小的压缩窗口,例如 1M 窗口的模型在 200K 处压缩);没带时,是这一轮 `result.modelUsage` 里各模型 `contextWindow` 的最大值,模型标称的窗口。
 - `cost`:`result.total_cost_usd`,整个 session 到目前的累计,美元。省略表示沿用上一次,`null` 表示清掉。
 - **什么时候发**:每个 turn 结束时一次(turn 被取消时不发);以及一次压缩完成之后,SDK 的 `compact_boundary` 带了 `post_tokens` 时,紧跟在 `compaction_update: completed` 之后发一次,`used` 是压缩后的量,`size` 沿用本进程上一次的,不带 `cost`。本进程还没报过 `size`(刚恢复、还没有 turn 结束)时这一次不发,压缩后的量在 turn 结束时报。没有 `post_tokens` 时什么都不发,不估算。
 - 所以客户端看到一条 `compaction_update: completed` 之后还没有新的 `usage_update` 时,手上的用量是压缩**之前**的,应当这样说明,不当作现在的值。
-- 没有分类占比(系统提示、工具、消息各占多少)、缓存命中量、压缩次数这些字段:SDK 的 `getContextUsage()` 能给出分类,但要额外调用,现在不接。压缩发生过几次,客户端从会话里的 `compaction_update` 数。
+- **`_meta["cycle/context"]`(CYCL-74 之后)**:turn 结束的那条可以带上窗口里各部分的占用,`{window, parts, autoCompactAt?}`。Claude 的取法是 turn 结束时向进程要一次 `getContextUsage({detail: "summary"})`(用上一次响应的用量加本地估算,不调 API,实测几毫秒),最多等 2 秒,没回答或回答不对就不带。
+  - `window`:衡量用的窗口(SDK 的 `rawMaxTokens`),同时作为这条的 `size`,所以百分比和各部分对得上。
+  - `parts`:`{id?, name, tokens, kind}`,按 CLI 给的顺序,去掉 0 token 的。`id` 是稳定的部分名(`system_prompt`、`system_tools`、`mcp_tools`、`mcp_instructions`、`custom_agents`、`memory_files`、`skills`、`messages`、`autocompact_buffer`、`compact_buffer`、`free_space`、`*_deferred` 等,以后可能增加),客户端认得的按 `id` 用自己的文字显示,不认得的显示 `name`(CLI 的英文名)。`kind`:`used` 在窗口里;`free` 是剩下的;`buffer` 是给压缩留的;`deferred` 是没加载进窗口的工具定义,不算用量。
+  - `autoCompactAt`:自动压缩开始的 token 数,自动压缩关着时没有。
+  - 各部分是 Claude Code 的估算,`messages` 是总数减去其他部分算出来的;总数(`used`)仍是上面那个实测值。压缩之后补发的那条不带(它只有 `post_tokens`),所以客户端在下一次 turn 结束前没有压缩后的分部。
+- 没有缓存命中量、压缩次数这些字段:压缩发生过几次,客户端从会话里的 `compaction_update` 数。
 
 **失败后重新发送**是客户端的事,协议不变:客户端把失败那个 turn 的 `user_message` 放回输入框,由人核对后作为新的 `session/prompt` 发出。它和别的 prompt 一样走权限流程,之前的批准不沿用。
 

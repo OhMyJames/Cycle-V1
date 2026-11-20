@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EFFORTS_META } from "@cycle/harness-claude";
+import { CONTEXT_META, EFFORTS_META } from "@cycle/harness-claude";
 import { META } from "@cycle/protocol";
 import { CLAUDE_CONFIG_SCHEMA } from "../src/claude-agent.ts";
 import { AgentOptionsCache, choicesFromConfigOptions } from "../src/options-cache.ts";
@@ -158,6 +158,7 @@ test("a model list that does not say effort levels keeps the ones an earlier lis
   ).toEqual({ opus: ["high"], sonnet: undefined });
 });
 
-test("the adapter writes effort levels under the key the protocol names", () => {
+test("the adapter writes effort levels and the context's parts under the keys the protocol names", () => {
   expect(EFFORTS_META).toBe(META.efforts);
+  expect(CONTEXT_META).toBe(META.context);
 });
