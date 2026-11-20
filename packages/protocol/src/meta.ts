@@ -28,6 +28,7 @@ export const META = {
   unread: "cycle/unread",
   /** In a `session/list` row: how many background sub-agents are still running. Absent when none. */
   background: "cycle/background",
+  backgroundUnknown: "cycle/backgroundUnknown",
   /** In a session/list row, and in the state_update a client opens a session with: true once the session's history could not be written (docs/protocol.md section 12). Absent otherwise. */
   historyFailed: "cycle/historyFailed",
   /**
@@ -52,6 +53,7 @@ export const META = {
   noClient: "cycle/noClient",
   /** On the answer to a `session/prompt` that was queued, not sent: the agent was still working. */
   queued: "cycle/queued",
+  ackReturns: "cycle/ackReturns",
   /** On `session/list`: leave out the sessions nothing has been said in yet (docs/protocol.md §6). */
   onlyPrompted: "cycle/onlyPrompted",
   /**

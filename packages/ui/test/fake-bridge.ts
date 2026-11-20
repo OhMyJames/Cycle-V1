@@ -120,6 +120,7 @@ export const fakeBridge = (
     ),
     prompt: record("prompt", async () => {}),
     cancel: record("cancel", async () => {}),
+    ackReturn: record("ackReturn", async () => {}),
     dequeue: record("dequeue", async () => []),
     listFolders: record("listFolders", async () => ({
       path: "/home/me",
@@ -145,6 +146,7 @@ export const fakeBridge = (
     })),
     setSessionConfig: record("setSessionConfig", async () => {}),
     renameSession: record("renameSession", async () => {}),
+    dismissBackground: record("dismissBackground", async () => {}),
     archiveSession: record("archiveSession", async () => {}),
     markRead: record("markRead", async () => {}),
     deleteSession: record("deleteSession", async () => {}),

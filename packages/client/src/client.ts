@@ -30,10 +30,12 @@ import {
   META,
   NOTIFICATIONS,
   type ParamsOf,
+  promptAckReturn,
   promptDequeue,
   type ResultOf,
   seqOf,
   sessionArchive,
+  sessionDismissBackground,
   sessionMarkRead,
   sessionSetTitle,
   sessionUnarchive,
@@ -140,6 +142,7 @@ export type ClientOptions = {
   /** Makes a new connection to the daemon. Called again after each loss. */
   connect: () => Promise<Channel>;
   events?: ClientEvents;
+  ackReturns?: boolean;
   /** The protocol version asked for in `initialize`. Default: this build's. Another is for tests. */
   protocolVersion?: string;
   /** Waits between attempts to reconnect, in ms. */
@@ -293,6 +296,10 @@ export class CycleClient {
   }
 
   /** Takes a queued prompt back (docs/protocol.md §8). Rejects if it was sent, or handed back, meanwhile. */
+  async ackReturn(sessionId: string, returnId: string): Promise<void> {
+    await this.#call(promptAckReturn, { sessionId, returnId });
+  }
+
   async dequeue(sessionId: string, queueId: string): Promise<unknown[]> {
     return (await this.#call(promptDequeue, { sessionId, queueId })).prompt;
   }
@@ -439,6 +446,10 @@ export class CycleClient {
     await this.#call(sessionMarkRead, { sessionId, seq });
   }
 
+  async dismissBackground(sessionId: string, taskIds: string[]): Promise<number> {
+    return (await this.#call(sessionDismissBackground, { sessionId, taskIds })).dismissed;
+  }
+
   async archive(sessionId: string, archived = true): Promise<void> {
     if (archived) await this.#call(sessionArchive, { sessionId });
     else await this.#call(sessionUnarchive, { sessionId });
@@ -566,7 +577,10 @@ export class CycleClient {
         protocolVersion: 2,
         info: { name: this.#options.name ?? "cycle-client", version: "0.0.0" },
         capabilities: this.#events.elicitation !== undefined ? { elicitation: { form: {} } } : {},
-        _meta: { [META.protocolVersion]: this.#options.protocolVersion ?? CYCLE_PROTOCOL_VERSION },
+        _meta: {
+          [META.protocolVersion]: this.#options.protocolVersion ?? CYCLE_PROTOCOL_VERSION,
+          ...(this.#options.ackReturns ? { [META.ackReturns]: true } : {}),
+        },
       } as never);
       const info = (answer as { info?: { version?: unknown } }).info;
       this.#serverVersion = typeof info?.version === "string" ? info.version : undefined;

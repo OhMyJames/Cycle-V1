@@ -10,6 +10,30 @@
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
+# The standalone release installer can use adjacent archives offline or fetch a pinned release.
+if [ ! -f "$here/cycle" ] || [ "$#" -gt 0 ]; then
+  case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64) arch=x64 ;;
+    Linux/aarch64|Linux/arm64) arch=arm64 ;;
+    *) echo "Unsupported daemon platform: $(uname -s) $(uname -m) (requires Linux x86_64 or aarch64)" >&2; exit 1 ;;
+  esac
+  package="cycle-linux-$arch"
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT
+  cd "$work"
+  if [ "$#" -eq 0 ]; then
+    cp "$here/$package.tar.gz" "$here/$package.tar.gz.sha256" .
+  else
+    tag=$1
+    case "$tag" in v[0-9]*) ;; *) echo "Expected a release tag such as v0.3.1" >&2; exit 1 ;; esac
+    url="https://github.com/OhMyJames/Cycle-V1/releases/download/$tag/$package.tar.gz"
+    curl -fsSLO "$url"
+    curl -fsSLO "$url.sha256"
+  fi
+  sha256sum -c "$package.tar.gz.sha256"
+  tar xzf "$package.tar.gz"
+  here="$work/$package"
+fi
 prefix=${CYCLE_PREFIX:-$HOME/.local}
 dest=$prefix/share/cycle
 mkdir -p "$dest" "$prefix/bin"

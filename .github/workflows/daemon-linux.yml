@@ -1,0 +1,56 @@
+name: Linux daemon packages
+on:
+  workflow_call:
+  pull_request:
+    paths:
+      - ".github/workflows/daemon-linux.yml"
+      - ".github/workflows/release.yml"
+      - "apps/daemon/scripts/**"
+
+jobs:
+  package:
+    strategy:
+      matrix:
+        include:
+          - { arch: x64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    env:
+      PACKAGE: cycle-linux-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Build and measure
+        run: |
+          /usr/bin/time -f "$PACKAGE build: %e s, peak RSS %M KiB" -o "$RUNNER_TEMP/metrics" bun run --cwd apps/daemon build
+          cat "$RUNNER_TEMP/metrics" | tee -a "$GITHUB_STEP_SUMMARY"
+          du -sb "apps/daemon/dist/$PACKAGE" "apps/daemon/dist/$PACKAGE.tar.gz" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Install and exercise the release binaries
+        working-directory: apps/daemon/dist
+        run: |
+          sha256sum "$PACKAGE.tar.gz" > "$PACKAGE.tar.gz.sha256"
+          cp ../scripts/install.sh .
+          sha256sum install.sh > install.sh.sha256
+          CYCLE_PREFIX="$RUNNER_TEMP/install" sh ./install.sh
+          D="$RUNNER_TEMP/install/share/cycle"
+          test "$(env -i PATH=/usr/bin:/bin "$D/cycle" version)" = "$(jq -r .version ../../desktop/package.json)"
+          env -i PATH=/usr/bin:/bin "$D/claude" --version
+          CYCLE_DAEMON_BIN="$D/cycle" bun run --cwd .. test:integration
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: daemon-linux-${{ matrix.arch }}
+          path: |
+            apps/daemon/dist/${{ env.PACKAGE }}.tar.gz
+            apps/daemon/dist/${{ env.PACKAGE }}.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request' && matrix.arch == 'x64'
+        with:
+          name: daemon-installer
+          path: |
+            apps/daemon/dist/install.sh
+            apps/daemon/dist/install.sh.sha256

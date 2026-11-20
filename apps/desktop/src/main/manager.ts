@@ -316,6 +316,7 @@ export class ConnectionManager
     connection.client = new CycleClient({
       connect: this.#options.channelFor(environment),
       name: "cycle-desktop",
+      ackReturns: true,
       ...(this.#options.protocolVersion !== undefined
         ? { protocolVersion: this.#options.protocolVersion }
         : {}),
@@ -586,6 +587,13 @@ export class ConnectionManager
         ...(typeof meta["cycle/background"] === "number"
           ? { background: meta["cycle/background"] }
           : {}),
+        ...(Array.isArray(meta["cycle/backgroundUnknown"])
+          ? {
+              unknownBackground: meta["cycle/backgroundUnknown"].filter(
+                (id): id is string => typeof id === "string",
+              ),
+            }
+          : {}),
         ...(typeof row.updatedAt === "string" ? { updatedAt: row.updatedAt } : {}),
         ...(typeof meta["cycle/config"] === "object" && meta["cycle/config"] !== null
           ? { config: meta["cycle/config"] as Record<string, string> }
@@ -795,6 +803,10 @@ export class ConnectionManager
     );
   }
 
+  async ackReturn(environmentId: string, sessionId: string, returnId: string): Promise<void> {
+    await this.#connection(environmentId).client.ackReturn(sessionId, returnId);
+  }
+
   async dequeue(environmentId: string, sessionId: string, queueId: string): Promise<PromptBlock[]> {
     return (await this.#connection(environmentId).client.dequeue(
       sessionId,
@@ -815,6 +827,18 @@ export class ConnectionManager
   async renameSession(environmentId: string, sessionId: string, title: string): Promise<void> {
     await this.#connection(environmentId).client.rename(sessionId, title);
     this.#track("session_renamed", {});
+  }
+
+  async dismissBackground(
+    environmentId: string,
+    sessionId: string,
+    taskIds: string[],
+  ): Promise<void> {
+    const count = await this.#connection(environmentId).client.dismissBackground(
+      sessionId,
+      taskIds,
+    );
+    if (count > 0) this.#track("background_dismissed", { count });
   }
 
   async archiveSession(environmentId: string, sessionId: string, archived: boolean): Promise<void> {

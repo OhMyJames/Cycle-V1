@@ -42,13 +42,14 @@ daemon 启动 Claude 时**不继承**你 shell 的环境变量(防止你环境�
 
 ## 3. 在远端 Linux 机器上装 daemon
 
-从 Release 下载 `cycle-linux-x64.tar.gz` 和 `.sha256`(只有 x64)。在那台机器上:
+在远端 Linux x64 或 ARM64 机器上，从同一 Release 下载 `install.sh` 和 `install.sh.sha256`，把下面的版本换成该 Release 的标签。安装器识别架构，下载对应包并校验 SHA-256。
 
 ```bash
-sha256sum -c cycle-linux-x64.tar.gz.sha256
-tar xzf cycle-linux-x64.tar.gz
-sh cycle-linux-x64/install.sh
+sha256sum -c install.sh.sha256
+sh install.sh v0.3.1
 ```
+
+离线安装时，将对应的 `cycle-linux-x64.tar.gz` 或 `cycle-linux-arm64.tar.gz` 及其 `.sha256` 放在安装器旁，执行 `sh install.sh`。
 
 `install.sh` 只装给当前用户,不要 root:程序放在 `~/.local/share/cycle/`,`~/.local/bin/cycle` 是一个启动器。机器上不需要 Bun、Node,也不需要装 `claude`。然后按第 2 节在那台机器上写 config.json。
 

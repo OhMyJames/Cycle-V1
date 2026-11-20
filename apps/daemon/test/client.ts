@@ -21,6 +21,7 @@ export type Seen = { update: SessionUpdate; seq: number | undefined };
 export const connectClient = async (
   daemon: Daemon,
   options: {
+    ackReturns?: boolean;
     onPermission?: (params: unknown) => "allow" | "deny" | "cancel" | "never";
     /** Declares that this client can answer forms, and how it does. */
     onElicitation?: (params: unknown) => Record<string, unknown> | "never";
@@ -90,6 +91,7 @@ export const connectClient = async (
   const init = await api.request(methods.agent.initialize, {
     protocolVersion: 2,
     info: { name: "test", version: "0" },
+    _meta: { [META.ackReturns]: options.ackReturns === true },
     ...(options.onElicitation !== undefined ? { capabilities: { elicitation: { form: {} } } } : {}),
   } as never);
   return {

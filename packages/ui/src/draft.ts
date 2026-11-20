@@ -315,9 +315,10 @@ export class DraftStore {
    * Puts what came back (a hand-back, a queued prompt taken back to edit, a message that did not go) in front of what
    * has been written since, as a person would want to read it: the older words first.
    */
-  restore(key: string, blocks: readonly (readonly Block[])[]): void {
+  restore(key: string, blocks: readonly (readonly Block[])[], handled?: string): void {
     const old = this.get(key);
     const back = blocks.map(draftOf);
+    if (handled !== undefined) this.#handled.set(key, handled);
     const text = [...back.map((d) => d.text), old.text].filter((t) => t !== "").join("\n\n");
     this.#put(key, {
       text,

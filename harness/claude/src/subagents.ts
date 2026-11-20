@@ -5,6 +5,7 @@ export const SUBAGENT_META = "cycle/subagent";
 
 type Task = {
   task_id: string;
+  run_id?: string;
   tool_use_id?: string;
   description?: string;
   subagent_type?: string;
@@ -45,19 +46,63 @@ const endOf = (status: string | undefined, why: string | undefined): Ended | und
  */
 export class Subagents {
   /** The tool call each announced task came from: later messages do not always say. */
-  readonly #known = new Map<string, string | undefined>();
+  readonly #known = new Map<
+    string,
+    {
+      toolCallId: string | undefined;
+      run: string | undefined;
+      background: boolean;
+      unknown: boolean;
+    }
+  >();
+
+  get hasBackground(): boolean {
+    return [...this.#known.values()].some((task) => task.background && !task.unknown);
+  }
+
+  /** The SDK sends a replacement list, even between prompts. Absence gives no stop reason. */
+  reconcile(tasks: readonly Task[]): SessionUpdate[] {
+    const live = new Set<string>();
+    const updates: SessionUpdate[] = [];
+    for (const task of tasks) {
+      if (task.task_type !== "local_agent" || task.ambient) continue;
+      live.add(task.task_id);
+      const known = this.#known.get(task.task_id);
+      if (known?.run && task.run_id && task.run_id < known.run) continue;
+      if (known?.background && !known.unknown && (!task.run_id || known.run === task.run_id))
+        continue;
+      const update = this.update({ ...task, subtype: "task_started", is_backgrounded: true });
+      if (update) updates.push(update);
+    }
+    for (const [id, known] of this.#known) {
+      if (!known.background || known.unknown || live.has(id)) continue;
+      known.unknown = true;
+      updates.push(this.#make({ task_id: id }, undefined, undefined, "unknown"));
+    }
+    return updates;
+  }
 
   update(message: { subtype: string } & Record<string, unknown>): SessionUpdate | undefined {
     const task = message as unknown as Task;
     if (typeof task.task_id !== "string") return undefined;
+    const known = this.#known.get(task.task_id);
+    if (known?.run && task.run_id && task.run_id < known.run) return undefined;
     if (message.subtype === "task_started") {
       const agent = task.task_type === undefined || task.task_type === "local_agent";
       if (!agent || task.ambient === true || task.skip_transcript === true) return undefined;
-      this.#known.set(task.task_id, task.tool_use_id);
+      const previous = !task.run_id || !known?.run || known.run === task.run_id ? known : undefined;
+      this.#known.set(task.task_id, {
+        toolCallId: task.tool_use_id ?? previous?.toolCallId,
+        run: task.run_id ?? previous?.run,
+        background: task.is_backgrounded ?? previous?.background ?? false,
+        unknown: false,
+      });
       return this.#make(task, { state: "running" }, task.description);
     }
-    if (!this.#known.has(task.task_id)) return undefined;
+    if (!known || (known.run && task.run_id && known.run !== task.run_id)) return undefined;
     if (message.subtype === "task_progress") {
+      known.unknown = false;
+      known.background = task.is_backgrounded ?? known.background;
       return this.#make(task, { state: "running" }, task.description);
     }
     if (message.subtype === "task_notification") {
@@ -70,6 +115,11 @@ export class Subagents {
     if (message.subtype === "task_updated") {
       const patch = task.patch ?? {};
       const end = endOf(patch.status, patch.error);
+      const reconfirmed = known.unknown && patch.is_backgrounded !== undefined;
+      if (patch.is_backgrounded !== undefined) {
+        known.background = patch.is_backgrounded;
+        known.unknown = false;
+      }
       // A task that moves to the background later says so here, and nowhere else (SDK: `task_updated`).
       if (
         end === undefined &&
@@ -82,7 +132,7 @@ export class Subagents {
         patch.is_backgrounded === undefined
           ? task
           : { ...task, is_backgrounded: patch.is_backgrounded },
-        end ? { state: "idle", ...end } : undefined,
+        end ? { state: "idle", ...end } : reconfirmed ? { state: "running" } : undefined,
         patch.description,
       );
       if (end !== undefined) this.#known.delete(task.task_id);
@@ -93,16 +143,17 @@ export class Subagents {
 
   /** The process is gone: the sub-agents that were running are over. */
   endAll(): SessionUpdate[] {
-    const updates = [...this.#known.keys()].map((id) =>
-      this.#make({ task_id: id }, { state: "idle", stopReason: "cancelled" }),
-    );
+    const updates = [...this.#known.entries()]
+      .filter(([, task]) => !task.unknown)
+      .map(([id]) => this.#make({ task_id: id }, { state: "idle", stopReason: "cancelled" }));
     this.#known.clear();
     return updates;
   }
 
-  #make(task: Task, state: object | undefined, title?: string): SessionUpdate {
+  #make(task: Task, state: object | undefined, title?: string, status?: "unknown"): SessionUpdate {
     const meta: Record<string, unknown> = {};
-    const toolCallId = task.tool_use_id ?? this.#known.get(task.task_id);
+    if (status) meta.status = status;
+    const toolCallId = task.tool_use_id ?? this.#known.get(task.task_id)?.toolCallId;
     if (toolCallId !== undefined) meta.toolCallId = toolCallId;
     if (task.is_backgrounded !== undefined) meta.background = task.is_backgrounded;
     if (task.parent_task_id !== undefined) meta.parentId = task.parent_task_id;

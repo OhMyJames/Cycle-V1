@@ -157,7 +157,8 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 - `cycle/lastSeq`:该 session 的最新序号。**只用于补发**(§7):它是每个 session 自己数的记录条数,不是时间,不能在 session 之间比较,客户端不得用它排序。
 - `cycle/unread`:布尔。有值得看的新记录晚于客户端上次标记已读的位置,见"已读"。
 - `cycle/historyFailed`:布尔,为 `true` 时这个 session 的历史不可用:写不进去了(§12“写入失败”),或读不了(日志里有损坏的整行,§12)。没有时省略。读不了的 session 照样出现在列表里,行里没有 `cycle/lastSeq` 和 `cycle/unread`(它们来自日志),`updatedAt` 是创建时间,`cycle/state` 是 `stopped`;打开它(`session/resume`)以 `-32015` 失败。一个 session 的日志读不了,不影响列表里的其他 session。
-- `cycle/background`:整数,仍在运行的后台子 agent 数(`subagent_update` 里 `_meta["cycle/subagent"].background` 为 true 且 `state` 还不是终态,见 §9)。为 0 时省略。它只记在内存里:daemon 重启后 agent 进程不在了,归 0,不写进索引。
+- `cycle/background`:整数,仍在运行的后台子 agent 数(`subagent_update` 里 `_meta["cycle/subagent"].background` 为 true 且 `state` 还不是终态,见 §9)。清单里已消失、但收不到具体结束原因的任务 ID 列入 `cycle/backgroundUnknown`（字符串数组）。计数为零或数组为空时分别省略。Claude 按 SDK 的全量后台任务清单核对，不按静默时长或主 turn 的结束推断。它只记在内存里:daemon 重启后 agent 进程不在了,归 0,不写进索引。
+- Claude 的全量清单不再列出一个曾在后台运行的任务时，以 `cycle/subagent.status = "unknown"` 更新；只知道它已不在后台清单，结束原因仍未知。后续进度可重新确认运行，终态可补全结果。用户可通过 `_cycle/session/dismiss_background {sessionId, taskIds}` 将指定的未知记录标记为已结束；只清理仍未知的项。已确认在运行的任务阻止空闲回收，已从清单消失的未知记录不单独阻止回收（CYCL-104）。
 - `cycle/usage`:最近一次 `usage_update`,`{used, size, cost?: {amount, currency}}`:已用的上下文 token、窗口大小、累计费用。daemon 存在索引里,列表不用重放日志就能显示;还没有过 `usage_update` 的 session 没有这个字段。
 
 列表变化(出现第一条用户消息、删除、归档、`cycle/state` 改变、`cycle/unread` 改变、`cycle/background` 的值改变)通过通知 `_cycle/session_list_changed` 告诉所有客户端,通知里不带内容,客户端收到后重新拉列表。
@@ -272,16 +273,18 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 {
   "sessionUpdate": "_cycle/queue_update",
   "entries": [{ "queueId": "…", "prompt": [{ "type": "text", "text": "…" }] }],
+  "returnId": "…",
   "returned": [{ "queueId": "…", "prompt": [] }],
   "reason": "cancelled"
 }
 ```
 
-- **`entries` 是状态,`returned` 是事件。** 客户端以最后一条的 `entries` 为当前队列,所以从任意位置补发都能得到它。`returned` 和 `reason` 只在队列被退回的那一条里出现,客户端**只在它实时到达时**(`replay_complete` 之后)把内容放回输入框;补发过程中遇到的 `returned` 一律忽略,否则重启应用后每次历史里的退回都会再放一遍。
+- **`entries` 是状态,`returned` 是事件。** 客户端以最后一条的 `entries` 为当前队列,所以从任意位置补发都能得到它。`returned` 和 `reason` 只在队列被退回的那一条里出现,daemon 只交给最早完成附着且仍在线的一个客户端。客户端**只在它实时到达时**(`replay_complete` 之后)把内容放回输入框;补发过程中遇到的 `returned` 一律忽略,否则重启应用后每次历史里的退回都会再放一遍。
 - **附件字节**照决策 0013 存进 blob(daemon 的提取是递归的,覆盖快照里的 `entries[].prompt[]` 和 `returned[].prompt[]`),同一份内容按 sha256 只存一次,快照反复出现不会反复占用空间。
 - **发出**:turn 以 `idle` 加 `stopReason: "end_turn"` 结束时,daemon 取队头发给 agent,再发一条新的 `_cycle/queue_update`。它的 `user_message` 和直接发的 prompt 一样,来自 agent 收到时的回显(Claude 适配会发),所以也是此时才进历史,历史里的顺序就是真实发生的顺序。
 - **退回,不自动发**:turn 以 `end_turn` 之外的原因结束(`cancelled`、`error`、`max_tokens`、`max_turn_requests`、`refusal`),或者 `session/cancel`、`session/close` 到达时,队列里剩下的**整体退回**:`entries` 清空,原内容放在 `returned`,`reason` 说明原因(`cancelled`、`error`、`closed`、`interrupted`)。客户端把 `returned` 的内容放回输入框,不当作错误显示。宁可退回,也不在用户已经叫停或出错之后替他发出他可能想改的消息。
-- **退回时没有客户端附着**(窗口都关了),或者 **daemon 重启**(进程被中断,没有机会退回):daemon 不退回,也不自动发送,队列留着。下一次有客户端附着时,daemon 在补发、`replay_complete` 和状态快照**之后**退回:原因照旧(重启则是 `interrupted`)。这条 `_cycle/queue_update` 是新写的记录(占新的序号),所以附着的客户端是实时收到它的。daemon 自己关闭时杀掉 agent 进程,不算退回的理由。
+- **退回时没有客户端附着**(窗口都关了),或者 **daemon 重启**(进程被中断,没有机会退回):daemon 不退回,也不自动发送,队列留着。下一次有客户端附着时,daemon 在补发、`replay_complete` 和状态快照**之后**退回:原因照旧(重启则是 `interrupted`)。队列清空的快照占新的序号，领取通知单独发送。daemon 自己关闭时杀掉 agent 进程,不算退回的理由。
+- 排队退回时,多个客户端附着:先完成附着的客户端领取一批，原发送者断线不影响领取。新客户端握手声明 `_meta["cycle/ackReturns"]`，将退回的内容放入草稿后调用 `_cycle/prompt/ack_return {sessionId, returnId}`；daemon 将确认写入日志。未确认前掉线则转交下一位，重启后仍可领。领取通知没有 seq，普通队列快照照常广播；重放不触发领取。旧客户端按通知送达确认。丢失确认时可能重投，客户端用 queueId 去重。
 - **撤回**:`_cycle/prompt/dequeue`(客户端 → daemon),参数 `{sessionId, queueId}`。成功时响应里带那条 prompt 的内容(`{prompt}`),客户端放回输入框编辑,并发一条 `_cycle/queue_update`。那条已经发出或不在队列里,以 `-32016`(`not_queued`)拒绝。
 
 ### 插入(steer:把 prompt 放进正在运行的 turn)
@@ -546,7 +549,8 @@ session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session
 
 ## 13. 待定
 
-- 排队退回时,多个客户端附着:现在是**每个**附着的客户端都把 `returned` 放进自己那个 session 的输入框(桌面端是每个窗口的渲染进程各放一份;一个窗口里,重载页面不会再放第二次,按 `queueId` 去重)。两个窗口同时开着同一个 session 时,同一批消息会在两边都出现;要不要只让发出那条 prompt 的客户端接收,留到实际用起来再定。
+多客户端领取和后台任务清单的规则分别见 §8 和 §6。
+
 - 排队的上限(8)和"只有 `end_turn` 才自动发下一条"是否合适。
 - L3:Claude 适配需要产生哪些 `session/update` 变体,以及配置 schema 的具体字段。
 - 日志过滤的规则能否让用户加自己的键名和模式;已有历史是否提供一次性清理。
@@ -557,7 +561,6 @@ session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session
 - `attentionSeq` 里"值得看"的记录是否还要包括用户取消的 turn(`stopReason: cancelled`)。现在按"都算",因为取消时用户通常在看,客户端会立刻标记已读。
 - `cycle/background` 要不要在 daemon 重启后重建:agent 进程已不在,v1 不重建。
 - connector(§14):loopback 回调的随机端口哪些授权服务器接受(没有在真实服务器上验证);agent 在云端 sandbox 时网关的地址;正在运行的 agent 要不要在 connector 变化后重启。
-- 一个后台子 agent 一直不报 `idle`(agent 丢了终态通知)时,`cycle/background` 会一直不为 0,直到 agent 进程退出。v1 不另设超时:后台子 agent 本来就可以活过 turn,所以不能用 turn 结束去清。
 
 ## 14. Connector
 

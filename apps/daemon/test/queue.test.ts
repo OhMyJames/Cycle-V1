@@ -52,6 +52,8 @@ const queueUpdates = (seen: Seen[]): { update: QueueUpdate; seq: number | undefi
     .filter((s) => s.update.sessionUpdate === "_cycle/queue_update")
     .map((s) => ({ update: s.update as unknown as QueueUpdate, seq: s.seq }));
 
+const handbacks = (seen: Seen[]) => queueUpdates(seen).filter((q) => q.update.returned?.length);
+
 const queueTexts = (update: { entries: { prompt: unknown[] }[] }): string[] =>
   update.entries.map((e) => (e.prompt[0] as { text: string }).text);
 
@@ -110,8 +112,8 @@ test("a stop hands the queue back, and nothing is sent", async () => {
   await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("third") });
   await until(() => queueUpdates(c.seen).length === 2, "two snapshots");
   await c.agent.notify(methods.agent.session.cancel, { sessionId });
-  await until(() => queueUpdates(c.seen).length === 3, "the queue to be handed back");
-  const back = queueUpdates(c.seen)[2]?.update;
+  await until(() => handbacks(c.seen).length === 1, "the queue to be handed back");
+  const back = handbacks(c.seen)[0]?.update;
   expect(back?.entries).toEqual([]);
   expect(back?.reason).toBe("cancelled");
   expect(queueTexts({ entries: back?.returned ?? [] })).toEqual(["second", "third"]);
@@ -132,8 +134,8 @@ test("a turn that ends any way but end_turn hands the queue back", async () => {
   await until(() => queueUpdates(c.seen).length === 1, "a snapshot");
   slow.open();
   release();
-  await until(() => queueUpdates(c.seen).length === 2, "the queue to be handed back");
-  expect(queueUpdates(c.seen)[1]?.update).toMatchObject({ entries: [], reason: "error" });
+  await until(() => handbacks(c.seen).length === 1, "the queue to be handed back");
+  expect(handbacks(c.seen)[0]?.update).toMatchObject({ entries: [], reason: "error" });
   expect(fake.log.prompts).toEqual(["first"]);
 });
 
@@ -171,8 +173,8 @@ test("a prompt that cannot reach the agent hands back what was queued behind it"
   await until(() => queueUpdates(c.seen).length === 1, "the snapshot of the queue");
   start_.open();
   expect(await refused).toBeInstanceOf(Error);
-  await until(() => queueUpdates(c.seen).length === 2, "the queue to be handed back");
-  const back = queueUpdates(c.seen)[1]?.update;
+  await until(() => handbacks(c.seen).length === 1, "the queue to be handed back");
+  const back = handbacks(c.seen)[0]?.update;
   expect(back).toMatchObject({ entries: [], reason: "error" });
   expect(queueTexts({ entries: back?.returned ?? [] })).toEqual(["behind"]);
 });
@@ -279,11 +281,12 @@ test("a queue left by a restart is handed back to the client that attaches, live
     cwd: "/tmp",
     replayFrom: { type: "start" },
   });
-  await until(() => queueUpdates(d.seen).length === 2, "the queue to be handed back");
+  await until(() => handbacks(d.seen).length === 1, "the queue to be handed back");
   const kinds = d.kinds();
   const complete = kinds.indexOf("replay_complete");
-  const [replayed, live] = queueUpdates(d.seen);
-  // The replay holds the snapshot with the prompt in it; the hand-back came after it, with a new seq.
+  const [replayed] = queueUpdates(d.seen);
+  const [live] = handbacks(d.seen);
+  // The replay holds the snapshot with the prompt in it; the hand-back came after it, outside the log.
   expect(replayed?.update.entries).toHaveLength(1);
   expect(replayed?.update.returned).toBeUndefined();
   expect(live?.update).toMatchObject({ entries: [], reason: "interrupted" });
@@ -291,7 +294,7 @@ test("a queue left by a restart is handed back to the client that attaches, live
   expect(
     d.seen.findIndex((s) => s === d.seen.find((x) => x.update === live?.update)),
   ).toBeGreaterThan(complete);
-  expect(live?.seq).toBeGreaterThan(replayed?.seq ?? 0);
+  expect(live?.seq).toBeUndefined();
 
   // A third client that replays everything finds an empty queue, and nothing to hand back live.
   const e = await connectClient(second);
@@ -323,9 +326,9 @@ test("with nobody attached the queue is held, and handed back when a client come
   await Bun.sleep(100);
   const again = await connectClient(daemon);
   await again.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
-  await until(() => queueUpdates(again.seen).length === 1, "the queue to be handed back");
-  expect(queueUpdates(again.seen)[0]?.update).toMatchObject({ entries: [], reason: "error" });
-  expect(queueTexts({ entries: queueUpdates(again.seen)[0]?.update.returned ?? [] })).toEqual([
+  await until(() => handbacks(again.seen).length === 1, "the queue to be handed back");
+  expect(handbacks(again.seen)[0]?.update).toMatchObject({ entries: [], reason: "error" });
+  expect(queueTexts({ entries: handbacks(again.seen)[0]?.update.returned ?? [] })).toEqual([
     "second",
   ]);
   expect(fake.log.prompts).toEqual(["first"]);
@@ -453,4 +456,37 @@ test("a queue left by a restart, with a prompt sent before anyone attaches, is h
   });
   await Bun.sleep(50);
   expect(await live(e)).toEqual([]);
+});
+
+test("a return without a receipt survives restarting the daemon; another connection cannot acknowledge it", async () => {
+  const daemon = await start(fakeAgent({ onPrompt: ({ cancelled }) => cancelled }));
+  const a = await connectClient(daemon, { ackReturns: true });
+  const { sessionId } = await a.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  const watch = { sessionId, cwd: "/tmp", replayFrom: { type: "start" as const } };
+  await a.agent.request(methods.agent.session.resume, watch);
+  const b = await connectClient(daemon, { ackReturns: true });
+  await b.agent.request(methods.agent.session.resume, watch);
+  await a.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("working") });
+  await b.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("unsent") });
+  await b.agent.notify(methods.agent.session.cancel, { sessionId });
+  await until(() => handbacks(a.seen).length === 1, "the single recipient");
+  const returnId = handbacks(a.seen)[0]?.update.returnId;
+  expect(handbacks(b.seen)).toHaveLength(0);
+  await b.agent.request("_cycle/prompt/ack_return" as never, { sessionId, returnId } as never);
+  await daemon.close();
+  open = [];
+  const restarted = await start(fakeAgent());
+  const c = await connectClient(restarted, { ackReturns: true });
+  await c.agent.request(methods.agent.session.resume, watch);
+  await until(() => handbacks(c.seen).length === 1, "the unacknowledged batch");
+  expect(handbacks(c.seen)[0]?.update).toMatchObject({
+    returnId,
+    returned: [{ prompt: text("unsent") }],
+  });
+  await c.agent.request("_cycle/prompt/ack_return" as never, { sessionId, returnId } as never);
+  await restarted.close();
+  open = [];
+  const d = await connectClient(await start(fakeAgent()));
+  await d.agent.request(methods.agent.session.resume, watch);
+  expect(handbacks(d.seen)).toHaveLength(0);
 });

@@ -77,9 +77,6 @@ export const daemonTooOld = (version: string): boolean => isNewer(MIN_DAEMON_VER
 /** `text` as one word for a POSIX shell. */
 export const shellQuote = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'`;
 
-/** The Linux daemon's archive in a release: one platform, and its name does not carry the version. */
-export const DAEMON_ARCHIVE = "cycle-linux-x64.tar.gz";
-
 /**
  * How the command stops the daemon that is running, once the new one is installed (docs/daemon.md "停止和升级"):
  * - `ask`: `cycle stop`, which does not stop over work in progress without a terminal to ask at (it fails, and says
@@ -98,19 +95,16 @@ const STOPS: Record<DaemonStop, string> = {
   later: '{ nohup "$HOME/.local/bin/cycle" stop --wait >/dev/null 2>&1 </dev/null & }',
 };
 
-/**
- * What to run on a remote machine to put the daemon of `version` there: download, check, unpack,
- * install, and stop the one that is running as `stop` says (the next connection starts the new one).
- */
+/** Runs on the remote machine, whose installer selects and verifies the native archive. */
 export const daemonUpgradeCommand = (version: string, stop: DaemonStop = "ask"): string => {
-  const url = `https://github.com/${RELEASE_REPO}/releases/download/${tagOf(version)}/${DAEMON_ARCHIVE}`;
+  const tag = tagOf(version);
+  const url = `https://github.com/${RELEASE_REPO}/releases/download/${tag}/install.sh`;
   return [
     'cd "$(mktemp -d)"',
-    `curl -fsSLO ${url}`,
-    `curl -fsSLO ${url}.sha256`,
-    `sha256sum -c ${DAEMON_ARCHIVE}.sha256`,
-    `tar xzf ${DAEMON_ARCHIVE}`,
-    "sh cycle-linux-x64/install.sh",
+    `curl -fsSLO ${shellQuote(url)}`,
+    `curl -fsSLO ${shellQuote(`${url}.sha256`)}`,
+    "sha256sum -c install.sh.sha256",
+    `sh install.sh ${shellQuote(tag)}`,
     STOPS[stop],
   ].join(" && ");
 };

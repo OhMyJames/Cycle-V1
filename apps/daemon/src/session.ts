@@ -13,10 +13,11 @@ export type ClientConn = {
   request: (method: string, params: unknown) => Promise<unknown>;
   /** Whether the client said, in `initialize`, that it can answer a form (`elicitation/create`). */
   elicitation: boolean;
+  ackReturns: boolean;
 };
 
 /** A client watching one session: what it is sent comes through the session's log. */
-export type Attachment = { conn: ClientConn; detach: () => void };
+export type Attachment = { conn: ClientConn; ready: boolean; detach: () => void };
 
 /** An agent's request that is waiting for a client's answer. See docs/protocol.md §9. */
 export type Pending = {
@@ -55,11 +56,11 @@ export class Session {
   queue: QueueEntry[] = [];
   /** Why the queue is being held for a client to attach, when it was to be handed back and none was there. */
   heldReason: QueueReason | undefined;
-  /**
-   * What was handed back (it is on record) while no client was attached, so nobody was there to take it: it is
-   * handed back again, live, to the first client that attaches.
-   */
-  unclaimed: { returned: QueueEntry[]; reason: QueueReason } | undefined;
+  readonly returns = new Map<
+    string,
+    { returned: QueueEntry[]; reason: QueueReason; durable: boolean }
+  >();
+  returnOwner: { conn: ClientConn; id: string; acknowledging: boolean } | undefined;
   readonly attachments = new Set<Attachment>();
   #requests = 0;
   /**
@@ -77,6 +78,7 @@ export class Session {
    * background. In memory only: when the agent process goes, so do they.
    */
   readonly #subagents = new Map<string, boolean>();
+  readonly unknownBackground = new Map<string, { toolCallId: string | undefined }>();
   /**
    * Why the session's history can no longer be written, once a write has failed. A turn that
    * cannot be saved is not run on: the session refuses new ones, and its agent is cancelled.
@@ -126,26 +128,34 @@ export class Session {
    */
   noteSubagent(update: Record<string, unknown>): boolean {
     const before = this.backgroundCount();
+    const unknownBefore = this.unknownBackground.size;
     const id = update.sessionId;
     if (typeof id !== "string") return false;
     const state = update.state;
     const named = typeof state === "string" ? state : (state as { state?: unknown } | null)?.state;
     const meta = (update._meta as Record<string, unknown> | null | undefined)?.[META.subagent];
     const said = (meta as { background?: unknown } | null | undefined)?.background;
-    if (named === "idle") {
+    const info = meta as { status?: string; toolCallId?: string } | undefined;
+    if (info?.status === "unknown") {
+      this.#subagents.delete(id);
+      this.unknownBackground.set(id, { toolCallId: info.toolCallId });
+    } else if (named === "idle" || info?.status === "dismissed") {
+      this.unknownBackground.delete(id);
       this.#subagents.delete(id);
     } else if (named === "running" || this.#subagents.has(id)) {
+      const wasUnknown = this.unknownBackground.delete(id);
       this.#subagents.set(
         id,
-        typeof said === "boolean" ? said : (this.#subagents.get(id) ?? false),
+        typeof said === "boolean" ? said : (this.#subagents.get(id) ?? wasUnknown),
       );
     }
-    return before !== this.backgroundCount();
+    return before !== this.backgroundCount() || unknownBefore !== this.unknownBackground.size;
   }
 
   /** The agent process is gone, and its sub-agents with it. */
   endSubagents(): void {
     this.#subagents.clear();
+    this.unknownBackground.clear();
   }
 
   status(): SessionStatus {
