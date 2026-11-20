@@ -87,7 +87,7 @@ const session = (id: string, over: Partial<SessionSummary> = {}): SessionSummary
   state: "idle",
   lastSeq: 1,
   // What a session made since the daemon records its settings has: the composer shows them.
-  config: { mode: "auto", model: "default" },
+  config: { mode: "auto", model: "opus", effort: "medium" },
   ...over,
 });
 
@@ -1359,6 +1359,82 @@ export const scenarios: Record<string, Scenario> = {
       u({
         sessionUpdate: "agent_thought_chunk",
         content: { type: "text", text: "Measuring luminance for every surface pair." },
+      }),
+    ],
+  },
+  "composer-model-effort": {
+    title: "Three-part composer with paired Model + Effort picker open",
+    attach: true,
+    sessions: [
+      session("s1", {
+        title: "Redesign the composer",
+        config: { mode: "auto", model: "opus", effort: "high" },
+      }),
+    ],
+    history: conversation,
+    after: async (root) => {
+      await clickByLabel(root, "Model: Opus, Effort: High");
+      await new Promise((r) => setTimeout(r, 200));
+    },
+  },
+  "composer-expanded": {
+    title: "Composer expanded with extension tray (plan + queued) and multi-line draft",
+    attach: true,
+    status: [
+      {
+        environmentId: "local",
+        state: "connected",
+        capabilities: { queue: true, files: true, folders: true },
+      },
+    ],
+    sessions: [
+      session("s1", {
+        title: "Redesign the composer",
+        state: "running",
+        config: { mode: "bypassPermissions", model: "opus", effort: "medium" },
+      }),
+    ],
+    history: [
+      you("u1", "Refactor the composer into three bands."),
+      running(),
+      u({
+        sessionUpdate: "plan_update",
+        plan: {
+          type: "items",
+          planId: "p1",
+          entries: [
+            {
+              content: "Wire reasoning effort into Claude adapter",
+              priority: "high",
+              status: "completed",
+            },
+            {
+              content: "Build three-band composer layout",
+              priority: "high",
+              status: "in_progress",
+            },
+            {
+              content: "Verify Electron screenshots in dark and light mode",
+              priority: "medium",
+              status: "pending",
+            },
+          ],
+        },
+      }),
+      u({
+        sessionUpdate: "_cycle/queue_update",
+        entries: [
+          {
+            queueId: "q1",
+            prompt: [{ type: "text", text: "Also add unit tests for Model + Effort keyboard nav" }],
+          },
+        ],
+      }),
+      u({
+        sessionUpdate: "usage_update",
+        used: 41_200,
+        size: 200_000,
+        cost: { amount: 0.88, currency: "USD" },
       }),
     ],
   },

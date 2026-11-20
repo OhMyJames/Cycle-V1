@@ -8,7 +8,9 @@ import {
   type SessionUpdate,
 } from "@agentclientprotocol/sdk/experimental/v2";
 import type {
+  EffortLevel,
   ElicitationRequest,
+  ModelInfo,
   Options,
   Query,
   SDKMessage,
@@ -66,12 +68,69 @@ export type SessionInfo = { summary?: string; customTitle?: string; firstPrompt?
  * The models offered. Aliases: Claude Code resolves them to whatever is current. The daemon's `configSchema` is built
  * from this list too. "Default model", not "Default": the name is shown alone, beside the message box.
  */
-export const CLAUDE_MODELS = [
-  { value: "default", name: "Default model" },
-  { value: "sonnet", name: "Sonnet" },
-  { value: "opus", name: "Opus" },
-  { value: "haiku", name: "Haiku" },
+export const CLAUDE_MODELS: readonly { value: string; name: string; description?: string }[] = [
+  {
+    value: "default",
+    name: "Default model",
+    description: "Uses your Claude Code default.",
+  },
+  {
+    value: "sonnet",
+    name: "Sonnet",
+    description: "Balanced speed for everyday coding.",
+  },
+  {
+    value: "opus",
+    name: "Opus",
+    description: "Most capable for complex work.",
+  },
+  {
+    value: "haiku",
+    name: "Haiku",
+    description: "Fastest for quick edits and lookups.",
+  },
 ];
+
+/**
+ * Reasoning effort levels supported by the Claude Agent SDK (`EffortLevel`), plus `default` which leaves the
+ * model's own default in force. Applied via `options.effort` on process start and `applyFlagSettings({ effortLevel })`
+ * on a live process (`null` clears the override).
+ */
+export const CLAUDE_EFFORT_LEVELS = [
+  {
+    value: "default",
+    name: "Default",
+    description: "Model default reasoning depth.",
+  },
+  {
+    value: "low",
+    name: "Low",
+    description: "Minimal reasoning for quick tasks.",
+  },
+  {
+    value: "medium",
+    name: "Medium",
+    description: "Balanced depth and speed.",
+  },
+  {
+    value: "high",
+    name: "High",
+    description: "Deeper reasoning for complex changes.",
+  },
+  {
+    value: "xhigh",
+    name: "XHigh",
+    description: "Extended reasoning for hard problems.",
+  },
+  {
+    value: "max",
+    name: "Max",
+    description: "Maximum depth for this session.",
+  },
+] as const;
+
+type EffortOption = (typeof CLAUDE_EFFORT_LEVELS)[number]["value"];
+export const DEFAULT_EFFORT_LEVEL: EffortOption = "default";
 
 /** What this agent takes in a prompt beyond text and links (decision 0010). */
 export const CLAUDE_PROMPT_CAPABILITIES = { image: {}, embeddedContext: {} } as const;
@@ -86,39 +145,33 @@ export const CLAUDE_PERMISSION_MODES = [
   {
     value: "auto",
     name: "Auto",
-    description:
-      "A model reviews each action and allows or denies it, and asks you when it cannot tell. Not every account has it.",
+    description: "Reviews actions automatically; asks when unsure.",
     _meta: { "cycle/recommended": true },
   },
   {
     value: "default",
     name: "Ask before acting",
-    description:
-      "Asks you before Claude edits a file or runs a command. Reading is allowed without asking.",
+    description: "Asks before editing files or running commands.",
   },
   {
     value: "acceptEdits",
     name: "Accept edits",
-    description:
-      "Edits to files in the working folder are allowed without asking. Commands still ask.",
+    description: "Allows file edits; still asks for commands.",
   },
   {
     value: "plan",
     name: "Plan mode",
-    description:
-      "Claude reads and writes a plan but changes nothing. It starts work only after you approve the plan.",
+    description: "Plans changes first; waits for approval.",
   },
   {
     value: "dontAsk",
     name: "Don't ask",
-    description:
-      "Never asks. Any edit or command that settings have not already allowed is denied, so without allow rules Claude can only read.",
+    description: "Read-only unless allowed by your rules.",
   },
   {
     value: "bypassPermissions",
     name: "Bypass permissions",
-    description:
-      "Every edit and command runs without asking. Use only where Claude can do no harm, such as a sandbox.",
+    description: "Runs all edits and commands without asking.",
     _meta: { "cycle/danger": true },
   },
 ] as const;
@@ -195,8 +248,11 @@ type SessionState = {
   subagents: Subagents;
   /** The command list clients were last told, to say it again only when it changes. */
   commandsKey: string | undefined;
+  /** The configOptions snapshot clients were last told via `config_option_update`, to avoid duplicate broadcasts. */
+  configKey: string | undefined;
   mode: PermissionMode;
   model: string | undefined;
+  effort: EffortLevel | undefined;
   turn: Turn | undefined;
   live: Live | undefined;
   /** The task list, which outlives a turn. */
@@ -213,19 +269,103 @@ type SessionState = {
   modeChanging: number;
 };
 
-const modelOptions = (session: SessionState) =>
-  session.model === undefined || CLAUDE_MODELS.some((m) => m.value === session.model)
-    ? CLAUDE_MODELS
-    : [...CLAUDE_MODELS, { value: session.model, name: session.model }];
+const DEFAULT_MODEL_OPTION = {
+  value: "default",
+  name: "Default model",
+  description: "Uses your Claude Code default.",
+} as const;
 
-const configOptions = (session: SessionState): SessionConfigOption[] =>
+/** Matches the active model value (or default) against the SDK's discovered `ModelInfo` entries. */
+const findModelInfo = (
+  models: readonly ModelInfo[] | undefined,
+  current: string | undefined,
+): ModelInfo | undefined => {
+  if (models === undefined || models.length === 0) return undefined;
+  const target = current ?? "default";
+  return models.find((m) => m.value === target || m.resolvedModel === target);
+};
+
+const modelOptions = (
+  session: SessionState,
+  discovered: readonly ModelInfo[] | undefined,
+): readonly {
+  value: string;
+  name: string;
+  description?: string;
+  _meta?: Record<string, unknown>;
+}[] => {
+  const base: {
+    value: string;
+    name: string;
+    description?: string;
+    _meta?: Record<string, unknown>;
+  }[] =
+    discovered !== undefined && discovered.length > 0
+      ? [
+          ...(discovered.some((m) => m.value === "default") ? [] : [{ ...DEFAULT_MODEL_OPTION }]),
+          ...discovered.map((m) => ({
+            value: m.value,
+            name:
+              m.value === "default" && (!m.displayName || m.displayName.toLowerCase() === "default")
+                ? DEFAULT_MODEL_OPTION.name
+                : m.displayName || m.value,
+            ...(m.description ? { description: m.description } : {}),
+          })),
+        ]
+      : CLAUDE_MODELS.map((m) => ({ ...m }));
+  if (session.model === undefined || base.some((m) => m.value === session.model)) {
+    return base;
+  }
+  return [...base, { value: session.model, name: session.model, _meta: { "cycle/custom": true } }];
+};
+
+const effortOptions = (session: SessionState, discovered: readonly ModelInfo[] | undefined) => {
+  const matched = findModelInfo(discovered, session.model);
+  if (matched?.supportsEffort === false) {
+    return [{ ...CLAUDE_EFFORT_LEVELS[0] }];
+  }
+  if (Array.isArray(matched?.supportedEffortLevels) && matched.supportedEffortLevels.length > 0) {
+    const allowed = new Set<string>(matched.supportedEffortLevels);
+    return CLAUDE_EFFORT_LEVELS.filter(
+      (e) => e.value === DEFAULT_EFFORT_LEVEL || allowed.has(e.value),
+    ).map((e) => ({ ...e }));
+  }
+  return CLAUDE_EFFORT_LEVELS.map((e) => ({ ...e }));
+};
+
+/** Validates and deduplicates model entries reported by the SDK. */
+const sanitizeModels = (models: unknown): ModelInfo[] | undefined => {
+  if (!Array.isArray(models) || models.length === 0) return undefined;
+  const seen = new Set<string>();
+  const out: ModelInfo[] = [];
+  for (const item of models) {
+    if (typeof item !== "object" || item === null) continue;
+    const m = item as ModelInfo;
+    if (typeof m.value !== "string" || m.value === "" || seen.has(m.value)) continue;
+    seen.add(m.value);
+    out.push(m);
+  }
+  return out.length > 0 ? out : undefined;
+};
+
+const configOptions = (
+  session: SessionState,
+  discovered?: readonly ModelInfo[],
+): SessionConfigOption[] =>
   [
     {
       configId: "model",
       name: "Model",
       type: "select",
       currentValue: session.model ?? "default",
-      options: modelOptions(session),
+      options: modelOptions(session, discovered),
+    },
+    {
+      configId: "effort",
+      name: "Effort",
+      type: "select",
+      currentValue: session.effort ?? DEFAULT_EFFORT_LEVEL,
+      options: effortOptions(session, discovered),
     },
     {
       configId: "mode",
@@ -249,6 +389,8 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
   const sessions = new Map<string, SessionState>();
   /** Sessions whose process was started ahead of a prompt and has had none yet, oldest first. */
   const warm = new Set<SessionState>();
+  /** Latest models discovered from `query.initializationResult().models`, reused across sessions in this adapter. */
+  let discoveredModels: ModelInfo[] | undefined;
   /** Whether the client said, in `initialize`, that it can answer a form. One client per adapter. */
   let clientCanElicit = false;
   const idleMs = config.idleMs ?? 300_000;
@@ -370,6 +512,24 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     session.commandsKey = key;
   };
 
+  /** Announces live config options (discovered models & per-model effort levels) whenever they change. */
+  const announceConfigOptions = async (client: AgentContext, session: SessionState) => {
+    const options = configOptions(session, discoveredModels);
+    const key = JSON.stringify(options);
+    if (key === session.configKey) return;
+    const previous = session.configKey;
+    session.configKey = key;
+    try {
+      await notify(client, session.id, {
+        sessionUpdate: "config_option_update",
+        configOptions: options,
+      } as SessionUpdate);
+    } catch (error) {
+      if (session.configKey === key) session.configKey = previous;
+      throw error;
+    }
+  };
+
   const commandsUpdate = (commands: readonly SlashCommand[]): SessionUpdate => {
     const seen = new Set<string>();
     const availableCommands = [];
@@ -443,9 +603,11 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         session.modeChanging === 0
       ) {
         session.mode = mode;
+        const options = configOptions(session, discoveredModels);
+        session.configKey = JSON.stringify(options);
         await notify(client, session.id, {
           sessionUpdate: "config_option_update",
-          configOptions: configOptions(session),
+          configOptions: options,
         } as SessionUpdate);
       }
       if (m.status === "compacting" && session.compaction === undefined) {
@@ -649,6 +811,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       // and cost the process. The flag allows the mode; it does not turn it on.
       allowDangerouslySkipPermissions: true,
       ...(session.model !== undefined ? { model: session.model } : {}),
+      ...(session.effort !== undefined ? { effort: session.effort } : {}),
       ...(config.claudeExecutable !== undefined
         ? { pathToClaudeCodeExecutable: config.claudeExecutable }
         : {}),
@@ -728,15 +891,44 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       idle: undefined,
     };
 
-    // The commands it has: the list of what a user can type after a slash.
+    // Commands and live model catalog from the process's initialization response (with independent fallbacks).
     void (async () => {
-      try {
-        const commands = await query.supportedCommands();
-        if (session.live === live && commands.length > 0) {
-          await announceCommands(client, session, commands);
+      let init: Awaited<ReturnType<Query["initializationResult"]>> | undefined;
+      if (typeof query.initializationResult === "function") {
+        try {
+          init = await query.initializationResult();
+        } catch {
+          // Fall back to individual queries below.
         }
-      } catch {
-        // A process that cannot say is a process with no commands to show.
+      }
+      if (session.live !== live) return;
+
+      let commands = init?.commands;
+      if (commands === undefined) {
+        try {
+          commands = await query.supportedCommands();
+        } catch {
+          commands = undefined;
+        }
+      }
+      if (session.live === live && Array.isArray(commands) && commands.length > 0) {
+        await announceCommands(client, session, commands).catch(() => undefined);
+      }
+      if (session.live !== live) return;
+
+      let rawModels = init?.models;
+      if (rawModels === undefined && typeof query.supportedModels === "function") {
+        try {
+          rawModels = await query.supportedModels();
+        } catch {
+          rawModels = undefined;
+        }
+      }
+      const models = sanitizeModels(rawModels);
+      if (session.live === live && models !== undefined) {
+        discoveredModels = models;
+        reconcileEffort(session);
+        await announceConfigOptions(client, session).catch(() => undefined);
       }
     })();
 
@@ -899,6 +1091,26 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     return change(live.query).catch(() => release(session, true));
   };
 
+  /** Applies the session's current effort override to a live process when the SDK supports flag updates. */
+  const applyEffort = (session: SessionState) => {
+    const effortLevel = session.effort ?? null;
+    apply(session, (query) =>
+      typeof query.applyFlagSettings === "function"
+        ? query.applyFlagSettings({ effortLevel })
+        : Promise.resolve(),
+    );
+  };
+
+  /** Resets an active effort override if the active model does not support it. */
+  const reconcileEffort = (session: SessionState): boolean => {
+    if (session.effort === undefined) return false;
+    const allowed = effortOptions(session, discoveredModels);
+    if (allowed.some((option) => option.value === session.effort)) return false;
+    session.effort = undefined;
+    applyEffort(session);
+    return true;
+  };
+
   return acpAgent({ name: "cycle-claude-adapter" })
     .onRequest(methods.agent.initialize, ({ params }) => {
       clientCanElicit = params.capabilities?.elicitation?.form != null;
@@ -925,8 +1137,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         started: false,
         subagents: new Subagents(),
         commandsKey: undefined,
+        configKey: undefined,
         mode: DEFAULT_PERMISSION_MODE,
         model: undefined,
+        effort: undefined,
         turn: undefined,
         live: undefined,
         plan: new PlanState(),
@@ -953,7 +1167,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           // A process that cannot start now is started, or fails, at the first prompt.
         }
       }
-      return { sessionId: id, configOptions: configOptions(session) };
+      return { sessionId: id, configOptions: configOptions(session, discoveredModels) };
     })
     .onRequest(methods.agent.session.resume, async ({ params, client }) => {
       if (params.replayFrom !== undefined && params.replayFrom !== null) {
@@ -976,10 +1190,12 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           started,
           subagents: new Subagents(),
           commandsKey: undefined,
+          configKey: undefined,
           // Not the default for new sessions: a session with no mode on record was made before
           // that default was auto, and ran asking first. Resuming it must not loosen that.
           mode: "default",
           model: undefined,
+          effort: undefined,
           turn: undefined,
           live: undefined,
           plan: new PlanState(),
@@ -997,7 +1213,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         sessionUpdate: "state_update",
         state: session.turn ? "running" : "idle",
       } as SessionUpdate);
-      return { configOptions: configOptions(session) };
+      return { configOptions: configOptions(session, discoveredModels) };
     })
     .onRequest(methods.agent.session.prompt, ({ params, client }) => {
       const session = require(params.sessionId);
@@ -1078,9 +1294,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         void finish(client, session, turn, { stopReason: "cancelled" });
       });
     })
-    .onRequest(methods.agent.session.setConfigOption, ({ params }) => {
+    .onRequest(methods.agent.session.setConfigOption, ({ params, client }) => {
       const session = require(params.sessionId);
       const value = "value" in params ? params.value : undefined;
+      let modelChanged = false;
       if (params.configId === "mode") {
         if (!PERMISSION_MODES.includes(value as PermissionMode)) {
           throw new RequestError(-32602, "Unknown permission mode", { value });
@@ -1095,14 +1312,27 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       } else if (params.configId === "model" && typeof value === "string") {
         // "default" is no choice: Claude Code picks.
         session.model = value === "default" ? undefined : value;
+        modelChanged = true;
         const model = session.model;
         apply(session, (query) => query.setModel(model));
+        reconcileEffort(session);
+      } else if (params.configId === "effort") {
+        const allowed = effortOptions(session, discoveredModels);
+        if (typeof value !== "string" || !allowed.some((option) => option.value === value)) {
+          throw new RequestError(-32602, "Unknown effort level", { value });
+        }
+        session.effort = value === "default" ? undefined : (value as EffortLevel);
+        applyEffort(session);
       } else {
         throw new RequestError(-32602, "Unknown configuration option", {
           configId: params.configId,
         });
       }
-      return { configOptions: configOptions(session) };
+      const nextOptions = configOptions(session, discoveredModels);
+      if (modelChanged && discoveredModels !== undefined) {
+        void announceConfigOptions(client, session).catch(() => undefined);
+      }
+      return { configOptions: nextOptions };
     })
     .onRequest(methods.agent.session.close, async ({ params }) => {
       const session = sessions.get(params.sessionId);

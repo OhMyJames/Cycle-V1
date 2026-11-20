@@ -315,4 +315,136 @@ describe("SettingChips picker", () => {
     expect(modeChip.getAttribute("aria-expanded")).toBe("false");
     expect(modeChip.hasAttribute("data-disabled")).toBe(true);
   });
+
+  test("pairs compact description-free Model picker and draggable Effort slider on the right", async () => {
+    const user = userEvent.setup();
+    const calls: [string, string][] = [];
+    const schema = {
+      type: "object",
+      properties: {
+        mode: {
+          type: "string",
+          title: "Permission mode",
+          oneOf: [{ const: "auto", title: "Auto" }],
+        },
+        model: {
+          type: "string",
+          title: "Model",
+          oneOf: [
+            { const: "default", title: "Default model", description: "Default description." },
+            { const: "opus", title: "Opus", description: "Most capable." },
+            { const: "sonnet", title: "Sonnet", description: "Balanced." },
+          ],
+        },
+        effort: {
+          type: "string",
+          title: "Effort",
+          oneOf: [
+            { const: "default", title: "Default", description: "Model default depth." },
+            { const: "low", title: "Low", description: "Minimal reasoning." },
+            { const: "high", title: "High", description: "Deeper reasoning." },
+          ],
+        },
+      },
+    };
+
+    const { rerender } = wrap(
+      <div>
+        <div data-testid="left">
+          <SettingChips
+            side="left"
+            settings={{ schema, value: { mode: "auto", model: "opus", effort: "high" } }}
+            disabled={false}
+            onSet={(k, v) => calls.push([k, v])}
+          />
+        </div>
+        <div data-testid="right">
+          <SettingChips
+            side="right"
+            settings={{ schema, value: { mode: "auto", model: "opus", effort: "high" } }}
+            disabled={false}
+            onSet={(k, v) => calls.push([k, v])}
+          />
+        </div>
+      </div>,
+    );
+
+    // Permission mode stays on the left; paired Model + Effort lives on the right (no standalone Effort chip).
+    expect(
+      within(screen.getByTestId("left")).getByRole("button", { name: "Permission mode: Auto" }),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByTestId("left")).queryByRole("button", { name: /Model|Effort/ }),
+    ).toBeNull();
+    const modelChip = within(screen.getByTestId("right")).getByRole("button", {
+      name: "Model: Opus, Effort: High",
+    });
+    expect(within(screen.getByTestId("right")).getAllByRole("button")).toHaveLength(1);
+    expect(modelChip.querySelector('[data-slot="setting-subvalue"]')?.textContent).toBe("High");
+
+    // Opening the Model chip renders compact description-free Model rows plus the elastic Effort slider.
+    expect(modelChip.getAttribute("aria-haspopup")).toBe("dialog");
+    await user.click(modelChip);
+    const dialog = screen.getByRole("dialog", { name: "Model" });
+    expect(modelChip.getAttribute("aria-controls")).toBe(dialog.id);
+    expect(screen.queryByText("Most capable.")).toBeNull();
+    const slider = screen.getByRole("slider", { name: "Effort" }) as HTMLInputElement;
+    expect(slider.value).toBe("2");
+    expect(slider.getAttribute("aria-valuetext")).toBe("High");
+
+    // Tab cycles focus from Model list into the Effort slider and Shift+Tab cycles back without closing.
+    await user.keyboard("{Tab}");
+    expect(document.activeElement).toBe(slider);
+    expect(modelChip.getAttribute("aria-expanded")).toBe("true");
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(document.activeElement).toBe(screen.getByRole("menu", { name: "Model" }));
+    expect(modelChip.getAttribute("aria-expanded")).toBe("true");
+
+    // Adjusting the Effort slider (or clicking a tick) updates effort, keeps focus on the range input, and leaves the popover open.
+    fireEvent.change(slider, { target: { value: "1" } });
+    expect(calls).toEqual([["effort", "low"]]);
+    expect(modelChip.getAttribute("aria-expanded")).toBe("true");
+
+    await user.click(screen.getByRole("button", { name: "Def" }));
+    expect(document.activeElement).toBe(slider);
+    expect(calls).toEqual([
+      ["effort", "low"],
+      ["effort", "default"],
+    ]);
+    expect(modelChip.getAttribute("aria-expanded")).toBe("true");
+
+    // Pointer scrubbing across the Effort slider track commits the nearest discrete stop.
+    const sliderTrack = dialog.querySelector<HTMLElement>('[data-slot="effort-slider"]');
+    expect(sliderTrack).not.toBeNull();
+    if (sliderTrack !== null) {
+      sliderTrack.getBoundingClientRect = () =>
+        ({ left: 0, width: 116, top: 0, bottom: 20, right: 116, height: 20 }) as DOMRect;
+      fireEvent.pointerDown(sliderTrack, { button: 0, pointerId: 1, clientX: 58 });
+      fireEvent.pointerMove(sliderTrack, { pointerId: 1, clientX: 58 });
+      fireEvent.pointerUp(sliderTrack, { pointerId: 1, clientX: 58 });
+    }
+    expect(calls.at(-1)).toEqual(["effort", "low"]);
+
+    // Selecting a model option updates model and closes the popover.
+    await user.click(screen.getByRole("menuitemradio", { name: /Sonnet/ }));
+    expect(calls.at(-1)).toEqual(["model", "sonnet"]);
+    expect(modelChip.getAttribute("aria-expanded")).toBe("false");
+
+    // When effort is unset (`undefined`), the Effort slider displays "Not set" instead of claiming "Default".
+    rerender(
+      <I18nProvider translator={translator}>
+        <SettingChips
+          side="right"
+          settings={{ schema, value: { mode: "auto", model: "sonnet" } }}
+          disabled={false}
+          onSet={(k, v) => calls.push([k, v])}
+        />
+      </I18nProvider>,
+    );
+    const conciseChip = screen.getByRole("button", { name: "Model: Sonnet" });
+    expect(conciseChip.querySelector('[data-slot="setting-subvalue"]')).toBeNull();
+    await user.click(conciseChip);
+    const unsetSlider = screen.getByRole("slider", { name: "Effort" });
+    expect(unsetSlider.getAttribute("aria-valuetext")).toBe("Not set");
+  });
 });

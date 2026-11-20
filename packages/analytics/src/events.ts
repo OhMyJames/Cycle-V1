@@ -65,7 +65,7 @@ export const EVENTS = {
   session_archived: o({ archived: z.boolean() }),
   /** After the person confirmed it (AGENTS.md: a delete is confirmed by the client first). */
   session_deleted: o({}),
-  session_config_changed: o({ setting: z.enum(["mode", "model", "other"]) }),
+  session_config_changed: o({ setting: z.enum(["mode", "model", "effort", "other"]) }),
   agent_defaults_saved: o({ agent }),
   /** A session that was working changed to something the person is told of: it finished, it needs them, or it stopped. */
   session_attention: o({ kind: z.enum(["finished", "needs-you", "stopped"]) }),
@@ -147,8 +147,8 @@ export const isUiEvent = (name: string): name is UiEventName =>
 export const agentOf = (id: string): z.infer<typeof agent> =>
   id === "claude" ? "claude" : "other";
 
-export const settingOf = (configId: string): "mode" | "model" | "other" =>
-  configId === "mode" || configId === "model" ? configId : "other";
+export const settingOf = (configId: string): "mode" | "model" | "effort" | "other" =>
+  configId === "mode" || configId === "model" || configId === "effort" ? configId : "other";
 
 /** How long a prompt is, in three words: the length is as much as is learned of it. */
 export const sizeOf = (characters: number): z.infer<typeof size> =>

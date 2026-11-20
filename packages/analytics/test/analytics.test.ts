@@ -200,6 +200,7 @@ describe("the dictionary", () => {
     expect(agentOf("my-private-agent")).toBe("other");
     expect(settingOf("mode")).toBe("mode");
     expect(settingOf("model")).toBe("model");
+    expect(settingOf("effort")).toBe("effort");
     expect(settingOf("anything")).toBe("other");
     expect([sizeOf(0), sizeOf(199), sizeOf(200), sizeOf(1999), sizeOf(2000)]).toEqual([
       "short",

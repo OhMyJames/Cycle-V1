@@ -662,3 +662,88 @@ test("saveEnvironment, renameSession, and reloadAgents surface failures and refr
   await store.reloadAgents("local");
   expect(store.getState().agents.local?.[0]?.available).toBe(true);
 });
+
+test("config_option_update only reloads agents when a live update introduces a new model catalog", async () => {
+  const script = fakeBridge({ connected: true });
+  let agentCalls = 0;
+  script.bridge.agents = async () => {
+    agentCalls += 1;
+    return [
+      {
+        id: "fake",
+        name: "Fake",
+        available: true,
+        configSchema: {
+          type: "object",
+          properties: {
+            model: {
+              type: "string",
+              oneOf:
+                agentCalls > 1
+                  ? [
+                      { const: "default", title: "Default model" },
+                      { const: "fabel", title: "Fabel" },
+                    ]
+                  : [
+                      { const: "default", title: "Default model" },
+                      { const: "sonnet", title: "Sonnet" },
+                    ],
+            },
+          },
+        },
+      },
+    ];
+  };
+  const { emit } = await opened(script);
+  expect(agentCalls).toBe(1);
+
+  // Unchanged model catalog (e.g. permission mode flip) does not reload agents.
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    version: 1,
+    update: {
+      sessionUpdate: "config_option_update",
+      configOptions: [
+        {
+          configId: "model",
+          name: "Model",
+          type: "select",
+          currentValue: "default",
+          options: [
+            { value: "default", name: "Default model" },
+            { value: "sonnet", name: "Sonnet" },
+          ],
+        },
+      ],
+    },
+  });
+  await Bun.sleep(5);
+  expect(agentCalls).toBe(1);
+
+  // A live update advertising a newly discovered model refreshes agents once.
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    version: 2,
+    update: {
+      sessionUpdate: "config_option_update",
+      configOptions: [
+        {
+          configId: "model",
+          name: "Model",
+          type: "select",
+          currentValue: "default",
+          options: [
+            { value: "default", name: "Default model" },
+            { value: "fabel", name: "Fabel" },
+          ],
+        },
+      ],
+    },
+  });
+  await Bun.sleep(5);
+  expect(agentCalls).toBe(2);
+});

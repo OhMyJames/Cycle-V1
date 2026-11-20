@@ -338,6 +338,185 @@ test("the model is an option, and 'default' lets Claude pick", async () => {
   expect(fake.state.models).toEqual(["opus", undefined]);
 });
 
+test("reasoning effort is offered, applied to new and running processes, and cleared by default", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  await connect(fake.run, async ({ agent, idle }) => {
+    const created = (await newSession(agent)) as { configOptions: { configId: string }[] };
+    const effort = created.configOptions.find((o) => o.configId === "effort") as unknown as {
+      currentValue: string;
+      options: { value: string }[];
+    };
+    expect(effort.currentValue).toBe("default");
+    expect(effort.options.map((o) => o.value)).toEqual([
+      "default",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+
+    const set = (value: string) =>
+      agent.request(methods.agent.session.setConfigOption, {
+        sessionId: ID,
+        configId: "effort",
+        type: "id",
+        value,
+      } as never) as Promise<{ configOptions: { configId: string; currentValue: string }[] }>;
+
+    expect(
+      (await set("high")).configOptions.find((o) => o.configId === "effort")?.currentValue,
+    ).toBe("high");
+    await prompt(agent, idle, [{ type: "text", text: "one" }]);
+    expect(fake.calls[0]?.options.effort).toBe("high");
+
+    expect(
+      (await set("medium")).configOptions.find((o) => o.configId === "effort")?.currentValue,
+    ).toBe("medium");
+    expect(
+      (await set("default")).configOptions.find((o) => o.configId === "effort")?.currentValue,
+    ).toBe("default");
+    await expect(set("turbo")).rejects.toMatchObject({ code: -32602 });
+  });
+  expect(fake.state.flagSettings).toEqual([{ effortLevel: "medium" }, { effortLevel: null }]);
+});
+
+const waitFor = async (predicate: () => boolean, timeoutMs = 1_000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("timed out waiting for condition");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+};
+
+test("initializationResult().models updates live model and per-model effort options and caches across sessions", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  fake.state.availableModels = [
+    {
+      value: "fabel",
+      displayName: "Fabel",
+      description: "Latest flagship model.",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+    },
+    {
+      value: "claude-haiku-4-5",
+      displayName: "Haiku 4.5",
+      description: "Fast model.",
+      supportsEffort: false,
+    },
+  ];
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "hello" }]);
+    await waitFor(() => updates.some((u) => u.sessionUpdate === "config_option_update"));
+    const announced = updates.findLast((u) => u.sessionUpdate === "config_option_update") as
+      | { configOptions?: { configId: string; options: { value: string; name: string }[] }[] }
+      | undefined;
+    const modelOpt = announced?.configOptions?.find((o) => o.configId === "model");
+    expect(modelOpt?.options.map((o) => o.value)).toEqual(["default", "fabel", "claude-haiku-4-5"]);
+    expect(modelOpt?.options.find((o) => o.value === "fabel")?.name).toBe("Fabel");
+
+    // Set high effort on Fabel, then switch to Haiku (`supportsEffort: false`): stale effort resets to default and high is rejected.
+    await agent.request(methods.agent.session.setConfigOption, {
+      sessionId: ID,
+      configId: "model",
+      type: "id",
+      value: "fabel",
+    } as never);
+    await agent.request(methods.agent.session.setConfigOption, {
+      sessionId: ID,
+      configId: "effort",
+      type: "id",
+      value: "high",
+    } as never);
+
+    const toHaiku = (await agent.request(methods.agent.session.setConfigOption, {
+      sessionId: ID,
+      configId: "model",
+      type: "id",
+      value: "claude-haiku-4-5",
+    } as never)) as {
+      configOptions: { configId: string; currentValue: string; options: { value: string }[] }[];
+    };
+    const haikuEffort = toHaiku.configOptions.find((o) => o.configId === "effort");
+    expect(haikuEffort?.currentValue).toBe("default");
+    expect(haikuEffort?.options.map((o) => o.value)).toEqual(["default"]);
+    expect(fake.state.flagSettings.at(-1)).toEqual({ effortLevel: null });
+    await expect(
+      agent.request(methods.agent.session.setConfigOption, {
+        sessionId: ID,
+        configId: "effort",
+        type: "id",
+        value: "high",
+      } as never),
+    ).rejects.toMatchObject({ code: -32602 });
+
+    // Switching to Fabel exposes its full supportedEffortLevels.
+    const toFabel = (await agent.request(methods.agent.session.setConfigOption, {
+      sessionId: ID,
+      configId: "model",
+      type: "id",
+      value: "fabel",
+    } as never)) as {
+      configOptions: { configId: string; options: { value: string }[] }[];
+    };
+    expect(
+      toFabel.configOptions.find((o) => o.configId === "effort")?.options.map((o) => o.value),
+    ).toEqual(["default", "low", "medium", "high", "xhigh", "max"]);
+
+    // Custom unlisted models are marked with `_meta["cycle/custom"]` so the daemon never caches them globally.
+    const custom = (await agent.request(methods.agent.session.setConfigOption, {
+      sessionId: ID,
+      configId: "model",
+      type: "id",
+      value: "claude-custom-preview",
+    } as never)) as {
+      configOptions: {
+        configId: string;
+        currentValue: string;
+        options: { value: string; _meta?: Record<string, unknown> }[];
+      }[];
+    };
+    const customOpt = custom.configOptions
+      .find((o) => o.configId === "model")
+      ?.options.find((o) => o.value === "claude-custom-preview");
+    expect(customOpt?._meta).toEqual({ "cycle/custom": true });
+
+    // A subsequent new session immediately inherits the discovered models without starting a process first.
+    const second = (await agent.request(methods.agent.session.new, { cwd: "/work" })) as {
+      configOptions: { configId: string; options: { value: string }[] }[];
+    };
+    expect(
+      second.configOptions.find((o) => o.configId === "model")?.options.map((o) => o.value),
+    ).toEqual(["default", "fabel", "claude-haiku-4-5"]);
+  });
+});
+
+test("initializationResult() failure falls back independently to supportedCommands() and supportedModels()", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  fake.state.failInitializationResult = true;
+  fake.state.commands = [
+    { name: "compact", description: "Compact conversation", argumentHint: "" },
+  ];
+  fake.state.availableModels = [{ value: "fabel", displayName: "Fabel", description: "Latest." }];
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "hello" }]);
+    await waitFor(
+      () =>
+        updates.some((u) => u.sessionUpdate === "available_commands_update") &&
+        updates.some((u) => u.sessionUpdate === "config_option_update"),
+    );
+    const announced = updates.findLast((u) => u.sessionUpdate === "config_option_update") as
+      | { configOptions?: { configId: string; options: { value: string }[] }[] }
+      | undefined;
+    expect(
+      announced?.configOptions?.find((o) => o.configId === "model")?.options.map((o) => o.value),
+    ).toEqual(["default", "fabel"]);
+  });
+});
+
 test("a mode Claude changes by itself is told to the client, and kept for the next process", async () => {
   const fake = fakeQuery((call) =>
     call.prompt === "plan it"

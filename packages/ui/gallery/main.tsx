@@ -66,10 +66,64 @@ const bridgeFor = (scenario: Scenario) => {
                   type: "string",
                   title: "Model",
                   oneOf: [
-                    { const: "default", title: "Default model" },
-                    { const: "sonnet", title: "Sonnet" },
-                    { const: "opus", title: "Opus" },
+                    {
+                      const: "default",
+                      title: "Default model",
+                      description: "Uses your Claude Code default.",
+                    },
+                    {
+                      const: "sonnet",
+                      title: "Sonnet",
+                      description: "Balanced speed for everyday coding.",
+                    },
+                    {
+                      const: "opus",
+                      title: "Opus",
+                      description: "Most capable for complex work.",
+                    },
+                    {
+                      const: "haiku",
+                      title: "Haiku",
+                      description: "Fastest for quick edits and lookups.",
+                    },
                   ],
+                },
+                effort: {
+                  type: "string",
+                  title: "Effort",
+                  oneOf: [
+                    {
+                      const: "default",
+                      title: "Default",
+                      description: "Model default reasoning depth.",
+                    },
+                    {
+                      const: "low",
+                      title: "Low",
+                      description: "Minimal reasoning for quick tasks.",
+                    },
+                    {
+                      const: "medium",
+                      title: "Medium",
+                      description: "Balanced depth and speed.",
+                    },
+                    {
+                      const: "high",
+                      title: "High",
+                      description: "Deeper reasoning for complex changes.",
+                    },
+                    {
+                      const: "xhigh",
+                      title: "XHigh",
+                      description: "Extended reasoning for hard problems.",
+                    },
+                    {
+                      const: "max",
+                      title: "Max",
+                      description: "Maximum depth for this session.",
+                    },
+                  ],
+                  default: "default",
                 },
                 mode: {
                   type: "string",
@@ -78,27 +132,23 @@ const bridgeFor = (scenario: Scenario) => {
                     {
                       const: "auto",
                       title: "Auto",
-                      description:
-                        "A model reviews each action and allows or denies it, and asks you when it cannot tell. Not every account has it.",
+                      description: "Reviews actions automatically; asks when unsure.",
                       _meta: { "cycle/recommended": true },
                     },
                     {
                       const: "default",
                       title: "Ask before acting",
-                      description:
-                        "Asks you before Claude edits a file or runs a command. Reading is allowed without asking.",
+                      description: "Asks before editing files or running commands.",
                     },
                     {
                       const: "plan",
                       title: "Plan mode",
-                      description:
-                        "Claude reads and writes a plan but changes nothing. It starts work only after you approve the plan.",
+                      description: "Plans changes first; waits for approval.",
                     },
                     {
                       const: "bypassPermissions",
                       title: "Bypass permissions",
-                      description:
-                        "Every edit and command runs without asking. Use only where Claude can do no harm, such as a sandbox.",
+                      description: "Runs all edits and commands without asking.",
                       _meta: { "cycle/danger": true },
                     },
                   ],

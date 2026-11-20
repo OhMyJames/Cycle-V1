@@ -534,20 +534,17 @@ test("a choice the agent names and describes shows its name and what it does, an
     },
   });
   await user.click(await screen.findByRole("button", { name: "New session" }));
-  await user.click(await screen.findByRole("button", { name: "Session settings" }));
-  const dialog = await screen.findByRole("dialog", { name: "Settings for the new session" });
-  const trigger = within(dialog).getByRole("combobox", { name: "Permission mode" });
-  await waitFor(() => expect(trigger.textContent).toContain("Plan mode"));
-  expect(within(dialog).getByText("Changes nothing.")).toBeTruthy();
-  await user.click(trigger);
-  const option = await screen.findByRole("option", { name: /Ask before acting/ });
+  const chip = await screen.findByRole("button", { name: "Permission mode: Plan mode" });
+  await user.click(chip);
+  const option = await screen.findByRole("menuitemradio", { name: /Ask before acting/ });
   expect(option.textContent).toContain("Asks first.");
   // The suggested one says so; the others do not.
   expect(option.textContent).not.toContain("Recommended");
-  expect(screen.getByRole("option", { name: /Auto/ }).textContent).toContain("Recommended");
+  expect(screen.getByRole("menuitemradio", { name: /Auto/ }).textContent).toContain("Recommended");
+  expect(screen.getByRole("menuitemradio", { name: /Plan mode/ }).textContent).toContain(
+    "Changes nothing.",
+  );
   await user.click(option);
-  await waitFor(() => expect(within(dialog).getByText("Asks first.")).toBeTruthy());
-  await user.click(within(dialog).getByRole("button", { name: "Close" }));
   // The choice is what the box shows under it, too.
   await screen.findByRole("button", { name: "Permission mode: Ask before acting" });
   const box = await screen.findByRole("textbox", { name: "Message" });
@@ -585,8 +582,9 @@ test("a session's setting with nothing on record is not shown as today's default
     },
   });
   await openFirstSession(user);
-  // With the rest of the session's settings, in the message box.
-  await user.click(await screen.findByRole("button", { name: "Session settings" }));
+  // Session settings lives in the session header menu, not beside permission in the composer.
+  await user.click(await screen.findByRole("button", { name: "Session actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Session settings" }));
   const dialog = await screen.findByRole("dialog");
   const trigger = within(dialog).getByRole("combobox", { name: "Permission mode" });
   // An older session may run in another mode than new ones start in: say nothing rather than guess.
@@ -617,7 +615,8 @@ test("a setting the schema does not list is shown as it is, not as Not set", asy
   });
   await openFirstSession(user);
   await screen.findByRole("button", { name: "Model: claude-opus-4-5" });
-  expect(screen.getByRole("button", { name: "Session settings" })).toBeTruthy();
+  // No settings gear button beside permission in the composer utility bar.
+  expect(screen.queryByRole("button", { name: "Session settings" })).toBeNull();
 });
 
 test("an agent with nothing to set has no settings in the message box", async () => {
@@ -1560,4 +1559,178 @@ test("empty state offers Start a new session and high-risk mode chip carries dat
   const chip = await screen.findByRole("button", { name: "Permission mode: Bypass permissions" });
   expect(chip.hasAttribute("data-danger")).toBe(true);
   expect(screen.getByRole("button", { name: "Hide sidebar" })).toBeTruthy();
+});
+
+test("composer uses a single-line box by default, promotes on attachments or multi-action, and docks extensions above", async () => {
+  const { user, emit } = await mount({
+    configure: (script) => {
+      const session = { ...summary("s1"), config: { mode: "auto", model: "opus", effort: "high" } };
+      script.bridge.environments = async () => ({
+        environments: [{ id: "local", name: "This computer", kind: "local" }],
+        status: [
+          {
+            environmentId: "local",
+            state: "connected",
+            capabilities: { queue: true, files: false, folders: false },
+          },
+        ],
+        sessions: { local: [session] },
+      });
+      script.bridge.agents = async () => [
+        {
+          id: "fake",
+          name: "Fake",
+          available: true,
+          promptCapabilities: { image: {} },
+          configSchema: {
+            type: "object",
+            properties: {
+              mode: {
+                type: "string",
+                title: "Permission mode",
+                oneOf: [{ const: "auto", title: "Auto" }],
+              },
+              model: {
+                type: "string",
+                title: "Model",
+                oneOf: [{ const: "opus", title: "Opus" }],
+              },
+              effort: {
+                type: "string",
+                title: "Effort",
+                oneOf: [
+                  { const: "default", title: "Default" },
+                  { const: "high", title: "High" },
+                ],
+              },
+            },
+          },
+        },
+      ];
+      script.bridge.sessions = async () => [session];
+    },
+  });
+  await openFirstSession(user);
+  await screen.findByRole("textbox", { name: "Message" });
+
+  // Idle with no extensions or attachments: compact single-line box, no extension tray, no legacy key-hints.
+  const composerBox = document.querySelector('[data-slot="composer-box"]');
+  expect(composerBox?.hasAttribute("data-multiline")).toBe(false);
+  expect(document.querySelector('[data-slot="composer-extensions"]')).toBeNull();
+  expect(document.querySelector('[data-slot="key-hints"]')).toBeNull();
+
+  // Utility bar puts permission on the left, model + effort and context ring on the right.
+  const toolsStart = document.querySelector<HTMLElement>('[data-slot="composer-tools-start"]');
+  const toolsEnd = document.querySelector<HTMLElement>('[data-slot="composer-tools-end"]');
+  expect(
+    toolsStart && within(toolsStart).getByRole("button", { name: "Permission mode: Auto" }),
+  ).toBeTruthy();
+  expect(
+    toolsEnd && within(toolsEnd).getByRole("button", { name: "Model: Opus, Effort: High" }),
+  ).toBeTruthy();
+
+  // Usage shows ring + percentage only, keeping exact token/cost detail inside aria-label & title.
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    version: 1,
+    update: {
+      sessionUpdate: "usage_update",
+      used: 12_000,
+      size: 200_000,
+      cost: { amount: 0.88, currency: "USD" },
+    } as never,
+  });
+  const meter = await screen.findByRole("img", { name: /6%.*0\.88/ });
+  expect(meter.textContent).toBe("6%");
+
+  // Plan + queued message dock inside the extension tray above the input box, and multi-action working state promotes to multiline.
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    version: 2,
+    update: { sessionUpdate: "state_update", state: "running" } as never,
+  });
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    version: 3,
+    update: {
+      sessionUpdate: "plan_update",
+      plan: {
+        type: "items",
+        planId: "p1",
+        entries: [{ content: "Ship three-part composer", priority: "high", status: "in_progress" }],
+      },
+    } as never,
+  });
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    version: 4,
+    update: {
+      sessionUpdate: "_cycle/queue_update",
+      entries: [{ queueId: "q1", prompt: [{ type: "text", text: "Follow up next" }] }],
+    } as never,
+  });
+  await waitFor(() => {
+    const ext = document.querySelector('[data-slot="composer-extensions"]');
+    expect(ext?.textContent).toContain("Ship three-part composer");
+    expect(ext?.textContent).toContain("Follow up next");
+    expect(
+      document.querySelector('[data-slot="composer-box"]')?.hasAttribute("data-multiline"),
+    ).toBe(true);
+  });
+
+  // Live config_option_update from the agent overlays newly discovered models and hides effort when unsupported.
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    version: 5,
+    update: {
+      sessionUpdate: "config_option_update",
+      configOptions: [
+        {
+          configId: "model",
+          name: "Model",
+          currentValue: "opus",
+          options: [
+            { value: "default", name: "Default model" },
+            { value: "fabel", name: "Fabel" },
+            { value: "opus", name: "Opus" },
+          ],
+        },
+        {
+          configId: "effort",
+          name: "Effort",
+          currentValue: "default",
+          options: [{ value: "default", name: "Default" }],
+        },
+      ],
+    } as never,
+  });
+  const modelButton = await screen.findByRole("button", { name: "Model: Opus" });
+  await user.click(modelButton);
+  expect(await screen.findByRole("menuitemradio", { name: "Fabel" })).toBeTruthy();
+  // Model with only "default" effort hides the Effort slider.
+  expect(screen.queryByRole("slider", { name: "Effort" })).toBeNull();
+
+  // Reaching 100% context marks the ring as full and settles cleanly at offset 0.
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    version: 6,
+    update: { sessionUpdate: "usage_update", used: 200_000, size: 200_000 } as never,
+  });
+  const fullMeter = await screen.findByRole("img", { name: /100%/ });
+  expect(fullMeter.hasAttribute("data-full")).toBe(true);
+  expect(fullMeter.textContent).toBe("100%");
+  const fill = fullMeter.querySelector<SVGCircleElement>('[data-slot="context-fill"]');
+  expect(fill?.style.strokeDashoffset).toBe("0");
 });

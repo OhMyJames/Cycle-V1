@@ -52,6 +52,8 @@ export const fakeAgent = (
     configSchema?: Record<string, unknown>;
     /** Says it reaches MCP servers over http (`capabilities.session.mcp.http`), so it is given connectors. */
     mcpHttp?: boolean;
+    /** Emits a `config_option_update` notification inside `setConfigOption` (like Claude announcing model-dependent options). */
+    emitConfigOnSet?: boolean;
   } = {},
 ) => {
   const log = {
@@ -113,16 +115,24 @@ export const fakeAgent = (
           ? { configOptions: options.resumeConfigOptions as never }
           : {};
       })
-      .onRequest(methods.agent.session.setConfigOption, ({ params }) => {
+      .onRequest(methods.agent.session.setConfigOption, async ({ params, client }) => {
         log.configs.push(params as unknown as Record<string, unknown>);
         if (control.rejectConfig.has(params.configId))
           throw new RequestError(-32602, "No such setting");
         const value = (params as { value?: unknown }).value;
-        return {
-          configOptions: (options.configOptions ?? []).map((o) =>
-            o.configId === params.configId ? { ...o, currentValue: value } : o,
-          ) as never,
-        };
+        const nextOptions = (options.configOptions ?? []).map((o) =>
+          o.configId === params.configId ? { ...o, currentValue: value } : o,
+        );
+        if (options.emitConfigOnSet) {
+          await client.notify(methods.client.session.update, {
+            sessionId: params.sessionId,
+            update: {
+              sessionUpdate: "config_option_update",
+              configOptions: nextOptions,
+            } as SessionUpdate,
+          });
+        }
+        return { configOptions: nextOptions as never };
       })
       .onNotification(methods.agent.session.cancel, () => {
         log.cancels++;

@@ -16,5 +16,7 @@ export const sessionsDir = (dataDir: string): string => join(dataDir, "sessions"
 export const blobsDir = (dataDir: string): string => join(dataDir, "blobs");
 export const indexPath = (dataDir: string): string => join(dataDir, "index.json");
 export const defaultsPath = (dataDir: string): string => join(dataDir, "agent-defaults.json");
+/** Cached dynamic choices discovered from live agents (e.g. Claude's `initializationResult().models`). */
+export const optionsCachePath = (dataDir: string): string => join(dataDir, "agent-options.json");
 /** Which folders may run their own configuration's commands (docs/protocol.md §8 "信任文件夹"). */
 export const trustPath = (dataDir: string): string => join(dataDir, "trust.json");
