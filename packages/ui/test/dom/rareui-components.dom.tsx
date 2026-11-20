@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { createTranslator, SOURCE_LOCALE } from "../../src/i18n.ts";
 import { enUS } from "../../src/messages/en-US.ts";
+import { withEffortFor } from "../../src/react/config-form.tsx";
 import { I18nProvider } from "../../src/react/i18n.tsx";
 import { formatElapsed, InlineAiStatus } from "../../src/react/inline-ai-status.tsx";
 import { SettingChips } from "../../src/react/setting-chips.tsx";
@@ -92,6 +93,27 @@ describe("InlineAiStatus", () => {
 });
 
 describe("SettingChips picker", () => {
+  const effortSchema = {
+    type: "object",
+    properties: {
+      model: {
+        type: "string",
+        title: "Model",
+        oneOf: [
+          { const: "default", title: "Default model" },
+          { const: "opus", title: "Opus", _meta: { "cycle/efforts": ["low", "high", "max"] } },
+          { const: "haiku", title: "Haiku", _meta: { "cycle/efforts": [] } },
+          { const: "odd", title: "Odd" },
+        ],
+      },
+      effort: {
+        type: "string",
+        title: "Effort",
+        oneOf: ["default", "low", "medium", "high", "max"].map((v) => ({ const: v, title: v })),
+      },
+    },
+  };
+
   const shortSchema = {
     type: "object",
     properties: {
@@ -383,8 +405,8 @@ describe("SettingChips picker", () => {
     expect(calls).toEqual([["effort", "low"]]);
     expect(modelChip.getAttribute("aria-expanded")).toBe("true");
 
-    await user.click(screen.getByRole("button", { name: "Default" }));
-    expect(document.activeElement).toBe(slider);
+    fireEvent.change(slider, { target: { value: "0" } });
+    expect(slider.getAttribute("aria-valuetext")).toBe("Model default");
     expect(calls).toEqual([
       ["effort", "low"],
       ["effort", "default"],
@@ -426,66 +448,67 @@ describe("SettingChips picker", () => {
     expect(unsetSlider.getAttribute("aria-valuetext")).toBe("Not set");
   });
 
-  test("effort follows the model's own levels: none hides it, a few narrow it, and a new session's choice goes back to default", async () => {
+  test("effort follows the model's own levels: none hides it, a few narrow it, the level in force stays shown", async () => {
     const user = userEvent.setup();
     const calls: [string, string][] = [];
-    const schema = {
-      type: "object",
-      properties: {
-        model: {
-          type: "string",
-          title: "Model",
-          oneOf: [
-            { const: "default", title: "Default model" },
-            { const: "opus", title: "Opus", _meta: { "cycle/efforts": ["low", "high", "max"] } },
-            { const: "haiku", title: "Haiku", _meta: { "cycle/efforts": [] } },
-            { const: "odd", title: "Odd" },
-          ],
-        },
-        effort: {
-          type: "string",
-          title: "Effort",
-          oneOf: ["default", "low", "medium", "high", "max"].map((v) => ({ const: v, title: v })),
-        },
-      },
-    };
-    const render = (value: Record<string, string>, draft: boolean) => (
+    const render = (value: Record<string, string>) => (
       <I18nProvider translator={translator}>
         <SettingChips
-          settings={{ schema, value }}
+          settings={{ schema: effortSchema, value }}
           disabled={false}
-          draft={draft}
           onSet={(k, v) => calls.push([k, v])}
         />
       </I18nProvider>
     );
-    const { rerender } = wrap(render({ model: "opus", effort: "max" }, true));
-    const ticks = () =>
-      [...document.querySelectorAll('[data-slot="effort-tick"]')].map((t) => t.textContent);
+    const { rerender } = wrap(render({ model: "opus", effort: "max" }));
+    const stops = () => document.querySelectorAll('[data-slot="effort-dot"]').length;
 
     // Opus takes low, high and max: the slider offers those and the model's default, nothing else.
     await user.click(screen.getByRole("button", { name: /^Model: Opus/ }));
-    expect(ticks()).toEqual(["Default", "low", "high", "max"]);
-
-    // Choosing Haiku, which takes no effort, on a new session puts the effort back to default with it.
+    expect(stops()).toBe(4);
+    // Choosing a model in a session that exists only asks for the model: its agent resets the effort.
     await user.click(screen.getByRole("menuitemradio", { name: "Haiku" }));
-    expect(calls).toEqual([
-      ["model", "haiku"],
-      ["effort", "default"],
-    ]);
+    expect(calls).toEqual([["model", "haiku"]]);
 
     // With Haiku chosen, there is no effort to show.
-    rerender(render({ model: "haiku", effort: "default" }, true));
+    rerender(render({ model: "haiku", effort: "default" }));
     await user.click(screen.getByRole("button", { name: "Model: Haiku" }));
     expect(screen.queryByRole("slider", { name: "Effort" })).toBeNull();
     await user.keyboard("{Escape}");
 
-    // A model that does not say keeps every level; and in a live session the agent, not the picker, resets effort.
-    calls.length = 0;
-    rerender(render({ model: "odd", effort: "medium" }, false));
+    // A model that does not say keeps every level.
+    rerender(render({ model: "odd", effort: "medium" }));
     await user.click(screen.getByRole("button", { name: /^Model: Odd/ }));
-    expect(ticks()).toEqual(["Default", "low", "medium", "high", "max"]);
-    await user.click(screen.getByRole("menuitemradio", { name: "Haiku" }));
-    expect(calls).toEqual([["model", "haiku"]]);
+    expect(stops()).toBe(5);
+    await user.keyboard("{Escape}");
+
+    // A level the model does not list, still in force until the agent answers, is shown as it is, not as "Not set".
+    rerender(render({ model: "opus", effort: "medium" }));
+    await user.click(screen.getByRole("button", { name: /^Model: Opus/ }));
+    expect(screen.getByRole("slider", { name: "Effort" }).getAttribute("aria-valuetext")).toBe(
+      "medium",
+    );
+  });
+
+  test("a new session's effort goes back to default when the chosen model does not take it", () => {
+    const defaults = { model: "default", effort: "default" };
+    expect(withEffortFor(effortSchema, { model: "haiku", effort: "max" }, defaults)).toEqual({
+      model: "haiku",
+      effort: "default",
+    });
+    expect(withEffortFor(effortSchema, { model: "opus", effort: "medium" }, defaults)).toEqual({
+      model: "opus",
+      effort: "default",
+    });
+    // Taken, not known, or no level chosen: left as it is.
+    expect(withEffortFor(effortSchema, { model: "opus", effort: "max" }, defaults)).toEqual({
+      model: "opus",
+      effort: "max",
+    });
+    expect(withEffortFor(effortSchema, { model: "odd", effort: "max" }, defaults)).toEqual({
+      model: "odd",
+      effort: "max",
+    });
+    expect(withEffortFor(effortSchema, { model: "haiku" }, defaults)).toEqual({ model: "haiku" });
   });
 });

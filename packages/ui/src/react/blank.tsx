@@ -25,7 +25,7 @@ import type { EnvironmentConfig } from "../api.ts";
 import { applyUpdate, emptyConversation } from "../model/index.ts";
 import { BLANK_KEY, type BlankConversation } from "../store/index.ts";
 import { Composer } from "./composer.tsx";
-import { ConfigForm, optionsOf, propertiesOf } from "./config-form.tsx";
+import { ConfigForm, optionsOf, propertiesOf, withEffortFor } from "./config-form.tsx";
 import { ConversationView } from "./conversation.tsx";
 import { FolderBrowser } from "./folder-browser.tsx";
 import { useI18n } from "./i18n.tsx";
@@ -202,7 +202,17 @@ export function BlankConversationView({
             }
           : undefined
       }
-      onSetting={(key, value) => store.changeBlank({ setting: { key, value } })}
+      onSetting={(key, value) =>
+        agent !== undefined && blank.config !== undefined
+          ? store.changeBlank({
+              config: withEffortFor(
+                agent.configSchema,
+                { ...blank.config, [key]: value },
+                defaultsOf(agent.configSchema),
+              ),
+            })
+          : store.changeBlank({ setting: { key, value } })
+      }
       enabled={!starting}
       connected={connected}
       activity="idle"
@@ -338,7 +348,11 @@ export function BlankConversationView({
             <ConfigForm
               schema={agent.configSchema}
               value={{ ...defaultsOf(agent.configSchema), ...blank.config }}
-              onChange={(config) => store.changeBlank({ config })}
+              onChange={(config) =>
+                store.changeBlank({
+                  config: withEffortFor(agent.configSchema, config, defaultsOf(agent.configSchema)),
+                })
+              }
             />
           ) : null}
           <div data-slot="row" data-dialog-footer="">

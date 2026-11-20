@@ -2889,7 +2889,6 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 [data-slot="setting-option"] {
-  position: relative;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -2925,8 +2924,6 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 [data-slot="setting-check"] {
-  position: relative;
-  z-index: 1;
   flex: none;
   display: grid;
   place-items: center;
@@ -2941,8 +2938,6 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 [data-slot="setting-option-body"] {
-  position: relative;
-  z-index: 1;
   flex: 1;
   min-width: 0;
 }
@@ -3060,46 +3055,6 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
     0 1px 3px rgb(0 0 0 / 32%),
     0 0 0 0.5px rgb(0 0 0 / 8%);
   pointer-events: none;
-}
-
-[data-slot="effort-ticks"] {
-  display: grid;
-  align-items: center;
-  padding: 0.25rem 0 0;
-}
-
-[data-slot="effort-tick"] {
-  padding: 0.0625rem 0.125rem;
-  border: 0;
-  border-radius: var(--cycle-radius-sm);
-  background: transparent;
-  color: var(--cycle-ink-muted);
-  font-family: var(--cycle-font-display);
-  font-size: 0.65625rem;
-  font-weight: 500;
-  line-height: 1.2;
-  text-align: center;
-  cursor: pointer;
-  transition: color var(--cycle-motion-state) var(--cycle-ease);
-}
-
-[data-slot="effort-tick"]:first-child {
-  text-align: left;
-  padding-left: 0.1875rem;
-}
-
-[data-slot="effort-tick"]:last-child {
-  text-align: right;
-  padding-right: 0.1875rem;
-}
-
-[data-slot="effort-tick"]:hover {
-  color: var(--cycle-ink);
-}
-
-[data-slot="effort-tick"][data-selected] {
-  color: var(--cycle-ink);
-  font-weight: 600;
 }
 
 @media (forced-colors: active) {

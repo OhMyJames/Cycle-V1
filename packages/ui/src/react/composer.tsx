@@ -711,7 +711,6 @@ export function Composer({
                 settings={settings}
                 disabled={!enabled || !connected}
                 onSet={onSetting}
-                draft={blank === true}
               />
             ) : null}
           </div>
@@ -722,7 +721,6 @@ export function Composer({
                 settings={settings}
                 disabled={!enabled || !connected}
                 onSet={onSetting}
-                draft={blank === true}
               />
             ) : null}
             {context !== undefined ? <ContextMeter context={context} /> : null}

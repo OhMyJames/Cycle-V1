@@ -243,28 +243,6 @@ function EffortSlider({
           transition={springTransition}
         />
       </div>
-      <div
-        data-slot="effort-ticks"
-        style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}
-      >
-        {setting.options.map((opt, idx) => (
-          <button
-            key={opt.value}
-            type="button"
-            tabIndex={-1}
-            data-slot="effort-tick"
-            data-selected={(!isUnset && idx === liveIndex) || undefined}
-            title={opt.description}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              inputRef.current?.focus();
-              commitIndex(idx);
-            }}
-          >
-            {opt.value === "default" ? t("composer.effort.tickDefault") : opt.label}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
@@ -278,7 +256,6 @@ function SettingPickerChip({
   compact = false,
   align = "start",
   disabled,
-  onChoose,
   onSet,
 }: {
   settingKey: string;
@@ -290,8 +267,6 @@ function SettingPickerChip({
   compact?: boolean;
   align?: "start" | "end";
   disabled: boolean;
-  /** A choice in the list; the caller may set more than this one setting (the model's effort). */
-  onChoose?: (option: Option) => void;
   onSet: (key: string, value: string) => void;
 }) {
   const { t } = useI18n();
@@ -308,7 +283,8 @@ function SettingPickerChip({
   const listRef = useRef<HTMLDivElement>(null);
   const secondaryWrapRef = useRef<HTMLDivElement>(null);
   const sliderInputRef = useRef<HTMLInputElement>(null);
-  const navOriginRef = useRef<"init" | "keyboard" | "pointer">("init");
+  /** The highlight was moved by the pointer: the list is not scrolled to it. */
+  const pointedRef = useRef(false);
 
   const chosen = current === undefined ? undefined : options.find((o) => o.value === current);
   // A value the schema does not list (a model named in full, say) is still what the session runs on: it is shown as it is.
@@ -341,17 +317,14 @@ function SettingPickerChip({
   const openMenu = () => {
     if (disabled) return;
     const selectedIndex = current === undefined ? 0 : options.findIndex((o) => o.value === current);
-    navOriginRef.current = "init";
+    pointedRef.current = false;
     setSliderFocused(false);
     setHighlighted(Math.max(selectedIndex, 0));
     setOpen(true);
   };
 
   const choose = (option: Option) => {
-    if (option.value !== current) {
-      if (onChoose !== undefined) onChoose(option);
-      else onSet(settingKey, option.value);
-    }
+    if (option.value !== current) onSet(settingKey, option.value);
     close(true);
   };
 
@@ -371,7 +344,7 @@ function SettingPickerChip({
   const activeOptionId = listActiveIndex >= 0 ? optionId(listActiveIndex) : undefined;
 
   useEffect(() => {
-    if (!open || listActiveIndex < 0 || navOriginRef.current === "pointer") return;
+    if (!open || listActiveIndex < 0 || pointedRef.current) return;
     const item = listRef.current?.querySelector<HTMLElement>(
       `[data-slot="setting-option"]:nth-of-type(${listActiveIndex + 1})`,
     );
@@ -379,7 +352,7 @@ function SettingPickerChip({
   }, [open, listActiveIndex]);
 
   const move = (index: number) => {
-    navOriginRef.current = "keyboard";
+    pointedRef.current = false;
     setSliderFocused(false);
     setHighlighted(index);
     listRef.current?.focus();
@@ -483,7 +456,8 @@ function SettingPickerChip({
               data-danger={option.danger || undefined}
               title={option.description}
               onMouseEnter={() => {
-                navOriginRef.current = "pointer";
+                pointedRef.current = true;
+                setSliderFocused(false);
                 setHighlighted(index);
               }}
               onClick={() => choose(option)}
@@ -572,25 +546,19 @@ type ChoiceEntry = {
  * say, so every level stays; `[]` when it takes none.
  */
 const effortsFor = (models: readonly Option[], model: string | undefined) =>
-  models.find((m) => m.value === (model ?? "default"))?.efforts;
+  model === undefined ? undefined : models.find((m) => m.value === model)?.efforts;
 
 export function SettingChips({
   settings,
   disabled,
   onSet,
   side = "all",
-  draft = false,
 }: {
   settings: SettingsOf;
   disabled: boolean;
   onSet: (key: string, value: string) => void;
   /** Partition settings across the composer utility bar: permission/other on the left, model + effort on the right. */
   side?: "left" | "right" | "all";
-  /**
-   * Settings of a session not made yet (the new-session page): no agent is there to put an effort the new model does
-   * not take back to `default`, so the picker does.
-   */
-  draft?: boolean;
 }) {
   const entries: ChoiceEntry[] = [];
   for (const [key, property] of propertiesOf(settings.schema)) {
@@ -614,7 +582,11 @@ export function SettingChips({
       ? []
       : levels === undefined
         ? effortEntry.options
-        : effortEntry.options.filter((o) => o.value === "default" || levels.includes(o.value));
+        : effortEntry.options.filter(
+            // The level in force stays shown until the agent says otherwise, rather than reading "Not set".
+            (o) =>
+              o.value === "default" || levels.includes(o.value) || o.value === effortEntry.current,
+          );
   const secondaryEffort: SecondarySetting | undefined =
     effortEntry === undefined || effortOptions.length <= 1
       ? undefined
@@ -624,14 +596,6 @@ export function SettingChips({
           options: effortOptions,
           current: effortEntry.current,
         };
-
-  const chooseModel = (option: Option) => {
-    onSet("model", option.value);
-    const effort = effortEntry?.current;
-    if (!draft || effort === undefined || effort === "default" || option.efforts === undefined)
-      return;
-    if (!option.efforts.includes(effort)) onSet("effort", "default");
-  };
 
   return entries.map((entry) => {
     // When both `model` and `effort` are offered, effort lives inside the Model picker as a slider.
@@ -650,7 +614,6 @@ export function SettingChips({
         compact={entry.key === "model"}
         align={side === "right" ? "end" : "start"}
         disabled={disabled}
-        {...(entry.key === "model" ? { onChoose: chooseModel } : {})}
         onSet={onSet}
       />
     );

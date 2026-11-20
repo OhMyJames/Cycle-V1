@@ -92,7 +92,6 @@ export const enUS = {
   "composer.setting": "{setting}: {value}",
   "composer.settingPair": "{first}, {second}",
   "composer.effort.modelDefault": "Model default",
-  "composer.effort.tickDefault": "Default",
 
   // How full the context is: the ring under the input, and its details
   "composer.context.title": "Context",
