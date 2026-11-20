@@ -31,33 +31,49 @@ permissions:
   contents: read
 
 jobs:
-  acceptance:
-    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'codex/cycl-105-acceptance'
+  validation:
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'codex/cycl-105-validation'
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: a7f423932df5d87991e3fa4c2dfe1edbdb04e346
+          fetch-depth: 0
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
-      - run: bun install --frozen-lockfile --ignore-scripts
-      - name: Update between the two signed and notarized releases
+      - name: Prepare a fixed source app for the signed regression
         run: |
           set -euo pipefail
-          work="$HOME/Library/Caches/CycleTesting/CYCL-105/fixtures.JHhQKj"
-          for version in 0.3.6 0.3.7; do
-            manifest="$work/$version/apps/desktop/build/release/latest-darwin-arm64.json"
-            shasum -a 256 "$manifest"
-            jq -c '{version,file,size,sha256}' "$manifest"
-          done
-          export CYCLE_SIGNED_FROM="$work/0.3.6/apps/desktop/build/release"
-          export CYCLE_SIGNED_TO="$work/0.3.7/apps/desktop/build/release"
-          bun test ./apps/desktop/test/integration/update.integration.ts
+          parent="$HOME/Library/Caches/CycleTesting/CYCL-105"
+          work=$(mktemp -d "$parent/fixed.XXXXXX")
+          mkdir "$work/0.3.6"
+          git archive 3f4d05d78743c0aea0db100352f758218a2f4b0a | tar -xf - -C "$work/0.3.6"
+          git diff a7f4239 15cae9e -- apps/desktop/src/main > "$work/reconnect.patch"
+          cd "$work/0.3.6"
+          git apply "$work/reconnect.patch"
+          bun install --frozen-lockfile --ignore-scripts
+          bun run --cwd apps/desktop package
+          ln -s "$(command -v bun)" "$work/bun"
+          sed 's/for version in 0.3.6 0.3.7/for version in 0.3.6/' "$GITHUB_WORKSPACE/.github/cycl-105/sign-builds.sh" > "$work/sign-builds.sh"
+          chmod 700 "$work/sign-builds.sh"
+          echo "Fixed source command: $work/sign-builds.sh"
+          echo "FIXED_SOURCE=$work" >> "$GITHUB_ENV"
+      - name: Signed 0.3.7 window with an old daemon over isolated real SSH
+        run: |
+          set -euo pipefail
+          old=$(mktemp -d "$RUNNER_TEMP/cycle020.XXXXXX")
+          git archive a945018f5ee70e7f52b52567c1c05f5df728fe38 | tar -xf - -C "$old"
+          (cd "$old" && bun install --frozen-lockfile --ignore-scripts && bun run --cwd apps/daemon build --no-tarball)
+          app="$HOME/Library/Caches/CycleTesting/CYCL-105/fixtures.JHhQKj/0.3.7/apps/desktop/build/Cycle.app"
+          bash .github/cycl-105/banner.sh "$old/apps/daemon/dist/cycle-darwin-arm64/cycle" "$app"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-remote-banner
+          path: ${{ runner.temp }}/cycl105-*-remote.png
   check:
-    if: github.ref_name != 'codex/cycl-105-acceptance'
+    if: github.ref_name != 'codex/cycl-105-validation'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
