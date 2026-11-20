@@ -51,3 +51,7 @@ git worktree、终端、diff 视图、多 provider、Web 端。
 - [docs/daemon.md](docs/daemon.md):daemon:做了什么、没做什么、验证结果
 - [docs/adapters/claude.md](docs/adapters/claude.md):Claude 适配:做了什么、没做什么、验证结果
 - [docs/decisions/](docs/decisions/):设计决策记录
+
+## 致谢
+
+Cycle v2 设计语言（字体排版、硬件微高光材质与安全橙点缀）及部分交互形态（实时状态行、展开选择器）的视觉设计受到 [Rare UI](https://www.rareui.com/) 的启发，组件代码均为 Cycle 独立实现。

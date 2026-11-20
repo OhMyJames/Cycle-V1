@@ -10,6 +10,7 @@ import {
 } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
 import { ChevronRightIcon, ErrorCircleIcon, WarningIcon } from "./icons.tsx";
+import { InlineAiStatus } from "./inline-ai-status.tsx";
 import {
   Lead,
   ToolCard,
@@ -145,6 +146,7 @@ export function StepLine({
   const { t } = useI18n();
   const step = awaitingApproval ? ({ kind: "approval" } as const) : stepOf(conversation);
   if (step === undefined) return null;
+  const activity = step.kind === "tool" ? activityOf(step.tool) : undefined;
   const words =
     step.kind === "approval"
       ? t("step.approval")
@@ -152,19 +154,18 @@ export function StepLine({
         ? t("step.thinking")
         : step.kind === "working"
           ? t("step.working")
-          : activityOf(step.tool) === "other"
+          : activity === "other"
             ? t("step.other", { name: toolName(t, step.tool) })
-            : t(`step.${activityOf(step.tool)}`);
+            : t(`step.${activity}`);
+  const stepKey = `${conversation.turns}:${step.kind === "tool" ? `tool:${step.tool.id}` : step.kind}`;
   return (
-    <div data-slot="step" data-step={step.kind}>
-      {step.kind === "approval" ? (
-        <WarningIcon size={14} />
-      ) : (
-        <span data-slot="spinner" aria-hidden="true" />
-      )}
-      <span>{words}</span>
-      {step.kind === "tool" ? <StepDetail tool={step.tool} /> : null}
-    </div>
+    <InlineAiStatus
+      kind={step.kind}
+      activity={activity}
+      label={words}
+      stepKey={stepKey}
+      detail={step.kind === "tool" ? <StepDetail tool={step.tool} /> : undefined}
+    />
   );
 }
 

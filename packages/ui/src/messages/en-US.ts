@@ -225,6 +225,9 @@ export const enUS = {
   "step.search": "Searching",
   "step.fetch": "Fetching a page",
   "step.other": "Using {name}",
+  "step.elapsedSeconds": "{seconds}s",
+  "step.elapsedMinutes": "{minutes}m",
+  "step.elapsedMinutesSeconds": "{minutes}m {seconds}s",
   "thinking.show": "Show thinking",
   "session.settings": "Session settings",
 
@@ -398,6 +401,9 @@ export const enUS = {
   "config.caution": "Caution",
   // A session's setting the daemon has no record of yet: not today's default, which it may not have
   "config.notSet": "Not set",
+  "config.filterPlaceholder": "Filter options",
+  "config.filterLabel": "Filter {setting}",
+  "config.noMatch": "No matching option.",
 
   // App update dismiss
   "update.dismiss": "Later",
