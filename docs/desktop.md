@@ -165,12 +165,12 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - **Markdown 输入**(决策笔记 `2026-11-18-composer-text-is-markdown`):输入框是 Lexical 编辑器,文本即 Markdown,边写边渲染;发出去的是敲下的字(`composer-markdown.ts` 把 Lexical 会改写的字符换成私用区的占位再换回来,测试覆盖固定样例和随机文本)。Enter 发送,Shift+Enter 换行,输入法组合中的 Enter 不发送。agent 运行中(agent 和 daemon 都支持插入时,见 protocol.md §8 和决策笔记 `2026-11-19-steer-into-the-running-turn`):Enter 把消息插入当前 turn("Send now"),Shift+Enter 排队("Queue"),Alt+Enter 换行;不支持插入时 Enter 排队,Shift+Enter 仍是换行。粘贴图片变成附件,粘贴文字按文字放入。
 - **草稿**:每个 session 一份,文字存在渲染进程的 localStorage(键含主机和 session),图片只在内存里;发送、删除 session 时清掉。发送失败,内容放回输入框。
 - **排队**:agent 工作时同一个框继续写,按钮变成"Queue";排队的消息列在输入框上方,可以 Edit 取回;停止或出错后 daemon 退回的消息自动放回输入框(不当作错误)。
-- **会话设置**:输入框下面的工具条里,agent `configSchema` 中每个可选的属性(`enum`、`oneOf`)一个菜单按钮(权限模式、模型),改了就发 `set_config`;没有记录的值写 "Not set"。它们后面一个齿轮按钮打开 Session settings,里面是全部设置(包括文本类的)。版式见 DESIGN.md §4.4。
+- **会话设置**：输入框工具条显示权限模式、模型和可用的 effort。会话标题菜单里的 Session settings 显示全部设置。当前值来自 daemon 会话列表的 `cycle/config`。agent 自己切换模式时，daemon 更新索引并通知客户端刷新列表，已打开的控件随之更新。重连或重新打开历史会话也从列表读取当前值，回放的 `config_option_update` 提供会话的选项。旧会话没有记录的值显示 “Not set”。
 - **回看**:空输入框里按 ↑ 取回上一条发过的消息(从对话里读),↓ 回来;只有光标在首块、末块时才生效。
 - **命令**:消息最开头的 `/` 列出 agent 的命令(`available_commands_update`),空格之前有效;**提及**:`@` 之后列出 session 目录里的文件和文件夹(`_cycle/files/search`),文字里写 `@路径`,发送时另附 `resource_link` 块(决策笔记 `2026-11-18-mentions-are-resource-links`)。
 - **测试**:DOM 测试(happy-dom 没有 Lexical 要用的选区和输入事件)通过编辑器自己的命令驱动;真实的敲键和粘贴只在 Electron 冒烟测试里走(`smoke-main.ts` 敲 `**bold**` 并检查渲染,再粘贴一段带星号的文字,检查它按原样放入)。
 - **系统输入法验证（CYCL-110，2026-11-20）**：macOS 26.5.2、Electron 45.3.4，使用独立应用数据目录、真实 composer、系统输入源和原生键盘事件。简体拼音在 `@` 后输入 `nihao`，↓ 选择候选，第一次 Enter 确认“你好”并保留草稿，第二次 Enter 选中 `你好.md`。日文罗马字输入也观察到 Enter 结束组合并保留草稿。两种输入法的候选窗均出现在输入行下方。在组合中触发 Electron 的粘贴命令，中文确认后留下 `@你好PASTE_MARK`，日文确认后也保留了组合文字和剪贴板标记。
-- **⌘V 的区别**：同一剪贴板、同一原生快捷键，简体拼音未组合时触发了 paste；组合时收到带 ⌘ 的 V，却没有 paste 事件，确认后留下 `@nihaov`。见 CYCL-116。
+- **组合期间的 ⌘V（CYCL-116）**：macOS 在 Electron 的 `before-input-event` 之前便把按键交给了输入法。桌面主进程通过 AppKit 在本应用内处理按键：当前编辑器有组合文字且按下 ⌘V 时，先让应用菜单执行快捷键。用上述系统简体拼音复测，普通和组合中的 ⌘V 均只触发一次 paste。在 `@nihao` 的候选未确认时粘贴 `PASTE_MARK`，再用 ↓ 和 Enter 确认，草稿为 `@你好PASTE_MARK`。单独验证提及时，第一次 Enter 确认“你好”，第二次选择 `你好.md`，均保留在草稿中。
 - **没做**:@ 提及没有 chip 节点(是普通文字加一个记在草稿里的链接),所以从存储恢复的草稿里文字还在、结构化的链接没有;提及里没有别的 session;输入历史只读当前对话里的消息;Lexical 对撤销/重做、拖选等的行为没有逐项验证。
 
 ## Connector
@@ -196,7 +196,6 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - **会话内容的全文搜索**:⌘K 搜的是标题、文件夹、agent 和主机(跨已连接的主机)。对话内容的全文要在历史所在的 daemon 里做。
 - **图片的发送只对声明了能力的 agent 开放**:附加的控件(按钮、粘贴、拖放)只在 `_cycle/agents/list` 里这个 agent 的 `promptCapabilities.image` 存在时出现。带附件支持的 daemon(decision 0010)上的 Claude 声明了;更早的 daemon 不报告,界面上就没有附加入口,不会发出 daemon 不认的内容。主进程这一段有测试(`apps/desktop/test/manager.test.ts`):能力被报告,图片块原样送达 agent,没有声明的 agent 拒绝图片。
 - **界面文字迁入 i18n 目录**:源语言是 en-US(decision 0012);新文字已经走目录,存量约 60 处还在标记里,门禁的棘轮保证不再增加。
-- **当前设置的来源**:session 设置对话框显示的是 daemon 索引里记下的设置;agent 自己改的(比如 Claude 的 plan 模式切换)不会反映回来。
 - **Claude 的 `config.json`**(`configDir`、密钥):没有 UI,因为它会把凭证放上线路。要在 daemon 所在机器上手改。
 - 多窗口、可访问性审查(ui-sdk 的组件有基础的键盘和 ARIA,我们自己的部分没单独审)。
 - 真实账号的浏览器 OAuth 授权暂缓（CYCL-110）。独立目录和凭证边界的验证见 [Claude 适配](adapters/claude.md#隔离登录验证)。

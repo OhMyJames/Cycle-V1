@@ -239,6 +239,68 @@ test("a session opened after the fact comes whole, and its version counts the ev
   expect(rebuilt).toEqual(snapshot.conversation);
 });
 
+test("agent mode changes reach the open session list, reconnect and fresh history replay", async () => {
+  const offline = Promise.withResolvers<void>();
+  let reported = false;
+  const { manager, held, drop } = await setup(
+    fakeAgent({
+      onPrompt: async ({ say }) => {
+        for (const mode of ["plan", "default"]) {
+          if (mode === "default") await offline.promise;
+          await say({
+            sessionUpdate: "config_option_update",
+            configOptions: [
+              {
+                configId: "mode",
+                type: "select",
+                name: "Permission mode",
+                currentValue: mode,
+                options: [
+                  { value: "plan", name: "Plan" },
+                  { value: "default", name: "Default" },
+                ],
+              },
+            ],
+          });
+        }
+        reported = true;
+      },
+    }),
+  );
+  const { m, events } = await manager();
+  await m.connect("local");
+  const id = await m.createSession("local", { cwd: "/tmp" });
+  await m.openSession("local", id);
+  await m.prompt("local", id, "work");
+  const listedMode = () =>
+    of(events, "sessions")
+      .at(-1)
+      ?.sessions.find((s) => s.sessionId === id)?.config?.mode;
+  try {
+    await until(() => listedMode() === "plan", "the live setting");
+    held.add("app");
+    drop();
+    await until(
+      () => of(events, "environment-status").at(-1)?.state === "reconnecting",
+      "disconnect",
+    );
+  } finally {
+    offline.resolve();
+  }
+  await until(() => reported, "the agent to report the offline change");
+  held.delete("app");
+  await until(() => listedMode() === "default", "the setting changed while disconnected");
+
+  const fresh = await manager("fresh");
+  await fresh.m.connect("local");
+  expect(of(fresh.events, "sessions").at(-1)?.sessions[0]?.config?.mode).toBe("default");
+  const snapshot = await fresh.m.openSession("local", id);
+  expect(snapshot.conversation.replaying).toBe(false);
+  expect(snapshot.conversation.configOptions).toMatchObject([
+    { configId: "mode", currentValue: "default" },
+  ]);
+});
+
 test("opening a session twice at once watches it once", async () => {
   const { manager } = await setup();
   const { m } = await manager();

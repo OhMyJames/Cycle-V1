@@ -555,8 +555,8 @@ test("a choice the agent names and describes shows its name and what it does, an
   expect(named("createSession")[0]?.[2]).toMatchObject({ config: { mode: "default" } });
 });
 
-test("a session's setting with nothing on record is not shown as today's default", async () => {
-  const { user } = await mount({
+test("session settings show an unknown mode and follow the daemon while the dialog stays open", async () => {
+  const { user, emit, named } = await mount({
     configure: (script) => {
       script.bridge.agents = async () => [
         {
@@ -590,6 +590,17 @@ test("a session's setting with nothing on record is not shown as today's default
   // An older session may run in another mode than new ones start in: say nothing rather than guess.
   expect(trigger.textContent).toContain("Not set");
   expect(trigger.textContent).not.toContain("Auto");
+  emit({
+    type: "sessions",
+    environmentId: "local",
+    sessions: [{ ...summary("s1"), config: { mode: "default" } }],
+  });
+  expect(trigger.textContent).toContain("Ask before acting");
+  expect(named("setSessionConfig")).toHaveLength(0);
+  await user.click(within(dialog).getByRole("button", { name: "Close" }));
+  expect(
+    await screen.findByRole("button", { name: "Permission mode: Ask before acting" }),
+  ).toBeTruthy();
 });
 
 test("a setting the schema does not list is shown as it is, not as Not set", async () => {
