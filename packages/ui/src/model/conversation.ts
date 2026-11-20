@@ -198,7 +198,8 @@ export const contextOf = (c: Conversation): ContextState => {
   for (const item of c.items) {
     if (item.kind !== "compaction") continue;
     if (item.status === "completed") compactions += 1;
-    else if (item.status === "in_progress") compacting = true;
+    // Only while something is running: one never told as over (its process went with the daemon) is not "now".
+    else if (item.status === "in_progress" && c.status !== "idle") compacting = true;
   }
   return { usage: c.usage, compactions, compacting };
 };

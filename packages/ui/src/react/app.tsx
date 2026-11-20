@@ -195,10 +195,16 @@ export function App() {
         : mergeConfigSchema(agent.configSchema, view?.conversation.configOptions),
     [agent, view?.conversation.configOptions],
   );
+  // Rebuilt only when what it shows changes, not on every streamed chunk.
   const conversation = view?.conversation;
+  const counted = conversation === undefined ? undefined : contextOf(conversation);
+  const usage = counted?.usage;
+  const compactions = counted?.compactions ?? 0;
+  const compacting = counted?.compacting ?? false;
+  const hasConversation = conversation !== undefined;
   const context = useMemo(
-    () => (conversation === undefined ? undefined : contextOf(conversation)),
-    [conversation],
+    () => (hasConversation ? { usage, compactions, compacting } : undefined),
+    [hasConversation, usage, compactions, compacting],
   );
   const environmentState =
     selectedEnvironment !== undefined ? status[selectedEnvironment]?.state : undefined;

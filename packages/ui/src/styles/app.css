@@ -2676,8 +2676,11 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 [data-slot="context-meter"][data-before] [data-slot="context-fill"] {
+  opacity: 0.45;
+}
+
+[data-slot="context-meter"][data-before] [data-slot="context-track"] {
   stroke-dasharray: 1.5 2;
-  opacity: 0.7;
 }
 
 [data-slot="context-meter"] circle {

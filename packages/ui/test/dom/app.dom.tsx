@@ -1806,9 +1806,19 @@ test("the context ring opens into what was reported: nothing yet, now's usage, a
   expect(before.textContent).toContain("Compactions1");
   await user.keyboard("{Escape}");
 
-  // The usage after it is now's again.
-  update(4, { sessionUpdate: "usage_update", used: 30_000, size: 200_000 });
-  await screen.findByRole("button", { name: "Context 15% full. Show details" });
+  // The usage after it is now's again. A currency Intl does not know is written as given, not thrown on.
+  update(4, {
+    sessionUpdate: "usage_update",
+    used: 30_000,
+    size: 200_000,
+    cost: { amount: 3, currency: "credits" },
+  });
+  const fresh = await screen.findByRole("button", { name: "Context 15% full. Show details" });
+  await user.click(fresh);
+  expect((await screen.findByRole("dialog", { name: "Context" })).textContent).toContain(
+    "Session cost3 credits",
+  );
+  await user.keyboard("{Escape}");
 
   // Only what kind of state it was is counted; no number goes with it.
   const opened = tracked().filter(([event]) => event === "context_details_opened");
@@ -1816,6 +1826,7 @@ test("the context ring opens into what was reported: nothing yet, now's usage, a
     ["context_details_opened", { state: "empty" }],
     ["context_details_opened", { state: "measured" }],
     ["context_details_opened", { state: "before_compaction" }],
+    ["context_details_opened", { state: "measured" }],
   ]);
   expect(JSON.stringify(opened)).not.toMatch(/84|200|0\.52/);
 });

@@ -817,7 +817,19 @@ function ContextMeter({ context }: { context: ContextState }) {
     });
   }, [instant, spring, around, percentOf]);
 
-  const tokens = (amount: number) => t("composer.context.tokens", { amount });
+  const tokens = (amount: number) => t("composer.context.tokens", { amount: number(amount) });
+  // The agent names the currency: one Intl does not know is written as given, not thrown on.
+  const costOf = (cost: { amount: number; currency: string }) => {
+    try {
+      return number(cost.amount, {
+        style: "currency",
+        currency: cost.currency,
+        maximumFractionDigits: cost.amount < 0.1 ? 3 : 2,
+      });
+    } catch {
+      return `${number(cost.amount)} ${cost.currency}`;
+    }
+  };
 
   return (
     <span ref={rootRef} data-slot="context-picker">
@@ -896,13 +908,7 @@ function ContextMeter({ context }: { context: ContextState }) {
             {usage.cost !== undefined ? (
               <div data-slot="context-row">
                 <dt>{t("composer.context.cost")}</dt>
-                <dd>
-                  {number(usage.cost.amount, {
-                    style: "currency",
-                    currency: usage.cost.currency,
-                    maximumFractionDigits: usage.cost.amount < 0.1 ? 3 : 2,
-                  })}
-                </dd>
+                <dd>{costOf(usage.cost)}</dd>
               </div>
             ) : null}
             {context.compactions > 0 ? (

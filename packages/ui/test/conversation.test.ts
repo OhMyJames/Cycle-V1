@@ -320,10 +320,18 @@ test("a usage measured before a compaction says so until a newer one comes", () 
     compacting: false,
   });
   const running = at(
+    { sessionUpdate: "state_update", state: "running" },
     { sessionUpdate: "usage_update", used: 150, size: 200 },
     compaction("in_progress"),
   );
   expect(contextOf(running).compacting).toBe(true);
+  // One never told as over, with nothing running any more (its process went): not "compacting now".
+  const orphan = at(
+    { sessionUpdate: "state_update", state: "running" },
+    compaction("in_progress"),
+    { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" },
+  );
+  expect(contextOf(orphan).compacting).toBe(false);
   expect(running.usage?.beforeCompaction).toBeUndefined();
   const done = at(
     { sessionUpdate: "usage_update", used: 150, size: 200 },
