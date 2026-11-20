@@ -312,6 +312,9 @@ export type TrackProps = Record<string, string | number | boolean>;
 export type NewSession = { cwd: string; agent?: string; config?: Record<string, string> };
 
 /** What the renderer asks of main. Every method can fail; the renderer shows the message. */
+/** What sent a message: Enter, the ⌘Enter shortcut, or a button in the composer. */
+export type SendVia = "enter" | "shortcut" | "button";
+
 export type AppApi = {
   /**
    * Every environment, how its connection stands, and the last list of sessions main read from each: an environment that is
@@ -332,12 +335,15 @@ export type AppApi = {
   createSession(environmentId: string, params: NewSession): Promise<string>;
   /** Starts watching a session and returns it whole. Call again after a reload. */
   openSession(environmentId: string, sessionId: string): Promise<SessionSnapshot>;
-  /** A text, or blocks: text and images. `steer`: into the running turn rather than the queue. */
+  /**
+   * A text, or blocks: text and images. `steer`: into the running turn rather than the queue. `via`: what the person
+   * pressed, for the count of how messages are sent (never their content).
+   */
   prompt(
     environmentId: string,
     sessionId: string,
     content: string | PromptBlock[],
-    options?: { steer?: boolean },
+    options?: { steer?: boolean; via?: SendVia },
   ): Promise<void>;
   cancel(environmentId: string, sessionId: string): Promise<void>;
   /**

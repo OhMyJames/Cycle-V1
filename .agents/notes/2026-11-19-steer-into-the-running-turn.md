@@ -27,3 +27,7 @@ Until now a prompt sent during a turn was always queued by the daemon ([queue no
 - Real-CLI integration tests cover both cases: a steer folded in at a tool call, and one that arrives as the model finishes its answer. Both end in one `idle`.
 - A steer killed by a stop is in history as a `user_message` that the model may never have seen. Taking it back into the composer the way `returned` queue entries are was not done.
 - The keys are the author's guess where the owner did not answer: Alt+Enter for a new line while working, Ctrl/Cmd+Enter still send.
+
+## Related
+
+- [Composer keys, 2026-11-20](2026-11-20-composer-keys-shift-enter-newline-cmd-enter-queue.md) replaces this note's desktop keys (Shift+Enter is always a new line, ⌘Enter queues). The wire behaviour above stays as it is.

@@ -90,6 +90,11 @@ export const EVENTS = {
     mentions: count,
     /** Sent into the running turn (Enter) instead of queued. */
     steered: z.boolean(),
+    /**
+     * What sent it: Enter, the ⌘Enter shortcut (which queues while the agent works), a button, or something else
+     * (a new session's first message, a caller that does not say).
+     */
+    via: z.enum(["enter", "shortcut", "button", "other"]),
   }),
   prompt_cancelled: o({ agent }),
   permission_answered: o({

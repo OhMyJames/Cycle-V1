@@ -36,6 +36,7 @@ describe("track", () => {
       images: 1,
       mentions: 0,
       steered: false,
+      via: "enter",
     });
     expect(sent).toEqual([
       {
@@ -48,6 +49,7 @@ describe("track", () => {
           images: 1,
           mentions: 0,
           steered: false,
+          via: "enter",
           ...context,
           $session_id: "launch-1",
           $geoip_disable: true,

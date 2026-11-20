@@ -1017,7 +1017,15 @@ test("what a person does is reported as counts and words, and never as what they
   ]);
   expect(named("session_opened")).toEqual([{ agent: "other", environment: "local" }]);
   expect(named("prompt_sent")).toEqual([
-    { agent: "other", environment: "local", size: "short", images: 1, mentions: 1, steered: false },
+    {
+      agent: "other",
+      environment: "local",
+      size: "short",
+      images: 1,
+      mentions: 1,
+      steered: false,
+      via: "other",
+    },
   ]);
   expect(named("permission_answered")).toEqual([{ outcome: "allowed", remembered: false }]);
   expect(named("session_config_changed")).toEqual([{ setting: "mode" }, { setting: "effort" }]);

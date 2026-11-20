@@ -162,10 +162,11 @@ function Behaviour({ props }: { props: MarkdownInputProps }) {
         if (name === "enter") {
           // Enter that confirms an IME composition is not a send; Safari reports it as !event.isComposing.
           if (isComposing(event)) return false;
-          // Cmd/Ctrl+Enter is reserved for app-level shortcuts (e.g. approving a permission): stop Lexical
-          // from inserting a break or sending, while letting the DOM keydown bubble to window.
+          // Cmd/Ctrl+Enter is never a line break. The parent may use it (to queue); one it leaves is an app shortcut
+          // (approving a permission), so the DOM keydown goes on bubbling to window.
           if (event.metaKey || event.ctrlKey) {
             event.preventDefault();
+            latest.current.onKey("enter", event);
             return true;
           }
           event.preventDefault();

@@ -83,9 +83,10 @@ export const enUS = {
   "composer.placeholder.idle": "Message the agent",
   "composer.placeholder.working": "Queue a message for when the agent is done",
   "composer.placeholder.busy": "The agent is working. Stop it to send a message now.",
-  "composer.placeholder.steer": "Enter to send now, Shift+Enter to queue",
+  "composer.placeholder.steer": "Enter to send now, {key} to queue",
   "composer.send": "Send",
   "composer.queue": "Queue",
+  "composer.queueKey": "Queue ({key})",
   "composer.steer": "Send now",
   "composer.stop": "Stop",
   "composer.stopKey": "Stop ({key})",
@@ -119,6 +120,7 @@ export const enUS = {
   // The files and folders that fit what is typed after an @
   "composer.mentions.label": "Files and folders",
   "composer.mentions.empty": "No file or folder matches that.",
+  "composer.mentions.none": "This folder has no files or folders.",
 
   // Messages sent while the agent works, waiting their turn
   "composer.queued.label": "Queued messages",

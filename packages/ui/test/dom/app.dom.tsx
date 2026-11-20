@@ -6,6 +6,7 @@ import type { PermissionRequest, SessionSnapshot } from "../../src/api.ts";
 import { codeTheme } from "../../src/code-theme.ts";
 import { applyUpdate, emptyConversation } from "../../src/model/index.ts";
 import { App, StoreProvider } from "../../src/react/index.ts";
+import { MOD } from "../../src/react/sidebar.tsx";
 import { AppStore } from "../../src/store/index.ts";
 import { fakeBridge, idle, summary, text } from "../fake-bridge.ts";
 import { boxText, press, ready, write } from "./box.ts";
@@ -89,7 +90,13 @@ test("Enter sends what was typed, Shift+Enter makes a new line, and the box empt
   await press(box, "Enter");
   await waitFor(() =>
     expect(named("prompt")).toEqual([
-      ["prompt", "local", "s1", [{ type: "text", text: "first line\nsecond line" }]],
+      [
+        "prompt",
+        "local",
+        "s1",
+        [{ type: "text", text: "first line\nsecond line" }],
+        { via: "enter" },
+      ],
     ]),
   );
   expect(boxText(box)).toBe("");
@@ -113,7 +120,9 @@ test("while the agent works there is Stop, and a message typed is queued, not re
   await write(screen.getByRole("textbox", { name: "Message" }), "next");
   await user.click(queue);
   await waitFor(() =>
-    expect(named("prompt")).toEqual([["prompt", "local", "s1", [{ type: "text", text: "next" }]]]),
+    expect(named("prompt")).toEqual([
+      ["prompt", "local", "s1", [{ type: "text", text: "next" }], { via: "button" }],
+    ]),
   );
   await user.click(stop);
   expect(named("cancel")).toHaveLength(1);
@@ -127,7 +136,7 @@ test("while the agent works there is Stop, and a message typed is queued, not re
   await screen.findByRole("button", { name: "Send" });
 });
 
-test("while the agent works, Enter sends into its turn, Shift+Enter queues, and Alt+Enter is a new line", async () => {
+test("while the agent works, Enter sends into its turn, ⌘Enter queues, and Shift+Enter is a new line", async () => {
   const { user, emit, named } = await mount({
     steer: true,
     capabilities: { queue: true, steer: true, files: true, folders: true },
@@ -143,23 +152,68 @@ test("while the agent works, Enter sends into its turn, Shift+Enter queues, and 
     version: 1,
   });
   await screen.findByRole("button", { name: "Send now" });
-  expect(screen.getByRole("button", { name: "Queue" })).toBeDefined();
+  const queueButton = screen.getByRole("button", { name: "Queue" });
+  expect(queueButton.getAttribute("title")).toBe(`Queue (${MOD}↵)`);
+  expect(box.closest('[data-slot="composer"]')?.textContent ?? "").not.toContain("Shift+Enter");
+  // Shift+Enter is a new line while it works, as it is when it does not; so is Alt+Enter.
   await write(box, "one");
-  await press(box, "Enter", { altKey: true });
+  await press(box, "Enter", { shiftKey: true });
   await write(box, "two");
-  expect(boxText(box)).toBe("one\ntwo");
+  await press(box, "Enter", { altKey: true });
+  await write(box, "three");
+  expect(boxText(box)).toBe("one\ntwo\nthree");
   expect(named("prompt")).toHaveLength(0);
   await press(box, "Enter");
   await waitFor(() =>
     expect(named("prompt")).toEqual([
-      ["prompt", "local", "s1", [{ type: "text", text: "one\ntwo" }], { steer: true }],
+      [
+        "prompt",
+        "local",
+        "s1",
+        [{ type: "text", text: "one\ntwo\nthree" }],
+        { steer: true, via: "enter" },
+      ],
     ]),
   );
+  // ⌘Enter (Ctrl+Enter off a Mac) queues.
   await write(box, "later");
-  await press(box, "Enter", { shiftKey: true });
+  await press(box, "Enter", MOD === "⌘" ? { metaKey: true } : { ctrlKey: true });
   await waitFor(() => expect(named("prompt")).toHaveLength(2));
-  expect(named("prompt")[1]).toEqual(["prompt", "local", "s1", [{ type: "text", text: "later" }]]);
+  expect(named("prompt")[1]).toEqual([
+    "prompt",
+    "local",
+    "s1",
+    [{ type: "text", text: "later" }],
+    { via: "shortcut" },
+  ]);
   expect(boxText(box)).toBe("");
+  // And the button says how it was sent, too.
+  await write(box, "by hand");
+  await user.click(screen.getByRole("button", { name: "Queue" }));
+  await waitFor(() => expect(named("prompt")).toHaveLength(3));
+  expect(named("prompt")[2]?.[4]).toEqual({ via: "button" });
+});
+
+test("while a permission waits, ⌘Enter is the card's, not the queue's", async () => {
+  const { user, emit, named } = await mount({
+    steer: true,
+    capabilities: { queue: true, steer: true, files: true, folders: true },
+  });
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  emit({
+    type: "update",
+    environmentId: "local",
+    sessionId: "s1",
+    update: u({ sessionUpdate: "state_update", state: "requires_action" }),
+    version: 1,
+  });
+  await screen.findByRole("button", { name: "Queue" });
+  await write(box, "wait");
+  await press(box, "Enter", MOD === "⌘" ? { metaKey: true } : { ctrlKey: true });
+  expect(named("prompt")).toHaveLength(0);
+  expect(boxText(box)).toBe("wait");
 });
 
 test("an agent that cannot be steered keeps Enter as queue while it works", async () => {
@@ -181,7 +235,9 @@ test("an agent that cannot be steered keeps Enter as queue while it works", asyn
   await write(box, "next");
   await press(box, "Enter");
   await waitFor(() =>
-    expect(named("prompt")).toEqual([["prompt", "local", "s1", [{ type: "text", text: "next" }]]]),
+    expect(named("prompt")).toEqual([
+      ["prompt", "local", "s1", [{ type: "text", text: "next" }], { via: "enter" }],
+    ]),
   );
 });
 
@@ -268,7 +324,7 @@ test("a permission request is shown with its options, and the click answers it",
   await user.click(queue);
   await waitFor(() =>
     expect(named("prompt")).toEqual([
-      ["prompt", "local", "s1", [{ type: "text", text: "next message" }]],
+      ["prompt", "local", "s1", [{ type: "text", text: "next message" }], { via: "button" }],
     ]),
   );
   await user.click(deny);
@@ -443,7 +499,7 @@ test("an open session keeps its draft offline and can send it after reconnecting
   await press(box, "Enter");
   await waitFor(() =>
     expect(named("prompt")).toEqual([
-      ["prompt", "local", "s1", [{ type: "text", text: "Keep this draft" }]],
+      ["prompt", "local", "s1", [{ type: "text", text: "Keep this draft" }], { via: "enter" }],
     ]),
   );
 });
@@ -822,6 +878,7 @@ test("images can be attached when the agent takes them, and go with the message 
       { type: "text", text: "what is this" },
       { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
     ],
+    { via: "enter" },
   ]);
   // The attachment is gone once sent.
   expect(screen.queryByRole("button", { name: "Remove shot.png" })).toBeNull();
@@ -1261,7 +1318,7 @@ test("a slash at the start lists the commands that fit; the arrows choose, Enter
   await press(box, "Enter");
   await waitFor(() =>
     expect(named("prompt")).toEqual([
-      ["prompt", "local", "s1", [{ type: "text", text: "/review 12" }]],
+      ["prompt", "local", "s1", [{ type: "text", text: "/review 12" }], { via: "enter" }],
     ]),
   );
 });
@@ -1289,7 +1346,7 @@ test("a command typed in full is sent by Enter, not rewritten", async () => {
   await press(box, "Enter");
   await waitFor(() =>
     expect(named("prompt")).toEqual([
-      ["prompt", "local", "s1", [{ type: "text", text: "/compact" }]],
+      ["prompt", "local", "s1", [{ type: "text", text: "/compact" }], { via: "enter" }],
     ]),
   );
 });
@@ -1378,6 +1435,7 @@ test("an @ lists the files that fit; Enter takes one, the text says where, and t
         _meta: { "cycle/mention": "src/main.ts" },
       },
     ],
+    { via: "enter" },
   ]);
 });
 
@@ -1405,6 +1463,19 @@ test("a name that fits nothing is said so, an @ in an address opens nothing, and
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
   expect(store.getState().error).toBeUndefined();
+});
+
+test("a bare @ in a folder with nothing in it says so; the menu spans the box, not the field", async () => {
+  const { user, bridge } = await mount();
+  bridge.searchFiles = files([]);
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "see @");
+  const empty = () => document.querySelector('[data-slot="picker"][role="status"]');
+  await waitFor(() => expect(empty()?.textContent).toBe("This folder has no files or folders."));
+  // Placed over the whole input box: with Queue, Send now and Stop beside one line, the field alone can be narrow.
+  expect(empty()?.parentElement?.getAttribute("data-slot")).toBe("composer-box");
 });
 
 test("a mention taken back from the queue is a mention again", async () => {
@@ -1572,7 +1643,7 @@ test("empty state offers Start a new session and high-risk mode chip carries dat
   expect(screen.getByRole("button", { name: "Hide sidebar" })).toBeTruthy();
 });
 
-test("composer uses a single-line box by default, promotes on attachments or multi-action, and docks extensions above", async () => {
+test("composer uses a single-line box by default, stays one line with several buttons, and docks extensions above", async () => {
   const { user, emit } = await mount({
     configure: (script) => {
       const session = { ...summary("s1"), config: { mode: "auto", model: "opus", effort: "high" } };
@@ -1656,7 +1727,7 @@ test("composer uses a single-line box by default, promotes on attachments or mul
   const meter = await screen.findByRole("button", { name: "Context 6% full. Show details" });
   expect(meter.textContent).toBe("6%");
 
-  // Plan + queued message dock inside the extension tray above the input box, and multi-action working state promotes to multiline.
+  // Plan + queued message dock inside the extension tray above the input box; the working state's buttons keep one line.
   emit({
     type: "update",
     environmentId: "local",
@@ -1692,9 +1763,10 @@ test("composer uses a single-line box by default, promotes on attachments or mul
     const ext = document.querySelector('[data-slot="composer-extensions"]');
     expect(ext?.textContent).toContain("Ship three-part composer");
     expect(ext?.textContent).toContain("Follow up next");
+    // Queue, Send now and Stop sit beside one line: several buttons do not make the box taller (CYCL-75).
     expect(
       document.querySelector('[data-slot="composer-box"]')?.hasAttribute("data-multiline"),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   // Live config_option_update from the agent overlays newly discovered models and hides effort when unsupported.
