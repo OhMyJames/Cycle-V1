@@ -104,6 +104,11 @@ export const EVENTS = {
   tool_copied: o({ part: z.enum(["command", "output"]) }),
   tool_output_expanded: o({}),
   plan_opened: o({}),
+  /**
+   * The composer's context ring opened into its details. `state`: what it had to show, a number measured now, none
+   * reported yet, or one from before the last compaction.
+   */
+  context_details_opened: o({ state: z.enum(["measured", "empty", "before_compaction"]) }),
   tool_link_opened: o({}),
   code_theme_changed: o({}),
   slash_command_used: o({}),
@@ -131,6 +136,7 @@ export const UI_EVENTS = [
   "tool_copied",
   "tool_output_expanded",
   "plan_opened",
+  "context_details_opened",
   "tool_link_opened",
   "turn_resend_opened",
   "turn_resent",

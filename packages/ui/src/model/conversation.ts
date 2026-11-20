@@ -65,20 +65,27 @@ export type Subagent = {
   usage?: { tokens: number; toolUses: number; durationMs: number };
 };
 export type PlanEntry = { content: string; priority: string; status: string };
-export type Usage = { used: number; size: number; cost?: { amount: number; currency: string } };
+export type Usage = {
+  /** Tokens in context after the last model call (cache reads and writes included). */
+  used: number;
+  /** The model's context window. */
+  size: number;
+  /** What the session has cost so far. */
+  cost?: { amount: number; currency: string };
+  /**
+   * A compaction completed after this was measured, and no newer usage came (docs/protocol.md §8): it is from before,
+   * and says nothing of now.
+   */
+  beforeCompaction?: true;
+};
 
-/** What the header says: how full the context is, and what the session has cost. */
-export const usageLabel = (usage: Usage): string => {
-  const percent = usage.size > 0 ? Math.min(100, Math.round((usage.used / usage.size) * 100)) : 0;
-  const parts = [`${percent}% of context`];
-  if (usage.cost !== undefined) {
-    parts.push(
-      usage.cost.currency === "USD"
-        ? `$${usage.cost.amount.toFixed(usage.cost.amount < 0.1 ? 3 : 2)}`
-        : `${usage.cost.amount} ${usage.cost.currency}`,
-    );
-  }
-  return parts.join(" · ");
+/** How the context stands, for the composer's ring and its details: the usage, and the compactions told so far. */
+export type ContextState = {
+  usage: Usage | undefined;
+  /** Compactions that completed in this conversation. */
+  compactions: number;
+  /** A compaction is running now. */
+  compacting: boolean;
 };
 
 export type PlanItem = InTurn & { kind: "plan"; id: string; entries: PlanEntry[] };
@@ -184,6 +191,18 @@ export const emptyConversation = (): Conversation => ({
   ignored: 0,
   waiting: {},
 });
+
+export const contextOf = (c: Conversation): ContextState => {
+  let compactions = 0;
+  let compacting = false;
+  for (const item of c.items) {
+    if (item.kind !== "compaction") continue;
+    if (item.status === "completed") compactions += 1;
+    // Only while something is running: one never told as over (its process went with the daemon) is not "now".
+    else if (item.status === "in_progress" && c.status !== "idle") compacting = true;
+  }
+  return { usage: c.usage, compactions, compacting };
+};
 
 const queuedPrompts = (value: unknown): QueuedPrompt[] =>
   Array.isArray(value)
@@ -553,8 +572,12 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
       const old = find(c.items, "compaction", id);
       // An update with a status this version does not know keeps the one before.
       const next = known ? status : (old?.status ?? "in_progress");
+      const compacted = next === "completed" && old?.status !== "completed";
       return {
         ...c,
+        ...(compacted && c.usage !== undefined
+          ? { usage: { ...c.usage, beforeCompaction: true as const } }
+          : {}),
         items: upsert(c.items, {
           kind: "compaction",
           id,

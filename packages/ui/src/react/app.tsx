@@ -22,6 +22,7 @@ import {
   ResizablePanel,
 } from "@ui-sdk/react/resizable";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { contextOf } from "../model/conversation.ts";
 import {
   currentWorkspace,
   elsewhere as elsewhereOf,
@@ -193,6 +194,17 @@ export function App() {
         ? undefined
         : mergeConfigSchema(agent.configSchema, view?.conversation.configOptions),
     [agent, view?.conversation.configOptions],
+  );
+  // Rebuilt only when what it shows changes, not on every streamed chunk.
+  const conversation = view?.conversation;
+  const counted = conversation === undefined ? undefined : contextOf(conversation);
+  const usage = counted?.usage;
+  const compactions = counted?.compactions ?? 0;
+  const compacting = counted?.compacting ?? false;
+  const hasConversation = conversation !== undefined;
+  const context = useMemo(
+    () => (hasConversation ? { usage, compactions, compacting } : undefined),
+    [hasConversation, usage, compactions, compacting],
   );
   const environmentState =
     selectedEnvironment !== undefined ? status[selectedEnvironment]?.state : undefined;
@@ -687,7 +699,7 @@ export function App() {
                 connected={connected}
                 activity={activity}
                 plan={plan}
-                usage={view.conversation.usage}
+                context={context}
                 onSent={() => setSent((n) => n + 1)}
               />
             ) : null}

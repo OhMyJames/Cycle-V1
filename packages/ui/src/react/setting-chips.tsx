@@ -6,9 +6,9 @@
 // highlight, compact description-free model rows, draggable elastic Effort slider, WAI-ARIA semantics, full IME
 // safety, and explicit-activation guard for high-risk modes.
 import { isComposing } from "@ui-sdk/core";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { motion, useReducedMotion } from "motion/react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { AnchoredPopover } from "./anchored-popover.tsx";
 import { type Option, OptionLabel, optionsOf, propertiesOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
 import { CheckIcon, ChevronDownIcon, SearchIcon, ShieldAlertIcon, ShieldIcon } from "./icons.tsx";
@@ -29,15 +29,6 @@ export type SecondarySetting = {
 
 /** Show the inline filter input once a setting offers enough choices to benefit from search. */
 const SEARCH_THRESHOLD = 5;
-const VIEWPORT_MARGIN = 12;
-const POPOVER_GAP = 6;
-
-type PopoverPosition = {
-  top: number;
-  left: number;
-  placement: "top" | "bottom";
-};
-
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
 /** Compact tick label for the discrete Effort slider track. */
@@ -316,11 +307,6 @@ function SettingPickerChip({
   const [query, setQuery] = useState("");
   const [highlighted, setHighlighted] = useState(0);
   const [sliderFocused, setSliderFocused] = useState(false);
-  const [position, setPosition] = useState<PopoverPosition>({
-    top: VIEWPORT_MARGIN,
-    left: VIEWPORT_MARGIN,
-    placement: "top",
-  });
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -399,80 +385,6 @@ function SettingPickerChip({
     if (searchable) searchRef.current?.focus();
     else listRef.current?.focus();
   }, [open, searchable]);
-
-  const reposition = useCallback(() => {
-    const trigger = triggerRef.current;
-    const popover = popoverRef.current;
-    if (trigger === null || popover === null) return;
-    const rect = trigger.getBoundingClientRect();
-    // Measure natural layout size so scale enter/exit transforms never skew collision clamping.
-    const width = popover.offsetWidth;
-    const height = popover.offsetHeight;
-    const spaceAbove = rect.top - POPOVER_GAP - VIEWPORT_MARGIN;
-    const spaceBelow = window.innerHeight - rect.bottom - POPOVER_GAP - VIEWPORT_MARGIN;
-    const placement: "top" | "bottom" =
-      height > spaceAbove && spaceBelow > spaceAbove ? "bottom" : "top";
-    const rawTop =
-      placement === "top" ? rect.top - POPOVER_GAP - height : rect.bottom + POPOVER_GAP;
-    const maxTop = Math.max(VIEWPORT_MARGIN, window.innerHeight - VIEWPORT_MARGIN - height);
-    const top = Math.max(VIEWPORT_MARGIN, Math.min(rawTop, maxTop));
-    const maxLeft = Math.max(VIEWPORT_MARGIN, window.innerWidth - VIEWPORT_MARGIN - width);
-    const rawLeft = align === "end" ? rect.right - width : rect.left;
-    const left = Math.max(VIEWPORT_MARGIN, Math.min(rawLeft, maxLeft));
-    setPosition((prev) =>
-      prev.top === top && prev.left === left && prev.placement === placement
-        ? prev
-        : { top, left, placement },
-    );
-  }, [align]);
-
-  useLayoutEffect(() => {
-    if (!open) return;
-    reposition();
-    const popover = popoverRef.current;
-    if (popover === null || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => reposition());
-    observer.observe(popover);
-    return () => observer.disconnect();
-  }, [open, reposition]);
-
-  useEffect(() => {
-    if (!open) return;
-    const isInside = (target: EventTarget | null) => {
-      if (!(target instanceof Node)) return false;
-      return Boolean(rootRef.current?.contains(target) || popoverRef.current?.contains(target));
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      if (!isInside(event.target)) close(false);
-    };
-    const onFocusIn = (event: FocusEvent) => {
-      if (!isInside(event.target)) close(false);
-    };
-    const onDocumentKeyDown = (event: KeyboardEvent) => {
-      if (isComposing(event)) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        close(true);
-      }
-    };
-    const onScroll = (event: Event) => {
-      if (event.target instanceof Node && popoverRef.current?.contains(event.target)) return;
-      reposition();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("focusin", onFocusIn);
-    document.addEventListener("keydown", onDocumentKeyDown);
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", onScroll, true);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("focusin", onFocusIn);
-      document.removeEventListener("keydown", onDocumentKeyDown);
-      window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", onScroll, true);
-    };
-  }, [open, close, reposition]);
 
   const activeIndex = visible.length === 0 ? -1 : Math.min(highlighted, visible.length - 1);
   const listActiveIndex = sliderFocused ? -1 : activeIndex;
@@ -560,140 +472,126 @@ function SettingPickerChip({
   };
 
   const popover = (
-    <AnimatePresence>
-      {open ? (
-        <motion.div
-          key={openSeq}
-          ref={popoverRef}
-          {...(secondary !== undefined
-            ? { id: popoverId, role: "dialog", "aria-label": heading }
-            : {})}
-          data-slot="setting-popover"
-          data-compact={compact || undefined}
-          data-placement={position.placement}
-          style={{
-            top: `${position.top}px`,
-            left: `${position.left}px`,
-            transformOrigin: `${position.placement === "top" ? "bottom" : "top"} ${align === "end" ? "right" : "left"}`,
-          }}
-          initial={reduced ? { opacity: 1 } : { opacity: 0, scale: 0.96 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
-          transition={reduced ? { duration: 0 } : { type: "spring", duration: 0.3, bounce: 0.14 }}
-          onMouseDown={(event) => {
-            const target = event.target;
-            if (target === searchRef.current) return;
-            if (target instanceof Node && secondaryWrapRef.current?.contains(target)) return;
-            event.preventDefault();
-          }}
-          onKeyDown={onPopoverKeyDown}
-        >
-          <div data-slot="setting-popover-head">{heading}</div>
-          {searchable ? (
-            <div data-slot="setting-search">
-              <SearchIcon size={13} aria-hidden="true" />
-              <input
-                ref={searchRef}
-                type="search"
-                role="combobox"
-                aria-autocomplete="list"
-                aria-expanded={open}
-                aria-controls={listId}
-                {...(activeOptionId !== undefined
-                  ? { "aria-activedescendant": activeOptionId }
-                  : {})}
-                data-slot="setting-search-input"
-                value={query}
-                placeholder={t("config.filterPlaceholder")}
-                aria-label={t("config.filterLabel", { setting: heading })}
-                onChange={(event) => {
-                  navOriginRef.current = "keyboard";
-                  setQuery(event.currentTarget.value);
-                  setHighlighted(0);
-                }}
-              />
-            </div>
-          ) : null}
-          <motion.div
-            ref={listRef}
-            id={listId}
-            layoutScroll
-            role={searchable ? "listbox" : "menu"}
-            aria-label={heading}
-            {...(!searchable && activeOptionId !== undefined
-              ? { "aria-activedescendant": activeOptionId }
-              : {})}
-            tabIndex={-1}
-            data-slot="setting-list"
-          >
-            {visible.length === 0 ? (
-              <div role="status" aria-live="polite" data-slot="setting-empty">
-                {t("config.noMatch")}
-              </div>
-            ) : (
-              visible.map((option, index) => {
-                const selected = option.value === current;
-                const active = index === listActiveIndex;
-                const displayOption = compact ? { ...option, description: undefined } : option;
-                return (
-                  <button
-                    key={option.value}
-                    id={optionId(index)}
-                    type="button"
-                    role={searchable ? "option" : "menuitemradio"}
-                    {...(searchable ? { "aria-selected": selected } : { "aria-checked": selected })}
-                    tabIndex={-1}
-                    data-slot="setting-option"
-                    data-active={active || undefined}
-                    data-selected={selected || undefined}
-                    data-danger={option.danger || undefined}
-                    title={option.description}
-                    onMouseEnter={() => {
-                      navOriginRef.current = "pointer";
-                      setSliderFocused(false);
-                      setHighlighted(index);
-                    }}
-                    onClick={() => choose(option)}
-                  >
-                    {active ? (
-                      <motion.span
-                        {...(reduced
-                          ? {}
-                          : { layoutId: `setting-highlight-${pickerId}-${openSeq}` })}
-                        data-slot="setting-highlight"
-                        aria-hidden="true"
-                        transition={
-                          reduced ? { duration: 0 } : { type: "spring", duration: 0.18, bounce: 0 }
-                        }
-                      />
-                    ) : null}
-                    <span data-slot="setting-option-body">
-                      <OptionLabel option={displayOption} />
-                    </span>
-                    {selected ? (
-                      <span data-slot="setting-check" aria-hidden="true">
-                        <CheckIcon size={13} />
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })
-            )}
-          </motion.div>
-          {secondary !== undefined ? (
-            <div ref={secondaryWrapRef}>
-              <EffortSlider
-                setting={secondary}
-                reduced={reduced}
-                inputRef={sliderInputRef}
-                onSelect={(value) => onSet(secondary.key, value)}
-                onFocusChange={setSliderFocused}
-              />
-            </div>
-          ) : null}
-        </motion.div>
+    <AnchoredPopover
+      open={open}
+      anchorRef={triggerRef}
+      ownerRef={rootRef}
+      popoverRef={popoverRef}
+      align={align}
+      onDismiss={close}
+      motionKey={openSeq}
+      {...(secondary !== undefined
+        ? { id: popoverId, role: "dialog" as const, label: heading }
+        : {})}
+      compact={compact}
+      onMouseDown={(event) => {
+        const target = event.target;
+        if (target === searchRef.current) return;
+        if (target instanceof Node && secondaryWrapRef.current?.contains(target)) return;
+        event.preventDefault();
+      }}
+      onKeyDown={onPopoverKeyDown}
+    >
+      <div data-slot="setting-popover-head">{heading}</div>
+      {searchable ? (
+        <div data-slot="setting-search">
+          <SearchIcon size={13} aria-hidden="true" />
+          <input
+            ref={searchRef}
+            type="search"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={open}
+            aria-controls={listId}
+            {...(activeOptionId !== undefined ? { "aria-activedescendant": activeOptionId } : {})}
+            data-slot="setting-search-input"
+            value={query}
+            placeholder={t("config.filterPlaceholder")}
+            aria-label={t("config.filterLabel", { setting: heading })}
+            onChange={(event) => {
+              navOriginRef.current = "keyboard";
+              setQuery(event.currentTarget.value);
+              setHighlighted(0);
+            }}
+          />
+        </div>
       ) : null}
-    </AnimatePresence>
+      <motion.div
+        ref={listRef}
+        id={listId}
+        layoutScroll
+        role={searchable ? "listbox" : "menu"}
+        aria-label={heading}
+        {...(!searchable && activeOptionId !== undefined
+          ? { "aria-activedescendant": activeOptionId }
+          : {})}
+        tabIndex={-1}
+        data-slot="setting-list"
+      >
+        {visible.length === 0 ? (
+          <div role="status" aria-live="polite" data-slot="setting-empty">
+            {t("config.noMatch")}
+          </div>
+        ) : (
+          visible.map((option, index) => {
+            const selected = option.value === current;
+            const active = index === listActiveIndex;
+            const displayOption = compact ? { ...option, description: undefined } : option;
+            return (
+              <button
+                key={option.value}
+                id={optionId(index)}
+                type="button"
+                role={searchable ? "option" : "menuitemradio"}
+                {...(searchable ? { "aria-selected": selected } : { "aria-checked": selected })}
+                tabIndex={-1}
+                data-slot="setting-option"
+                data-active={active || undefined}
+                data-selected={selected || undefined}
+                data-danger={option.danger || undefined}
+                title={option.description}
+                onMouseEnter={() => {
+                  navOriginRef.current = "pointer";
+                  setSliderFocused(false);
+                  setHighlighted(index);
+                }}
+                onClick={() => choose(option)}
+              >
+                {active ? (
+                  <motion.span
+                    {...(reduced ? {} : { layoutId: `setting-highlight-${pickerId}-${openSeq}` })}
+                    data-slot="setting-highlight"
+                    aria-hidden="true"
+                    transition={
+                      reduced ? { duration: 0 } : { type: "spring", duration: 0.18, bounce: 0 }
+                    }
+                  />
+                ) : null}
+                <span data-slot="setting-option-body">
+                  <OptionLabel option={displayOption} />
+                </span>
+                {selected ? (
+                  <span data-slot="setting-check" aria-hidden="true">
+                    <CheckIcon size={13} />
+                  </span>
+                ) : null}
+              </button>
+            );
+          })
+        )}
+      </motion.div>
+      {secondary !== undefined ? (
+        <div ref={secondaryWrapRef}>
+          <EffortSlider
+            setting={secondary}
+            reduced={reduced}
+            inputRef={sliderInputRef}
+            onSelect={(value) => onSet(secondary.key, value)}
+            onFocusChange={setSliderFocused}
+          />
+        </div>
+      ) : null}
+    </AnchoredPopover>
   );
 
   const leadingIcon =
@@ -737,7 +635,7 @@ function SettingPickerChip({
           aria-hidden="true"
         />
       </button>
-      {typeof document !== "undefined" ? createPortal(popover, document.body) : null}
+      {popover}
     </div>
   );
 }

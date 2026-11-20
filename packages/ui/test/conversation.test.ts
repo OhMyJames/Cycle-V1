@@ -5,12 +5,12 @@ import {
   type Block,
   type Conversation,
   canPrompt,
+  contextOf,
   emptyConversation,
   type Item,
   reduce,
   type ToolItem,
   textOf,
-  usageLabel,
 } from "../src/model/index.ts";
 
 const blocksOf = (item: Item | undefined): Block[] => (item as { blocks: Block[] }).blocks;
@@ -305,14 +305,61 @@ test("usage keeps its cost until a new one comes, and null clears it", () => {
   ).toEqual({ used: 2, size: 10 });
 });
 
-test("the header's words for usage", () => {
-  expect(usageLabel({ used: 25_000, size: 200_000 })).toBe("13% of context");
-  expect(usageLabel({ used: 1, size: 10, cost: { amount: 0.0123, currency: "USD" } })).toBe(
-    "10% of context · $0.012",
+test("a usage measured before a compaction says so until a newer one comes", () => {
+  const at = (...updates: object[]) =>
+    updates.reduce<Conversation>((c, x) => applyUpdate(c, x as never), emptyConversation());
+  const compaction = (status: string, id = "k1") => ({
+    sessionUpdate: "compaction_update",
+    compactionId: id,
+    status,
+  });
+  const measured = at({ sessionUpdate: "usage_update", used: 150, size: 200 });
+  expect(contextOf(measured)).toEqual({
+    usage: { used: 150, size: 200 },
+    compactions: 0,
+    compacting: false,
+  });
+  const running = at(
+    { sessionUpdate: "state_update", state: "running" },
+    { sessionUpdate: "usage_update", used: 150, size: 200 },
+    compaction("in_progress"),
   );
-  expect(usageLabel({ used: 1, size: 10, cost: { amount: 1.5, currency: "USD" } })).toBe(
-    "10% of context · $1.50",
+  expect(contextOf(running).compacting).toBe(true);
+  // One never told as over, with nothing running any more (its process went): not "compacting now".
+  const orphan = at(
+    { sessionUpdate: "state_update", state: "running" },
+    compaction("in_progress"),
+    { sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" },
   );
+  expect(contextOf(orphan).compacting).toBe(false);
+  expect(running.usage?.beforeCompaction).toBeUndefined();
+  const done = at(
+    { sessionUpdate: "usage_update", used: 150, size: 200 },
+    compaction("in_progress"),
+    compaction("completed"),
+  );
+  expect(contextOf(done)).toEqual({
+    usage: { used: 150, size: 200, beforeCompaction: true },
+    compactions: 1,
+    compacting: false,
+  });
+  // The usage after it (the adapter's post_tokens, or the next turn's) is now's.
+  const after = at(
+    { sessionUpdate: "usage_update", used: 150, size: 200 },
+    compaction("in_progress"),
+    compaction("completed"),
+    { sessionUpdate: "usage_update", used: 40, size: 200 },
+  );
+  expect(after.usage).toEqual({ used: 40, size: 200 });
+  // A compaction that failed or was cut short left the context as it was.
+  const failed = at(
+    { sessionUpdate: "usage_update", used: 150, size: 200 },
+    compaction("in_progress"),
+    compaction("failed"),
+  );
+  expect(failed.usage).toEqual({ used: 150, size: 200 });
+  // No usage yet: nothing to mark, and none is made up.
+  expect(at(compaction("in_progress"), compaction("completed")).usage).toBeUndefined();
 });
 
 const queued = (...texts: string[]) =>
