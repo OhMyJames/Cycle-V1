@@ -367,7 +367,7 @@ agent 是 daemon 的子进程,daemon 停止(`cycle stop`、升级、崩溃、机
 
 agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需要回答的请求**,必须能跨越客户端的断线和重连。
 
-1. daemon 收到请求后先写入日志(占一个序号),再转发给所有附着的客户端,同时把 session 的状态置为 `requires_action`。
+1. daemon 收到请求后先写入日志(占一个序号),再转发给所有附着的客户端,同时把 session 的状态置为 `requires_action`:agent 不一定自己发 `requires_action`(Claude 适配就不发),所以 daemon 在状态因此改变时,给已附着的客户端发一条状态快照(和附着时那条一样:`state_update`,没有 `stopReason`,没有 `cycle/seq`,不进日志)。请求被回答或中止、session 不再等人时同样发一次,状态回到 agent 的(通常是 `running`)。这样一直在线的客户端和断线后重连、拿到附着快照的客户端看到的是同一个状态。
 2. **第一个到达的响应生效**,daemon 把它转给 agent,并把响应写入日志(占一个序号)。随后给其他客户端发 `_cycle/request_resolved` 通知,带上 `requestId` 和被选中的结果,让它们关闭各自的对话框。后到的响应被丢弃,不报错。
 3. 没有客户端附着时,请求保持挂起。新客户端附着时,daemon 在补发之后重新发送所有未解决的请求,并在 `session/resume` 的应答里用 `_meta["cycle/pending"]` 列出它们的 `requestId`。客户端断线前收到过、这里没有列出的请求,在它离线时已被别的客户端答复(或已中止),应关闭对应的对话框。旧 daemon 的应答没有这个字段:客户端不据此关闭任何东西。
 4. 客户端收到 `session/cancel` 之后,按 ACP 的规定,所有未解决的权限请求必须以"已取消"的结果回复。这一步由 daemon 代为完成,不依赖客户端。

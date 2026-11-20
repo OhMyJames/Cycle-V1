@@ -87,4 +87,7 @@ Claude SDK 的类型只在适配器里;页面读的是 ACP 的字段(`name`、`k
   第 5 批(同日):WebFetch 的 `code`、`bytes` 如类型;WebSearch 的结果标题常是页面的 Markdown("> ## Documentation Index"、"# Test runner")
   或只是域名,同一页会出现多次:适配器去掉标题开头的记号、按地址去重。模型找工具时先调 SDK 的 ToolSearch(结果为空),它的 kind 是 `think`,不成行。
   把适配器收到的 SDK 消息(脱敏)存成测试夹具。每个 PR 开始前抓它负责的工具。
-- **回放**:旧的 JSONL 没有结构化字段;新增的字段都是可缺的,缺了就是今天的样子。
+- **回放**:旧的 JSONL 没有结构化字段;新增的字段都是可缺的,缺了就是今天的样子。0.3.5 之前的日志(没有 `cycle/toolResult`、`cycle/stream`、`title`、`locations`)按通用样式显示:读、改、命令都是普通的行,结果是原文,没有计数和 diff,标准错误混在输出里。样例和测试见 `packages/ui/test/samples.ts`(真实格式的 0.3.4 JSONL,daemon 原样回放,界面画出来和直接读文件一致)。
+  - **已知并保留**:那时只有 TodoWrite 的 `kind` 是 `think`,所以旧日志里的 TaskCreate、TaskUpdate 会显示成行(`kind` 为 `other`)。不处理:要藏它们只能按工具名判断,而界面的规则是按 `kind` 和形状判断、不看工具名;它们只出现在旧历史里,显示出来也是真实发生过的调用。新日志里它们是 `think`,不成行。
+- **并行调用**:一条 assistant 消息里的几个调用在一张卡里,按调用的顺序,不按结果回来的顺序。几个结果在同一条消息里回来时,SDK 的结构化结果属于谁不知道,这几行都没有计数(`resultOf` 只在一条结果时用);单独回来的照常有。样例同上。
+- **断线续接**:重连后补发错过的记录,每条一次;等待中的权限和表单各一次;状态和一直在线的客户端一致(daemon 在请求让 session 进入或离开 `requires_action` 时发状态快照,protocol §9)。样例和对照测试见 `apps/desktop/test/samples.test.ts`。

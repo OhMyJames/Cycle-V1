@@ -296,7 +296,7 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 
 画廊使用临时 profile 在 macOS Electron 或 Linux xvfb 中运行，检查根页面溢出、控制台错误、焦点环、列表首项可见性与输入框边界对比度。在浏览器中预览：`bun packages/ui/gallery/build.ts` 后打开 `packages/ui/gallery/dist/index.html`（`?s=<场景>` 或 `?s=tokens`）。
 
-核心场景（定义在 `packages/ui/gallery/scenarios.ts`）：`tokens`、`empty`、`empty-conversation`、`conversation`、`streaming`、`permission`、`permission-queue`、`turn-error`、`turn-error-changed`、`turn-error-resent`、`turn-retrying`、`host-down`、`host-reconnecting`、`session-reconnecting`、`many-sessions`、`update-available`、`update-failed`、`daemon-old`、`new-session`、`dialog-add-host`、`dialog-agent-defaults`、`long`、`long-back`、`session-focus`、`turns`、`files`（文件工具的 diff 与计数）、`work`（命令输出与错误、子 agent、压缩、计划条）、`ask`（提问表单）、`web`（搜索结果链接、抓取失败、MCP 与未知工具）等。
+核心场景（定义在 `packages/ui/gallery/scenarios.ts`）：`tokens`、`empty`、`empty-conversation`、`conversation`、`streaming`、`permission`、`permission-queue`、`turn-error`、`turn-error-changed`、`turn-error-resent`、`turn-retrying`、`parallel`、`reconnected`、`history-0.3.4`（CYCL-50 的对照样例：并行调用、断线续接、旧历史回放）、`host-down`、`host-reconnecting`、`session-reconnecting`、`many-sessions`、`update-available`、`update-failed`、`daemon-old`、`new-session`、`dialog-add-host`、`dialog-agent-defaults`、`long`、`long-back`、`session-focus`、`turns`、`files`（文件工具的 diff 与计数）、`work`（命令输出与错误、子 agent、压缩、计划条）、`ask`（提问表单）、`web`（搜索结果链接、抓取失败、MCP 与未知工具）等。
 
 ## 附录 B：代码配色（Shiki）
 
