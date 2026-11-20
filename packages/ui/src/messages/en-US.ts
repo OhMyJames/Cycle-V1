@@ -120,7 +120,7 @@ export const enUS = {
   // The files and folders that fit what is typed after an @
   "composer.mentions.label": "Files and folders",
   "composer.mentions.empty": "No file or folder matches that.",
-  "composer.mentions.none": "This folder has no files or folders.",
+  "composer.mentions.none": "No files or folders found here.",
 
   // Messages sent while the agent works, waiting their turn
   "composer.queued.label": "Queued messages",

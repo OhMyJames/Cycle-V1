@@ -30,6 +30,9 @@ const connectorAuth = z.enum(["none", "oauth"]);
 const o = z.strictObject;
 
 /** Every event, and the properties it may carry. */
+/** What sent a message: Enter, the ⌘Enter shortcut, a button, or something that did not say. */
+const via = z.enum(["enter", "shortcut", "button", "other"]);
+
 export const EVENTS = {
   // ---- the app ----
   /** The app started. */
@@ -94,7 +97,7 @@ export const EVENTS = {
      * What sent it: Enter, the ⌘Enter shortcut (which queues while the agent works), a button, or something else
      * (a new session's first message, a caller that does not say).
      */
-    via: z.enum(["enter", "shortcut", "button", "other"]),
+    via,
   }),
   prompt_cancelled: o({ agent }),
   permission_answered: o({
@@ -160,6 +163,12 @@ export const agentOf = (id: string): z.infer<typeof agent> =>
 
 export const settingOf = (configId: string): "mode" | "model" | "effort" | "other" =>
   configId === "mode" || configId === "model" || configId === "effort" ? configId : "other";
+
+/** What the page says sent a message, as one of the words; anything else is "other". */
+export const viaOf = (value: unknown): z.infer<typeof via> => {
+  const word = via.safeParse(value);
+  return word.success ? word.data : "other";
+};
 
 /** How long a prompt is, in three words: the length is as much as is learned of it. */
 export const sizeOf = (characters: number): z.infer<typeof size> =>

@@ -124,11 +124,13 @@ export function Composer({
   const working = activity !== "idle";
   const queue = useAppState((s) => s.views[sessionKey]?.conversation.queue ?? NONE);
   const commands = useAppState((s) => s.views[sessionKey]?.conversation.commands ?? NONE);
+  // A permission waiting for an answer: ⌘Enter is its "Allow once" (app.tsx), the same test as there.
+  const permissionWaits = useAppState((s) => (s.views[sessionKey]?.permissions.length ?? 0) > 0);
   const { text, attachments, kept } = draft;
   // A daemon that has not said it queues is asked nothing it would refuse: a message waits for the turn to end.
   const capabilities = useAppState((s) => s.status[environmentId]?.capabilities);
   const canQueue = capabilities?.queue === true;
-  // While it works, Enter puts the message into the running turn where the agent and the daemon can; Shift+Enter queues it.
+  // While it works, Enter puts the message into the running turn where the agent and the daemon can; ⌘Enter queues it.
   const steers = working && canQueue && canSteer && capabilities?.steer === true;
   const canFind =
     connected && (blank ? capabilities?.filesInFolder === true : capabilities?.files === true);
@@ -205,10 +207,12 @@ export function Composer({
   const chosen = pointed.query === query ? pointed.index : 0;
   const active = Math.min(chosen, Math.max(rows.length - 1, 0));
   // Something was named that is not there: it is said, once, instead of showing nothing.
+  // A bare @ says so only when the search went through the folder: one cut short by its time limit proves nothing.
   const nothingFound =
     kind === undefined &&
     typed.mention !== undefined &&
     found?.query === typed.mention &&
+    (typed.mention !== "" || found.result.truncated !== true) &&
     hits.length === 0 &&
     mentionQueryText !== dismissed;
   const lookAtCaret = () => {
@@ -264,7 +268,7 @@ export function Composer({
                 : canQueue
                   ? "composer.placeholder.working"
                   : "composer.placeholder.busy",
-              { key: `${MOD}Enter` },
+              { key: QUEUE_KEY },
             )
           : t("composer.placeholder.idle"));
 
@@ -411,12 +415,14 @@ export function Composer({
         setDismissed(query);
         return true;
       }
+      // ⌘Enter with a menu open sends nothing: half a command or a file name is not the message.
+      if (key === "enter" && (event.metaKey || event.ctrlKey)) return true;
     }
     if (key === "enter") {
       // ⌘Enter (Ctrl+Enter off a Mac) queues while the agent works and sends when it does not. While a permission
       // waits, it is the card's "Allow once" (app.tsx), so it is left to go on to the window.
       if (QUEUE_MOD(event) && !event.shiftKey && !event.altKey) {
-        if (activity === "requires_action") return false;
+        if (permissionWaits) return false;
         void send(false, "shortcut");
         return true;
       }
@@ -741,8 +747,8 @@ export function Composer({
 
 /** How the key that stops a turn is written here: ⌘. on a Mac, Ctrl+. elsewhere (the same test as the handler's). */
 const STOP_KEY = `${MOD}.`;
-/** The key that queues: ⌘Enter on a Mac, Ctrl+Enter elsewhere. */
-const QUEUE_KEY = `${MOD}↵`;
+/** The key that queues: ⌘Enter on a Mac, Ctrl+Enter elsewhere. One name, in the placeholder and on the button. */
+const QUEUE_KEY = `${MOD}Enter`;
 const QUEUE_MOD = (event: KeyboardEvent) => (MOD === "⌘" ? event.metaKey : event.ctrlKey);
 
 /**

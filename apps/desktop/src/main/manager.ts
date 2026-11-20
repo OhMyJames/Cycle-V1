@@ -5,6 +5,7 @@ import {
   type EventProps,
   settingOf,
   sizeOf,
+  viaOf,
 } from "@cycle/analytics/events";
 import {
   type Channel,
@@ -788,11 +789,8 @@ export class ConnectionManager
       images: blocks.filter((b) => b.type === "image").length,
       mentions: blocks.filter((b) => b.type === "resource_link").length,
       steered: options.steer === true,
-      // The page says which key or button; only these words are counted, anything else is "other".
-      via:
-        options.via === "enter" || options.via === "shortcut" || options.via === "button"
-          ? options.via
-          : "other",
+      // The page says which key or button; only the dictionary's words are counted, anything else is "other".
+      via: viaOf(options.via),
     });
   }
 

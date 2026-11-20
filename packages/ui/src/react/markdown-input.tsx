@@ -166,7 +166,8 @@ function Behaviour({ props }: { props: MarkdownInputProps }) {
           // (approving a permission), so the DOM keydown goes on bubbling to window.
           if (event.metaKey || event.ctrlKey) {
             event.preventDefault();
-            latest.current.onKey("enter", event);
+            // Used here (queued, say): the window's shortcut for it (Allow once) must not run as well.
+            if (latest.current.onKey("enter", event)) event.stopPropagation();
             return true;
           }
           event.preventDefault();

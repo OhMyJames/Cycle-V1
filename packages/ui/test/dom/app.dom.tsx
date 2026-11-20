@@ -153,7 +153,7 @@ test("while the agent works, Enter sends into its turn, ⌘Enter queues, and Shi
   });
   await screen.findByRole("button", { name: "Send now" });
   const queueButton = screen.getByRole("button", { name: "Queue" });
-  expect(queueButton.getAttribute("title")).toBe(`Queue (${MOD}↵)`);
+  expect(queueButton.getAttribute("title")).toBe(`Queue (${MOD}Enter)`);
   expect(box.closest('[data-slot="composer"]')?.textContent ?? "").not.toContain("Shift+Enter");
   // Shift+Enter is a new line while it works, as it is when it does not; so is Alt+Enter.
   await write(box, "one");
@@ -194,7 +194,7 @@ test("while the agent works, Enter sends into its turn, ⌘Enter queues, and Shi
   expect(named("prompt")[2]?.[4]).toEqual({ via: "button" });
 });
 
-test("while a permission waits, ⌘Enter is the card's, not the queue's", async () => {
+test("while a permission waits, ⌘Enter is the card's Allow once, not the queue's", async () => {
   const { user, emit, named } = await mount({
     steer: true,
     capabilities: { queue: true, steer: true, files: true, folders: true },
@@ -209,9 +209,22 @@ test("while a permission waits, ⌘Enter is the card's, not the queue's", async 
     update: u({ sessionUpdate: "state_update", state: "requires_action" }),
     version: 1,
   });
-  await screen.findByRole("button", { name: "Queue" });
+  const request: PermissionRequest = {
+    key: "local:s1:p1",
+    environmentId: "local",
+    sessionId: "s1",
+    title: "Allow Bash?",
+    subject: { type: "tool_call", toolCall: { name: "Bash", rawInput: { command: "ls" } } },
+    options: [
+      { optionId: "allow", name: "Allow", kind: "allow_once" },
+      { optionId: "deny", name: "Deny", kind: "reject_once" },
+    ],
+  };
+  emit({ type: "permission", request, version: 2 });
+  await screen.findByLabelText("Allow Bash?");
   await write(box, "wait");
   await press(box, "Enter", MOD === "⌘" ? { metaKey: true } : { ctrlKey: true });
+  // The box leaves it to the window's shortcut (Allow once, app.tsx): it queues nothing and keeps what was written.
   expect(named("prompt")).toHaveLength(0);
   expect(boxText(box)).toBe("wait");
 });
@@ -1473,7 +1486,7 @@ test("a bare @ in a folder with nothing in it says so; the menu spans the box, n
   await ready(box);
   await write(box, "see @");
   const empty = () => document.querySelector('[data-slot="picker"][role="status"]');
-  await waitFor(() => expect(empty()?.textContent).toBe("This folder has no files or folders."));
+  await waitFor(() => expect(empty()?.textContent).toBe("No files or folders found here."));
   // Placed over the whole input box: with Queue, Send now and Stop beside one line, the field alone can be narrow.
   expect(empty()?.parentElement?.getAttribute("data-slot")).toBe("composer-box");
 });

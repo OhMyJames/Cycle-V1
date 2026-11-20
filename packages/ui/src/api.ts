@@ -311,10 +311,13 @@ export type TrackProps = Record<string, string | number | boolean>;
 
 export type NewSession = { cwd: string; agent?: string; config?: Record<string, string> };
 
-/** What the renderer asks of main. Every method can fail; the renderer shows the message. */
-/** What sent a message: Enter, the ⌘Enter shortcut, or a button in the composer. */
+/**
+ * What sent a message: Enter, the ⌘Enter shortcut, or a button in the composer. The words of `prompt_sent.via` in
+ * `@cycle/analytics/events` (this file may import nothing of it), which main checks them against.
+ */
 export type SendVia = "enter" | "shortcut" | "button";
 
+/** What the renderer asks of main. Every method can fail; the renderer shows the message. */
 export type AppApi = {
   /**
    * Every environment, how its connection stands, and the last list of sessions main read from each: an environment that is
