@@ -7,7 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@ui-sdk/react/select";
-import type { DynamicConfigOption } from "../model/index.ts";
+import { type DynamicConfigOption, effortLevelsOf } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
 
 type Choice = {
@@ -32,26 +32,52 @@ export type Option = {
   description?: string | undefined;
   recommended?: boolean;
   danger?: boolean;
+  /** On a model: the effort levels it takes; `[]` none, absent not known (docs/protocol.md §10). */
+  efforts?: readonly string[] | undefined;
 };
 
 /** Marks the choice the agent suggests or warns on, in `_meta`. Mirrors `META` of `@cycle/protocol`. */
 const RECOMMENDED = "cycle/recommended";
 const DANGER = "cycle/danger";
+const EFFORTS = "cycle/efforts";
 
 /** A property's values, with a name and a line on each when the schema gives them (`oneOf`). */
 export const optionsOf = (property: Property): Option[] | undefined => {
   if (Array.isArray(property.oneOf)) {
     return property.oneOf
       .filter((c) => typeof c?.const === "string")
-      .map((c) => ({
-        value: c.const,
-        label: c.title ?? c.const,
-        description: c.description,
-        recommended: c._meta?.[RECOMMENDED] === true,
-        danger: c._meta?.[DANGER] === true,
-      }));
+      .map((c) => {
+        const efforts = effortLevelsOf(c._meta);
+        return {
+          value: c.const,
+          label: c.title ?? c.const,
+          description: c.description,
+          recommended: c._meta?.[RECOMMENDED] === true,
+          danger: c._meta?.[DANGER] === true,
+          ...(efforts !== undefined ? { efforts } : {}),
+        };
+      });
   }
   return property.enum?.map((v) => ({ value: v, label: v }));
+};
+
+/**
+ * A new session's settings with its effort put back to `default` when the chosen model is known not to take it
+ * (docs/protocol.md §10). A session that exists has its agent do this; one not made yet has none to ask.
+ */
+export const withEffortFor = (
+  schema: Record<string, unknown>,
+  config: Record<string, string>,
+  defaults: Record<string, string> = {},
+): Record<string, string> => {
+  const properties = (schema.properties ?? {}) as Record<string, Property>;
+  const model = config.model ?? defaults.model;
+  const effort = config.effort ?? defaults.effort;
+  if (properties.effort === undefined || model === undefined) return config;
+  if (effort === undefined || effort === "default") return config;
+  const levels = optionsOf(properties.model ?? {})?.find((o) => o.value === model)?.efforts;
+  if (levels === undefined || levels.includes(effort)) return config;
+  return { ...config, effort: "default" };
 };
 
 /** The settings an agent says it has, from its JSON Schema: a choice if it lists values, else text. */
@@ -79,11 +105,12 @@ export const mergeConfigSchema = (
       const: c.value,
       title: c.name,
       ...(c.description !== undefined ? { description: c.description } : {}),
-      ...(c.recommended || c.danger
+      ...(c.recommended || c.danger || c.efforts !== undefined
         ? {
             _meta: {
               ...(c.recommended ? { [RECOMMENDED]: true } : {}),
               ...(c.danger ? { [DANGER]: true } : {}),
+              ...(c.efforts !== undefined ? { [EFFORTS]: c.efforts } : {}),
             },
           }
         : {}),

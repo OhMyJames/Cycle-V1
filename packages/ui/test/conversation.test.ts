@@ -428,3 +428,26 @@ test("the agent's commands are kept, with the hint of one that takes input", () 
     { name: "review", description: "Review", hint: "PR" },
   ]);
 });
+
+test("a live model list keeps each model's effort levels, and drops a shape that is not a list of words", () => {
+  const c = applyUpdate(emptyConversation(), {
+    sessionUpdate: "config_option_update",
+    configOptions: [
+      {
+        configId: "model",
+        name: "Model",
+        currentValue: "opus",
+        options: [
+          { value: "opus", name: "Opus", _meta: { "cycle/efforts": ["low", "high"] } },
+          { value: "haiku", name: "Haiku", _meta: { "cycle/efforts": [] } },
+          { value: "odd", name: "Odd", _meta: { "cycle/efforts": "high" } },
+        ],
+      },
+    ],
+  } as never);
+  expect(c.configOptions[0]?.options.map((o) => [o.value, o.efforts])).toEqual([
+    ["opus", ["low", "high"]],
+    ["haiku", []],
+    ["odd", undefined],
+  ]);
+});

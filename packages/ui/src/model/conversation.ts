@@ -144,6 +144,8 @@ export type DynamicConfigChoice = {
   description?: string;
   recommended?: boolean;
   danger?: boolean;
+  /** On a model: the effort levels it takes (`_meta["cycle/efforts"]`, docs/protocol.md §10); `[]` none, absent not known. */
+  efforts?: string[];
 };
 
 /** Live configuration options pushed by the agent for a session, overlaying its static `configSchema`. */
@@ -214,6 +216,22 @@ const queuedPrompts = (value: unknown): QueuedPrompt[] =>
       })
     : [];
 
+/**
+ * A model choice's effort levels, from its `_meta["cycle/efforts"]` (docs/protocol.md §10): a list of words, `[]` for
+ * none; anything else is not known.
+ */
+export const effortLevelsOf = (meta: Record<string, unknown> | undefined): string[] | undefined => {
+  const value = meta?.["cycle/efforts"];
+  return Array.isArray(value) && value.every((e) => typeof e === "string")
+    ? [...(value as string[])]
+    : undefined;
+};
+
+const effortsEntry = (meta: Record<string, unknown> | undefined): { efforts?: string[] } => {
+  const efforts = effortLevelsOf(meta);
+  return efforts !== undefined ? { efforts } : {};
+};
+
 const configOptionsOf = (value: unknown): DynamicConfigOption[] => {
   if (!Array.isArray(value)) return [];
   const out: DynamicConfigOption[] = [];
@@ -244,6 +262,7 @@ const configOptionsOf = (value: unknown): DynamicConfigOption[] => {
           : {}),
         ...(o._meta?.["cycle/recommended"] === true ? { recommended: true } : {}),
         ...(o._meta?.["cycle/danger"] === true ? { danger: true } : {}),
+        ...effortsEntry(o._meta),
       });
     }
     if (options.length === 0) continue;
