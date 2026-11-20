@@ -118,7 +118,13 @@ test("paged lists filter the index, keep equal-time rows stable across deletion,
   expect(last.sessions.map((r) => r.sessionId)).toEqual(["c"]);
   expect(last.nextCursor == null).toBe(true);
   await expect(list("bad")).rejects.toMatchObject({ code: -32602 });
-  for (const page of [{ limit: 0 }, { limit: 201 }, { createdFrom: "yesterday" }])
+  await expect(list(`${first.nextCursor}!`)).rejects.toMatchObject({ code: -32602 });
+  for (const page of [
+    { limit: 0 },
+    { limit: 201 },
+    { createdFrom: "yesterday" },
+    { createdBefore: "2026-01-02T00:00:00.0005Z" },
+  ])
     await expect(
       c.agent.request(methods.agent.session.list, { _meta: { "cycle/page": page } }),
     ).rejects.toMatchObject({ code: -32602 });

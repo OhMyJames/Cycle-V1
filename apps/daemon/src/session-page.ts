@@ -10,8 +10,10 @@ import {
 type Entry = [string, SessionEntry];
 const decode = (cursor: string): SessionPosition => {
   try {
-    const key = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    const bytes = Buffer.from(cursor, "base64url");
+    const key = JSON.parse(bytes.toString("utf8"));
     if (
+      bytes.toString("base64url") === cursor &&
       Array.isArray(key) &&
       key.length === 2 &&
       typeof key[0] === "string" &&

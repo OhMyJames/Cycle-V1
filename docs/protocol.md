@@ -149,7 +149,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 
 daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有它,daemon 在列表时读一次该 session 的日志(按存储的样子,不读回图片),有 `user_message` 就算,补上之后不再读。
 
-握手能力 `cycle/capabilities.sessionListPages: true` 表示支持分页。客户端用 ACP 的 `cwd` 精确筛选工作目录，用 `_meta["cycle/page"]` 请求分页。该对象支持 `limit`（默认 50，1–200）、`agent`、`createdFrom`（含）、`createdBefore`（不含），时间使用 UTC ISO 8601。按创建时间降序，同一时间按 sessionId 升序扫描；显示仍按活动时间排序。每页最多检查 limit 个通过目录、agent 和时间过滤的索引项，隐藏空会话后可能是空页。只要应答有 ACP 的 `nextCursor` 就用相同条件在 `cursor` 里续读。游标按创建时间和 id 定位，删除上一页末项仍能续读；翻页期间新建的会话由下一次刷新取得。非法选项或游标返回 -32602。
+握手能力 `cycle/capabilities.sessionListPages: true` 表示支持分页。客户端用 ACP 的 `cwd` 精确筛选工作目录，用 `_meta["cycle/page"]` 请求分页。该对象支持 `limit`（默认 50，1–200）、`agent`、`createdFrom`（含）、`createdBefore`（不含），时间使用 UTC ISO 8601，最多三位小数，与索引的毫秒精度一致。按创建时间降序，同一时间按 sessionId 升序扫描；显示仍按活动时间排序。每页最多检查 limit 个通过目录、agent 和时间过滤的索引项，隐藏空会话后可能是空页。只要应答有 ACP 的 `nextCursor` 就用相同条件在 `cursor` 里续读。游标按创建时间和 id 定位，删除上一页末项仍能续读；翻页期间新建的会话由下一次刷新取得。非法选项或游标返回 -32602。
 
 旧客户端不发 `cycle/page`，仍一次取得完整列表。新客户端连旧 daemon 时按原方式读取全表。桌面端首次连接先显示第一页，再补全供侧栏和 ⌘K 使用；后续刷新在收齐页面后替换列表，通知按完整列表比较。
 

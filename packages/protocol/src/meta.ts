@@ -106,12 +106,16 @@ export const CapabilitiesSchema = z.object({
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 
+const sessionTime = z.iso
+  .datetime()
+  .refine((value) => !/\.\d{4}/.test(value), "Expected millisecond precision or coarser");
+
 /** Options for a bounded scan of the session index (protocol §6). */
 export const SessionPageSchema = z.object({
   limit: z.number().int().min(1).max(200).default(50),
   agent: z.string().optional(),
-  createdFrom: z.iso.datetime().optional(),
-  createdBefore: z.iso.datetime().optional(),
+  createdFrom: sessionTime.optional(),
+  createdBefore: sessionTime.optional(),
 });
 export type SessionPageOptions = z.input<typeof SessionPageSchema>;
 

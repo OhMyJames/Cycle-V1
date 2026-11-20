@@ -235,7 +235,9 @@ export class CycleClient {
    */
   async listSessions(): Promise<SessionRow[]> {
     const rows: SessionRow[] = [];
-    for await (const page of this.sessionPages()) rows.push(...page.sessions);
+    for await (const page of this.sessionPages()) {
+      for (const row of page.sessions) rows.push(row);
+    }
     return rows;
   }
 
