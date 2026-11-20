@@ -43,8 +43,12 @@ export const EVENTS = {
   // ---- environments ----
   environment_saved: o({ transport: z.enum(["ssh"]) }),
   environment_removed: o({ kind: environment }),
-  /** The person had the app update the daemon of a remote environment (not the hand-run command), and it worked or not. */
-  daemon_upgraded: o({ ok: z.boolean() }),
+  /**
+   * The person had the app update the daemon of a remote environment (not the hand-run command), and it worked or not.
+   * `when`: nothing was working there (`idle`), or sessions were and the person chose to interrupt them (`now`) or to
+   * have the old daemon stop once they finish (`later`).
+   */
+  daemon_upgraded: o({ ok: z.boolean(), when: z.enum(["idle", "now", "later"]) }),
   /** An environment's connection changed: it is up, it dropped and is trying again, or it is closed. */
   environment_connection: o({
     kind: environment,

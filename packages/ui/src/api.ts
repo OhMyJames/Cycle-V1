@@ -74,6 +74,8 @@ export type EnvironmentStatus = {
       running?: boolean;
       /** Why the last `upgradeDaemon` did not work. */
       error?: string;
+      /** Installed: the old daemon stops when none of its sessions is working (`upgradeDaemon(…, "later")`). */
+      waiting?: boolean;
     };
   };
 };
@@ -417,9 +419,10 @@ export type AppApi = {
   installUpdate(): Promise<void>;
   /**
    * Updates the daemon of a remote environment by running `daemon.upgrade.command` on it over ssh. What is wrong comes
-   * back in the environment's status (`daemon.upgrade.error`), not as a throw.
+   * back in the environment's status (`daemon.upgrade.error`), not as a throw. `when` is the person's choice when
+   * sessions there are working: interrupt them `now`, or stop the old daemon `later`, once they finish.
    */
-  upgradeDaemon(environmentId: string): Promise<void>;
+  upgradeDaemon(environmentId: string, when?: "now" | "later"): Promise<void>;
 
   /** Reports an event the page alone can see (docs/analytics.md). Never fails and says nothing when it is off. */
   track(event: string, props?: TrackProps): Promise<void>;

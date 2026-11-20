@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "catalog:",
+    "@cycle/client": "workspace:*",
     "@cycle/harness-claude": "workspace:*",
     "@cycle/protocol": "workspace:*",
     "zod": "catalog:"
@@ -20,8 +21,5 @@
     "test:real:daemon": "bun test ./test/integration/real.integration.ts",
     "build": "bun scripts/build.ts",
     "test:integration": "bun test ./test/integration/full.integration.ts"
-  },
-  "devDependencies": {
-    "@cycle/client": "workspace:*"
   }
 }

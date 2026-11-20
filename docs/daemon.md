@@ -40,6 +40,35 @@
 - **`_cycle/agent_defaults/*`**:读写都有实现,存在 `<数据目录>/agent-defaults.json`,新 session 按它开始,session 自己的配置覆盖它(此前这份文档误写成占位)。
 - **`_cycle/connectors/*`**(protocol.md §14):清单在 `<数据目录>/connectors/catalog.json`,密钥和 token 在同目录的 `credentials.json`(目录 0700,文件 0600),两个文件各在一个接口后面(`ConnectorCatalog`、`CredentialVault`),以后可以换成 cloud。任一文件读不了,daemon 拒绝启动,不覆盖它。OAuth 全在 daemon 里做(`connectors/oauth.ts`)。第一个用到 connector 的 agent 启动时,daemon 在 `127.0.0.1` 的随机端口上开 MCP 网关(`connectors/gateway.ts`),agent 只拿到网关地址和本 session 的 key;stdio 的 connector 由 daemon 启动(`connectors/stdio-bridge.ts`),环境变量只有固定白名单和它自己的值。
 
+## 停止和升级
+
+agent 是 daemon 的子进程,daemon 停止时进行中的 turn 不会继续。所以停之前先看,停了以后历史要说清楚(协议见 [protocol.md](protocol.md) §8"daemon 停止时进行中的 turn")。
+
+**`cycle stop`** 先用 `session/list` 问 daemon 有哪些会话在工作:turn 在跑、在等权限或表单的回答、或还有后台任务(`cycle/background` 大于 0)。没有就直接停。有就逐个列出,然后:
+
+- 在终端里:问"等待 / 强停 / 取消"。
+- `--wait`:每 2 秒看一次,都结束了再停;Ctrl-C 离开,daemon 照常运行。
+- `--force`:先说会丢什么(turn 被打断、等待中的请求取消、后台任务停掉不重建,排队的消息保留),再停。
+- 不在终端、也没给选项:不停,列出在工作的会话,退出码 4。
+- 问不到 daemon(超时、不是 Cycle 的 socket):只有 `--force` 才停。
+
+问用的是已有的 `session/list`,协议版本不同时按 daemon 说的版本再问一次,所以新的 `cycle` 可以这样停一个旧 daemon,升级时正是这样(`src/stop.ts`)。
+
+**daemon 停止时**(收到 `SIGTERM`/`SIGINT`):对每个有进行中 turn 的 session,先把等待中的权限请求和表单写成 `aborted`(按取消回给 agent),再写一条 turn 的终态:`state_update` 为 `idle`、`stopReason: "error"`、`error.code` 为 `-32018`(`daemon_stopped`),然后结束 agent。此后 agent 发来的更新不再记录。终态算"值得看",所以会话显示未读;客户端重连补发时看到它。
+
+**没来得及写的**(崩溃、`kill -9`、比这条规则早的 daemon):索引里的 `turnOpen` 记着日志里有没有没结束的 turn。下一次加载这个 session 时(第一次 `session/list` 或附着),`turnOpen` 不是 `false` 就读一次日志核对,确有没结束的 turn 就补写同样的终态。旧索引里没有 `turnOpen` 的,各读一次日志。
+
+**队列**:终态不退回队列。排队的 prompt 按"排队"的重启规则留着,下一次有客户端附着时以 `reason: "interrupted"` 退回输入框。
+
+**`Daemon.activity()`**:daemon 里同一个"有没有在工作"的判断(turn、待回答的请求、后台任务、排队数),给以后的空闲退出(CYCL-104)用:只在它为空时退出。
+
+**从桌面端升级远端 daemon**:确认框先看那个环境的会话列表。没有在工作的会话,命令末尾是 `cycle stop`(若这期间有会话开始工作,它不在终端里,会拒绝并报错,不会中断它们)。有就列出会话名,让人选:
+
+- "Update when they finish":安装新版本,然后在远端后台跑 `nohup cycle stop --wait`,ssh 结束后它继续等;横幅改成"已安装,会话结束后重启为新版本",按钮变成"Update now"。连接断开、重连到新 daemon 后横幅消失。
+- "Update now and interrupt":安装后 `cycle stop --force`。
+
+埋点 `daemon_upgraded` 带 `when`(`idle`/`now`/`later`),见 [analytics.md](analytics.md)。
+
 ## 没做
 
 - **配置校验**:`cycle/config` 不按 `configSchema` 校验,直接交给 agent,由 agent 拒绝(映射为 `invalid_config`)。
@@ -48,8 +77,8 @@
 - **日志里的敏感字段过滤**。
 - **一个 session 一个 agent 进程**:没有复用。
 - **daemon 的打包和安装**:现在是 `bun apps/daemon/src/main.ts`;没有 `cycle` 可执行文件,也没有远端机器上的安装步骤。ssh 通道里的命令得由调用方写全。
-- **daemon 退出时对客户端的通知**:客户端靠连接断开发现,然后重连。
-- **多个 daemon 版本之间的升级**:daemon 重启会丢掉进行中的 turn(agent 是它的子进程),这一点没变。
+- **daemon 退出时对客户端的通知**:客户端仍靠连接断开发现,然后重连;重连后按 `cycle/seq` 补发,看到被打断的 turn 的终态(`daemon_stopped`),由此知道发生了什么(见下面"停止和升级")。没有另发一条"要停了"的通知。
+- **重启后续接 agent**:进行中的 turn 被打断,不续接(agent 是 daemon 的子进程,状态在进程里);后台子 agent 也不重建。
 - **空闲退出和 session 的内存回收**:已加载的 session 一直在内存里。
 - **客户端先于 `initialize` 发请求的处理**:交给 SDK(返回 `-32600`)。
 
@@ -81,7 +110,7 @@ bun run --cwd apps/daemon build
 
 ```bash
 cycle status   # 在运行返回 0,不在运行返回 1
-cycle stop     # 发 SIGTERM,等 socket 关闭
+cycle stop     # 停掉;有会话在工作时先列出来,问等待还是强停(见下面"停止和升级")
 cycle login    # 为这个 daemon 登录 Claude(跑 claude auth login),在 daemon 所在的机器上执行
 cycle claude auth status   # 用同样的环境跑 claude 的其他命令
 ```

@@ -14,6 +14,8 @@ export const CycleErrorCode = {
   NotQueued: -32016,
   /** A connector's authorization server or upstream refused or could not be reached (docs/protocol.md §14). */
   ConnectorFailed: -32017,
+  /** The daemon stopped while the turn was running: the turn's end on record says so (docs/protocol.md §8). */
+  DaemonStopped: -32018,
 } as const;
 export type CycleErrorCode = (typeof CycleErrorCode)[keyof typeof CycleErrorCode];
 

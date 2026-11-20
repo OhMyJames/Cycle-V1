@@ -46,6 +46,7 @@ export function ConfirmDialog({
   confirmLabel,
   destructive = false,
   onConfirm,
+  alternative,
 }: OpenProps & {
   title: string;
   description: string;
@@ -55,6 +56,8 @@ export function ConfirmDialog({
   destructive?: boolean;
   /** Returning a non-empty error string keeps the dialog open and shows it inline. */
   onConfirm: () => unknown;
+  /** A second way to go ahead, beside the first (as the first, it may keep the dialog open with an error). */
+  alternative?: { label: string; destructive?: boolean; onConfirm: () => unknown } | undefined;
 }) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>();
@@ -64,12 +67,12 @@ export function ConfirmDialog({
       setProblem(undefined);
     }
   }, [open]);
-  const confirm = async () => {
+  const confirm = async (action: () => unknown = onConfirm) => {
     if (busy) return;
     setBusy(true);
     setProblem(undefined);
     try {
-      const error = await onConfirm();
+      const error = await action();
       if (typeof error === "string" && error !== "") {
         setProblem(error);
         return;
@@ -97,6 +100,16 @@ export function ConfirmDialog({
         </div>
         <div data-slot="row" data-dialog-footer="">
           <AlertDialogClose disabled={busy}>Cancel</AlertDialogClose>
+          {alternative !== undefined ? (
+            <Button
+              type="button"
+              data-variant={alternative.destructive === true ? "destructive" : "outline"}
+              disabled={busy}
+              onClick={() => void confirm(alternative.onConfirm)}
+            >
+              {alternative.label}
+            </Button>
+          ) : null}
           <Button
             type="button"
             data-variant={destructive ? "destructive" : "solid"}

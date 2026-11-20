@@ -961,6 +961,51 @@ test("a daemon too old for the app says so in one line with a button, and updati
   expect(screen.queryByText(/too old for this app/)).toBeNull();
 });
 
+test("updating a daemon whose sessions are working names them, and the person waits for them or interrupts them", async () => {
+  const { emit, user, named } = await mount();
+  await emit({
+    type: "sessions",
+    environmentId: "local",
+    sessions: [
+      { ...summary("s1"), title: "Fix the build", state: "running" },
+      { ...summary("s2"), title: "Idle one", state: "idle" },
+    ],
+  });
+  await emit({
+    type: "environment-status",
+    environmentId: "local",
+    state: "connected",
+    daemon: { version: "0.1.0", upgrade: { to: "0.3.0", command: "sh install.sh" } },
+  });
+  await user.click(screen.getByRole("button", { name: "Update to 0.3.0" }));
+  const dialog = await screen.findByRole("alertdialog");
+  expect(within(dialog).getByText(/Fix the build/)).toBeTruthy();
+  expect(within(dialog).queryByText(/Idle one/)).toBeNull();
+  await user.click(within(dialog).getByRole("button", { name: "Update when they finish" }));
+  await waitFor(() =>
+    expect(named("upgradeDaemon")).toEqual([["upgradeDaemon", "local", "later"]]),
+  );
+
+  // Installed and waiting: the line says so, and what is left to choose is to interrupt them.
+  await emit({
+    type: "environment-status",
+    environmentId: "local",
+    state: "connected",
+    daemon: {
+      version: "0.1.0",
+      upgrade: { to: "0.3.0", command: "sh install.sh", waiting: true },
+    },
+  });
+  expect(screen.getByText(/restarts as the new version when its sessions finish/)).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Update now" }));
+  const again = await screen.findByRole("alertdialog");
+  expect(within(again).queryByRole("button", { name: "Update when they finish" })).toBeNull();
+  await user.click(within(again).getByRole("button", { name: "Update now and interrupt" }));
+  await waitFor(() =>
+    expect(named("upgradeDaemon").at(-1)).toEqual(["upgradeDaemon", "local", "now"]),
+  );
+});
+
 test("a daemon on another protocol says why it cannot be used and what to update, and the line goes when it connects", async () => {
   const { emit } = await mount();
   await emit({

@@ -907,8 +907,8 @@ export class AppStore {
   };
 
   /** How it goes comes back in the environment's status. */
-  upgradeDaemon = async (environmentId: string): Promise<void> => {
-    await this.#attempt(() => this.#bridge.upgradeDaemon(environmentId));
+  upgradeDaemon = async (environmentId: string, when?: "now" | "later"): Promise<void> => {
+    await this.#attempt(() => this.#bridge.upgradeDaemon(environmentId, when));
   };
 
   /** Main says how it goes through app-update events; an error it throws is shown as any other. */
