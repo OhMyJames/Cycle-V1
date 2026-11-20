@@ -26,6 +26,10 @@ build/
 
 # local agent settings
 .claude/settings.local.json
+
+# Claude Code worktrees (made by .claude/hooks/worktree-create.sh; default location as fallback)
+.agents/worktree/
+.claude/worktrees/
 **/src/styles/built.css
 **/src/styles/fonts/
 apps/desktop/dist
