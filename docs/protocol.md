@@ -253,6 +253,10 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 
 附件和图片进入日志的 `user_message`,历史补发时和文字一起到达。
 
+**agent 自己在重试请求**:agent 的模型请求失败、它自己会等一会儿再试时(Claude SDK 的 `api_retry`),agent 发一条 `notice`,`severity: "info"`,`title` 是给人看的一句话,`_meta["cycle/retry"]` 为 `{attempt, maxRetries, delayMs, status?}`(第几次、最多几次、要等多久、HTTP 状态码,连接错误时没有 `status`)。它进日志,但不是 turn 的结束,也不需要人做什么:客户端只在它是进行中 turn 的最后一项时,把它当作"正在重试"的状态显示,turn 有了新内容就不再显示;不在会话里画成一行。重试用完仍失败时,turn 照常以 `stopReason: "error"` 结束。
+
+**失败后重新发送**是客户端的事,协议不变:客户端把失败那个 turn 的 `user_message` 放回输入框,由人核对后作为新的 `session/prompt` 发出。它和别的 prompt 一样走权限流程,之前的批准不沿用。
+
 多个客户端同时附着的规则:
 
 - session 不是 `idle` 时,`session/prompt` 进入队列,不再被拒绝,见下面的"排队"。队列满了才以 `-32010`(`session_busy`)拒绝。daemon 的 `cycle/capabilities` 没有 `queue` 时,客户端只在 session 空闲时发送。

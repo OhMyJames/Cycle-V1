@@ -47,6 +47,11 @@ export type ToolItem = InTurn & {
   result?: unknown;
   /** The sub-agent this call started (the Agent tool), as its `subagent_update`s have told it (decision 0014). */
   subagent?: Subagent;
+  /**
+   * The agent said it was going, or done: it ran, or began to. A call that only ever waited (for a permission) has not;
+   * the end of a turn marks both cancelled, so this is what tells them apart (CYCL-48).
+   */
+  started?: boolean;
 };
 
 /** A sub-agent, as far as the session is told: announced, its progress, its end. Never its own conversation. */
@@ -77,7 +82,17 @@ export const usageLabel = (usage: Usage): string => {
 };
 
 export type PlanItem = InTurn & { kind: "plan"; id: string; entries: PlanEntry[] };
-export type NoticeItem = InTurn & { kind: "notice"; id: string; severity: string; title: string };
+export type NoticeItem = InTurn & {
+  kind: "notice";
+  id: string;
+  severity: string;
+  title: string;
+  /**
+   * The agent is trying its model request again by itself (`_meta["cycle/retry"]`, docs/protocol.md §8): a state while it
+   * is the last thing in the turn, never a row.
+   */
+  retry?: { attempt?: number; maxRetries?: number };
+};
 /** The agent making room in its context: going, done, or not done. One line where it began. */
 export type CompactionItem = InTurn & {
   kind: "compaction";
@@ -269,6 +284,9 @@ const toolUpdate = (c: Conversation, update: Fields): Conversation => {
   if (title !== undefined) next.title = title;
   if (toolKind !== undefined) next.toolKind = toolKind;
   if (status !== undefined) next.status = status;
+  // Once it has been anything but pending, it ran (or began to): kept when the end of the turn marks it cancelled.
+  if (old?.started === true || (typeof update.status === "string" && update.status !== "pending"))
+    next.started = true;
   next.content = asBlocks(content);
   if (rawInput !== undefined) next.rawInput = rawInput;
   if (rawOutput !== undefined) next.rawOutput = rawOutput;
@@ -397,6 +415,19 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
     }
     case "notice": {
       const id = `notice-${c.items.length}`;
+      const meta = u._meta as Record<string, unknown> | null | undefined;
+      const said = meta?.["cycle/retry"] as Record<string, unknown> | null | undefined;
+      const count = (value: unknown) =>
+        typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+      let retry: NoticeItem["retry"];
+      if (typeof said === "object" && said !== null) {
+        const attempt = count(said.attempt);
+        const maxRetries = count(said.maxRetries);
+        retry = {
+          ...(attempt !== undefined ? { attempt } : {}),
+          ...(maxRetries !== undefined ? { maxRetries } : {}),
+        };
+      }
       return {
         ...c,
         items: [
@@ -407,6 +438,7 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
             turn: c.turns,
             severity: String(u.severity),
             title: String(u.title),
+            ...(retry !== undefined ? { retry } : {}),
           },
         ],
       };

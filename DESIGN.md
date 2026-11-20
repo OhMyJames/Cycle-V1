@@ -204,7 +204,8 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
   - **压缩上下文是一行**（同 notice）：`Compacting the context…` → `Context compacted`。
   - **计划**：见第 3 层 `Plan & PlanStrip`；agent 自己的事务（ACP `kind` 为 `think`：改计划的 TodoWrite、TaskCreate、TaskUpdate，SDK 查可用工具的 ToolSearch）不成行，进行中也不，失败的照常；只读计划的（TaskGet、TaskList）照常成行。提出的计划（输入有 `plan`，如 ExitPlanMode）动词为 `Proposed a plan`，展开为 Markdown 正文；提问（输入有 `questions`）动词为 `Asked`，摘要为问题。均按输入的形状判断，不看工具名。
   - **Web、MCP 与其余工具**：WebFetch 写状态码与大小（`404 · 1.5 kB`，4xx/5xx 为红字）；WebSearch 展开为模型的话加结果列表（标题是强调色链接，只放行 http/https/mailto，由主进程交给系统浏览器打开；后跟淡色站点名；长标题换行）。MCP 工具用 agent 给的 `title`（`server · tool`），页面不解析工具名；页面不认识的工具，摘要取输入里第一行短文字（≤ 120 字、单行）。
-  - **工具折叠状态保持**：连续工具调用从 1 个变为 2 个以上时保留用户已手动展开的状态；展开态下的长输入/输出与代理消息支持快捷复制；turn 失败支持就地重试。
+  - **工具折叠状态保持**：连续工具调用从 1 个变为 2 个以上时保留用户已手动展开的状态；展开态下的长输入/输出与代理消息支持快捷复制。
+  - **失败后重新发送（CYCL-48）**：三种失败三种反馈。**turn 失败**（`stopReason: "error"`：API 报错、额度、认证、agent 退出、daemon 停止）在回合尾的红色原因后给 `Send again`（outline 小按钮），只在最后一个 turn、会话空闲、这一 turn 里有人说过话时出现；点了不直接发，而是把这一 turn 的消息（文字、图片、`@` 提及，插话也在内）放回输入框最前面、输入框取得焦点，由人核对、可改，再像普通消息一样发出，权限照常重新询问，不沿用之前的批准。这一 turn 里已经开始过会改东西的工具（ACP `kind` 为 `execute`/`edit`/`delete`/`move`，没离开 `pending` 的不算）时，先弹确认说明用过哪些、再发可能再做一遍，确认按钮是 `Put the message back`，不是 `Send`。**工具本身失败**留在工具行。**agent 自己重试请求**（`notice` 带 `_meta["cycle/retry"]`）不成行，只在它是进行中 turn 的最后一项时让 StepLine 写 `The request failed, trying again (2 of 10)…`，turn 有了新内容就消失；不给任何按钮。
   - **提问是表单**：agent 的提问（`AskUserQuestion`、MCP 的 elicitation）以 `FormCard` 出现在权限区；只发回填了的字段（main 再按 schema 的字段过滤）；什么都没填、`required` 字段未填、数字不合 schema（非整数、超出 `minimum`/`maximum`）时 `Send answers` 不可点；一个字段都画不了或必填字段画不了时写明只能跳过。
   - **StepLine**：turn 进行中且未开始输出文本时，在末尾展示实时步骤行（等待批准 / 思考中 / 运行中的工具摘要），防止“静默卡死感”。
 - **长会话窗口与滚动锚定**：
@@ -295,7 +296,7 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 
 画廊使用临时 profile 在 macOS Electron 或 Linux xvfb 中运行，检查根页面溢出、控制台错误、焦点环、列表首项可见性与输入框边界对比度。在浏览器中预览：`bun packages/ui/gallery/build.ts` 后打开 `packages/ui/gallery/dist/index.html`（`?s=<场景>` 或 `?s=tokens`）。
 
-核心场景（定义在 `packages/ui/gallery/scenarios.ts`）：`tokens`、`empty`、`empty-conversation`、`conversation`、`streaming`、`permission`、`permission-queue`、`turn-error`、`host-down`、`host-reconnecting`、`session-reconnecting`、`many-sessions`、`update-available`、`update-failed`、`daemon-old`、`new-session`、`dialog-add-host`、`dialog-agent-defaults`、`long`、`long-back`、`session-focus`、`turns`、`files`（文件工具的 diff 与计数）、`work`（命令输出与错误、子 agent、压缩、计划条）、`ask`（提问表单）、`web`（搜索结果链接、抓取失败、MCP 与未知工具）等。
+核心场景（定义在 `packages/ui/gallery/scenarios.ts`）：`tokens`、`empty`、`empty-conversation`、`conversation`、`streaming`、`permission`、`permission-queue`、`turn-error`、`turn-error-changed`、`turn-error-resent`、`turn-retrying`、`host-down`、`host-reconnecting`、`session-reconnecting`、`many-sessions`、`update-available`、`update-failed`、`daemon-old`、`new-session`、`dialog-add-host`、`dialog-agent-defaults`、`long`、`long-back`、`session-focus`、`turns`、`files`（文件工具的 diff 与计数）、`work`（命令输出与错误、子 agent、压缩、计划条）、`ask`（提问表单）、`web`（搜索结果链接、抓取失败、MCP 与未知工具）等。
 
 ## 附录 B：代码配色（Shiki）
 

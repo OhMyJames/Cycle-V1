@@ -123,6 +123,12 @@ const laidTurn = (
         // Never cuts a stretch: a thought between two tool calls leaves them in one card.
         if (showThinking) add(`thought:${item.id}`, { kind: "thought", item });
         break;
+      case "notice":
+        // The agent trying its request again is a state of the step line while it lasts, not a row; nor does it cut a stretch.
+        if (item.retry !== undefined) break;
+        stretch = undefined;
+        add(`notice:${item.id}`, { kind: "notice", item });
+        break;
       default:
         stretch = undefined;
         add(`${item.kind}:${item.id}`, { kind: item.kind, item } as Body);
@@ -218,7 +224,9 @@ export type Step =
   | { kind: "approval" }
   | { kind: "tool"; tool: ToolItem }
   | { kind: "thinking" }
-  | { kind: "working" };
+  | { kind: "working" }
+  /** The agent's model request failed and it is trying again by itself: nothing for the person to do. */
+  | { kind: "retrying"; attempt?: number; maxRetries?: number };
 
 /**
  * Nothing when the turn is over, or when the agent's own text is on its way (that is feedback enough). A thought
@@ -236,6 +244,8 @@ export const stepOf = (c: Conversation): Step | undefined => {
       return { kind: "thinking" };
     case "agent":
       return undefined;
+    case "notice":
+      return last.retry !== undefined ? { kind: "retrying", ...last.retry } : { kind: "working" };
     default:
       return { kind: "working" };
   }

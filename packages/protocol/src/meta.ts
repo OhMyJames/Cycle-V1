@@ -69,6 +69,11 @@ export const META = {
    * nobody has decided, and the agent leaves what it had as it was.
    */
   trusted: "cycle/trusted",
+  /**
+   * On a `notice`: the agent's model request failed and the agent tries it again by itself, `{attempt, maxRetries,
+   * delayMs, status?}` (docs/protocol.md §8). Shown as a state while it is the last thing in the turn, never as a row.
+   */
+  retry: "cycle/retry",
 } as const;
 
 /** The version of Cycle's protocol, "major.minor". A different major is refused. */

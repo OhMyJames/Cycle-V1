@@ -1,16 +1,21 @@
+import { Button } from "@ui-sdk/react/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
+import { useState } from "react";
 import {
   activityCounts,
   activityOf,
   type Conversation,
   isLive,
+  type Resend,
   type StopReason,
   stepOf,
   type ToolItem,
 } from "../model/index.ts";
+import { ConfirmDialog } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
 import { ChevronRightIcon, ErrorCircleIcon, WarningIcon } from "./icons.tsx";
 import { InlineAiStatus } from "./inline-ai-status.tsx";
+import { useAppStore } from "./store-context.tsx";
 import {
   Lead,
   ToolCard,
@@ -115,7 +120,7 @@ const ENDS: Record<string, string> = {
 };
 
 /** How a turn that did not end normally ended: a colour, a shape and a sentence. */
-export function EndBlock({ stop }: { stop: StopReason }) {
+export function EndBlock({ stop, resend }: { stop: StopReason; resend?: Resend | undefined }) {
   const { t } = useI18n();
   if (stop.stopReason === "error") {
     const message = stop.error?.message;
@@ -123,6 +128,7 @@ export function EndBlock({ stop }: { stop: StopReason }) {
       <div data-slot="notice" data-kind="turn-end" data-severity="error" role="alert">
         <ErrorCircleIcon size={14} />
         <span>{message ? t("turn.end.errorWith", { message }) : t("turn.end.error")}</span>
+        {resend !== undefined ? <ResendButton resend={resend} /> : null}
       </div>
     );
   }
@@ -132,6 +138,44 @@ export function EndBlock({ stop }: { stop: StopReason }) {
       <WarningIcon size={14} />
       <span>{key !== undefined ? t(key) : t("turn.end.other", { reason: stop.stopReason })}</span>
     </div>
+  );
+}
+
+/**
+ * "Send again" at the end of the turn that failed: its message goes back in the box, for the person to read and send
+ * (DESIGN.md 4.4). When the turn had already run a command or changed a file, they are told first: sending it again may
+ * do that again.
+ */
+function ResendButton({ resend }: { resend: Resend }) {
+  const { t, list } = useI18n();
+  const store = useAppStore();
+  const [confirming, setConfirming] = useState(false);
+  const names = [...new Set(resend.changed.map((tool) => toolName(t, tool)))];
+  const shown =
+    names.length > 4
+      ? [...names.slice(0, 3), t("turn.resend.more", { count: names.length - 3 })]
+      : names;
+  return (
+    <>
+      <Button
+        type="button"
+        data-variant="outline"
+        data-size="sm"
+        onClick={() => (resend.changed.length > 0 ? setConfirming(true) : store.resend(resend))}
+      >
+        {t("turn.resend")}
+      </Button>
+      {resend.changed.length > 0 ? (
+        <ConfirmDialog
+          open={confirming}
+          onOpenChange={setConfirming}
+          title={t("turn.resend.changedTitle")}
+          description={t("turn.resend.changedBody", { tools: list(shown) })}
+          confirmLabel={t("turn.resend.changedConfirm")}
+          onConfirm={() => store.resend(resend)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -154,13 +198,25 @@ export function StepLine({
         ? t("step.thinking")
         : step.kind === "working"
           ? t("step.working")
-          : activity === "other"
-            ? t("step.other", { name: toolName(t, step.tool) })
-            : t(`step.${activity}`);
-  const stepKey = `${conversation.turns}:${step.kind === "tool" ? `tool:${step.tool.id}` : step.kind}`;
+          : step.kind === "retrying"
+            ? step.attempt !== undefined && step.maxRetries !== undefined
+              ? t("step.retryingCount", { attempt: step.attempt, max: step.maxRetries })
+              : t("step.retrying")
+            : activity === "other"
+              ? t("step.other", { name: toolName(t, step.tool) })
+              : t(`step.${activity}`);
+  // Each attempt is a new state: its own key, so the line says it afresh.
+  const stepKey = `${conversation.turns}:${
+    step.kind === "tool"
+      ? `tool:${step.tool.id}`
+      : step.kind === "retrying"
+        ? `retrying:${step.attempt ?? ""}`
+        : step.kind
+  }`;
   return (
     <InlineAiStatus
-      kind={step.kind}
+      // Trying again is the agent at work, said in other words: nothing here for the person to do.
+      kind={step.kind === "retrying" ? "working" : step.kind}
       activity={activity}
       label={words}
       stepKey={stepKey}
