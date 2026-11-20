@@ -592,6 +592,26 @@ test("the page can only ask for the ways to stop there are", async () => {
   expect(tracked).toContainEqual(["daemon_upgraded", { ok: true, when: "idle" }]);
 });
 
+test("after a daemon update failed, trying again runs it again", async () => {
+  const { manager } = await setup(fakeAgent(), "0.1.0");
+  let runs = 0;
+  const { m, events } = await manager("app", "9.9.9", undefined, undefined, {
+    runOnHost: async () => {
+      runs += 1;
+      // The first time, sessions there had started working: the plain stop refused.
+      if (runs === 1) throw new Error("Not stopped. 1 session is working.");
+    },
+    settle: 10,
+  });
+  await m.saveEnvironment(far);
+  await m.connect("far");
+  await m.upgradeDaemon("far");
+  expect(lastStatus(events)?.daemon?.upgrade?.error).toContain("Not stopped");
+  await m.upgradeDaemon("far", "later");
+  expect(runs).toBe(2);
+  expect(lastStatus(events)?.daemon?.upgrade?.error).toBeUndefined();
+});
+
 test("nothing is run for a daemon that is not too old", async () => {
   const { manager } = await setup(fakeAgent(), "9.9.9");
   let runs = 0;

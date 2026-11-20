@@ -498,10 +498,12 @@ export class ConnectionManager
     const { runOnHost } = this.#options;
     const upgrade = connection?.status.daemon?.upgrade;
     if (connection === undefined || environment === undefined || upgrade === undefined) return;
-    // Already waiting for the sessions is not an update in progress: the person may choose to stop them now.
+    // Only an update that is running holds a click back. After a failure the person tries again (the plain stop
+    // refuses when sessions started working since, and they then choose); while it waits for the sessions, what is
+    // left to choose is to interrupt them.
     const doing = this.#upgrading.get(environmentId);
-    if ((doing !== undefined && !("waiting" in doing)) || runOnHost === undefined) return;
-    if (doing !== undefined && stop !== "now") return;
+    if (runOnHost === undefined || (doing !== undefined && "running" in doing)) return;
+    if (doing !== undefined && "waiting" in doing && stop !== "now") return;
     // Kept here and not in the status, which every change of the connection builds anew.
     const say = (now: { running: true } | { error: string } | { waiting: true } | undefined) => {
       if (now === undefined) this.#upgrading.delete(environmentId);
