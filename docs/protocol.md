@@ -259,6 +259,15 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 
 **agent 自己在重试请求**:agent 的模型请求失败、它自己会等一会儿再试时(Claude SDK 的 `api_retry`),agent 发一条 `notice`,`severity: "info"`,`title` 是给人看的一句话,`_meta["cycle/retry"]` 为 `{attempt, maxRetries, delayMs, status?}`(第几次、最多几次、要等多久、HTTP 状态码,连接错误时没有 `status`)。它进日志,但不是 turn 的结束,也不需要人做什么:客户端只在它是进行中 turn 的最后一项时,把它当作"正在重试"的状态显示,turn 有了新内容就不再显示;不在会话里画成一行。重试用完仍失败时,turn 照常以 `stopReason: "error"` 结束。
 
+**上下文用量(`usage_update`,CYCL-72)**:字段沿用 ACP:`used`、`size`、可选的 `cost: {amount, currency}`。Claude 的取法:
+
+- `used`:主线程最近一次模型调用的 `input_tokens + cache_read_input_tokens + cache_creation_input_tokens + output_tokens`,即下一次调用开始时上下文里有的。缓存读写的 token 照样占上下文,所以算在里面,不单独报。子 agent 的调用不算(它们有自己的上下文)。
+- `size`:这一轮 `result.modelUsage` 里各模型 `contextWindow` 的最大值,是模型标称的窗口。Claude Code 自动压缩用的窗口可能更小(例如 1M 窗口的模型在 200K 处压缩),这个协议里没有它。
+- `cost`:`result.total_cost_usd`,整个 session 到目前的累计,美元。省略表示沿用上一次,`null` 表示清掉。
+- **什么时候发**:每个 turn 结束时一次(turn 被取消时不发);以及一次压缩完成之后,SDK 的 `compact_boundary` 带了 `post_tokens` 时,紧跟在 `compaction_update: completed` 之后发一次,`used` 是压缩后的量,`size` 沿用本进程上一次的,不带 `cost`。本进程还没报过 `size`(刚恢复、还没有 turn 结束)时这一次不发,压缩后的量在 turn 结束时报。没有 `post_tokens` 时什么都不发,不估算。
+- 所以客户端看到一条 `compaction_update: completed` 之后还没有新的 `usage_update` 时,手上的用量是压缩**之前**的,应当这样说明,不当作现在的值。
+- 没有分类占比(系统提示、工具、消息各占多少)、缓存命中量、压缩次数这些字段:SDK 的 `getContextUsage()` 能给出分类,但要额外调用,现在不接。压缩发生过几次,客户端从会话里的 `compaction_update` 数。
+
 **失败后重新发送**是客户端的事,协议不变:客户端把失败那个 turn 的 `user_message` 放回输入框,由人核对后作为新的 `session/prompt` 发出。它和别的 prompt 一样走权限流程,之前的批准不沿用。
 
 多个客户端同时附着的规则:
@@ -459,6 +468,13 @@ session 里 ACP 的 `configOptions` 用 ACP 自己的字段表达同样的东西
 能把 prompt 插入正在运行的 turn 的 agent 带 `steer: true`(§8 "插入"),没有就是不能。
 
 每个 agent 还有 `promptCapabilities`(ACP 的 `PromptCapabilities`:`image`、`embeddedContext`,缺省都是没有),客户端据此决定是否提供附件入口,daemon 据此校验 prompt(§8)。Claude 的 `model` 用 `oneOf` 给出取值和名字(`default` 叫 "Default model",以及 `sonnet`、`opus`、`haiku`;值不变,0.2.7 之前是只有值的 `enum`,客户端两种都认),`mode` 是权限模式,取值就是 Claude Agent SDK 的 `PermissionMode`:`default`、`acceptEdits`、`plan`、`auto`、`dontAsk`、`bypassPermissions`,新 session 默认且推荐 `auto`,各自的名字和说明见 L3 文档。
+
+**思考强度(`effort`,CYCL-72)**:Claude 的 `configSchema` 里有 `effort`,`oneOf` 为 `default`、`low`、`medium`、`high`、`xhigh`、`max`,不设时是 `default`。
+
+- `default` 不是一个档位,意思是"Cycle 不覆盖":Claude Code 用用户自己设置里的档位,没有设置时用模型自己的默认。SDK 不告诉我们这时实际是哪一档,所以客户端显示为"模型默认",不得写成某个具体档位。其余各值原样交给 SDK(新进程用 `options.effort`,运行中的进程用 `applyFlagSettings({effortLevel})`,`default` 清掉覆盖)。`max` 只在这个 session 里生效;模型不支持 `max` 时 SDK 按 `high` 跑。
+- **哪些模型支持**:来自 SDK 的 `ModelInfo.supportsEffort` 与 `supportedEffortLevels`,不在 Cycle 里写死。session 里 `config_option_update` 的 `model` 选项,每一项在 `_meta["cycle/efforts"]` 里带该模型可选的档位(字符串数组,不含 `default`);空数组表示该模型不支持 effort;没有这个键表示不知道。`effort` 选项的 `options` 是当前模型可选的档位加上 `default`;当前模型不支持时只有 `default`,客户端这时不显示 effort。
+- **不知道时**:进程还没报模型清单(新 session 第一个进程起来之前)、或当前模型不在清单里时,`effort` 列出全部档位,值照常交给 SDK,由它决定;清单到了之后,当前值不在当前模型的档位里,adapter 把它改回 `default` 并发 `config_option_update`。换模型时同样:旧档位新模型不支持,改回 `default`(一个值,不按模型分别记)。
+- daemon 缓存它见过的模型清单(含各模型的 `cycle/efforts`),叠加到 `_cycle/agents` 返回的 `configSchema` 的 `model.oneOf` 上(同样放在每项的 `_meta["cycle/efforts"]`),新 session 页据此在选模型时决定是否显示 effort、显示哪些档位。缓存只是提示,不做校验:真正可选的档位以 session 里 agent 报的为准。
 
 agent 自己改了配置(例如 Claude 在 plan 模式里被批准后切回常规模式),通过 `config_option_update` 回报;daemon 把变化写进索引的 `config`,恢复时才不会把它改回去。
 

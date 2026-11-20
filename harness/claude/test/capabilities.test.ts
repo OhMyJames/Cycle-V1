@@ -416,6 +416,18 @@ test("initializationResult().models updates live model and per-model effort opti
     const modelOpt = announced?.configOptions?.find((o) => o.configId === "model");
     expect(modelOpt?.options.map((o) => o.value)).toEqual(["default", "fabel", "claude-haiku-4-5"]);
     expect(modelOpt?.options.find((o) => o.value === "fabel")?.name).toBe("Fabel");
+    // Each model says which effort levels it takes: [] for none, nothing when the SDK does not say.
+    const efforts = Object.fromEntries(
+      (modelOpt?.options ?? []).map((o) => [
+        o.value,
+        (o as { _meta?: Record<string, unknown> })._meta?.["cycle/efforts"],
+      ]),
+    );
+    expect(efforts).toEqual({
+      default: undefined,
+      fabel: ["low", "medium", "high", "xhigh", "max"],
+      "claude-haiku-4-5": [],
+    });
 
     // Set high effort on Fabel, then switch to Haiku (`supportsEffort: false`): stale effort resets to default and high is rejected.
     await agent.request(methods.agent.session.setConfigOption, {
@@ -957,6 +969,130 @@ test("a compaction is announced as it starts and as it ends, or fails", async ()
     expect(compactions[0]?.compactionId).toBe(compactions[1]?.compactionId as string);
     expect(compactions[0]?.compactionId).not.toBe(compactions[2]?.compactionId as string);
     expect(compactions[3]?.error).toBe("too big");
+  });
+});
+
+test("a compaction with post_tokens tells the usage it left at once, after the compaction; without them nothing is made up", async () => {
+  const status = (s: string | null, extra: object = {}) =>
+    ({ type: "system", subtype: "status", status: s, ...extra }) as unknown as SDKMessage;
+  const boundary = (post?: number) =>
+    ({
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: {
+        trigger: "manual",
+        pre_tokens: 150_000,
+        ...(post !== undefined ? { post_tokens: post } : {}),
+      },
+    }) as unknown as SDKMessage;
+  /** A turn whose one model call used `tokens`, in a 200K window. */
+  const measured = (tokens: number) => {
+    const [init, start, block, d1, d2, assistant] = textTurn(ID, "m", "ok") as unknown as Record<
+      string,
+      unknown
+    >[];
+    return [
+      init,
+      start,
+      block,
+      d1,
+      d2,
+      {
+        ...assistant,
+        message: {
+          ...(assistant?.message as object),
+          usage: { input_tokens: 10, cache_read_input_tokens: tokens - 20, output_tokens: 10 },
+        },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        stop_reason: "end_turn",
+        session_id: ID,
+        total_cost_usd: 0.5,
+        modelUsage: { opus: { contextWindow: 200_000 } },
+      },
+    ] as unknown as SDKMessage[];
+  };
+  const fake = fakeQuery((call) => {
+    const text = fake.prompts.at(-1) ?? call.prompt;
+    if (text === "compact")
+      // `/compact`: no model call of its own that reports usage, then the result.
+      return [
+        status("compacting"),
+        boundary(40_000),
+        status(null, { compact_result: "success" }),
+        {
+          type: "result",
+          subtype: "success",
+          stop_reason: "end_turn",
+          session_id: ID,
+        } as unknown as SDKMessage,
+      ];
+    if (text === "failed") {
+      // A model call measured, then a compaction that said where it would land and failed.
+      const turn = measured(150_000);
+      const result = turn.pop() as SDKMessage;
+      return [
+        ...turn,
+        status("compacting"),
+        boundary(40_000),
+        status(null, { compact_result: "failed", compact_error: "no" }),
+        result,
+      ];
+    }
+    if (text === "unknown")
+      return [
+        status("compacting"),
+        boundary(),
+        status(null, { compact_result: "success" }),
+        {
+          type: "result",
+          subtype: "success",
+          stop_reason: "end_turn",
+          session_id: ID,
+        } as unknown as SDKMessage,
+      ];
+    return measured(150_000);
+  });
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "work" }]);
+    const kinds = () =>
+      updates
+        .filter(
+          (u) => u.sessionUpdate === "usage_update" || u.sessionUpdate === "compaction_update",
+        )
+        .map((u) =>
+          u.sessionUpdate === "usage_update"
+            ? `usage ${(u as unknown as { used: number }).used}/${(u as unknown as { size: number }).size}`
+            : `compaction ${(u as unknown as { status: string }).status}`,
+        );
+    expect(kinds()).toEqual(["usage 150000/200000"]);
+
+    await prompt(agent, idle, [{ type: "text", text: "compact" }]);
+    // The usage comes after the compaction is told as completed, so a client never sees it before.
+    expect(kinds()).toEqual([
+      "usage 150000/200000",
+      "compaction in_progress",
+      "compaction completed",
+      "usage 40000/200000",
+    ]);
+    const compactedUsage = updates.filter((u) => u.sessionUpdate === "usage_update").at(-1);
+    // No cost of its own: the last one stays (protocol §8).
+    expect(compactedUsage).not.toHaveProperty("cost");
+
+    await prompt(agent, idle, [{ type: "text", text: "unknown" }]);
+    // Without post_tokens no number is invented: no usage is told after that compaction.
+    expect(kinds().slice(4)).toEqual(["compaction in_progress", "compaction completed"]);
+
+    await prompt(agent, idle, [{ type: "text", text: "failed" }]);
+    // The context was not made smaller: the turn ends with what the model call measured.
+    expect(kinds().slice(6)).toEqual([
+      "compaction in_progress",
+      "compaction failed",
+      "usage 150000/200000",
+    ]);
   });
 });
 

@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { META } from "@cycle/protocol";
 import { z } from "zod";
 
 const CachedChoiceSchema = z.object({
   const: z.string(),
   title: z.string(),
   description: z.string().optional(),
+  /** A model's effort levels (`META.efforts`, docs/protocol.md §10): `[]` takes none; absent, not known. */
+  efforts: z.array(z.string()).optional(),
 });
 
 export type CachedChoice = z.infer<typeof CachedChoiceSchema>;
@@ -59,6 +62,7 @@ export class AgentOptionsCache {
           const: c.const,
           title: c.title,
           ...(c.description !== undefined ? { description: c.description } : {}),
+          ...(c.efforts !== undefined ? { _meta: { [META.efforts]: c.efforts } } : {}),
         })),
       };
       changed = true;
@@ -74,10 +78,18 @@ export class AgentOptionsCache {
       ...(c.description !== undefined && c.description !== ""
         ? { description: c.description }
         : {}),
+      ...(c.efforts !== undefined ? { efforts: [...c.efforts] } : {}),
     }));
     const run = this.#queue.then(async () => {
       const previousAgent = this.#agents.get(agent);
       const current = previousAgent?.[configId];
+      // A list that does not say a model's effort levels (the adapter's fallback before the SDK's catalog
+      // arrives) keeps what an earlier one said, rather than forgetting it.
+      for (const [index, choice] of normalized.entries()) {
+        if (choice.efforts !== undefined) continue;
+        const known = current?.find((c) => c.const === choice.const)?.efforts;
+        if (known !== undefined) normalized[index] = { ...choice, efforts: known };
+      }
       if (current !== undefined && JSON.stringify(current) === JSON.stringify(normalized)) {
         return;
       }
@@ -132,11 +144,15 @@ export const choicesFromConfigOptions = (
     };
     if (c._meta?.["cycle/custom"] === true) continue;
     if (typeof c.value !== "string" || c.value === "") continue;
+    const efforts = c._meta?.[META.efforts];
     out.push({
       const: c.value,
       title: typeof c.name === "string" && c.name !== "" ? c.name : c.value,
       ...(typeof c.description === "string" && c.description !== ""
         ? { description: c.description }
+        : {}),
+      ...(Array.isArray(efforts) && efforts.every((e) => typeof e === "string")
+        ? { efforts: efforts as string[] }
         : {}),
     });
   }
