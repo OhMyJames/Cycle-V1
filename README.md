@@ -37,9 +37,11 @@ bun run check    # 边界、类型、lint、测试
 
 `apps/daemon`(daemon,可编译成单文件)、`apps/desktop`(Electron 应用)、`harness/*`(agent 适配,当前为 Claude)、`packages/*`(协议、客户端与传输、埋点、界面)。门禁约 7 秒;集成测试(`bun run test:integration`)启动真实进程;`bun run build` 构建 daemon 和桌面端,`bun run start` 启动。详见 [docs/testing.md](docs/testing.md)。
 
-## v1 不做
+## v1 桌面端规划
 
-git worktree、终端、diff 视图、多 provider、Web 端。
+右侧面板、diff 视图、交互式终端、内置浏览器及 agent 操作浏览器（browser use）、插件（plugins）和设置页（settings）已纳入 v1 规划。已发布功能见[使用指南](docs/getting-started.md)。
+
+git worktree、多 provider 和独立 Web 端仍在 v1 范围外。
 
 ## 文档
 

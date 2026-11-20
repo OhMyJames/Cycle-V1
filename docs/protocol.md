@@ -61,6 +61,12 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 - 客户端不认识的能力忽略。daemon 不认识的客户端能力同样忽略。
 - ACP 的 `fs/*` 和 `terminal/*` 能力 v1 不支持(v2 稳定版里本来也没有 `fs/*`)。`initialize` 的客户端能力里相应字段缺省即视为不支持。
 
+### 桌面端规划中的扩展
+
+右侧面板、diff 视图、交互式终端、内置浏览器及 browser use、plugins 和 settings 页如需新增 L1 方法，沿用 `_cycle/*` 命名空间，在各功能工单中定义方法、参数及对应的能力声明。纯客户端交互无需增加 L1 方法。客户端只在 daemon 声明相应能力后调用新方法，旧 daemon 缺少声明时跳过调用。
+
+此处仅预留扩展位置。终端通道由 CYCL-96 决定，browser use 的权限和回传通道由 CYCL-100 决定。上面的握手示例只列已定义的能力。
+
 ## 4. ACP v2 方法在 L1 的使用
 
 下表中"客户端 → daemon"的方法,daemon 按 `sessionId` 路由到对应 agent 并转发,除非标注"daemon 处理"。
