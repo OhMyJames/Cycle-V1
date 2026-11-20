@@ -106,6 +106,16 @@ export const EVENTS = {
   tool_link_opened: o({}),
   code_theme_changed: o({}),
   slash_command_used: o({}),
+  /**
+   * "Send again" on a turn that failed: its message went back in the box. `failure` is the kind (from Cycle's error code,
+   * never the message); `changed`: the turn had run a command or changed a file first, and the person was warned.
+   */
+  turn_resend_opened: o({
+    failure: z.enum(["agent_exited", "daemon_stopped", "history", "resume", "agent_error"]),
+    changed: z.boolean(),
+  }),
+  /** The message put back by "Send again" was sent; `edited`: not as it was. */
+  turn_resent: o({ edited: z.boolean() }),
 } as const;
 
 export type EventName = keyof typeof EVENTS;
@@ -121,6 +131,8 @@ export const UI_EVENTS = [
   "tool_output_expanded",
   "plan_opened",
   "tool_link_opened",
+  "turn_resend_opened",
+  "turn_resent",
 ] as const satisfies readonly EventName[];
 export type UiEventName = (typeof UI_EVENTS)[number];
 

@@ -127,6 +127,11 @@ export function Composer({
   const picker = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<InputHandle | null>(null);
+  // Something put a message back to be sent again (a failed turn's "Send again"): the box takes the focus, to read it.
+  const focusAsked = useAppState((s) => s.composerFocus);
+  useEffect(() => {
+    if (focusAsked > 0) input.current?.focus();
+  }, [focusAsked]);
   // What is being named after a slash or an @, and which of the matches is under the arrows. Escape closes the menu until
   // what was typed changes.
   const menuId = useId();

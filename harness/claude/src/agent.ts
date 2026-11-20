@@ -151,6 +151,8 @@ const PROPOSED_ID = "cycle/sessionId";
 const HAD_TURN = "cycle/hadTurn";
 /** On `session/prompt`: put it into the turn that is running (`META.steer`, docs/protocol.md §8). */
 const STEER = "cycle/steer";
+/** On a `notice`: Claude is trying its request again by itself (`META.retry`, docs/protocol.md §8). */
+const RETRY = "cycle/retry";
 
 type Turn = {
   translator: TurnTranslator;
@@ -384,6 +386,32 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     return { sessionUpdate: "available_commands_update", availableCommands } as SessionUpdate;
   };
 
+  /** The SDK's `api_retry`, as the notice that says the request is being tried again (docs/protocol.md §8). */
+  const retryNotice = (m: Record<string, unknown>): SessionUpdate => {
+    const n = (value: unknown) =>
+      typeof value === "number" && Number.isFinite(value) ? value : undefined;
+    const attempt = n(m.attempt);
+    const maxRetries = n(m.max_retries);
+    const delayMs = n(m.retry_delay_ms);
+    const status = n(m.error_status);
+    return {
+      sessionUpdate: "notice",
+      severity: "info",
+      title:
+        attempt !== undefined && maxRetries !== undefined
+          ? `Retrying the request (attempt ${attempt} of ${maxRetries})`
+          : "Retrying the request",
+      _meta: {
+        [RETRY]: {
+          ...(attempt !== undefined ? { attempt } : {}),
+          ...(maxRetries !== undefined ? { maxRetries } : {}),
+          ...(delayMs !== undefined ? { delayMs } : {}),
+          ...(status !== undefined ? { status } : {}),
+        },
+      },
+    } as SessionUpdate;
+  };
+
   /**
    * What a process says that is not part of a turn: the mode it changed itself (a plan approved),
    * a compaction, a new list of commands. These are the session's, and can come between turns.
@@ -403,6 +431,9 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       }
     } else if (m.subtype === "commands_changed") {
       await announceCommands(client, session, m.commands as SlashCommand[]);
+    } else if (m.subtype === "api_retry") {
+      // Claude tries the request again by itself: a state for the person to see, not a failure (docs/protocol.md §8).
+      await notify(client, session.id, retryNotice(m));
     } else if (m.subtype === "status") {
       const mode = m.permissionMode as PermissionMode | undefined;
       if (

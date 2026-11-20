@@ -883,6 +883,61 @@ export const scenarios: Record<string, Scenario> = {
       idle({ stopReason: "error", error: { code: -32012, message: "The agent exited" } }),
     ],
   },
+  "turn-error-changed": {
+    title:
+      "A turn that failed after running a command: Send again asks first, as the message may do it again",
+    sessions: [session("s1")],
+    history: [
+      you("u1", "Bump the version and publish the package."),
+      running(),
+      ...done("b1", "Bash", { command: "npm version patch" }, { content: text("v1.4.3") }),
+      u({ sessionUpdate: "tool_call_update", toolCallId: "b1", kind: "execute" }),
+      idle({
+        stopReason: "error",
+        error: { message: "API Error: 529 Overloaded. The service is busy; try again later." },
+      }),
+    ],
+    after: async (root) => {
+      const button = [...root.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent === "Send again",
+      );
+      button?.click();
+      await until(() => document.querySelector('[role="alertdialog"]') !== null, "the dialog");
+      await frames(4);
+    },
+  },
+  "turn-error-resent": {
+    title: "Send again: the message is back in the input box, to read and send",
+    sessions: [session("s1")],
+    history: [
+      you("u1", "Summarise the open issues by label."),
+      running(),
+      idle({
+        stopReason: "error",
+        error: { code: -32018, message: "Cycle was stopped while this turn was running" },
+      }),
+    ],
+    after: async (root) => {
+      [...root.querySelectorAll<HTMLButtonElement>("button")]
+        .find((b) => b.textContent === "Send again")
+        ?.click();
+      await frames(4);
+    },
+  },
+  "turn-retrying": {
+    title: "The agent's request failed and it is trying again by itself: a state, not a row",
+    sessions: [session("s1", { state: "running" })],
+    history: [
+      you("u1", "Explain the queue hand-off."),
+      running(),
+      u({
+        sessionUpdate: "notice",
+        severity: "info",
+        title: "Retrying the request (attempt 2 of 10)",
+        _meta: { "cycle/retry": { attempt: 2, maxRetries: 10, delayMs: 1200, status: 529 } },
+      }),
+    ],
+  },
   "host-down": {
     title: "The remote host cannot be reached (its own words shown)",
     environments: [BUILD, LOCAL],
