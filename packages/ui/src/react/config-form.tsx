@@ -32,11 +32,19 @@ export type Option = {
   description?: string | undefined;
   recommended?: boolean;
   danger?: boolean;
+  /** On a model: the effort levels it takes; `[]` none, absent not known (docs/protocol.md §10). */
+  efforts?: readonly string[] | undefined;
 };
 
 /** Marks the choice the agent suggests or warns on, in `_meta`. Mirrors `META` of `@cycle/protocol`. */
 const RECOMMENDED = "cycle/recommended";
 const DANGER = "cycle/danger";
+const EFFORTS = "cycle/efforts";
+
+const effortsOf = (meta: Record<string, unknown> | undefined): string[] | undefined => {
+  const value = meta?.[EFFORTS];
+  return Array.isArray(value) && value.every((e) => typeof e === "string") ? value : undefined;
+};
 
 /** A property's values, with a name and a line on each when the schema gives them (`oneOf`). */
 export const optionsOf = (property: Property): Option[] | undefined => {
@@ -49,6 +57,7 @@ export const optionsOf = (property: Property): Option[] | undefined => {
         description: c.description,
         recommended: c._meta?.[RECOMMENDED] === true,
         danger: c._meta?.[DANGER] === true,
+        ...(effortsOf(c._meta) !== undefined ? { efforts: effortsOf(c._meta) } : {}),
       }));
   }
   return property.enum?.map((v) => ({ value: v, label: v }));
@@ -79,11 +88,12 @@ export const mergeConfigSchema = (
       const: c.value,
       title: c.name,
       ...(c.description !== undefined ? { description: c.description } : {}),
-      ...(c.recommended || c.danger
+      ...(c.recommended || c.danger || c.efforts !== undefined
         ? {
             _meta: {
               ...(c.recommended ? { [RECOMMENDED]: true } : {}),
               ...(c.danger ? { [DANGER]: true } : {}),
+              ...(c.efforts !== undefined ? { [EFFORTS]: c.efforts } : {}),
             },
           }
         : {}),

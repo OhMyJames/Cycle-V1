@@ -1,17 +1,15 @@
 // The session's settings that are a choice (the permission mode, the model and its reasoning effort), at hand in the
 // composer utility bar: what the agent does next is decided where the next message is written. Read from the agent's
 // own schema, so nothing here knows Claude.
-// Visual interaction patterns inspired by Rare UI's Model Picker (https://www.rareui.com/components/modelpicker):
-// clean-room Cycle implementation with portaled collision-aware popover, spring unfold, critically-damped sliding
-// highlight, compact description-free model rows, draggable elastic Effort slider, WAI-ARIA semantics, full IME
-// safety, and explicit-activation guard for high-risk modes.
+// Each opens the utility bar's popover (`anchored-popover.tsx`): a short list that is read at a glance, so no filter,
+// and the model's effort as a slider under the models, showing only the levels that model takes.
 import { isComposing } from "@ui-sdk/core";
 import { motion, useReducedMotion } from "motion/react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AnchoredPopover } from "./anchored-popover.tsx";
 import { type Option, OptionLabel, optionsOf, propertiesOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
-import { CheckIcon, ChevronDownIcon, SearchIcon, ShieldAlertIcon, ShieldIcon } from "./icons.tsx";
+import { CheckIcon, ChevronDownIcon, ShieldAlertIcon, ShieldIcon } from "./icons.tsx";
 
 export type SettingsOf = {
   /** The agent's `configSchema`. */
@@ -27,16 +25,7 @@ export type SecondarySetting = {
   current: string | undefined;
 };
 
-/** Show the inline filter input once a setting offers enough choices to benefit from search. */
-const SEARCH_THRESHOLD = 5;
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
-
-/** Compact tick label for the discrete Effort slider track. */
-const shortTick = (label: string): string => {
-  if (label === "Default") return "Def";
-  if (label === "Medium") return "Med";
-  return label;
-};
 
 /**
  * Draggable discrete slider for reasoning effort (or any paired ordered setting), with elastic spring snap,
@@ -82,7 +71,12 @@ function EffortSlider({
   const committedIndex = Math.max(effectiveIndex, 0);
   const liveIndex = dragRatio !== null ? Math.round(dragRatio * max) : committedIndex;
   const displayOption = setting.options[liveIndex];
-  const displayLabel = isUnset ? t("config.notSet") : (displayOption?.label ?? "");
+  // `default` is no level: the model's own, which the agent does not name (docs/protocol.md §10).
+  const displayLabel = isUnset
+    ? t("config.notSet")
+    : displayOption?.value === "default"
+      ? t("composer.effort.modelDefault")
+      : (displayOption?.label ?? "");
   const ratio = dragRatio ?? (count > 1 && !isUnset ? committedIndex / max : 0);
   const isEnergized = !isUnset && liveIndex > 0;
 
@@ -267,7 +261,7 @@ function EffortSlider({
               commitIndex(idx);
             }}
           >
-            {shortTick(opt.label)}
+            {opt.value === "default" ? t("composer.effort.tickDefault") : opt.label}
           </button>
         ))}
       </div>
@@ -284,6 +278,7 @@ function SettingPickerChip({
   compact = false,
   align = "start",
   disabled,
+  onChoose,
   onSet,
 }: {
   settingKey: string;
@@ -295,6 +290,8 @@ function SettingPickerChip({
   compact?: boolean;
   align?: "start" | "end";
   disabled: boolean;
+  /** A choice in the list; the caller may set more than this one setting (the model's effort). */
+  onChoose?: (option: Option) => void;
   onSet: (key: string, value: string) => void;
 }) {
   const { t } = useI18n();
@@ -303,15 +300,12 @@ function SettingPickerChip({
   const popoverId = `${pickerId}-popover`;
   const listId = `${pickerId}-list`;
   const [open, setOpen] = useState(false);
-  const [openSeq, setOpenSeq] = useState(0);
-  const [query, setQuery] = useState("");
   const [highlighted, setHighlighted] = useState(0);
   const [sliderFocused, setSliderFocused] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
   const secondaryWrapRef = useRef<HTMLDivElement>(null);
   const sliderInputRef = useRef<HTMLInputElement>(null);
   const navOriginRef = useRef<"init" | "keyboard" | "pointer">("init");
@@ -337,22 +331,9 @@ function SettingPickerChip({
         second: t("composer.setting", { setting: secondary.heading, value: secondaryLabel }),
       })
     : primaryName;
-  const searchable = options.length >= SEARCH_THRESHOLD;
-
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (q === "") return options;
-    return options.filter(
-      (o) =>
-        o.label.toLowerCase().includes(q) ||
-        o.value.toLowerCase().includes(q) ||
-        (o.description?.toLowerCase().includes(q) ?? false),
-    );
-  }, [options, query]);
 
   const close = useCallback((returnFocus: boolean) => {
     setOpen(false);
-    setQuery("");
     setSliderFocused(false);
     if (returnFocus) triggerRef.current?.focus();
   }, []);
@@ -361,32 +342,30 @@ function SettingPickerChip({
     if (disabled) return;
     const selectedIndex = current === undefined ? 0 : options.findIndex((o) => o.value === current);
     navOriginRef.current = "init";
-    setQuery("");
     setSliderFocused(false);
     setHighlighted(Math.max(selectedIndex, 0));
-    setOpenSeq((seq) => seq + 1);
     setOpen(true);
   };
 
   const choose = (option: Option) => {
-    if (option.value !== current) onSet(settingKey, option.value);
+    if (option.value !== current) {
+      if (onChoose !== undefined) onChoose(option);
+      else onSet(settingKey, option.value);
+    }
     close(true);
   };
 
   useEffect(() => {
-    if (disabled && open) {
-      setOpen(false);
-      setQuery("");
-    }
+    if (disabled && open) setOpen(false);
   }, [disabled, open]);
 
+  // The list takes the focus as it opens, however it was opened: arrows then move in it at once.
   useEffect(() => {
-    if (!open) return;
-    if (searchable) searchRef.current?.focus();
-    else listRef.current?.focus();
-  }, [open, searchable]);
+    if (open) listRef.current?.focus();
+  }, [open]);
 
-  const activeIndex = visible.length === 0 ? -1 : Math.min(highlighted, visible.length - 1);
+  const count = options.length;
+  const activeIndex = count === 0 ? -1 : Math.min(highlighted, count - 1);
   const listActiveIndex = sliderFocused ? -1 : activeIndex;
   const optionId = (index: number) => `${pickerId}-opt-${index}`;
   const activeOptionId = listActiveIndex >= 0 ? optionId(listActiveIndex) : undefined;
@@ -399,6 +378,13 @@ function SettingPickerChip({
     item?.scrollIntoView?.({ block: "nearest" });
   }, [open, listActiveIndex]);
 
+  const move = (index: number) => {
+    navOriginRef.current = "keyboard";
+    setSliderFocused(false);
+    setHighlighted(index);
+    listRef.current?.focus();
+  };
+
   const onPopoverKeyDown = (event: React.KeyboardEvent) => {
     if (isComposing(event.nativeEvent)) return;
     if (event.key === "Escape") {
@@ -410,65 +396,43 @@ function SettingPickerChip({
     const inSecondary =
       event.target instanceof Node && Boolean(secondaryWrapRef.current?.contains(event.target));
     if (event.key === "Tab") {
+      // Tab goes between the list and the effort slider; with nothing else in it, it leaves and closes.
       if (secondary === undefined) {
         close(false);
         return;
       }
       event.preventDefault();
-      if (inSecondary) {
-        if (searchable) searchRef.current?.focus();
-        else listRef.current?.focus();
-      } else {
-        sliderInputRef.current?.focus();
-      }
+      if (inSecondary) listRef.current?.focus();
+      else sliderInputRef.current?.focus();
       return;
     }
-    if (inSecondary) return;
-    if (visible.length === 0) return;
-    const inSearch = event.target === searchRef.current;
+    // The slider's own arrows set the effort.
+    if (inSecondary || count === 0) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      navOriginRef.current = "keyboard";
-      setHighlighted((activeIndex + 1) % visible.length);
-      return;
-    }
-    if (event.key === "ArrowUp") {
+      move((activeIndex + 1) % count);
+    } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      navOriginRef.current = "keyboard";
-      setHighlighted((activeIndex - 1 + visible.length) % visible.length);
-      return;
-    }
-    if (event.key === "Home" && !inSearch) {
+      move((activeIndex - 1 + count) % count);
+    } else if (event.key === "Home") {
       event.preventDefault();
-      navOriginRef.current = "keyboard";
-      setHighlighted(0);
-      return;
-    }
-    if (event.key === "End" && !inSearch) {
+      move(0);
+    } else if (event.key === "End") {
       event.preventDefault();
-      navOriginRef.current = "keyboard";
-      setHighlighted(visible.length - 1);
-      return;
-    }
-    if (event.key === "Enter") {
+      move(count - 1);
+    } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      const target = visible[activeIndex];
-      if (target !== undefined) choose(target);
-      return;
-    }
-    if (event.key === " " && !inSearch) {
-      event.preventDefault();
-      const target = visible[activeIndex];
+      const target = options[activeIndex];
       if (target !== undefined) choose(target);
     }
   };
 
   const onTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (open) return;
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      event.preventDefault();
-      openMenu();
-    }
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    // Open, or already open with the focus back on the chip: either way the arrows go to the list.
+    if (open) listRef.current?.focus();
+    else openMenu();
   };
 
   const popover = (
@@ -479,107 +443,63 @@ function SettingPickerChip({
       popoverRef={popoverRef}
       align={align}
       onDismiss={close}
-      motionKey={openSeq}
       {...(secondary !== undefined
         ? { id: popoverId, role: "dialog" as const, label: heading }
         : {})}
       compact={compact}
       onMouseDown={(event) => {
         const target = event.target;
-        if (target === searchRef.current) return;
         if (target instanceof Node && secondaryWrapRef.current?.contains(target)) return;
+        // A press in the list keeps the focus where it is, so the list's keys keep working.
         event.preventDefault();
       }}
       onKeyDown={onPopoverKeyDown}
     >
       <div data-slot="setting-popover-head">{heading}</div>
-      {searchable ? (
-        <div data-slot="setting-search">
-          <SearchIcon size={13} aria-hidden="true" />
-          <input
-            ref={searchRef}
-            type="search"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded={open}
-            aria-controls={listId}
-            {...(activeOptionId !== undefined ? { "aria-activedescendant": activeOptionId } : {})}
-            data-slot="setting-search-input"
-            value={query}
-            placeholder={t("config.filterPlaceholder")}
-            aria-label={t("config.filterLabel", { setting: heading })}
-            onChange={(event) => {
-              navOriginRef.current = "keyboard";
-              setQuery(event.currentTarget.value);
-              setHighlighted(0);
-            }}
-          />
-        </div>
-      ) : null}
-      <motion.div
+      <div
         ref={listRef}
         id={listId}
-        layoutScroll
-        role={searchable ? "listbox" : "menu"}
+        role="menu"
         aria-label={heading}
-        {...(!searchable && activeOptionId !== undefined
-          ? { "aria-activedescendant": activeOptionId }
-          : {})}
+        {...(activeOptionId !== undefined ? { "aria-activedescendant": activeOptionId } : {})}
         tabIndex={-1}
         data-slot="setting-list"
       >
-        {visible.length === 0 ? (
-          <div role="status" aria-live="polite" data-slot="setting-empty">
-            {t("config.noMatch")}
-          </div>
-        ) : (
-          visible.map((option, index) => {
-            const selected = option.value === current;
-            const active = index === listActiveIndex;
-            const displayOption = compact ? { ...option, description: undefined } : option;
-            return (
-              <button
-                key={option.value}
-                id={optionId(index)}
-                type="button"
-                role={searchable ? "option" : "menuitemradio"}
-                {...(searchable ? { "aria-selected": selected } : { "aria-checked": selected })}
-                tabIndex={-1}
-                data-slot="setting-option"
-                data-active={active || undefined}
-                data-selected={selected || undefined}
-                data-danger={option.danger || undefined}
-                title={option.description}
-                onMouseEnter={() => {
-                  navOriginRef.current = "pointer";
-                  setSliderFocused(false);
-                  setHighlighted(index);
-                }}
-                onClick={() => choose(option)}
-              >
-                {active ? (
-                  <motion.span
-                    {...(reduced ? {} : { layoutId: `setting-highlight-${pickerId}-${openSeq}` })}
-                    data-slot="setting-highlight"
-                    aria-hidden="true"
-                    transition={
-                      reduced ? { duration: 0 } : { type: "spring", duration: 0.18, bounce: 0 }
-                    }
-                  />
-                ) : null}
-                <span data-slot="setting-option-body">
-                  <OptionLabel option={displayOption} />
+        {options.map((option, index) => {
+          const selected = option.value === current;
+          const active = index === listActiveIndex;
+          const displayOption = compact ? { ...option, description: undefined } : option;
+          return (
+            <button
+              key={option.value}
+              id={optionId(index)}
+              type="button"
+              role="menuitemradio"
+              aria-checked={selected}
+              tabIndex={-1}
+              data-slot="setting-option"
+              data-active={active || undefined}
+              data-selected={selected || undefined}
+              data-danger={option.danger || undefined}
+              title={option.description}
+              onMouseEnter={() => {
+                navOriginRef.current = "pointer";
+                setHighlighted(index);
+              }}
+              onClick={() => choose(option)}
+            >
+              <span data-slot="setting-option-body">
+                <OptionLabel option={displayOption} />
+              </span>
+              {selected ? (
+                <span data-slot="setting-check" aria-hidden="true">
+                  <CheckIcon size={13} />
                 </span>
-                {selected ? (
-                  <span data-slot="setting-check" aria-hidden="true">
-                    <CheckIcon size={13} />
-                  </span>
-                ) : null}
-              </button>
-            );
-          })
-        )}
-      </motion.div>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
       {secondary !== undefined ? (
         <div ref={secondaryWrapRef}>
           <EffortSlider
@@ -617,7 +537,7 @@ function SettingPickerChip({
         data-open={open || undefined}
         data-disabled={disabled || undefined}
         disabled={disabled}
-        aria-haspopup={secondary !== undefined ? "dialog" : searchable ? "listbox" : "menu"}
+        aria-haspopup={secondary !== undefined ? "dialog" : "menu"}
         aria-expanded={open}
         aria-controls={open ? (secondary !== undefined ? popoverId : listId) : undefined}
         aria-label={name}
@@ -647,17 +567,30 @@ type ChoiceEntry = {
   current: string | undefined;
 };
 
+/**
+ * The effort levels a model takes, from its `cycle/efforts` (docs/protocol.md §10): `undefined` when the model does not
+ * say, so every level stays; `[]` when it takes none.
+ */
+const effortsFor = (models: readonly Option[], model: string | undefined) =>
+  models.find((m) => m.value === (model ?? "default"))?.efforts;
+
 export function SettingChips({
   settings,
   disabled,
   onSet,
   side = "all",
+  draft = false,
 }: {
   settings: SettingsOf;
   disabled: boolean;
   onSet: (key: string, value: string) => void;
   /** Partition settings across the composer utility bar: permission/other on the left, model + effort on the right. */
   side?: "left" | "right" | "all";
+  /**
+   * Settings of a session not made yet (the new-session page): no agent is there to put an effort the new model does
+   * not take back to `default`, so the picker does.
+   */
+  draft?: boolean;
 }) {
   const entries: ChoiceEntry[] = [];
   for (const [key, property] of propertiesOf(settings.schema)) {
@@ -670,21 +603,38 @@ export function SettingChips({
       current: settings.value[key],
     });
   }
-  const hasModel = entries.some((entry) => entry.key === "model");
-  const effortEntry = hasModel ? entries.find((entry) => entry.key === "effort") : undefined;
-  // Hide the Effort slider when the active model reports `supportsEffort: false` (only the default option remains).
+  const modelEntry = entries.find((entry) => entry.key === "model");
+  const effortEntry =
+    modelEntry !== undefined ? entries.find((entry) => entry.key === "effort") : undefined;
+  // The levels the chosen model takes; a model that takes none has no effort to show.
+  const levels =
+    modelEntry !== undefined ? effortsFor(modelEntry.options, modelEntry.current) : undefined;
+  const effortOptions =
+    effortEntry === undefined
+      ? []
+      : levels === undefined
+        ? effortEntry.options
+        : effortEntry.options.filter((o) => o.value === "default" || levels.includes(o.value));
   const secondaryEffort: SecondarySetting | undefined =
-    effortEntry === undefined || effortEntry.options.length <= 1
+    effortEntry === undefined || effortOptions.length <= 1
       ? undefined
       : {
           key: effortEntry.key,
           heading: effortEntry.heading,
-          options: effortEntry.options,
+          options: effortOptions,
           current: effortEntry.current,
         };
 
+  const chooseModel = (option: Option) => {
+    onSet("model", option.value);
+    const effort = effortEntry?.current;
+    if (!draft || effort === undefined || effort === "default" || option.efforts === undefined)
+      return;
+    if (!option.efforts.includes(effort)) onSet("effort", "default");
+  };
+
   return entries.map((entry) => {
-    // When both `model` and `effort` are offered, effort lives inside the Model picker as an elastic slider.
+    // When both `model` and `effort` are offered, effort lives inside the Model picker as a slider.
     if (effortEntry !== undefined && entry.key === "effort") return null;
     const isRight = entry.key === "model" || entry.key === "effort";
     if (side === "left" && isRight) return null;
@@ -700,6 +650,7 @@ export function SettingChips({
         compact={entry.key === "model"}
         align={side === "right" ? "end" : "start"}
         disabled={disabled}
+        {...(entry.key === "model" ? { onChoose: chooseModel } : {})}
         onSet={onSet}
       />
     );

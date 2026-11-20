@@ -15,6 +15,8 @@ import {
 import { createPortal } from "react-dom";
 
 const VIEWPORT_MARGIN = 12;
+/** `--cycle-ease`. */
+const EASE = [0.2, 0.8, 0.2, 1] as const;
 const POPOVER_GAP = 6;
 
 type Position = { top: number; left: number; placement: "top" | "bottom" };
@@ -26,7 +28,6 @@ export function AnchoredPopover({
   popoverRef,
   align,
   onDismiss,
-  motionKey,
   id,
   role,
   label,
@@ -46,8 +47,6 @@ export function AnchoredPopover({
   align: "start" | "end";
   /** Escape gives the focus back to the trigger (`true`); a press or focus elsewhere leaves it where it went. */
   onDismiss: (returnFocus: boolean) => void;
-  /** A new key replays the entrance, for a popover opened again. */
-  motionKey?: string | number;
   id?: string;
   role?: "dialog";
   label?: string;
@@ -145,7 +144,7 @@ export function AnchoredPopover({
     <AnimatePresence>
       {open ? (
         <motion.div
-          key={motionKey}
+          key="popover"
           ref={popoverRef}
           {...(id !== undefined ? { id } : {})}
           {...(role !== undefined ? { role } : {})}
@@ -160,10 +159,18 @@ export function AnchoredPopover({
             left: `${position.left}px`,
             transformOrigin: `${position.placement === "top" ? "bottom" : "top"} ${align === "end" ? "right" : "left"}`,
           }}
-          initial={reduced ? { opacity: 1 } : { opacity: 0, scale: 0.96 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
-          transition={reduced ? { duration: 0 } : { type: "spring", duration: 0.3, bounce: 0.14 }}
+          // DESIGN.md motion: unfold in 160ms, leave in 100ms, no bounce; still under reduced motion.
+          initial={reduced ? { opacity: 1 } : { opacity: 0, scale: 0.97 }}
+          animate={{
+            opacity: 1,
+            scale: 1,
+            transition: reduced ? { duration: 0 } : { duration: 0.16, ease: EASE },
+          }}
+          exit={{
+            opacity: 0,
+            ...(reduced ? {} : { scale: 0.97 }),
+            transition: { duration: reduced ? 0 : 0.1, ease: EASE },
+          }}
           {...(onMouseDown !== undefined ? { onMouseDown } : {})}
           {...(onKeyDown !== undefined ? { onKeyDown } : {})}
         >

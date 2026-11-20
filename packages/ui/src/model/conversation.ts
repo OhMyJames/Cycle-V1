@@ -144,6 +144,8 @@ export type DynamicConfigChoice = {
   description?: string;
   recommended?: boolean;
   danger?: boolean;
+  /** On a model: the effort levels it takes (`_meta["cycle/efforts"]`, docs/protocol.md §10); `[]` none, absent not known. */
+  efforts?: string[];
 };
 
 /** Live configuration options pushed by the agent for a session, overlaying its static `configSchema`. */
@@ -244,6 +246,10 @@ const configOptionsOf = (value: unknown): DynamicConfigOption[] => {
           : {}),
         ...(o._meta?.["cycle/recommended"] === true ? { recommended: true } : {}),
         ...(o._meta?.["cycle/danger"] === true ? { danger: true } : {}),
+        ...(Array.isArray(o._meta?.["cycle/efforts"]) &&
+        (o._meta["cycle/efforts"] as unknown[]).every((e) => typeof e === "string")
+          ? { efforts: [...(o._meta["cycle/efforts"] as string[])] }
+          : {}),
       });
     }
     if (options.length === 0) continue;

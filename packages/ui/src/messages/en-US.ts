@@ -91,6 +91,8 @@ export const enUS = {
   "composer.stopKey": "Stop ({key})",
   "composer.setting": "{setting}: {value}",
   "composer.settingPair": "{first}, {second}",
+  "composer.effort.modelDefault": "Model default",
+  "composer.effort.tickDefault": "Default",
 
   // How full the context is: the ring under the input, and its details
   "composer.context.title": "Context",
@@ -431,9 +433,6 @@ export const enUS = {
   "config.caution": "Caution",
   // A session's setting the daemon has no record of yet: not today's default, which it may not have
   "config.notSet": "Not set",
-  "config.filterPlaceholder": "Filter options",
-  "config.filterLabel": "Filter {setting}",
-  "config.noMatch": "No matching option.",
 
   // App update dismiss
   "update.dismiss": "Later",

@@ -199,7 +199,7 @@ describe("SettingChips picker", () => {
     expect(chip.getAttribute("aria-expanded")).toBe("false");
   });
 
-  test("uses combobox/listbox ARIA for 5+ options, preserves search caret keys, and respects standard + Safari IME composition", async () => {
+  test("a long model list has no filter: the list takes the focus however it opens, and composing keys are left alone", async () => {
     const user = userEvent.setup();
     const calls: [string, string][] = [];
     wrap(
@@ -211,56 +211,34 @@ describe("SettingChips picker", () => {
     );
 
     const chip = screen.getByRole("button", { name: "Model: Default model" });
-    expect(chip.getAttribute("aria-haspopup")).toBe("listbox");
+    expect(chip.getAttribute("aria-haspopup")).toBe("menu");
     await user.click(chip);
+    const menu = screen.getByRole("menu", { name: "Model" });
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(within(menu).getAllByRole("menuitemradio")).toHaveLength(5);
+    expect(document.activeElement).toBe(menu);
 
-    const combobox = screen.getByRole("combobox", { name: "Filter Model" });
-    const listbox = screen.getByRole("listbox", { name: "Model" });
-    expect(combobox.getAttribute("aria-controls")).toBe(listbox.id);
-
-    // Home/End/Space inside the search box must not hijack text input or commit an option.
-    await user.type(combobox, "claude ");
-    fireEvent.keyDown(combobox, { key: "Home" });
-    fireEvent.keyDown(combobox, { key: "End" });
-    expect(calls).toHaveLength(0);
-
-    await user.clear(combobox);
-    await user.type(combobox, "haiku");
-    const options = within(listbox).getAllByRole("option");
-    expect(options).toHaveLength(1);
-    expect(within(listbox).getByRole("option", { name: "Claude Haiku" })).toBeTruthy();
-    expect(combobox.getAttribute("aria-activedescendant")).toBe(options[0]?.id ?? null);
-
-    // Standard IME composition must ignore Enter and Escape.
-    fireEvent.keyDown(combobox, { key: "Enter", isComposing: true });
-    fireEvent.keyDown(combobox, { key: "Escape", isComposing: true });
+    // Composing (standard, and Safari's keyCode 229) neither commits nor closes.
+    fireEvent.keyDown(menu, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(menu, { key: "Escape", isComposing: true });
+    fireEvent.keyDown(menu, { key: "Enter", isComposing: false, keyCode: 229 });
+    fireEvent.keyDown(menu, { key: "Escape", isComposing: false, keyCode: 229 });
     expect(calls).toHaveLength(0);
     expect(chip.getAttribute("aria-expanded")).toBe("true");
 
-    // Safari IME edge case (isComposing: false, keyCode: 229) must also ignore Enter and Escape.
-    fireEvent.keyDown(combobox, { key: "Enter", isComposing: false, keyCode: 229 });
-    fireEvent.keyDown(combobox, { key: "Escape", isComposing: false, keyCode: 229 });
-    expect(calls).toHaveLength(0);
-    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    // With the focus back on the chip while it is open, the arrows still go to the list.
+    chip.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(menu);
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    expect(calls).toEqual([["model", "sonnet-4"]]);
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(chip);
 
-    // Non-composing Enter commits the filtered choice.
-    await user.keyboard("{Enter}");
-    expect(calls).toEqual([["model", "haiku-4"]]);
-  });
-
-  test("announces empty search results via status role", async () => {
-    const user = userEvent.setup();
-    wrap(
-      <SettingChips
-        settings={{ schema: longModelSchema, value: { model: "default" } }}
-        disabled={false}
-        onSet={() => {}}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: "Model: Default model" }));
-    await user.type(screen.getByRole("combobox", { name: "Filter Model" }), "zzzzz");
-    const empty = screen.getByText("No matching option.");
-    expect(empty.getAttribute("role")).toBe("status");
+    // Opened from the keyboard, the list has the focus at once.
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(screen.getByRole("menu", { name: "Model" }));
   });
 
   test("closes on outside click, Tab, switching chips, and becoming disabled", async () => {
@@ -405,7 +383,7 @@ describe("SettingChips picker", () => {
     expect(calls).toEqual([["effort", "low"]]);
     expect(modelChip.getAttribute("aria-expanded")).toBe("true");
 
-    await user.click(screen.getByRole("button", { name: "Def" }));
+    await user.click(screen.getByRole("button", { name: "Default" }));
     expect(document.activeElement).toBe(slider);
     expect(calls).toEqual([
       ["effort", "low"],
@@ -446,5 +424,68 @@ describe("SettingChips picker", () => {
     await user.click(conciseChip);
     const unsetSlider = screen.getByRole("slider", { name: "Effort" });
     expect(unsetSlider.getAttribute("aria-valuetext")).toBe("Not set");
+  });
+
+  test("effort follows the model's own levels: none hides it, a few narrow it, and a new session's choice goes back to default", async () => {
+    const user = userEvent.setup();
+    const calls: [string, string][] = [];
+    const schema = {
+      type: "object",
+      properties: {
+        model: {
+          type: "string",
+          title: "Model",
+          oneOf: [
+            { const: "default", title: "Default model" },
+            { const: "opus", title: "Opus", _meta: { "cycle/efforts": ["low", "high", "max"] } },
+            { const: "haiku", title: "Haiku", _meta: { "cycle/efforts": [] } },
+            { const: "odd", title: "Odd" },
+          ],
+        },
+        effort: {
+          type: "string",
+          title: "Effort",
+          oneOf: ["default", "low", "medium", "high", "max"].map((v) => ({ const: v, title: v })),
+        },
+      },
+    };
+    const render = (value: Record<string, string>, draft: boolean) => (
+      <I18nProvider translator={translator}>
+        <SettingChips
+          settings={{ schema, value }}
+          disabled={false}
+          draft={draft}
+          onSet={(k, v) => calls.push([k, v])}
+        />
+      </I18nProvider>
+    );
+    const { rerender } = wrap(render({ model: "opus", effort: "max" }, true));
+    const ticks = () =>
+      [...document.querySelectorAll('[data-slot="effort-tick"]')].map((t) => t.textContent);
+
+    // Opus takes low, high and max: the slider offers those and the model's default, nothing else.
+    await user.click(screen.getByRole("button", { name: /^Model: Opus/ }));
+    expect(ticks()).toEqual(["Default", "low", "high", "max"]);
+
+    // Choosing Haiku, which takes no effort, on a new session puts the effort back to default with it.
+    await user.click(screen.getByRole("menuitemradio", { name: "Haiku" }));
+    expect(calls).toEqual([
+      ["model", "haiku"],
+      ["effort", "default"],
+    ]);
+
+    // With Haiku chosen, there is no effort to show.
+    rerender(render({ model: "haiku", effort: "default" }, true));
+    await user.click(screen.getByRole("button", { name: "Model: Haiku" }));
+    expect(screen.queryByRole("slider", { name: "Effort" })).toBeNull();
+    await user.keyboard("{Escape}");
+
+    // A model that does not say keeps every level; and in a live session the agent, not the picker, resets effort.
+    calls.length = 0;
+    rerender(render({ model: "odd", effort: "medium" }, false));
+    await user.click(screen.getByRole("button", { name: /^Model: Odd/ }));
+    expect(ticks()).toEqual(["Default", "low", "medium", "high", "max"]);
+    await user.click(screen.getByRole("menuitemradio", { name: "Haiku" }));
+    expect(calls).toEqual([["model", "haiku"]]);
   });
 });
