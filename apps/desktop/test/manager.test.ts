@@ -113,6 +113,36 @@ const said = async (m: ConnectionManager, id: string, words = "hi") => {
 const of = <T extends AppEvent["type"]>(events: AppEvent[], type: T) =>
   events.filter((e): e is Extract<AppEvent, { type: T }> => e.type === type);
 
+test("the first page reaches the sidebar before the full search list, and subsequent refreshes are atomic", async () => {
+  const dataDir = join(dir, "daemon");
+  const sessions: Record<string, unknown> = {};
+  for (let i = 0; i < 51; i++) {
+    const id = String(i).padStart(2, "0");
+    sessions[id] = {
+      agent: "fake",
+      agentSessionId: id,
+      cwd: "/private/project",
+      title: `private-${id}`,
+      createdAt: "2026-01-02T00:00:00.000Z",
+      prompted: true,
+      turnOpen: false,
+    };
+    await Bun.write(join(dataDir, "sessions", `${id}.jsonl`), "");
+  }
+  await Bun.write(join(dataDir, "index.json"), JSON.stringify({ version: 1, sessions }));
+  const { manager } = await setup();
+  const reports: unknown[] = [];
+  const { m, events } = await manager("app", undefined, undefined, (name, props) => {
+    if (name === "session_list_loaded") reports.push(props);
+  });
+  await m.connect("local");
+  expect(of(events, "sessions").map((e) => e.sessions.length)).toEqual([50, 51]);
+  expect(of(events, "sessions").at(-1)?.sessions.at(-1)?.title).toBe("private-50");
+  await m.sessions("local");
+  expect(of(events, "sessions").map((e) => e.sessions.length)).toEqual([50, 51, 51]);
+  expect(reports).toEqual([{ pages: 2 }]);
+});
+
 test("connects, creates a session, and lists it", async () => {
   const { manager } = await setup();
   const { m, events } = await manager();
@@ -918,6 +948,7 @@ test("what a person does is reported as counts and words, and never as what they
 
   const named = (name: string) => reported.filter(([n]) => n === name).map(([, p]) => p);
   expect(named("environment_connection")).toEqual([{ kind: "local", state: "connected" }]);
+  expect(named("session_list_loaded")).toEqual([{ pages: 1 }]);
   expect(named("session_created")).toEqual([
     { agent: "other", environment: "local", configured: true },
   ]);
@@ -952,7 +983,7 @@ test("a refused answer or a failing call reports nothing", async () => {
       transport: { type: "ssh", host: "-oProxyCommand=x" },
     }),
   ).rejects.toThrow();
-  expect(reported).toEqual(["environment_connection"]);
+  expect(reported).toEqual(["environment_connection", "session_list_loaded"]);
 });
 
 test("a host that cannot be reached is reported as closed, and a removed one by its kind", async () => {

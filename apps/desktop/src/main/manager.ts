@@ -12,6 +12,7 @@ import {
   type ElicitationAnswer,
   type PermissionAnswer,
   ProtocolMismatchError,
+  type SessionRow,
 } from "@cycle/client";
 import {
   type AgentInfo,
@@ -151,6 +152,35 @@ export const connectorProblemOf = (
   if (code === -32602) return { problem: "invalid" };
   if (messageOf(error).includes("too old to keep connectors")) return { problem: "unsupported" };
   return { problem: "failed", message: messageOf(error) };
+};
+
+const sessionSummary = (environmentId: string, row: SessionRow): SessionSummary => {
+  const meta = (row._meta ?? {}) as Record<string, unknown>;
+  return {
+    environmentId,
+    sessionId: row.sessionId,
+    cwd: row.cwd,
+    ...(typeof meta.title === "string" ? { title: meta.title } : {}),
+    archived: meta["cycle/archived"] === true,
+    agent: String(meta["cycle/agent"] ?? ""),
+    state: (meta["cycle/state"] as SessionSummary["state"]) ?? "stopped",
+    lastSeq: Number(meta["cycle/lastSeq"] ?? 0),
+    ...(typeof meta["cycle/unread"] === "boolean" ? { unread: meta["cycle/unread"] } : {}),
+    ...(typeof meta["cycle/background"] === "number"
+      ? { background: meta["cycle/background"] }
+      : {}),
+    ...(Array.isArray(meta["cycle/backgroundUnknown"])
+      ? {
+          unknownBackground: meta["cycle/backgroundUnknown"].filter(
+            (id): id is string => typeof id === "string",
+          ),
+        }
+      : {}),
+    ...(typeof row.updatedAt === "string" ? { updatedAt: row.updatedAt } : {}),
+    ...(typeof meta["cycle/config"] === "object" && meta["cycle/config"] !== null
+      ? { config: meta["cycle/config"] as Record<string, string> }
+      : {}),
+  };
 };
 
 /**
@@ -571,35 +601,24 @@ export class ConnectionManager
     afterOutage = false,
   ): Promise<SessionSummary[]> {
     const asked = ++connection.asked;
-    const rows = await connection.client.listSessions();
-    const sessions = rows.map((row): SessionSummary => {
-      const meta = (row._meta ?? {}) as Record<string, unknown>;
-      return {
-        environmentId,
-        sessionId: row.sessionId,
-        cwd: row.cwd,
-        ...(typeof meta.title === "string" ? { title: meta.title } : {}),
-        archived: meta["cycle/archived"] === true,
-        agent: String(meta["cycle/agent"] ?? ""),
-        state: (meta["cycle/state"] as SessionSummary["state"]) ?? "stopped",
-        lastSeq: Number(meta["cycle/lastSeq"] ?? 0),
-        ...(typeof meta["cycle/unread"] === "boolean" ? { unread: meta["cycle/unread"] } : {}),
-        ...(typeof meta["cycle/background"] === "number"
-          ? { background: meta["cycle/background"] }
-          : {}),
-        ...(Array.isArray(meta["cycle/backgroundUnknown"])
-          ? {
-              unknownBackground: meta["cycle/backgroundUnknown"].filter(
-                (id): id is string => typeof id === "string",
-              ),
-            }
-          : {}),
-        ...(typeof row.updatedAt === "string" ? { updatedAt: row.updatedAt } : {}),
-        ...(typeof meta["cycle/config"] === "object" && meta["cycle/config"] !== null
-          ? { config: meta["cycle/config"] as Record<string, string> }
-          : {}),
-      };
-    });
+    const sessions: SessionSummary[] = [];
+    let pages = 0;
+    for await (const page of connection.client.sessionPages()) {
+      pages++;
+      for (const row of page.sessions) sessions.push(sessionSummary(environmentId, row));
+      // Only preview the first connection. Replacing a known list with a partial one would
+      // briefly hide search results and could misclassify attention on a later page.
+      if (
+        pages === 1 &&
+        page.hasMore &&
+        !connection.listed &&
+        asked === connection.asked &&
+        !this.#lastSessions.has(environmentId) &&
+        this.#connections.get(environmentId) === connection
+      ) {
+        this.#options.emit({ type: "sessions", environmentId, sessions: [...sessions] });
+      }
+    }
     // An answer to an older question, arriving after the answer to a newer one, would put the list back.
     if (asked < connection.applied) return connection.sessions;
     connection.applied = asked;
@@ -607,6 +626,7 @@ export class ConnectionManager
     if (this.#connections.get(environmentId) !== connection) return sessions;
     const before = new Map(connection.sessions.map((s) => [s.sessionId, s]));
     const first = !connection.listed;
+    if (first) this.#track("session_list_loaded", { pages });
     connection.listed = true;
     connection.sessions = sessions;
     this.#lastSessions.set(environmentId, sessions);

@@ -56,6 +56,8 @@ export const META = {
   ackReturns: "cycle/ackReturns",
   /** On `session/list`: leave out the sessions nothing has been said in yet (docs/protocol.md §6). */
   onlyPrompted: "cycle/onlyPrompted",
+  /** On session/list: opt into a bounded scan with SessionPageSchema. */
+  page: "cycle/page",
   /**
    * On a `session/prompt` (client to daemon, and daemon to agent): put it into the turn that is
    * running instead of queueing it (docs/protocol.md §8). Ignored when the session is not busy.
@@ -89,6 +91,7 @@ export const CapabilitiesSchema = z.object({
   agents: z.array(z.string()),
   sessionOps: z.array(z.string()),
   /** Prompts sent while the agent works are queued by the daemon (docs/protocol.md §8). */
+  sessionListPages: z.boolean().optional(),
   queue: z.boolean().optional(),
   /** A prompt with `_meta["cycle/steer"]` goes into the running turn where the agent can (docs/protocol.md §8). */
   steer: z.boolean().optional(),
@@ -102,6 +105,19 @@ export const CapabilitiesSchema = z.object({
   trust: z.boolean().optional(),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
+
+const sessionTime = z.iso
+  .datetime()
+  .refine((value) => !/\.\d{4}/.test(value), "Expected millisecond precision or coarser");
+
+/** Options for a bounded scan of the session index (protocol §6). */
+export const SessionPageSchema = z.object({
+  limit: z.number().int().min(1).max(200).default(50),
+  agent: z.string().optional(),
+  createdFrom: sessionTime.optional(),
+  createdBefore: sessionTime.optional(),
+});
+export type SessionPageOptions = z.input<typeof SessionPageSchema>;
 
 /** Replay everything after a sequence number. An extension of ACP's `ReplayFrom`. */
 export const ReplayFromSeqSchema = z.object({

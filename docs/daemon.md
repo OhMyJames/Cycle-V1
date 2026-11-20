@@ -21,7 +21,7 @@
 ## 已做并测过
 
 - `session/new`:daemon 分配 UUID,作为建议传给 agent;agent 回的 id 和它对应关系记在索引里。
-- `session/list`:只列 Cycle 自己的 session,带状态、agent、归档、标题和最新序号。
+- `session/list`:只列 Cycle 自己的 session,带状态、agent、归档、标题和最新序号。客户端可按创建时间分页，并按目录、agent 和创建时间范围筛选。兼容规则见 [protocol.md §6](protocol.md#列表)。
 - `session/resume`:附着;不带 `replayFrom` 只附着,`start` 或 `_cycle.seq` 补发,然后 `replay_complete` 和状态快照。
 - `session/prompt`:agent 没在运行时先启动并恢复它;session 忙时入队(见下面"排队"),队列满了才拒绝(`session_busy`)。
 - 权限请求:写日志,发给所有附着的客户端,先到先得,其余客户端收到 `_cycle/request_resolved`;没人附着时挂起,有人附着再发;取消或 agent 退出时回答为已取消。
@@ -31,6 +31,7 @@
 - daemon 重启:索引和日志在磁盘上,历史可读,不启动 agent。
 - 协议主版本不一致时以 ACP 的 `-32022` 拒绝。
 - **附件**(决策 0010):`session/prompt` 在启动 agent 之前按 agent 的 `promptCapabilities` 和上限(`PROMPT_LIMITS`)检查每一块,不合格整个拒绝(`-32602`,`data` 里有 `reason` 和 `index`);`_cycle/agents/list` 给出每个 agent 的 `promptCapabilities`;图片等进入日志的 `user_message`,补发时和文字一起到。
+- **创建时的配置**：先按 agent 声明的字段和封闭选项校验显式覆盖，自定义模型名可用。agent 拒绝配置时，客户端收到带字段名的 `invalid_config`，列表和磁盘上都不保留这次会话。
 - **session 的启动参数**:`additionalDirectories`、`mcpServers`、`systemPrompt` 在 `session/new` 里校验(目录必须在 daemon 的机器上存在),存进索引,每次启动或恢复 agent 时重新发送。索引文件权限 0600,MCP 的 `env`/`headers` 只在这里,不进日志,也不在 `session/list` 里。
 - **agent 自己的变化回写**:`config_option_update` 写进索引的 `config`(agent 重启后按它恢复,不会改回去);`session_info_update.title` 写进标题,但用户起的名字不被覆盖(索引里标了 `titleFromAgent` 的才是 agent 起的;没有标记的一律当作用户的,包括这个功能之前写下的)。
 - **elicitation**(决策 0011):`elicitation/create` 和权限请求同一套机制(写日志、先到先得、`_cycle/request_resolved`、取消和 agent 退出时以 `cancel` 结束),但只发给在 `initialize` 里声明了 `elicitation.form` 的客户端;没有这样的客户端附着时立刻回 `{action:"cancel", _meta:{"cycle/noClient":true}}`,不挂起。
@@ -72,9 +73,7 @@ agent 是 daemon 的子进程,daemon 停止时进行中的 turn 不会继续。�
 
 ## 没做
 
-- **配置校验**:`cycle/config` 不按 `configSchema` 校验,直接交给 agent,由 agent 拒绝(映射为 `invalid_config`)。
 - **合成 `user_message`**:协议 §8 写的"agent 不发时 daemon 合成"没有实现。Claude 自己会发,所以现在不需要;接入不发的 agent 时再做。
-- **`session/list` 的分页和过滤**。
 - **日志里的敏感字段过滤**。
 - **一个 session 一个 agent 进程**:没有复用。
 - **daemon 的打包和安装**:现在是 `bun apps/daemon/src/main.ts`;没有 `cycle` 可执行文件,也没有远端机器上的安装步骤。ssh 通道里的命令得由调用方写全。
@@ -141,7 +140,7 @@ cycle claude auth status   # 用同样的环境跑 claude 的其他命令
 ```
 
 - **Claude 进程看到的环境只有三样**:`allowEnv` 里点名的、daemon 自己环境中存在的变量;`CLAUDE_CONFIG_DIR`;`env` 里写明的值。daemon 自己的环境变量不会传下去。端到端测试里给 daemon 设了 `ANTHROPIC_API_KEY`,检查 Claude 一侧的请求里没有它。
-- `configDir` 默认是 `<数据目录>/claude`,一个独立目录,里面没有登录。要用已有登录,把它**有意地**指向那个目录(比如 `~/.claude`);要新登录,用 `CLAUDE_CONFIG_DIR=<目录> claude login`。
+- `configDir` 默认是 `<数据目录>/claude`,一个独立目录,里面没有登录。要用已有登录,把它**有意地**指向那个目录(比如 `~/.claude`);要新登录,用 `CLAUDE_CONFIG_DIR=<目录> claude auth login`。
 - `HOME` 默认不传(回落到 `configDir`),免得 Claude 找到没人打算共享的登录或设置。
 - `log`(可省):`{ "level": "info", "maxBytes": 1000000, "files": 3 }`,见下面"日志"。
 

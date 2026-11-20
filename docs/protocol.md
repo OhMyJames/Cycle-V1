@@ -130,7 +130,7 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
   - `mcpServers`:支持 `stdio` 和 `http`。条目里可能有密钥(`env`、`headers`),所以**只存在索引里**(目录 0700,文件 0600);不进 JSONL 日志(日志会补发给每个客户端),`session/list` 也不返回它们,`_cycle/agents/list` 不提它们。Claude 适配用 `mcpServersDelivery: "initialize"` 交给 Claude 进程,密钥不出现在命令行上。
   - `additionalDirectories`:绝对路径,在 daemon 所在的机器上;和 `cwd` 一样要求存在。
 - `cycle/agent`:agent 的 id,必须在 daemon 声明的 `agents` 里。缺省时使用 daemon 的默认 agent。
-- `cycle/config`:创建时的初始配置,键由该 agent 的配置 schema 决定(见 §10)。daemon 校验后翻译成 agent 能理解的形式。
+- `cycle/config`:创建时的初始配置,键由该 agent 的配置 schema 决定(见 §10)。daemon 在创建日志和启动 agent 前校验显式配置。配置必须是键值均为字符串的对象；有 properties 时只接受其中的键，封闭的 enum / oneOf 只接受列出的值，带 cycle/open 的模型允许自定义字符串。失败返回 invalid_config，字段错误的 data.configId 指向该项。
 - 响应是 ACP 的 `NewSessionResponse`。`sessionId` 由 daemon 分配,格式是 UUID。
 
 **sessionId 与 agent 侧 id:能复用就复用,不能就关联。**
@@ -148,6 +148,10 @@ daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**
 `session/list` 只返回 Cycle 自己创建的 session(决策 0006)。请求的 `_meta["cycle/onlyPrompted"]` 为 `true` 时,只返回**已经收到过用户消息**的:新建 session 在客户端是一个空白对话,首条消息发出时才 `session/new` 加 `session/prompt`(`.agents/notes/2026-11-19-session-starts-at-first-message.md`),所以一个 session 从 daemon **接下**它的第一条 prompt 起才出现在这样的列表里(通过了内容检查,不论之后是直接发给 agent、排队,还是 agent 起不来而失败),此时 daemon 发 `_cycle/session_list_changed`。不带这个标记的请求(旧客户端:它们靠在列表里找到刚建的 session 来打开它)照旧列出全部。还没有用户消息的 session 仍然存在:可以 `session/resume`、`session/prompt`、删除。daemon 不会自动删除它们。历史不可用的 session(`cycle/historyFailed`,写不进去或读不了)照旧列出,好让人能删除它。
 
 daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有它,daemon 在列表时读一次该 session 的日志(按存储的样子,不读回图片),有 `user_message` 就算,补上之后不再读。
+
+握手能力 `cycle/capabilities.sessionListPages: true` 表示支持分页。客户端用 ACP 的 `cwd` 精确筛选工作目录，用 `_meta["cycle/page"]` 请求分页。该对象支持 `limit`（默认 50，1–200）、`agent`、`createdFrom`（含）、`createdBefore`（不含），时间使用 UTC ISO 8601，最多三位小数，与索引的毫秒精度一致。按创建时间降序，同一时间按 sessionId 升序扫描；显示仍按活动时间排序。每页最多检查 limit 个通过目录、agent 和时间过滤的索引项，隐藏空会话后可能是空页。只要应答有 ACP 的 `nextCursor` 就用相同条件在 `cursor` 里续读。游标按创建时间和 id 定位，删除上一页末项仍能续读；翻页期间新建的会话由下一次刷新取得。非法选项或游标返回 -32602。
+
+旧客户端不发 `cycle/page`，仍一次取得完整列表。新客户端连旧 daemon 时按原方式读取全表。桌面端首次连接先显示第一页，再补全供侧栏和 ⌘K 使用；后续刷新在收齐页面后替换列表，通知按完整列表比较。
 
 列表里每一项带 ACP 的 `SessionInfo` 字段,其中 `updatedAt`(ISO 8601)是 session 最后一条非 `meta` 记录的 `ts`;还没有这类记录时是创建时间。列表按它排序和按日分组。再在 `_meta` 里加:
 

@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { methods, type SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
 import { applyUpdate, emptyConversation } from "../../../../packages/ui/src/model/index.ts";
+import { CLAUDE_CONFIG_SCHEMA } from "../../src/claude-agent.ts";
 import { Daemon, processAgent } from "../../src/index.ts";
 import { connectClient, until } from "../client.ts";
 
@@ -30,6 +31,7 @@ const claude = (configDir: string) =>
   processAgent({
     id: "claude",
     name: "Claude",
+    configSchema: CLAUDE_CONFIG_SCHEMA,
     command: ["bun", adapter],
     env: {
       PATH: process.env.PATH ?? "",
