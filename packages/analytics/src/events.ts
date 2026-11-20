@@ -59,6 +59,7 @@ export const EVENTS = {
   session_created: o({ agent, environment: environment, configured: z.boolean() }),
   session_opened: o({ agent, environment: environment }),
   session_renamed: o({}),
+  queue_return_restored: o({}),
   background_dismissed: o({ count: z.number().int().positive() }),
   session_archived: o({ archived: z.boolean() }),
   /** After the person confirmed it (AGENTS.md: a delete is confirmed by the client first). */

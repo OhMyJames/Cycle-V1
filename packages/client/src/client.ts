@@ -296,8 +296,8 @@ export class CycleClient {
   }
 
   /** Takes a queued prompt back (docs/protocol.md §8). Rejects if it was sent, or handed back, meanwhile. */
-  async ackReturn(sessionId: string, returnId: string): Promise<void> {
-    await this.#call(promptAckReturn, { sessionId, returnId });
+  async ackReturn(sessionId: string, returnId: string): Promise<boolean> {
+    return (await this.#call(promptAckReturn, { sessionId, returnId })).acknowledged;
   }
 
   async dequeue(sessionId: string, queueId: string): Promise<unknown[]> {

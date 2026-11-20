@@ -1206,7 +1206,16 @@ test("two attached desktop windows restore one draft, and an unacknowledged retu
   const { manager } = await setup(fakeAgent({ onPrompt: ({ cancelled }) => cancelled }));
   const window = async (name: string) => {
     const ipc = fakeBridge();
-    const { m } = await manager(name, undefined, undefined, undefined, { emit: ipc.emit });
+    const receipts: unknown[] = [];
+    const { m } = await manager(
+      name,
+      undefined,
+      undefined,
+      (event, props) => {
+        if (event === "queue_return_restored") receipts.push(props);
+      },
+      { emit: ipc.emit },
+    );
     await m.connect("local");
     const acknowledged: string[] = [];
     const store = new AppStore({
@@ -1219,7 +1228,7 @@ test("two attached desktop windows restore one draft, and an unacknowledged retu
       },
     });
     await store.start();
-    return { m, store, acknowledged };
+    return { m, store, acknowledged, receipts };
   };
   const a = await window("first");
   const id = await a.m.createSession("local", { cwd: dir });
@@ -1252,6 +1261,8 @@ test("two attached desktop windows restore one draft, and an unacknowledged retu
   await until(() => b.acknowledged.length === 1, "the surviving renderer to acknowledge");
   expect(b.store.drafts.get(key).text).toBe("recover this");
   expect(a.store.drafts.get(key).text).toBe("from second");
+  expect(a.receipts).toEqual([{}]);
+  expect(b.receipts).toEqual([{}]);
   b.store.stop();
 });
 

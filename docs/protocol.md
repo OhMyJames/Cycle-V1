@@ -284,7 +284,7 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 - **发出**:turn 以 `idle` 加 `stopReason: "end_turn"` 结束时,daemon 取队头发给 agent,再发一条新的 `_cycle/queue_update`。它的 `user_message` 和直接发的 prompt 一样,来自 agent 收到时的回显(Claude 适配会发),所以也是此时才进历史,历史里的顺序就是真实发生的顺序。
 - **退回,不自动发**:turn 以 `end_turn` 之外的原因结束(`cancelled`、`error`、`max_tokens`、`max_turn_requests`、`refusal`),或者 `session/cancel`、`session/close` 到达时,队列里剩下的**整体退回**:`entries` 清空,原内容放在 `returned`,`reason` 说明原因(`cancelled`、`error`、`closed`、`interrupted`)。客户端把 `returned` 的内容放回输入框,不当作错误显示。宁可退回,也不在用户已经叫停或出错之后替他发出他可能想改的消息。
 - **退回时没有客户端附着**(窗口都关了),或者 **daemon 重启**(进程被中断,没有机会退回):daemon 不退回,也不自动发送,队列留着。下一次有客户端附着时,daemon 在补发、`replay_complete` 和状态快照**之后**退回:原因照旧(重启则是 `interrupted`)。队列清空的快照占新的序号，领取通知单独发送。daemon 自己关闭时杀掉 agent 进程,不算退回的理由。
-- 排队退回时,多个客户端附着:先完成附着的客户端领取一批，原发送者断线不影响领取。新客户端握手声明 `_meta["cycle/ackReturns"]`，将退回的内容放入草稿后调用 `_cycle/prompt/ack_return {sessionId, returnId}`；daemon 将确认写入日志。未确认前掉线则转交下一位，重启后仍可领。领取通知没有 seq，普通队列快照照常广播；重放不触发领取。旧客户端按通知送达确认。丢失确认时可能重投，客户端用 queueId 去重。
+- 排队退回时,多个客户端附着:先完成附着的客户端领取一批，原发送者断线不影响领取。新客户端握手声明 `_meta["cycle/ackReturns"]`，将退回的内容放入草稿后调用 `_cycle/prompt/ack_return {sessionId, returnId}`。daemon 将确认写入日志并返回 `{acknowledged: true}`；重复确认或来自其他连接的确认返回 `false`。未确认前掉线则转交下一位，重启后仍可领。领取通知没有 seq，普通队列快照照常广播；重放不触发领取。旧客户端按通知送达确认。丢失确认时可能重投，客户端用 queueId 去重。
 - **撤回**:`_cycle/prompt/dequeue`(客户端 → daemon),参数 `{sessionId, queueId}`。成功时响应里带那条 prompt 的内容(`{prompt}`),客户端放回输入框编辑,并发一条 `_cycle/queue_update`。那条已经发出或不在队列里,以 `-32016`(`not_queued`)拒绝。
 
 ### 插入(steer:把 prompt 放进正在运行的 turn)

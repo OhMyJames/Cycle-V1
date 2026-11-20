@@ -106,6 +106,13 @@ bun run --cwd apps/daemon build
 - `cycle`:daemon 本身,一个可执行文件(`bun build --compile`,约 110 MB,里面带着 Bun 和 Claude 适配)。
 - `claude`:Claude Code 的二进制(约 370 MB,取自 SDK 的平台包),放在它旁边,适配通过 `claudeExecutable` 找到它。
 
+2026-11-20，GitHub 原生 Ubuntu 24.04 runner 构建同一提交并用已安装的单文件 daemon 跑通后端集成测试。耗时包含压缩，大小按十进制 MB 计算。[两种架构的构建日志](https://github.com/OhMyJames/Cycle-V1/actions/runs/44699952120)
+
+| 架构  | 构建耗时 | 峰值 RSS | 解包目录 |   压缩包 |
+| ----- | -------: | -------: | -------: | -------: |
+| x64   | 23.79 秒 |  253 MiB | 484.2 MB | 222.6 MB |
+| ARM64 | 16.96 秒 |  247 MiB | 483.2 MB | 221.9 MB |
+
 机器上不需要 Bun、Node,也不需要装 `claude`。适配器作为同一个可执行文件的子命令(`cycle adapter claude`)运行,所以只有这一个文件加 `claude`。
 
 ```bash

@@ -10,14 +10,19 @@
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
+platform=$(uname -s)
+machine=$(uname -m)
+case "$platform/$machine" in
+  Linux/x86_64) package=cycle-linux-x64 ;;
+  Linux/aarch64|Linux/arm64) package=cycle-linux-arm64 ;;
+  Darwin/arm64|Darwin/x86_64)
+    # Local builds on macOS also ship this script beside their binaries.
+    [ -f "$here/cycle" ] && [ "$#" -eq 0 ] || { echo "The release installer requires Linux" >&2; exit 1; }
+    if [ "$machine" = arm64 ]; then package=cycle-darwin-arm64; else package=cycle-darwin-x64; fi ;;
+  *) echo "Unsupported daemon platform: $platform $machine (Linux releases support x86_64 and aarch64)" >&2; exit 1 ;;
+esac
 # The standalone release installer can use adjacent archives offline or fetch a pinned release.
 if [ ! -f "$here/cycle" ] || [ "$#" -gt 0 ]; then
-  case "$(uname -s)/$(uname -m)" in
-    Linux/x86_64) arch=x64 ;;
-    Linux/aarch64|Linux/arm64) arch=arm64 ;;
-    *) echo "Unsupported daemon platform: $(uname -s) $(uname -m) (requires Linux x86_64 or aarch64)" >&2; exit 1 ;;
-  esac
-  package="cycle-linux-$arch"
   work=$(mktemp -d)
   trap 'rm -rf "$work"' EXIT
   cd "$work"
@@ -33,6 +38,11 @@ if [ ! -f "$here/cycle" ] || [ "$#" -gt 0 ]; then
   sha256sum -c "$package.tar.gz.sha256"
   tar xzf "$package.tar.gz"
   here="$work/$package"
+else
+  case "${here##*/}" in
+    "$package") ;;
+    cycle-linux-*|cycle-darwin-*) echo "This machine needs $package, found ${here##*/}" >&2; exit 1 ;;
+  esac
 fi
 prefix=${CYCLE_PREFIX:-$HOME/.local}
 dest=$prefix/share/cycle

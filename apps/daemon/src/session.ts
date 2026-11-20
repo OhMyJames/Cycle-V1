@@ -78,7 +78,10 @@ export class Session {
    * background. In memory only: when the agent process goes, so do they.
    */
   readonly #subagents = new Map<string, boolean>();
-  readonly unknownBackground = new Map<string, { toolCallId: string | undefined }>();
+  readonly unknownBackground = new Map<
+    string,
+    { toolCallId: string | undefined; dismissing?: boolean }
+  >();
   /**
    * Why the session's history can no longer be written, once a write has failed. A turn that
    * cannot be saved is not run on: the session refuses new ones, and its agent is cancelled.
@@ -134,8 +137,8 @@ export class Session {
     const state = update.state;
     const named = typeof state === "string" ? state : (state as { state?: unknown } | null)?.state;
     const meta = (update._meta as Record<string, unknown> | null | undefined)?.[META.subagent];
-    const said = (meta as { background?: unknown } | null | undefined)?.background;
-    const info = meta as { status?: string; toolCallId?: string } | undefined;
+    const info = meta as { background?: unknown; status?: string; toolCallId?: string } | undefined;
+    const said = info?.background;
     if (info?.status === "unknown") {
       this.#subagents.delete(id);
       this.unknownBackground.set(id, { toolCallId: info.toolCallId });

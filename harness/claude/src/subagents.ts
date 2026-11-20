@@ -101,9 +101,14 @@ export class Subagents {
     }
     if (!known || (known.run && task.run_id && known.run !== task.run_id)) return undefined;
     if (message.subtype === "task_progress") {
+      const wasUnknown = known.unknown;
       known.unknown = false;
       known.background = task.is_backgrounded ?? known.background;
-      return this.#make(task, { state: "running" }, task.description);
+      return this.#make(
+        wasUnknown ? { ...task, is_backgrounded: known.background } : task,
+        { state: "running" },
+        task.description,
+      );
     }
     if (message.subtype === "task_notification") {
       const end = endOf(task.status, task.summary);

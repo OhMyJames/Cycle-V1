@@ -41,5 +41,5 @@ export const promptDequeue = cycleMethod(
 export const promptAckReturn = cycleMethod(
   "_cycle/prompt/ack_return",
   z.object({ sessionId: z.string(), returnId: z.string() }),
-  z.object({}),
+  z.object({ acknowledged: z.boolean() }),
 );

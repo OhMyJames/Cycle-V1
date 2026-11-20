@@ -804,7 +804,8 @@ export class ConnectionManager
   }
 
   async ackReturn(environmentId: string, sessionId: string, returnId: string): Promise<void> {
-    await this.#connection(environmentId).client.ackReturn(sessionId, returnId);
+    if (await this.#connection(environmentId).client.ackReturn(sessionId, returnId))
+      this.#track("queue_return_restored", {});
   }
 
   async dequeue(environmentId: string, sessionId: string, queueId: string): Promise<PromptBlock[]> {

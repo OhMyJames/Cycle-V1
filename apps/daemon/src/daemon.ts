@@ -683,7 +683,10 @@ export class Daemon {
       if (record.kind === "meta") {
         const ack = (record.data as { acknowledgedReturn?: string }).acknowledgedReturn;
         if (ack) session.returns.delete(ack);
-      } else if (record.kind === "update") {
+      } else if (
+        record.kind === "update" &&
+        (record.data as { sessionUpdate?: string } | null)?.sessionUpdate === QUEUE_UPDATE
+      ) {
         const parsed = QueueUpdateSchema.safeParse(record.data);
         if (!parsed.success) continue;
         const { entries, returnId, returned, reason } = parsed.data;
@@ -779,9 +782,9 @@ export class Daemon {
       .catch(() => {});
   }
 
-  async #ackReturn(session: Session, conn: ClientConn, id: string): Promise<void> {
+  async #ackReturn(session: Session, conn: ClientConn, id: string): Promise<boolean> {
     const owner = session.returnOwner;
-    if (!owner || owner.id !== id || owner.conn !== conn || owner.acknowledging) return;
+    if (!owner || owner.id !== id || owner.conn !== conn || owner.acknowledging) return false;
     owner.acknowledging = true;
     if (!(await this.#write(session, { kind: "meta", data: { acknowledgedReturn: id } })))
       throw logUnavailable(session.id, session.historyError ?? HISTORY_NOT_SAVED);
@@ -789,6 +792,7 @@ export class Daemon {
     session.returnOwner = undefined;
     this.#indexQueue(session);
     this.#offerReturn(session);
+    return true;
   }
 
   /** A queue left behind with no turn to send it: the reason it was held, or a restart's. */
@@ -1813,27 +1817,31 @@ export class Daemon {
       let dismissed = 0;
       for (const id of new Set(taskIds)) {
         const task = session.unknownBackground.get(id);
-        if (!task) continue;
-        session.unknownBackground.delete(id);
+        if (!task || task.dismissing) continue;
+        task.dismissing = true;
         if (
           !(await this.#write(session, {
             kind: "update",
             data: {
               sessionUpdate: "subagent_update",
               sessionId: id,
-              _meta: { [META.subagent]: { ...task, status: "dismissed" } },
+              _meta: { [META.subagent]: { toolCallId: task.toolCallId, status: "dismissed" } },
             },
           }))
-        )
+        ) {
+          task.dismissing = false;
           throw logUnavailable(sessionId, session.historyError ?? HISTORY_NOT_SAVED);
+        }
+        if (session.unknownBackground.get(id) === task) session.unknownBackground.delete(id);
         dismissed++;
       }
       if (dismissed) this.#changed();
       return { dismissed };
     });
     cycle(promptAckReturn, async ({ sessionId, returnId }) => {
-      await this.#ackReturn(await this.#session(sessionId), me(), returnId);
-      return {};
+      return {
+        acknowledged: await this.#ackReturn(await this.#session(sessionId), me(), returnId),
+      };
     });
     cycle(promptDequeue, async (params) => {
       const session = await this.#session(params.sessionId);

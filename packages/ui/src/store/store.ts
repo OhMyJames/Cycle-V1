@@ -276,7 +276,6 @@ export class AppStore {
    * What the daemon handed back (a stop, an error) goes into that session's box, whether or not it is the one in
    * view, once: a reload of the page finds the same hand-back and does not put it there again.
    */
-
   #takeBack(key: string, view: SessionView): void {
     const returned = view.conversation.returned;
     if (returned === undefined || view.loading) return;
@@ -702,13 +701,10 @@ export class AppStore {
   };
 
   dismissBackground = async (session: SessionSummary): Promise<void> => {
-    if (session.unknownBackground?.length)
+    const ids = session.unknownBackground;
+    if (ids?.length)
       await this.#attempt(() =>
-        this.#bridge.dismissBackground(
-          session.environmentId,
-          session.sessionId,
-          session.unknownBackground ?? [],
-        ),
+        this.#bridge.dismissBackground(session.environmentId, session.sessionId, ids),
       );
   };
 
