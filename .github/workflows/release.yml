@@ -31,45 +31,33 @@ permissions:
   contents: read
 
 jobs:
-  fixtures:
-    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'codex/cycl-105-desktop-sign'
+  acceptance:
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'codex/cycl-105-acceptance'
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: a7f423932df5d87991e3fa4c2dfe1edbdb04e346
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
-      - name: Prepare both releases for signing in the owner's terminal
-        shell: bash
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Update between the two signed and notarized releases
         run: |
           set -euo pipefail
-          umask 077
-          parent="$HOME/Library/Caches/CycleTesting/CYCL-105"
-          mkdir -p "$parent"
-          work=$(mktemp -d "$parent/fixtures.XXXXXX")
-          ln -s "$(command -v bun)" "$work/bun"
+          work="$HOME/Library/Caches/CycleTesting/CYCL-105/fixtures.JHhQKj"
           for version in 0.3.6 0.3.7; do
-            case "$version" in
-              0.3.6) commit=3f4d05d78743c0aea0db100352f758218a2f4b0a ;;
-              0.3.7) commit=720eeaf97fd51288226d3260c904b4005ff0db74 ;;
-            esac
-            mkdir "$work/$version"
-            git archive "$commit" | tar -xf - -C "$work/$version"
-            (
-              cd "$work/$version"
-              bun install --frozen-lockfile --ignore-scripts
-              bun run --cwd apps/desktop package
-              test "$(apps/desktop/build/Cycle.app/Contents/Resources/app/bin/cycle version)" = "$version"
-            )
+            manifest="$work/$version/apps/desktop/build/release/latest-darwin-arm64.json"
+            shasum -a 256 "$manifest"
+            jq -c '{version,file,size,sha256}' "$manifest"
           done
-          install -m 700 .github/cycl-105/sign-builds.sh "$work/sign-builds.sh"
-          echo "Prepared desktop command: $work/sign-builds.sh"
+          export CYCLE_SIGNED_FROM="$work/0.3.6/apps/desktop/build/release"
+          export CYCLE_SIGNED_TO="$work/0.3.7/apps/desktop/build/release"
+          bun test ./apps/desktop/test/integration/update.integration.ts
   check:
-    if: github.ref_name != 'codex/cycl-105-desktop-sign'
+    if: github.ref_name != 'codex/cycl-105-acceptance'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
