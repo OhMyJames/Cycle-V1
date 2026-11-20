@@ -233,6 +233,11 @@ export class TurnTranslator {
       n("output_tokens");
   }
 
+  /** A compaction made the context smaller: the turn's usage starts from what it left (`post_tokens`). */
+  compacted(tokens: number): void {
+    this.#contextTokens = tokens;
+  }
+
   /** The `usage_update` that ends a turn: context used, the window it is in, and the session's cost so far. */
   usageOf(result: SDKMessage): SessionUpdate | undefined {
     if (result.type !== "result" || this.#contextTokens === undefined) return undefined;

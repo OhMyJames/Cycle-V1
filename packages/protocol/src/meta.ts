@@ -18,6 +18,8 @@ export const META = {
   danger: "cycle/danger",
   /** On a `configSchema` property that lists choices: true when the agent takes values that are not listed, so the list is a menu, not a limit. */
   open: "cycle/open",
+  /** On a model choice: the effort levels that model takes (`[]` when it takes none); absent when not known (docs/protocol.md §10). */
+  efforts: "cycle/efforts",
   /** In `session/new`: the id the daemon proposes for the agent's own session. */
   sessionId: "cycle/sessionId",
   /** In a `session/list` row. */

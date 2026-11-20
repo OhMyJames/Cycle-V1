@@ -86,3 +86,52 @@ test("excludes synthetic custom model entries from being cached globally", async
   };
   expect(merged.properties.model.oneOf.map((o) => o.const)).toEqual(["default", "fabel"]);
 });
+
+test("keeps each model's effort levels, so a new session knows which models take effort before any process", async () => {
+  const path = tempPath();
+  const cache = await AgentOptionsCache.load(path);
+  const choices = choicesFromConfigOptions(
+    [
+      {
+        configId: "model",
+        name: "Model",
+        options: [
+          { value: "default", name: "Default model" },
+          { value: "opus", name: "Opus", _meta: { [META.efforts]: ["low", "high", "max"] } },
+          { value: "haiku", name: "Haiku", _meta: { [META.efforts]: [] } },
+          { value: "odd", name: "Odd", _meta: { [META.efforts]: "high" } },
+        ],
+      },
+    ],
+    "model",
+  );
+  await cache.update("claude", "model", choices ?? []);
+  const merged = (await AgentOptionsCache.load(path)).apply("claude", CLAUDE_CONFIG_SCHEMA) as {
+    properties: { model: { oneOf: { const: string; _meta?: Record<string, unknown> }[] } };
+  };
+  const efforts = Object.fromEntries(
+    merged.properties.model.oneOf.map((o) => [o.const, o._meta?.[META.efforts]]),
+  );
+  // Not said, or said in a shape that is not a list: not known.
+  expect(efforts).toEqual({
+    default: undefined,
+    opus: ["low", "high", "max"],
+    haiku: [],
+    odd: undefined,
+  });
+});
+
+test("a cache written before effort levels were kept still loads", async () => {
+  const path = tempPath();
+  writeFileSync(
+    path,
+    JSON.stringify({
+      version: 1,
+      agents: { claude: { model: [{ const: "opus", title: "Opus" }] } },
+    }),
+  );
+  const merged = (await AgentOptionsCache.load(path)).apply("claude", CLAUDE_CONFIG_SCHEMA) as {
+    properties: { model: { oneOf: Record<string, unknown>[] } };
+  };
+  expect(merged.properties.model.oneOf).toEqual([{ const: "opus", title: "Opus" }]);
+});
