@@ -56,10 +56,12 @@ sh cycle-linux-x64/install.sh
 
 ```bash
 cycle status   # 是否在运行
-cycle stop     # 停掉(会话中的回合会中断)
+cycle stop     # 停掉;有会话在工作时会列出来,问你等它们结束还是立即中断
+cycle stop --wait    # 等所有会话结束再停
+cycle stop --force   # 立即停:进行中的回合标为"已中断",排队的消息保留
 ```
 
-**升级**:重新下载,再运行一次 `install.sh`。已经在运行的 daemon 继续用旧文件,直到你 `stop` 它,下一次连接会起新的。
+**升级**:重新下载,再运行一次 `install.sh`。已经在运行的 daemon 继续用旧文件,直到你 `stop` 它,下一次连接会起新的。被中断的回合在历史里会标明是 daemon 停止打断的,重新连上后可以看到;重启后不会自动接着做。
 
 ## 4. 在应用里添加远端主机
 

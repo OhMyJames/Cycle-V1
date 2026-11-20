@@ -57,6 +57,18 @@ test("the command for a remote machine downloads this release's daemon, checks i
   expect(steps.at(-1)).toBe('"$HOME/.local/bin/cycle" stop');
 });
 
+test("the command stops the old daemon as the person chose: ask, interrupt now, or wait in the background", () => {
+  const last = (stop?: "ask" | "now" | "later") =>
+    daemonUpgradeCommand("0.1.1", stop).split(" && ").at(-1);
+  expect(last()).toBe('"$HOME/.local/bin/cycle" stop');
+  expect(last("ask")).toBe('"$HOME/.local/bin/cycle" stop');
+  expect(last("now")).toBe('"$HOME/.local/bin/cycle" stop --force');
+  // Only the stop goes to the background, detached from the ssh session, after the install has worked.
+  expect(last("later")).toBe(
+    '{ nohup "$HOME/.local/bin/cycle" stop --wait >/dev/null 2>&1 </dev/null & }',
+  );
+});
+
 const TREE: TreeEntry[] = [
   { path: "Contents", kind: "dir" },
   { path: "Contents/Frameworks", kind: "dir" },

@@ -8,6 +8,10 @@ const OPTIONS = {
   "data-dir": { type: "string" },
   socket: { type: "string" },
   help: { type: "boolean" },
+  /** `stop`: stop even when sessions are working, interrupting them. */
+  force: { type: "boolean" },
+  /** `stop`: wait until no session is working, then stop. */
+  wait: { type: "boolean" },
 } as const;
 const WITH_VALUE = Object.entries(OPTIONS)
   .filter(([, option]) => option.type === "string")

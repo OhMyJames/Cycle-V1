@@ -79,6 +79,7 @@ import {
 } from "./session.ts";
 import { checkToolResult } from "./tool-result.ts";
 import { FolderTrust, realFolder, within } from "./trust-file.ts";
+import { type Activity, opensOrEndsTurn, turnLeftOpen } from "./turns.ts";
 
 export type DaemonOptions = {
   /** Where the daemon keeps its data. Always given: nothing here guesses a home. */
@@ -261,10 +262,49 @@ export class Daemon {
     return { closed: connection.closed, close: () => connection.close() };
   }
 
+  /**
+   * What a stop would cut short, session by session: a turn in progress (with any request waiting on the owner) or
+   * background sub-agents still working. Empty when the daemon can stop without losing anything; an idle exit
+   * (CYCL-104) waits for that. Only loaded sessions can be doing anything.
+   */
+  activity(): Activity[] {
+    const active: Activity[] = [];
+    for (const session of this.#sessions.values()) {
+      if (session.closed) continue;
+      const turn = this.#turnInProgress(session);
+      const background = session.backgroundCount();
+      if (!turn && background === 0) continue;
+      active.push({
+        sessionId: session.id,
+        ...(session.entry.title !== undefined ? { title: session.entry.title } : {}),
+        turn,
+        pending: session.pending.size,
+        background,
+        queued: session.queue.length,
+      });
+    }
+    return active;
+  }
+
+  /** A turn has started and not ended: on record, or as the daemon has it (a prompt still on its way to the agent). */
+  #turnInProgress(session: Session): boolean {
+    const status = session.status();
+    return (
+      session.entry.turnOpen === true ||
+      status === "running" ||
+      status === "requires_action" ||
+      session.pending.size > 0
+    );
+  }
+
   async close(): Promise<void> {
     // Stopping the agents is not a reason to hand anything back: what waits stays for the next start.
     this.#closing = true;
     for (const session of this.#sessions.values()) {
+      // A turn cut short says so in the history before the agent goes (docs/protocol.md §8): it is not left running.
+      if (!session.closed && this.#turnInProgress(session)) {
+        await this.#interrupt(session, "Cycle was stopped while this turn was running");
+      }
       session.closed = true;
       session.link?.kill();
       for (const attachment of session.attachments) attachment.detach();
@@ -341,6 +381,7 @@ export class Daemon {
       if (entry.queued === true) session.queue = await this.#queueIn(log);
       this.#clamp(session);
       this.#watch(session);
+      await this.#endTurnLeftOpen(session);
       this.#sessions.set(sessionId, session);
       return session;
     })().finally(() => {
@@ -582,7 +623,8 @@ export class Daemon {
   }
 
   #onUpdate(session: Session, update: SessionUpdate): void {
-    if (session.resuming || session.historyError !== undefined) return;
+    // Once the daemon is stopping, the turn's end is on record: what the agent says after it is not.
+    if (session.resuming || session.historyError !== undefined || this.#closing) return;
     const state = update as { sessionUpdate: string; state?: string };
     if (state.sessionUpdate === "state_update" && typeof state.state === "string") {
       if (
@@ -856,6 +898,10 @@ export class Daemon {
     }
     if (record.kind !== "update") return;
     const update = record.data as Record<string, unknown>;
+    // Whether a turn is open on record, for a restart to find one that was cut short (docs/protocol.md §8).
+    const turnOpen = opensOrEndsTurn(update);
+    if (turnOpen !== undefined && session.entry.turnOpen !== turnOpen)
+      this.#remember(session, { turnOpen }, false);
     // The person's first message: from now on the session is in the list.
     if (update.sessionUpdate === "user_message" && session.entry.prompted !== true) {
       this.#remember(session, { prompted: true });
@@ -953,6 +999,8 @@ export class Daemon {
     params: Record<string, unknown>,
     how: { cancelled: unknown; answer: (response: unknown) => unknown },
   ): Promise<unknown> {
+    // A stopping daemon puts nothing more to anyone: the agent is told no, as at a cancel.
+    if (this.#closing) return how.cancelled;
     const requestId = session.nextRequestId();
     // The id is in _meta so a client can match `_cycle/request_resolved` to the dialog it is showing.
     const meta = (params._meta ?? {}) as Record<string, unknown>;
@@ -1083,16 +1131,15 @@ export class Daemon {
     });
   }
 
-  #onAgentClosed(session: Session, link: AgentLink | undefined): void {
-    if (session.link !== link && link !== undefined) return;
-    const wasWorking = session.agentState !== "idle";
-    session.link = undefined;
-    // Its key to the gateway goes with it, and the connector processes it had.
-    this.#connectors.release(session.id);
+  /** Every request still waiting on the owner ends unanswered: aborted on record, cancelled to the agent and the clients asked. */
+  #abortPending(session: Session): Promise<unknown> {
+    const writes: Promise<boolean>[] = [];
     for (const pending of [...session.pending.values()]) {
       pending.settled = true;
       session.pending.delete(pending.requestId);
-      void this.#write(session, { kind: "aborted", data: { requestId: pending.requestId } });
+      writes.push(
+        this.#write(session, { kind: "aborted", data: { requestId: pending.requestId } }),
+      );
       pending.resolve(pending.cancelled);
       for (const attachment of pending.asked) {
         void attachment.conn
@@ -1104,6 +1151,53 @@ export class Daemon {
           .catch(() => {});
       }
     }
+    return Promise.all(writes);
+  }
+
+  /**
+   * The daemon stops, or stopped, in the middle of a turn: the turn ends on record as interrupted (docs/protocol.md §8),
+   * so the history does not stay at "working". What was queued is not handed back here: it stays, for the next client.
+   */
+  async #interrupt(session: Session, message: string): Promise<void> {
+    await this.#abortPending(session);
+    session.turnEnded = true;
+    session.agentState = "idle";
+    await this.#write(session, {
+      kind: "update",
+      data: {
+        sessionUpdate: "state_update",
+        state: "idle",
+        stopReason: "error",
+        error: { code: CycleErrorCode.DaemonStopped, message },
+      },
+    });
+  }
+
+  /**
+   * A session loaded after a restart whose log has a turn that never ended: the daemon before this one stopped in the
+   * middle of it without saying so (it crashed, was killed, or was older than this rule). Its end is put on record now.
+   * The index says whether to look; an entry from before it said reads the log once.
+   */
+  async #endTurnLeftOpen(session: Session): Promise<void> {
+    if (session.entry.turnOpen === false) return;
+    let open: boolean;
+    try {
+      open = turnLeftOpen(await session.log.read(undefined, { stored: true }));
+    } catch {
+      // A log that cannot be read is reported where it is read; there is nothing to end here.
+      return;
+    }
+    if (open) await this.#interrupt(session, "Cycle stopped while this turn was running");
+    else this.#remember(session, { turnOpen: false }, false);
+  }
+
+  #onAgentClosed(session: Session, link: AgentLink | undefined): void {
+    if (session.link !== link && link !== undefined) return;
+    const wasWorking = session.agentState !== "idle";
+    session.link = undefined;
+    // Its key to the gateway goes with it, and the connector processes it had.
+    this.#connectors.release(session.id);
+    this.#abortPending(session);
     void this.#write(session, { kind: "meta", data: { event: "agent_exited" } });
     // The sub-agents went with the process. The list is announced as changed at the end.
     session.endSubagents();
@@ -1281,6 +1375,7 @@ export class Daemon {
         createdAt: new Date().toISOString(),
         // Not in the list until the person's first message is on record (docs/protocol.md §6).
         prompted: false,
+        turnOpen: false,
         // Kept to send again each time the agent starts. Not in the log: that goes to every client.
         ...(params.additionalDirectories?.length
           ? { additionalDirectories: params.additionalDirectories }

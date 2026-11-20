@@ -1,7 +1,7 @@
 import { Button } from "@ui-sdk/react/button";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
 import { useState } from "react";
-import type { UpdateState } from "../api.ts";
+import type { SessionSummary, UpdateState } from "../api.ts";
 import { CodeThemeItems } from "./code-theme-picker.tsx";
 import { ConfirmDialog } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
@@ -79,8 +79,20 @@ export function UpdateBanner() {
 }
 
 /**
+ * The sessions an update would interrupt: a turn running or waiting on the person, or background tasks (the same
+ * test `cycle stop` makes, docs/daemon.md "停止和升级").
+ */
+export const workingSessions = (
+  sessions: readonly SessionSummary[] | undefined,
+): SessionSummary[] =>
+  (sessions ?? []).filter(
+    (s) => s.state === "running" || s.state === "requires_action" || (s.background ?? 0) > 0,
+  );
+
+/**
  * An environment whose daemon is too old for this app: one line under the title, with a button that updates it over
- * ssh. When that cannot be done the line says why and the command is there to run by hand.
+ * ssh. When that cannot be done the line says why and the command is there to run by hand. When sessions there are
+ * working, the confirmation names them first, and the person chooses to wait for them or to interrupt them.
  */
 export function DaemonBanner({ environmentId }: { environmentId: string }) {
   const store = useAppStore();
@@ -88,6 +100,7 @@ export function DaemonBanner({ environmentId }: { environmentId: string }) {
   const daemon = useAppState((s) => s.status[environmentId]?.daemon);
   const name = useAppState((s) => s.environments.find((e) => e.id === environmentId)?.name);
   const incompatible = useAppState((s) => s.status[environmentId]?.incompatible);
+  const sessions = useAppState((s) => s.sessions[environmentId]);
   const [confirming, setConfirming] = useState(false);
   const upgrade = daemon?.upgrade;
   if (incompatible !== undefined) {
@@ -121,7 +134,10 @@ export function DaemonBanner({ environmentId }: { environmentId: string }) {
   }
   if (daemon === undefined || upgrade === undefined) return null;
   const failed = upgrade.error !== undefined;
+  const waiting = upgrade.waiting === true && !failed;
   const environment = name ?? environmentId;
+  const working = workingSessions(sessions);
+  const named = working.map((s) => s.title || t("daemon.untitled")).join(", ");
   return (
     <div
       data-slot="banner"
@@ -133,7 +149,9 @@ export function DaemonBanner({ environmentId }: { environmentId: string }) {
       <span data-slot="update-line">
         {failed
           ? t("daemon.failed", { environment, error: upgrade.error ?? "" })
-          : t("daemon.tooOld", { environment, version: daemon.version })}
+          : waiting
+            ? t("daemon.waiting", { environment, to: upgrade.to })
+            : t("daemon.tooOld", { environment, version: daemon.version })}
       </span>
       <Button
         data-variant="outline"
@@ -144,7 +162,9 @@ export function DaemonBanner({ environmentId }: { environmentId: string }) {
           ? t("daemon.updating")
           : failed
             ? t("daemon.tryAgain")
-            : t("daemon.update", { to: upgrade.to })}
+            : waiting
+              ? t("daemon.updateNow")
+              : t("daemon.update", { to: upgrade.to })}
       </Button>
       {failed ? (
         <code data-slot="command" title={t("daemon.byHand", { environment })}>
@@ -155,9 +175,33 @@ export function DaemonBanner({ environmentId }: { environmentId: string }) {
         open={confirming}
         onOpenChange={setConfirming}
         title={t("daemon.confirmTitle", { environment, to: upgrade.to })}
-        description={t("daemon.confirmBody", { environment })}
-        confirmLabel={t("daemon.confirm")}
-        onConfirm={() => store.upgradeDaemon(environmentId)}
+        description={
+          working.length > 0
+            ? t("daemon.confirmBusy", { sessions: named })
+            : t("daemon.confirmBody", { environment })
+        }
+        {...(working.length > 0
+          ? waiting
+            ? {
+                // Already waiting for them: what is left to choose is to stop waiting.
+                confirmLabel: t("daemon.confirmNow"),
+                destructive: true,
+                onConfirm: () => store.upgradeDaemon(environmentId, "now"),
+              }
+            : {
+                confirmLabel: t("daemon.confirmLater"),
+                onConfirm: () => store.upgradeDaemon(environmentId, "later"),
+                alternative: {
+                  label: t("daemon.confirmNow"),
+                  destructive: true,
+                  onConfirm: () => store.upgradeDaemon(environmentId, "now"),
+                },
+              }
+          : {
+              confirmLabel: t("daemon.confirm"),
+              // Nothing working any more while it waited: an update now interrupts nothing.
+              onConfirm: () => store.upgradeDaemon(environmentId, waiting ? "now" : undefined),
+            })}
       />
     </div>
   );

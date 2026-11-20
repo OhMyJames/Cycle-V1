@@ -431,8 +431,17 @@ export const enUS = {
   "daemon.byHand": "Run this on {environment}",
   "daemon.confirmTitle": "Update Cycle on {environment} to {to}?",
   "daemon.confirmBody":
-    "Cycle on that machine is stopped and starts again as the new version. Sessions there that are working are interrupted.",
+    "Cycle on that machine is stopped and starts again as the new version. No session there is working now.",
   "daemon.confirm": "Update",
+  // Sessions on that machine are working: wait for them, or interrupt them
+  "daemon.confirmBusy":
+    "Sessions there are working: {sessions}. Updating now interrupts them: each turn ends as interrupted, and queued messages are kept. Or Cycle there can restart as the new version when they finish.",
+  "daemon.confirmLater": "Update when they finish",
+  "daemon.confirmNow": "Update now and interrupt",
+  "daemon.untitled": "Untitled session",
+  "daemon.waiting":
+    "Cycle {to} is installed on {environment}. It restarts as the new version when its sessions finish.",
+  "daemon.updateNow": "Update now",
   "app.analyticsOff": "Turn off usage statistics",
   "app.analyticsOn": "Turn on usage statistics",
 

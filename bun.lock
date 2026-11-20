@@ -19,12 +19,10 @@
       },
       "dependencies": {
         "@agentclientprotocol/sdk": "catalog:",
+        "@cycle/client": "workspace:*",
         "@cycle/harness-claude": "workspace:*",
         "@cycle/protocol": "workspace:*",
         "zod": "catalog:",
-      },
-      "devDependencies": {
-        "@cycle/client": "workspace:*",
       },
     },
     "apps/desktop": {

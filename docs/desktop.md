@@ -186,7 +186,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 
 - **远端 daemon 的升级**:应用只更新自己和自带的本地 daemon;远端的 daemon 由用户决定何时升。应用带一个 `MIN_DAEMON_VERSION`(`src/shared/release.ts`),**远端 daemon 低于它**才在标题栏下面出现一行提示和一个"Update to x.y.z"按钮;高于或等于它就不提示,即使比应用旧(多数版本只改界面,不动 daemon)。`dev`(从源码运行)和读不出版本的不提示,本地的也不提示。
   - **什么时候抬高它**:应用开始依赖旧 daemon 没有的东西(字段、方法、行为),而且不能像 `capabilities` 开关那样"没有就关掉那个功能"。发版时问一句:这次有没有这种改动。可以关掉的功能用 capabilities,不动它。门禁测试保证它是合法版本号且不晚于应用自己的版本。
-  - **按钮做什么**:确认后,应用用该环境同一个 ssh 主机(`BatchMode`,不交互)在远端运行 `daemonUpgradeCommand`(下载本版本的 tarball、校验、`install.sh`、`cycle stop`),`cycle stop` 让连接断开,重连时接上新的 daemon,已打开的会话原样保留。该机器上正在工作的会话会被中断,所以先确认。
+  - **按钮做什么**:确认后,应用用该环境同一个 ssh 主机(`BatchMode`,不交互)在远端运行 `daemonUpgradeCommand`(下载本版本的 tarball、校验、`install.sh`、`cycle stop`),`cycle stop` 让连接断开,重连时接上新的 daemon,已打开的会话原样保留。确认框里,如果该机器上有会话在工作,会列出它们,让人选"等它们结束再更新"(远端后台 `cycle stop --wait`)或"立即更新并中断"(`cycle stop --force`);没有在工作的就是普通的 `cycle stop`,它不会中断确认之后才开始工作的会话。见 [daemon.md](daemon.md)"停止和升级"。
   - **失败时**:那一行变成错误并附上同一条命令,让用户在那台机器上手动运行(远端连不上 GitHub、没有 `curl`/`sha256sum`、ssh 需要交互,都会走到这里)。第一版不做"应用下载再传过去"。
   - 限于 Linux x64。理由见 `.agents/notes/2026-11-19-daemon-minimum-version-and-upgrade-button.md`。
   - **协议不兼容(与上面的最低版本不同)**:最低版本说的是"能不能用",而协议主版本不同时 daemon 在握手就以 `-32022` 拒绝,连接根本建立不起来(docs/protocol.md §3)。客户端把它保留成带 `supported`(daemon 说它支持的)和 `requested`(应用要的)的结构化错误,初次连接和重连都一样;重连时仍按退避继续试,换上兼容的 daemon 后自己连上。环境的状态里带 `incompatible`:`with` 说哪一边要改(daemon 的主版本低于应用的是 `daemon`,高于的是 `app`,比不出来是 `unknown`)。界面在那个环境下显示一行原因:`daemon` 时给出远端 Linux x64 上更新 daemon 的命令(本地 daemon 不给,它随应用更新);`app` 时只说要更新应用,**不**提示降级 daemon。普通的 ssh 或网络故障不带 `incompatible`,仍是连接错误和重连。连接成功后这行消失。目前两边的主版本都是 `0`,这条路径要等协议升主版本才会走到。

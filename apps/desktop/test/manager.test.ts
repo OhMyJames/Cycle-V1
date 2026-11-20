@@ -475,7 +475,9 @@ test("updating a daemon runs its command on that host, says it is running, and i
   await m.upgradeDaemon("far");
   expect(ran).toHaveLength(1);
   expect(ran[0]).toContain("far: cd ");
-  expect(tracked).toContainEqual(["daemon_upgraded", { ok: true }]);
+  // Nothing was working there: the plain stop, which refuses rather than interrupt something started since.
+  expect(ran[0]).toEndWith('"$HOME/.local/bin/cycle" stop');
+  expect(tracked).toContainEqual(["daemon_upgraded", { ok: true, when: "idle" }]);
   // If the connection never drops, the wait ends and the button is back.
   await until(() => lastStatus(events)?.daemon?.upgrade?.running === undefined, "the wait to end");
 });
@@ -523,9 +525,91 @@ test("a daemon update that fails says why in the status and keeps the command", 
   expect(upgrade?.error).toBe("Permission denied (publickey).");
   expect(upgrade?.running).toBeUndefined();
   expect(upgrade?.command).toContain("install.sh");
-  expect(tracked).toContainEqual(["daemon_upgraded", { ok: false }]);
+  expect(tracked).toContainEqual(["daemon_upgraded", { ok: false, when: "idle" }]);
   // What was said is not what is reported: only that it did not work.
   expect(JSON.stringify(tracked)).not.toContain("publickey");
+});
+
+test("with sessions working, updating later installs and leaves the old daemon to stop when they finish", async () => {
+  const { manager } = await setup(fakeAgent(), "0.1.0");
+  const ran: string[] = [];
+  const tracked: unknown[] = [];
+  const { m, events } = await manager(
+    "app",
+    "9.9.9",
+    undefined,
+    (name, props) => tracked.push([name, props]),
+    {
+      runOnHost: async (_environment, command) => {
+        ran.push(command);
+      },
+      settle: 10,
+    },
+  );
+  await m.saveEnvironment(far);
+  await m.connect("far");
+  await m.upgradeDaemon("far", "later");
+  expect(ran).toHaveLength(1);
+  expect(ran[0]).toContain("stop --wait");
+  expect(ran[0]).not.toContain("--force");
+  expect(tracked).toContainEqual(["daemon_upgraded", { ok: true, when: "later" }]);
+  // Said until the connection comes back to the new daemon, not taken back after a while.
+  await Bun.sleep(30);
+  const upgrade = lastStatus(events)?.daemon?.upgrade;
+  expect(upgrade?.waiting).toBe(true);
+  expect(upgrade?.running).toBeUndefined();
+  // While it waits, only interrupting is still to choose.
+  await m.upgradeDaemon("far");
+  await m.upgradeDaemon("far", "later");
+  expect(ran).toHaveLength(1);
+  await m.upgradeDaemon("far", "now");
+  expect(ran).toHaveLength(2);
+  expect(ran[1]).toContain("stop --force");
+  expect(tracked).toContainEqual(["daemon_upgraded", { ok: true, when: "now" }]);
+  expect(lastStatus(events)?.daemon?.upgrade?.waiting).toBeUndefined();
+});
+
+test("the page can only ask for the ways to stop there are", async () => {
+  const { manager } = await setup(fakeAgent(), "0.1.0");
+  const ran: string[] = [];
+  const tracked: unknown[] = [];
+  const { m } = await manager(
+    "app",
+    "9.9.9",
+    undefined,
+    (name, props) => tracked.push([name, props]),
+    {
+      runOnHost: async (_environment, command) => {
+        ran.push(command);
+      },
+      settle: 10,
+    },
+  );
+  await m.saveEnvironment(far);
+  await m.connect("far");
+  await m.upgradeDaemon("far", "; rm -rf ~");
+  expect(ran[0]).toEndWith('"$HOME/.local/bin/cycle" stop');
+  expect(tracked).toContainEqual(["daemon_upgraded", { ok: true, when: "idle" }]);
+});
+
+test("after a daemon update failed, trying again runs it again", async () => {
+  const { manager } = await setup(fakeAgent(), "0.1.0");
+  let runs = 0;
+  const { m, events } = await manager("app", "9.9.9", undefined, undefined, {
+    runOnHost: async () => {
+      runs += 1;
+      // The first time, sessions there had started working: the plain stop refused.
+      if (runs === 1) throw new Error("Not stopped. 1 session is working.");
+    },
+    settle: 10,
+  });
+  await m.saveEnvironment(far);
+  await m.connect("far");
+  await m.upgradeDaemon("far");
+  expect(lastStatus(events)?.daemon?.upgrade?.error).toContain("Not stopped");
+  await m.upgradeDaemon("far", "later");
+  expect(runs).toBe(2);
+  expect(lastStatus(events)?.daemon?.upgrade?.error).toBeUndefined();
 });
 
 test("nothing is run for a daemon that is not too old", async () => {

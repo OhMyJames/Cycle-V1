@@ -295,6 +295,17 @@ session 不是 `idle` 时(`running` 或 `requires_action`),`session/prompt` 不�
 - **历史**:插入的 `user_message` 在 agent 收下时进日志,所以它在历史里出现在 turn 中间,位置就是它被收下的时刻。
 - 插入不经过队列,也不改变队列:队列里等着的 prompt 仍在 turn 正常结束后发出。
 
+### daemon 停止时进行中的 turn
+
+agent 是 daemon 的子进程,daemon 停止(`cycle stop`、升级、崩溃、机器重启)时 agent 跟着结束,进行中的 turn 不会继续,重启后也不续接。历史里这个 turn 必须有一个终态,不能停在"进行中":
+
+- **终态记录**:一条 `state_update`,`state: "idle"`、`stopReason: "error"`、`error.code` 为 `-32018`(`daemon_stopped`,§11),`error.message` 供人阅读。它和其他 turn 结束一样占一个序号、写进日志、算"值得看"(§6"已读"),所以 session 显示为未读;客户端断线重连后按 `cycle/seq` 补发就能看到它,知道 turn 是被 daemon 的停止打断的。客户端按 `error.code` 识别它,不解析 `message`。
+- **什么时候写**:daemon 正常关闭时(收到 `SIGTERM`/`SIGINT`),对每个有进行中 turn 的 session 先写终态,再结束 agent;此后 agent 发来的更新不再记录。等待回答的权限请求和表单写 `aborted`,按取消回给 agent。没来得及写的(崩溃、`kill -9`、还没有这个规则的旧 daemon 停的),daemon 下一次加载这个 session 时补写(加载发生在第一次 `session/list` 或附着时)。
+- **怎么知道 turn 还开着**:按日志判断:最后一条 `user_message` 或 `running`/`requires_action` 的 `state_update` 之后没有任何 `idle`。索引里的 `turnOpen` 记着这个结论(§12),加载时只有它为 `true`(或旧索引里没有它)才读日志核对,所以重启后不必读每个 session 的日志两次。
+- **队列不丢**:终态记录不退回队列。排队的 prompt 照"排队"一节的重启规则留着,下一次有客户端附着时以 `reason: "interrupted"` 退回到输入框。
+- 后台子 agent 随 agent 进程结束,不写记录(它们不属于某个 turn,`cycle/background` 归 0)。
+- **停之前先问**:`cycle stop` 先用 `session/list` 看有没有在工作的 session(`cycle/state` 为 `running` 或 `requires_action`,或 `cycle/background` 大于 0),有就列出来,由人选等待(`--wait`)或强停(`--force`),见 [daemon.md](daemon.md)。用的是已有的方法,所以新的 `cycle` 也能这样停一个旧 daemon(升级时正是这样)。daemon 里同一个判断是 `Daemon.activity()`,空闲退出(CYCL-104)只在它为空时发生。
+
 ### 提及(@)文件与文件夹
 
 客户端在输入框里用 `@` 引用 session 的 `cwd` 下的文件或文件夹。还没有 session 的空白对话(§6 列表)引用它选好的 `cwd` 下的。
@@ -467,16 +478,17 @@ daemon 启动 agent 时只传入显式白名单里的环境变量,不继承自�
 - 协议版本不兼容:用 ACP 的 `-32022`。
 - 其余是 Cycle 自己的,取 -32010 到 -32019,避开 ACP 已用的码:
 
-| 码     | 名称                | 含义                                                              |
-| ------ | ------------------- | ----------------------------------------------------------------- |
-| -32010 | `session_busy`      | session 正在工作,不接受该操作                                     |
-| -32011 | `agent_unavailable` | agent 不可用(未安装、启动失败)                                    |
-| -32012 | `agent_exited`      | agent 进程在操作中退出                                            |
-| -32013 | `resume_failed`     | agent 无法恢复该 session。历史仍可读,但不能继续对话               |
-| -32014 | `invalid_config`    | 配置不符合 `configSchema`                                         |
-| -32015 | `log_unavailable`   | 历史日志读写失败。写入失败后,该 session 的 prompt 都以它拒绝(§12) |
-| -32016 | `not_queued`        | 要撤回的 prompt 不在队列里(已发出或已退回)                        |
-| -32017 | `connector_failed`  | connector 的授权服务器拒绝、不可达(§14)                           |
+| 码     | 名称                | 含义                                                                    |
+| ------ | ------------------- | ----------------------------------------------------------------------- |
+| -32010 | `session_busy`      | session 正在工作,不接受该操作                                           |
+| -32011 | `agent_unavailable` | agent 不可用(未安装、启动失败)                                          |
+| -32012 | `agent_exited`      | agent 进程在操作中退出                                                  |
+| -32013 | `resume_failed`     | agent 无法恢复该 session。历史仍可读,但不能继续对话                     |
+| -32014 | `invalid_config`    | 配置不符合 `configSchema`                                               |
+| -32015 | `log_unavailable`   | 历史日志读写失败。写入失败后,该 session 的 prompt 都以它拒绝(§12)       |
+| -32016 | `not_queued`        | 要撤回的 prompt 不在队列里(已发出或已退回)                              |
+| -32017 | `connector_failed`  | connector 的授权服务器拒绝、不可达(§14)                                 |
+| -32018 | `daemon_stopped`    | daemon 停止时 turn 还在进行,turn 被打断(§8"daemon 停止时进行中的 turn") |
 
 ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集中定义,升级 ACP 时对照检查。
 
@@ -514,7 +526,7 @@ ACP 以后可能占用这个范围里的码,所以 Cycle 的码在 schema 里集
   3. **不过滤**:用户和模型说的话(`user_message`、`agent_message_chunk` 等):它们分块到达,模式跨不过块;也是用户自己的话。表单(elicitation)的答案不进日志,见 §9。
      这是已知凭证的过滤,不是保证:没有固定形态、也不在带名字的键里的秘密(命令输出里的一串随机字符)认不出来。已经写下的历史不会被改写,回放时也不会补过滤:升级前的会话里原有的内容仍在盘上,也仍会回放给客户端。
 
-session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session id、`cwd`、归档标记、标题、创建时间,以及 `readSeq` 和 `attentionSeq`(§6"已读")。`lastSeq` 和 `updatedAt` 不存在索引里,以日志为准(`updatedAt` 取最后一条非 `meta` 记录的 `ts`),避免每条记录都改写索引。`attentionSeq` 在每条值得看的记录(通常每个 turn 一两条)后改写一次,`readSeq` 每次标记已读改写一次,都不是每条记录一次。daemon 打开 session 时,若 `readSeq` 或 `attentionSeq` 超过日志的 `lastSeq`(崩溃截掉了日志末尾的半行,之后的 seq 会重新分配),把它们压回 `lastSeq`。
+session 索引是另一个文件,记录 sessionId、agent id、agent 侧 session id、`cwd`、归档标记、标题、创建时间,`readSeq` 和 `attentionSeq`(§6"已读"),以及 `turnOpen`(日志里有没有还没结束的 turn,§8"daemon 停止时进行中的 turn";turn 开始和结束时各改写一次,旧索引里没有它时加载时读一次日志)。`lastSeq` 和 `updatedAt` 不存在索引里,以日志为准(`updatedAt` 取最后一条非 `meta` 记录的 `ts`),避免每条记录都改写索引。`attentionSeq` 在每条值得看的记录(通常每个 turn 一两条)后改写一次,`readSeq` 每次标记已读改写一次,都不是每条记录一次。daemon 打开 session 时,若 `readSeq` 或 `attentionSeq` 超过日志的 `lastSeq`(崩溃截掉了日志末尾的半行,之后的 seq 会重新分配),把它们压回 `lastSeq`。
 
 从没有这两个字段的旧索引升级时,两个都按 0 算,所以旧 session 不是未读(升级不会让所有旧 session 变成未读);之后第一个值得看的记录才会让它变成未读。索引整体写入:先写临时文件再改名,崩溃后留下的是旧索引或新索引,不会是半个。索引存在但无法读取时 daemon 拒绝启动,不覆盖它(决策 0002)。
 

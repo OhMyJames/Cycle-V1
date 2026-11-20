@@ -7,6 +7,7 @@ import { defaultDataDir, loadConfig, pathsFor } from "./config.ts";
 import { proxy } from "./proxy.ts";
 import { claudeExecutable } from "./self.ts";
 import { serve } from "./serve.ts";
+import { askWorking, stopDaemon } from "./stop.ts";
 import { AlreadyRunningError, isListening, NotASocketError } from "./transport/server.ts";
 import { VERSION } from "./version.ts";
 
@@ -17,7 +18,11 @@ const USAGE = `cycle <command> [options]
           This is what a client runs over ssh.
   version Print this build's version ("dev" when run from source).
   status  Say whether the daemon is running (exit 0) or not (exit 1).
-  stop    Stop the daemon if it is running.
+  stop    Stop the daemon if it is running. If sessions are working (a turn, a request
+          waiting for an answer, background tasks) they are listed, and it asks whether
+          to wait for them or stop now; without a terminal it does not stop (exit 4).
+          --wait    wait until nothing is working, then stop
+          --force   stop now: running turns end as interrupted, queued messages are kept
   login   Sign in to Claude for this daemon: "claude auth login" with the environment and
           config directory the daemon gives Claude. Run it on the machine the daemon is on.
   claude <args>   Run the Claude binary with that same environment (e.g. claude auth status).
@@ -99,12 +104,28 @@ if (command === "serve") {
     console.log("not running");
     process.exit(0);
   }
-  process.kill(pid, "SIGTERM");
-  const started = Date.now();
-  while ((await isListening(paths.socket)) && Date.now() - started < 10_000) await Bun.sleep(50);
-  const gone = !(await isListening(paths.socket));
-  console.log(gone ? "stopped" : "did not stop within 10s");
-  process.exit(gone ? 0 : 1);
+  process.exit(
+    await stopDaemon({
+      force: values.force === true,
+      wait: values.wait === true,
+      interactive: process.stdin.isTTY === true,
+      isRunning: () => isListening(paths.socket),
+      working: () => askWorking(paths.socket),
+      choose: async (question, unknown) => {
+        process.stdout.write(question);
+        for await (const line of console) {
+          const answer = line.trim().toLowerCase();
+          if (answer.startsWith("f")) return "force";
+          if (answer.startsWith("w") && !unknown) return "wait";
+          if (answer.startsWith("c") || answer === "") return "cancel";
+          process.stdout.write(question);
+        }
+        return "cancel";
+      },
+      signal: () => process.kill(pid, "SIGTERM"),
+      say: (line) => console.log(line),
+    }),
+  );
 } else {
   // stdout is the protocol: nothing else may be written to it.
   await proxy(paths, {
