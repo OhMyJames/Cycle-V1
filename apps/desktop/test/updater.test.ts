@@ -129,10 +129,7 @@ const make = (over: Partial<ConstructorParameters<typeof Updater>[0]> = {}) => {
     apiBase: base,
     assetPrefix: `${base}/dl/`,
     fetch,
-    beforeSwap: async () => {
-      log.push("beforeSwap");
-    },
-    handOff: (swap) => {
+    handOff: async (swap) => {
       log.push("handOff");
       swaps.push(swap);
     },
@@ -194,7 +191,7 @@ test("it installs: downloads, checks, unpacks, stops what the old app left runni
   const { updater, states, log, swaps } = make();
   await updater.check(false);
   await updater.install();
-  expect(log).toEqual(["extract", "beforeSwap", "handOff", "quit"]);
+  expect(log).toEqual(["extract", "handOff", "quit"]);
   expect(states.map((s) => s.kind)).toEqual([
     "available",
     "downloading",
@@ -447,7 +444,7 @@ test("it updates by the difference: what is installed is reused and only what ch
   await updater.install();
 
   // No whole archive: nothing was unpacked from one, and what was asked of the archive is a fraction of it.
-  expect(log).toEqual(["beforeSwap", "handOff", "quit"]);
+  expect(log).toEqual(["handOff", "quit"]);
   expect(github.ranged).toBeGreaterThan(0);
   const downloads = states.filter((s) => s.kind === "downloading");
   expect(downloads.length).toBeGreaterThan(0);
@@ -473,7 +470,7 @@ test("a server that does not honour ranges costs only the saving: the whole arch
   const { updater, states, log, swaps, notes } = make(unpack());
   await updater.check(false);
   await updater.install();
-  expect(log).toEqual(["extract", "beforeSwap", "handOff", "quit"]);
+  expect(log).toEqual(["extract", "handOff", "quit"]);
   expect(notes.join("\n")).toMatch(
     /by the difference failed \(.*range.*\); downloading the whole update/,
   );

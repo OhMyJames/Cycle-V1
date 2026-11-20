@@ -134,10 +134,9 @@ const updateDeps = (daemon: string[], localEnv: Record<string, string>) => {
     verifyBundle: verifySameTeam(codesign),
     log: (message: string) => console.warn(`[update] ${message}`),
     // The daemon the old app started runs from inside it and would outlive the swap, with its Claude gone.
-    beforeSwap: () =>
-      run(daemon[0] ?? "", [...daemon.slice(1), "stop"], 20_000, localEnv).then(() => {}),
-    handOff: (swap: { appPath: string; newApp: string; oldApp: string; staging: string }) => {
-      spawn(
+    handOff: async (swap: { appPath: string; newApp: string; oldApp: string; staging: string }) => {
+      await run(daemon[0] ?? "", [...daemon.slice(1), "stop"], 20_000, localEnv);
+      const helper = spawn(
         "/bin/sh",
         [
           "-c",
@@ -151,7 +150,12 @@ const updateDeps = (daemon: string[], localEnv: Record<string, string>) => {
           "/usr/bin/open",
         ],
         { detached: true, stdio: "ignore" },
-      ).unref();
+      );
+      await new Promise<void>((resolve, reject) => {
+        helper.once("error", reject);
+        helper.once("spawn", resolve);
+      });
+      helper.unref();
     },
   };
 };
