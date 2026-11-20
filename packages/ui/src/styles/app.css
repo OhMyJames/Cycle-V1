@@ -1706,6 +1706,16 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 /* The line at the end of a turn that is going: what the agent is doing, so a hidden thought is not a silence. */
+@keyframes cycle-step-breathe {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 [data-slot="step"] {
   display: flex;
   align-items: center;
@@ -1715,8 +1725,46 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   color: var(--ui-muted-foreground);
 }
 
+[data-slot="step-live"] {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 [data-slot="step"][data-step="approval"] {
   color: var(--cycle-attention);
+}
+
+[data-slot="step-icon"] {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+}
+
+[data-slot="step-icon-inner"] {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+}
+
+[data-slot="step-pulse"] {
+  animation: cycle-pulse 1.8s ease-in-out infinite;
+}
+
+[data-slot="step-label"] {
+  flex: none;
+  font-family: var(--cycle-font-display);
+  font-weight: 500;
+}
+
+[data-slot="step-label"][data-live] {
+  color: var(--cycle-ink);
+  animation: cycle-step-breathe 2.2s ease-in-out infinite;
 }
 
 [data-slot="step-detail"] {
@@ -1726,6 +1774,14 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   white-space: nowrap;
   font-family: var(--ui-font-mono);
   font-size: var(--cycle-text-meta);
+}
+
+[data-slot="step-elapsed"] {
+  flex: none;
+  font-family: var(--ui-font-mono);
+  font-size: var(--cycle-text-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--cycle-ink-muted);
 }
 
 /* Earlier blocks are added above the reader and the view is moved by hand (conversation.tsx): for that frame only, the
@@ -2477,7 +2533,14 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   text-align: center;
 }
 
-/* A setting at hand: quiet ghost pill with a subtle chevron cue; high-risk modes warn in attention colour. */
+/* A setting at hand: quiet ghost pill with a subtle chevron cue; high-risk modes warn in attention colour.
+   Opens a hardware-rimmed Model Picker popover with sliding highlight and optional inline filter. */
+[data-slot="setting-picker"] {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
 [data-kind="setting-chip"] {
   min-width: 0;
   max-width: 12rem;
@@ -2487,12 +2550,21 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   font-weight: 500;
 }
 
-[data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"][data-unset] {
+:is(
+  [data-slot="button"],
+  [data-slot="menu-trigger"]
+)[data-variant="ghost"][data-kind="setting-chip"][data-unset] {
   color: var(--ui-muted-foreground);
 }
 
-[data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"][data-danger],
-[data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"][data-danger]:is(
+:is(
+  [data-slot="button"],
+  [data-slot="menu-trigger"]
+)[data-variant="ghost"][data-kind="setting-chip"][data-danger],
+:is(
+  [data-slot="button"],
+  [data-slot="menu-trigger"]
+)[data-variant="ghost"][data-kind="setting-chip"][data-danger]:is(
   :hover:not([data-disabled]),
   [data-open]
 ) {
@@ -2502,11 +2574,147 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 [data-slot="setting-chevron"] {
   flex: none;
   opacity: 0.7;
+  transition: transform var(--cycle-motion-disclosure) var(--cycle-ease);
+}
+
+[data-slot="setting-chevron"][data-open] {
+  transform: rotate(180deg);
 }
 
 [data-slot="setting-value"] {
   min-width: 0;
   overflow: hidden;
+}
+
+[data-slot="setting-popover"] {
+  position: fixed;
+  z-index: 40;
+  box-sizing: border-box;
+  min-width: 14.5rem;
+  width: max-content;
+  max-width: min(21rem, calc(100vw - 1.5rem));
+  padding: 0.375rem;
+  border: 1px solid var(--cycle-border-default);
+  border-radius: var(--cycle-radius-card);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-popover);
+}
+
+[data-slot="setting-popover-head"] {
+  padding: 0.25rem 0.5rem 0.375rem;
+  font-family: var(--cycle-font-display);
+  font-size: var(--cycle-text-meta);
+  font-weight: 600;
+  color: var(--cycle-ink-muted);
+}
+
+[data-slot="setting-search"] {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0 0.125rem 0.375rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--cycle-input-border);
+  border-radius: var(--ui-radius);
+  background: var(--cycle-surface-message);
+  color: var(--cycle-ink-muted);
+}
+
+[data-slot="setting-search"]:focus-within {
+  border-color: var(--cycle-focus-ring);
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: -1px;
+  box-shadow: var(--cycle-focus-halo);
+}
+
+[data-slot="setting-search-input"] {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cycle-ink);
+  font-family: var(--ui-font-sans);
+  font-size: var(--cycle-text-ui);
+  line-height: var(--cycle-leading-ui);
+  outline: none;
+}
+
+[data-slot="setting-search-input"]::placeholder {
+  color: var(--cycle-ink-muted);
+}
+
+[data-slot="setting-list"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  max-height: min(26rem, 62vh);
+  overflow-y: auto;
+  outline: none;
+}
+
+[data-slot="setting-option"] {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4375rem 0.5rem;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--cycle-ink);
+  font-family: var(--ui-font-sans);
+  font-size: var(--cycle-text-ui);
+  line-height: var(--cycle-leading-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-slot="setting-option"] [data-slot="option"]:has([data-slot="option-description"]) {
+  padding: 0;
+}
+
+[data-slot="setting-highlight"] {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--ui-radius);
+  background: var(--cycle-surface-hover);
+  pointer-events: none;
+}
+
+[data-slot="setting-check"] {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1.25rem;
+  color: var(--cycle-accent);
+}
+
+[data-slot="setting-option-body"] {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+}
+
+[data-slot="setting-option"] [data-slot="option-name"] {
+  font-family: var(--cycle-font-display);
+  font-weight: 500;
+}
+
+[data-slot="setting-option"][data-selected] [data-slot="option-name"] {
+  font-weight: 600;
+}
+
+[data-slot="setting-empty"] {
+  padding: 0.75rem 0.5rem;
+  font-size: var(--cycle-text-meta);
+  color: var(--cycle-ink-muted);
+  text-align: center;
 }
 
 [data-slot="drop-hint"] {
@@ -2753,8 +2961,10 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 
 [data-slot="option-name"] {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 0.5rem;
+  overflow-wrap: anywhere;
 }
 
 /* Says, not shouts: the same quiet text as the description, set apart by its capsule border. */

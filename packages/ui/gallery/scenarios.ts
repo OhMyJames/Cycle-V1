@@ -1236,6 +1236,18 @@ export const scenarios: Record<string, Scenario> = {
       await new Promise((r) => setTimeout(r, 200));
     },
   },
+  "step-live": {
+    title: "Live inline AI status while the agent is thinking",
+    sessions: [session("s1", { title: "Audit the design tokens", state: "running" })],
+    history: [
+      you("u1", "Check contrast ratios across dark and light modes."),
+      running(),
+      u({
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text: "Measuring luminance for every surface pair." },
+      }),
+    ],
+  },
 };
 
 export const snapshotOf = (s: Scenario): SessionSnapshot => ({
