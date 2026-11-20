@@ -1,12 +1,14 @@
 #!/usr/bin/env bun
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { runAdapter } from "@cycle/harness-claude/run";
 import { parseCli } from "./args.ts";
 import { claudeEnv } from "./claude-agent.ts";
 import { defaultDataDir, loadConfig, pathsFor } from "./config.ts";
+import { tailLines } from "./logger.ts";
 import { proxy } from "./proxy.ts";
 import { claudeExecutable } from "./self.ts";
-import { serve } from "./serve.ts";
+import { onSignalsAndCrashes, serve } from "./serve.ts";
 import { askWorking, stopDaemon } from "./stop.ts";
 import { AlreadyRunningError, isListening, NotASocketError } from "./transport/server.ts";
 import { VERSION } from "./version.ts";
@@ -17,7 +19,9 @@ const USAGE = `cycle <command> [options]
   proxy   Join stdin and stdout to the daemon's socket, starting the daemon if needed.
           This is what a client runs over ssh.
   version Print this build's version ("dev" when run from source).
-  status  Say whether the daemon is running (exit 0) or not (exit 1).
+  status  Say whether the daemon is running (exit 0) or not (exit 1), and where its log is.
+  logs    Print the end of the daemon's log (what it did and what went wrong; never
+          prompts, agent output or credentials). --lines <n>: how many, default 100.
   stop    Stop the daemon if it is running. If sessions are working (a turn, a request
           waiting for an answer, background tasks) they are listed, and it asks whether
           to wait for them or stop now; without a terminal it does not stop (exit 4).
@@ -44,7 +48,7 @@ if (command === "version") {
   console.log(VERSION);
   process.exit(0);
 }
-const commands = ["serve", "proxy", "status", "stop", "login", "claude"];
+const commands = ["serve", "proxy", "status", "stop", "logs", "login", "claude"];
 if (values.help || command === undefined || !commands.includes(command)) {
   console.error(USAGE);
   process.exit(command === undefined || values.help ? 0 : 2);
@@ -53,13 +57,12 @@ const paths = pathsFor(values["data-dir"] ?? defaultDataDir(), values.socket);
 
 if (command === "serve") {
   try {
-    const running = await serve(paths, (line) => console.error(`[cycle] ${line}`));
-    const stop = async () => {
-      await running.close();
-      process.exit(0);
-    };
-    process.on("SIGINT", stop);
-    process.on("SIGTERM", stop);
+    // At a terminal what it logs is shown as well; started in the background, the log file is all there is.
+    const running = await serve(
+      paths,
+      process.stderr.isTTY === true ? { echo: (line) => process.stderr.write(line) } : {},
+    );
+    onSignalsAndCrashes(running);
   } catch (error) {
     if (error instanceof AlreadyRunningError) {
       console.error(error.message);
@@ -91,7 +94,23 @@ if (command === "serve") {
 } else if (command === "status") {
   const up = await isListening(paths.socket);
   console.log(up ? `running, listening on ${paths.socket}` : `not running (${paths.socket})`);
+  console.log(`log: ${paths.log}`);
   process.exit(up ? 0 : 1);
+} else if (command === "logs") {
+  // The end of the log, and where it is: what to look at when something went wrong on this machine.
+  const lines = Number(values.lines ?? 100);
+  console.error(
+    `${paths.log}${existsSync(paths.output) ? ` (runtime output: ${paths.output})` : ""}`,
+  );
+  const text = await Bun.file(paths.log)
+    .text()
+    .catch(() => "");
+  if (text === "") {
+    console.error("The log is empty: the daemon has not run with this data directory.");
+    process.exit(0);
+  }
+  process.stdout.write(tailLines(text, Number.isInteger(lines) && lines > 0 ? lines : 100));
+  process.exit(0);
 } else if (command === "stop") {
   const pid = Number(
     (
