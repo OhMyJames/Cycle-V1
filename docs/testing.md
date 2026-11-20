@@ -42,6 +42,17 @@ CYCLE_SIGNED_FROM="$fixtures/old" CYCLE_SIGNED_TO="$fixtures/new" \
 
 常规发布中签名前的更新测试仍走 `CYCLE_PACKAGED_APP`，会调高临时副本的版本并用 ad hoc 重签。该测试验证差分下载与重启，真实签名验收单独记录。
 
+### CYCL-105 实测记录
+
+mac-mini 上用同一 Developer ID 团队 `AGKXLGRXJ7` 对发布提交 0.3.6、0.3.7 分别签名并公证。原始清单和 zip 的 SHA-256 均保存在[验收日志](https://github.com/OhMyJames/Cycle-V1/actions/runs/44703626920)中。
+
+| 用例                                  | 观察结果                                                                                                                                                                                                                                      |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 原版 0.3.6 → 0.3.7                    | 应用下载更新、通过团队检查并重启。旧 daemon 的 PID 已退出，五秒后临时套接字仍应答 0.3.6，已安装的二进制报告 0.3.7。旧桌面在退出前有机会自动重连，重新启动旧二进制。[复现记录](https://github.com/OhMyJames/Cycle-V1/actions/runs/44705021238) |
+| 签名版 0.3.6 收到公开的 ad hoc 0.3.7  | 窗口提示签名团队不匹配；旧应用和 daemon 继续运行，暂存目录清理完成。[拒绝安装记录](https://github.com/OhMyJames/Cycle-V1/actions/runs/44705021238)                                                                                            |
+| 签名版 0.3.7 连接远端旧 daemon        | 通过隔离的真实 SSH 连接 0.2.0，窗口显示环境名称、0.2.0 和「Update to 0.3.7」。切换远端二进制并重连 0.3.7 后横幅消失。[运行和截图](https://github.com/OhMyJames/Cycle-V1/actions/runs/44704590908)                                             |
+| 两个不同 Developer ID 团队的 Cycle 包 | 待验。目前只有一个团队的 Cycle 产物。                                                                                                                                                                                                         |
+
 ## 按改动选套件
 
 `bun run test:integration --changed origin/main` 只跑这次改动能碰到的套件;`--plan`(可以和 `--changed` 或 `--files a b c` 连用)只打印选了哪些、每个是哪个文件、通过什么关系选上的,不运行。规则和套件清单在 `scripts/integration-plan.ts`,一个地方:
