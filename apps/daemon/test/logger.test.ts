@@ -99,9 +99,14 @@ test("the log rotates past its size, keeps as many old files as it is told, and 
 test("a log that cannot be written does not stop the daemon", () => {
   // A file where the directory should be.
   writeFileSync(join(dir, "blocked"), "");
-  expect(() =>
-    fileLogger({ path: join(dir, "blocked", "daemon.log"), level: "info", maxBytes: 1, files: 0 }),
-  ).toThrow();
+  const nowhere = fileLogger({
+    path: join(dir, "blocked", "daemon.log"),
+    level: "info",
+    maxBytes: 1,
+    files: 0,
+  });
+  expect(() => nowhere.info("listening")).not.toThrow();
+  nowhere.close();
   const path = join(dir, "daemon.log");
   const log = fileLogger({ path, level: "info", maxBytes: 100_000, files: 0 });
   log.info("listening");

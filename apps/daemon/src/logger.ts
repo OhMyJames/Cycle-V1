@@ -91,10 +91,10 @@ export const fileLogger = (options: FileLoggerOptions): FileLogger => {
   const { path, maxBytes, files } = options;
   const threshold = LEVELS.indexOf(options.level);
   const now = options.now ?? (() => new Date());
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   let fd: number | undefined;
   let size = 0;
   const open = () => {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     fd = openSync(path, "a", 0o600);
     // A file that was there before with wider permissions is narrowed: the mode above applies only to a new one.
     chmodSync(path, 0o600);
