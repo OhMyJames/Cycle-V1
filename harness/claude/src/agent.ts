@@ -20,6 +20,7 @@ import type {
 import { answersOf, formOf, type Question, questionsOf } from "./ask.ts";
 import { type SdkContent, toSdkContent } from "./content.ts";
 import { askContext, CONTEXT_META, type ContextBreakdown } from "./context.ts";
+import { PLAN_USAGE_UPDATE, type PlanWindow, planWindowsOf } from "./plan-usage.ts";
 import { NO_SETUP, type SessionSetup, setupOf } from "./setup.ts";
 import { Subagents } from "./subagents.ts";
 import { PlanState, type StopReason, stopReasonOf, TurnTranslator, toolKind } from "./translate.ts";
@@ -559,6 +560,30 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     session.commandsKey = key;
   };
 
+  /**
+   * The account's plan usage, told when it changed (docs/protocol.md §8 "套餐用量"). Once for every session of this
+   * adapter: it is the account's, and the daemon keeps it for the agent, not the session.
+   */
+  let planKey: string | undefined;
+  /** Each limit as last told, by kind: an event about one limit does not take the others away. */
+  const planWindows = new Map<string, PlanWindow>();
+  const tellPlanUsage = async (client: AgentContext, session: SessionState, info: unknown) => {
+    const told = planWindowsOf(info);
+    if (told.length === 0) return;
+    for (const w of told) planWindows.set(w.kind, w);
+    const windows = [...planWindows.values()];
+    const key = JSON.stringify(windows);
+    if (key === planKey) return;
+    planKey = key;
+    await notify(client, session.id, {
+      sessionUpdate: PLAN_USAGE_UPDATE,
+      windows,
+      at: Date.now(),
+    } as unknown as SessionUpdate).catch(() => {
+      if (planKey === key) planKey = undefined;
+    });
+  };
+
   /** Announces live config options (discovered models & per-model effort levels) whenever they change. */
   const announceConfigOptions = async (client: AgentContext, session: SessionState) => {
     const options = configOptions(session, discoveredModels);
@@ -624,6 +649,14 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
    * a compaction, a new list of commands. These are the session's, and can come between turns.
    */
   const aside = async (client: AgentContext, session: SessionState, message: SDKMessage) => {
+    if (message.type === "rate_limit_event") {
+      await tellPlanUsage(
+        client,
+        session,
+        (message as { rate_limit_info?: unknown }).rate_limit_info,
+      );
+      return;
+    }
     if (message.type !== "system") return;
     const m = message as unknown as Record<string, unknown> & { subtype: string };
     if (message.subtype === "background_tasks_changed") {

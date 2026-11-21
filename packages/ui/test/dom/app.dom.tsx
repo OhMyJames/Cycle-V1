@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { PermissionRequest, SessionSnapshot } from "../../src/api.ts";
+import type { PermissionRequest, PlanUsage, SessionSnapshot } from "../../src/api.ts";
 import { codeTheme } from "../../src/code-theme.ts";
 import { applyUpdate, emptyConversation } from "../../src/model/index.ts";
 import { App, StoreProvider } from "../../src/react/index.ts";
@@ -1942,13 +1942,120 @@ test("the context ring opens into what was reported: nothing yet, now's usage pa
   expect(plain.textContent).toContain("Auto-compacts at167K");
   await user.keyboard("{Escape}");
 
-  // Only what kind of state it was, and whether parts were shown, is counted; no number goes with it.
+  // Only what kind of state it was, and whether parts or plan limits were shown, is counted; no number goes with it.
   const opened = tracked().filter(([event]) => event === "context_details_opened");
   expect(opened).toEqual([
-    ["context_details_opened", { state: "empty", parts: false }],
-    ["context_details_opened", { state: "measured", parts: true }],
-    ["context_details_opened", { state: "before_compaction", parts: false }],
-    ["context_details_opened", { state: "measured", parts: false }],
+    ["context_details_opened", { state: "empty", parts: false, plan: false }],
+    ["context_details_opened", { state: "measured", parts: true, plan: false }],
+    ["context_details_opened", { state: "before_compaction", parts: false, plan: false }],
+    ["context_details_opened", { state: "measured", parts: false, plan: false }],
   ]);
   expect(JSON.stringify(opened)).not.toMatch(/161|200|0\.52/);
+});
+
+test("the account's plan limits show under the context: the latest the daemon heard, gone once a limit starts over", async () => {
+  const now = Date.now();
+  let daemonHas: () => Record<string, PlanUsage> = () => ({});
+  const { user, emit, calls } = await mount({
+    configure: (script) => {
+      script.bridge.sessions = async () => [summary("s1")];
+      script.bridge.planUsage = async () => daemonHas();
+      // What the daemon heard before the app connected: one limit getting close, one that has since started over.
+      daemonHas = () => ({
+        fake: {
+          at: now - 60_000,
+          windows: [
+            { kind: "five_hour", utilization: 0.74, resetsAt: now + 43 * 60_000 + 30_000 },
+            { kind: "seven_day", utilization: 0.31, resetsAt: now - 1_000 },
+            // A limit Cycle does not know by name is not shown.
+            { kind: "seven_day_overage_included", utilization: 0.2, resetsAt: now + 60_000 },
+          ],
+        },
+        // Another agent's account is not this session's.
+        other: {
+          at: now,
+          windows: [{ kind: "seven_day", utilization: 0.9, resetsAt: now + 60_000 }],
+        },
+      });
+    },
+  });
+  await openFirstSession(user);
+  await screen.findByRole("textbox", { name: "Message" });
+  const limits = (root: HTMLElement) =>
+    [...root.querySelectorAll('[data-slot="plan-limit"]')].map(
+      (row) =>
+        `${row.querySelector('[data-slot="plan-limit-name"]')?.textContent}|${row.querySelector('[data-slot="plan-limit-value"]')?.textContent}|${row.getAttribute("data-tone") ?? ""}`,
+    );
+
+  const ring = await screen.findByRole("button", {
+    name: "Context usage not reported yet. Show details",
+  });
+  await user.click(ring);
+  const details = await screen.findByRole("dialog", { name: "Context window" });
+  expect(limits(details)).toEqual(["5-hour limit|74% · resets in 44m|attention"]);
+  await user.keyboard("{Escape}");
+
+  // A newer word from the agent replaces it; one with a later reset reads as a day and a time.
+  emit({
+    type: "plan-usage",
+    environmentId: "local",
+    agent: "fake",
+    usage: {
+      at: now,
+      windows: [
+        {
+          kind: "five_hour",
+          utilization: 0.95,
+          resetsAt: now + 3 * 3_600_000 + 5 * 60_000 + 30_000,
+          status: "allowed_warning",
+        },
+        { kind: "seven_day", utilization: 0.996, resetsAt: now + 3 * 86_400_000 },
+      ],
+    },
+  });
+  await user.click(ring);
+  const again = await screen.findByRole("dialog", { name: "Context window" });
+  const rows = limits(again);
+  expect(rows[0]).toBe("5-hour limit|95% · resets in 3h 6m|danger");
+  // Not yet at the limit does not read as at it: 99.6% is 99%.
+  expect(rows[1]).toMatch(/^Weekly limit\|99% · resets .+\|danger$/);
+  await user.keyboard("{Escape}");
+
+  // The connection comes back to a daemon that has none (it restarted, or the agent is signed in with a key now):
+  // what was kept from before goes.
+  daemonHas = () => ({});
+  emit({ type: "environment-status", environmentId: "local", state: "reconnecting" });
+  emit({ type: "environment-status", environmentId: "local", state: "connected" });
+  await waitFor(async () => {
+    await user.click(ring);
+    const shown = await screen.findByRole("dialog", { name: "Context window" });
+    const none = shown.querySelector('[data-slot="plan-usage"]') === null;
+    await user.keyboard("{Escape}");
+    expect(none).toBe(true);
+  });
+
+  // Whether the limits were shown is counted, never how much of them is used.
+  const opened = calls
+    .filter(([name, event]) => name === "track" && event === "context_details_opened")
+    .map(([, , props]) => props);
+  expect(opened.slice(0, 2)).toEqual([
+    { state: "empty", parts: false, plan: true },
+    { state: "empty", parts: false, plan: true },
+  ]);
+  expect(opened.at(-1)).toEqual({ state: "empty", parts: false, plan: false });
+  expect(JSON.stringify(opened)).not.toMatch(/74|95|99/);
+});
+
+test("with no plan limits told (a login with an API key), the context shows none", async () => {
+  const { user } = await mount({
+    configure: (script) => {
+      script.bridge.sessions = async () => [summary("s1")];
+    },
+  });
+  await openFirstSession(user);
+  await user.click(
+    await screen.findByRole("button", { name: "Context usage not reported yet. Show details" }),
+  );
+  const details = await screen.findByRole("dialog", { name: "Context window" });
+  expect(details.querySelector('[data-slot="plan-usage"]')).toBeNull();
 });

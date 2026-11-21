@@ -2948,6 +2948,58 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   color: var(--cycle-ink);
 }
 
+/* The account's plan limits, under the context: a row a limit (name, share used and when it starts over), a thin bar
+   under it, quiet until it gets close (attention) or is at the limit (danger). */
+[data-slot="plan-usage"] {
+  display: grid;
+  gap: 0.375rem;
+  padding-top: 0.375rem;
+  border-top: 1px solid var(--cycle-border-subtle);
+}
+
+[data-slot="plan-limit"] {
+  display: grid;
+  gap: 0.25rem;
+}
+
+[data-slot="plan-limit-row"] {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+[data-slot="plan-limit-name"] {
+  color: var(--cycle-ink);
+}
+
+[data-slot="plan-limit-value"] {
+  font-variant-numeric: tabular-nums;
+  color: var(--cycle-ink-muted);
+  white-space: nowrap;
+}
+
+[data-slot="plan-limit"][data-tone] [data-slot="plan-limit-value"] {
+  color: inherit;
+}
+
+[data-slot="plan-bar"] {
+  height: 0.25rem;
+  overflow: hidden;
+  border-radius: var(--cycle-radius-pill);
+  background: color-mix(in srgb, var(--cycle-ink) 6%, transparent);
+}
+
+[data-slot="plan-bar-fill"] {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--cycle-ink-muted);
+}
+
+[data-slot="plan-limit"][data-tone] [data-slot="plan-bar-fill"] {
+  background: currentColor;
+}
+
 [data-slot="setting-popover"][data-compact] {
   min-width: 13.25rem;
   max-width: min(16.5rem, calc(100vw - 1.5rem));

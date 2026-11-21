@@ -18,6 +18,7 @@ import type {
   FolderTrust,
   FormAnswer,
   PermissionRequest,
+  PlanUsage,
   PromptBlock,
   SendVia,
   SessionSnapshot,
@@ -90,6 +91,8 @@ export type AppState = {
    * about; a change there (here or elsewhere) reads them again.
    */
   connectors: Record<string, { list?: ConnectorInfo[]; error?: string }>;
+  /** Each environment's plan usage, by agent: the latest its daemon heard (docs/protocol.md §8 "套餐用量"). */
+  planUsage: Record<string, Record<string, PlanUsage>>;
   selectedEnvironment: string | undefined;
   selectedSession: string | undefined;
   /** The blank conversation that is open, in place of a session: `selectedSession` is undefined while it is. */
@@ -105,6 +108,19 @@ export type AppState = {
   composerFocus: number;
 };
 
+/** Each agent's plan usage, the newer of the two where both have one: an answer can come after a change it predates. */
+const newerPlanUsage = (
+  known: Record<string, PlanUsage> | undefined,
+  told: Record<string, PlanUsage>,
+): Record<string, PlanUsage> => {
+  const next = { ...known };
+  for (const [agent, usage] of Object.entries(told)) {
+    const was = next[agent];
+    if (was === undefined || was.at <= usage.at) next[agent] = usage;
+  }
+  return next;
+};
+
 const initial = (): AppState => ({
   ready: false,
   environments: [],
@@ -113,6 +129,7 @@ const initial = (): AppState => ({
   agents: {},
   defaultsRevision: {},
   connectors: {},
+  planUsage: {},
   selectedEnvironment: undefined,
   selectedSession: undefined,
   blank: undefined,
@@ -278,6 +295,16 @@ export class AppStore {
         if (this.#state.blank?.environmentId === event.environmentId)
           void this.#readBlankDefaults(true);
         return;
+      case "plan-usage":
+        this.#set((s) => ({
+          planUsage: {
+            ...s.planUsage,
+            [event.environmentId]: newerPlanUsage(s.planUsage[event.environmentId], {
+              [event.agent]: event.usage,
+            }),
+          },
+        }));
+        return;
       case "connectors":
         if (this.#state.connectors[event.environmentId] !== undefined)
           void this.loadConnectors(event.environmentId);
@@ -428,6 +455,20 @@ export class AppStore {
         const agents = await this.#bridge.agents(environmentId);
         this.#set((s) => ({ agents: { ...s.agents, [environmentId]: agents } }));
       });
+      // What the daemon has of its agents' plan limits, on this connection: it replaces what was kept from before (a
+      // daemon that restarted, or an agent signed in otherwise, has none), but not a change told while it was asked.
+      const asked = Date.now();
+      void this.#bridge
+        .planUsage(environmentId)
+        .then((told) =>
+          this.#set((s) => {
+            const heard = Object.fromEntries(
+              Object.entries(s.planUsage[environmentId] ?? {}).filter(([, u]) => u.at >= asked),
+            );
+            return { planUsage: { ...s.planUsage, [environmentId]: newerPlanUsage(heard, told) } };
+          }),
+        )
+        .catch(() => undefined);
       // A blank conversation on it was waiting to know which agent it starts.
       if (this.#state.blank?.environmentId === environmentId) void this.#readBlankDefaults();
     })().finally(() => {
@@ -890,6 +931,7 @@ export class AppStore {
       const { [environmentId]: _sessions, ...sessions } = s.sessions;
       const { [environmentId]: _agents, ...agents } = s.agents;
       const { [environmentId]: _status, ...status } = s.status;
+      const { [environmentId]: _plan, ...planUsage } = s.planUsage;
       const views = Object.fromEntries(
         Object.entries(s.views).filter(([, view]) => view.environmentId !== environmentId),
       );
@@ -899,6 +941,7 @@ export class AppStore {
         sessions,
         agents,
         status,
+        planUsage,
         views,
         ...(open
           ? {

@@ -2,8 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CONTEXT_META, EFFORTS_META } from "@cycle/harness-claude";
-import { META } from "@cycle/protocol";
+import { CONTEXT_META, EFFORTS_META, PLAN_USAGE_UPDATE } from "@cycle/harness-claude";
+import { META, PLAN_USAGE_UPDATE as PLAN_USAGE } from "@cycle/protocol";
 import { CLAUDE_CONFIG_SCHEMA } from "../src/claude-agent.ts";
 import { AgentOptionsCache, choicesFromConfigOptions } from "../src/options-cache.ts";
 
@@ -161,4 +161,5 @@ test("a model list that does not say effort levels keeps the ones an earlier lis
 test("the adapter writes effort levels and the context's parts under the keys the protocol names", () => {
   expect(EFFORTS_META).toBe(META.efforts);
   expect(CONTEXT_META).toBe(META.context);
+  expect(PLAN_USAGE_UPDATE).toBe(PLAN_USAGE);
 });

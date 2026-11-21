@@ -6,7 +6,7 @@ import {
   type SessionUpdate,
 } from "@agentclientprotocol/sdk/experimental/v2";
 import type { Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { type AdapterConfig, askContext, createAgent } from "../src/index.ts";
+import { type AdapterConfig, askContext, createAgent, planWindowsOf } from "../src/index.ts";
 import { fakeQuery, textTurn } from "./fake-query.ts";
 
 const ID = "5b0c3a3e-8a52-4d3f-9a0e-1c2d3e4f5a6b";
@@ -1820,4 +1820,96 @@ test("the background roster reconciles a missed terminal across turns and accept
     {},
     { idleMs: 40 },
   );
+});
+
+test("plan limits Claude Code learns from a response are told once each time they change, in milliseconds", async () => {
+  const rate = (utilization: number) =>
+    ({
+      type: "rate_limit_event",
+      uuid: "r",
+      session_id: ID,
+      rate_limit_info: {
+        status: "allowed",
+        rateLimitType: "five_hour",
+        resetsAt: 1_795_225_398,
+        unifiedWindows: {
+          five_hour: { utilization, resetsAt: 1_795_225_398, status: "allowed" },
+          seven_day: { utilization: 0.31, resetsAt: 1_795_484_598, status: "allowed_warning" },
+        },
+      },
+    }) as unknown as SDKMessage;
+  const fake = fakeQuery((call) => {
+    const turn = textTurn(ID, "m", "ok");
+    const result = turn.pop() as SDKMessage;
+    // The same twice in a turn, then a change in the next.
+    const said = fake.prompts.at(-1) ?? call.prompt;
+    if (said === "third")
+      // An event about one limit only (no `unifiedWindows`): the others stay as they were.
+      return [
+        ...turn,
+        {
+          type: "rate_limit_event",
+          uuid: "r",
+          session_id: ID,
+          rate_limit_info: {
+            status: "rejected",
+            rateLimitType: "seven_day_opus",
+            utilization: 1,
+            resetsAt: 1_795_484_598,
+          },
+        } as unknown as SDKMessage,
+        result,
+      ];
+    return said === "first"
+      ? [...turn, rate(0.69), rate(0.69), result]
+      : [...turn, rate(0.7), result];
+  });
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "first" }]);
+    await prompt(agent, idle, [{ type: "text", text: "second" }]);
+    const told = updates.filter((u) => (u.sessionUpdate as string) === "_cycle/plan_usage");
+    expect(told).toHaveLength(2);
+    expect(told[0]).toMatchObject({
+      windows: [
+        { kind: "five_hour", utilization: 0.69, resetsAt: 1_795_225_398_000, status: "allowed" },
+        {
+          kind: "seven_day",
+          utilization: 0.31,
+          resetsAt: 1_795_484_598_000,
+          status: "allowed_warning",
+        },
+      ],
+    });
+    expect(typeof (told[0] as unknown as { at: unknown }).at).toBe("number");
+    expect(
+      (told[1] as unknown as { windows: { utilization: number }[] }).windows[0]?.utilization,
+    ).toBe(0.7);
+
+    await prompt(agent, idle, [{ type: "text", text: "third" }]);
+    const last = updates.filter((u) => (u.sessionUpdate as string) === "_cycle/plan_usage").at(-1);
+    expect(
+      (last as unknown as { windows: { kind: string; status?: string }[] }).windows.map(
+        (w) => `${w.kind}:${w.status}`,
+      ),
+    ).toEqual(["five_hour:allowed", "seven_day:allowed_warning", "seven_day_opus:rejected"]);
+  });
+});
+
+test("a rate limit event without the windows says the one it is about; one that says nothing usable is nothing", () => {
+  expect(
+    planWindowsOf({
+      status: "rejected",
+      rateLimitType: "seven_day_opus",
+      utilization: 1,
+      resetsAt: 10,
+    }),
+  ).toEqual([{ kind: "seven_day_opus", utilization: 1, resetsAt: 10_000, status: "rejected" }]);
+  expect(planWindowsOf({ status: "allowed" })).toEqual([]);
+  expect(
+    planWindowsOf({ unifiedWindows: { five_hour: { utilization: "x", resetsAt: 1 } } }),
+  ).toEqual([]);
+  expect(planWindowsOf(undefined)).toEqual([]);
+  // A limit with no name is no limit: the daemon would refuse the whole usage for it.
+  expect(planWindowsOf({ unifiedWindows: { "": { utilization: 0.1, resetsAt: 1 } } })).toEqual([]);
 });

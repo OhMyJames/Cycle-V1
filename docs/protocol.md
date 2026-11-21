@@ -83,6 +83,7 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 | `_cycle/folders/list`        | 客户端 → daemon | daemon 处理:列出一个目录下的文件夹(选 `cwd` 用),见 §8 |
 | `_cycle/trust/read`          | 客户端 → daemon | daemon 处理:一个文件夹是否信任,见 §8                  |
 | `_cycle/trust/set`           | 客户端 → daemon | daemon 处理:记下对一个文件夹的信任决定,见 §8          |
+| `_cycle/plan_usage/read`     | 客户端 → daemon | daemon 处理:各 agent 账号的套餐用量,见 §8 "套餐用量"  |
 | `_cycle/connectors/*`        | 客户端 → daemon | daemon 处理:管理 connector 和授权,见 §14              |
 | `session/cancel`             | 客户端 → daemon | 转发(通知)                                            |
 | `session/close`              | 客户端 → daemon | daemon 处理:停止 agent 进程,保留历史                  |
@@ -272,6 +273,13 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
   - `autoCompactAt`:自动压缩开始的 token 数,自动压缩关着时没有。
   - 各部分是 Claude Code 的估算,`messages` 是总数减去其他部分算出来的;总数(`used`)仍是上面那个实测值。压缩之后补发的那条不带(它只有 `post_tokens`),所以客户端在下一次 turn 结束前没有压缩后的分部。
 - 没有缓存命中量、压缩次数这些字段:压缩发生过几次,客户端从会话里的 `compaction_update` 数。
+
+**套餐用量(`_cycle/plan_usage`,CYCL-74 之后)**:订阅账号的用量限额(5 小时、每周等)用了多少、什么时候重置。它属于 agent 在 daemon 那台机器上登录的**账号**,不属于某个 session,所以不进 session 的历史:
+
+- **agent → daemon**:agent 在某个 session 的流里发一条 `session/update`,`sessionUpdate: "_cycle/plan_usage"`,`{windows: [{kind, utilization, resetsAt, status?}], at}`。`kind` 是 `five_hour`、`seven_day`、`seven_day_opus` 等;`utilization` 是用掉的比例,从 0 起,超了会大于 1;`resetsAt`、`at` 是毫秒时间戳;`status` 是 `allowed`/`allowed_warning`/`rejected`。只在变化时发。
+- **daemon**:收下这条,不写日志、不占序号、不作为 `session/update` 转发;按 agent 记住最新的一份(`at` 更早的不覆盖),只在内存里,daemon 重启后要等下一次 agent 说。然后向每个连接发通知 `_cycle/plan_usage_changed`,`{agent, usage: {windows, at}}`。
+- **客户端**:`_cycle/plan_usage/read`(`{}` → `{agents: {[agentId]: {windows, at}}}`)读 daemon 已知的,连接时读一次,之后跟通知更新。`cycle/capabilities` 有 `planUsage: true` 的 daemon 才有这两样。一个窗口过了 `resetsAt` 就不再显示,因为重置后用了多少不知道。
+- **Claude 的取法**:Claude Code 从每次 API 响应的头里读到限额,以 `rate_limit_event` 告诉 SDK,`rate_limit_info.unifiedWindows` 列出全部窗口(SDK 的类型里还没有这个字段,没有时只取 `rateLimitType` 那一个)。只有用订阅账号登录(`claude setup-token` 的 token 或 `/login`)时才有;API key 登录没有,也就什么都不发。SDK 的实验接口 `usage_EXPERIMENTAL…()` 不用:用 `setup-token` 的 token 时它答不上(缺 profile 权限),而且随时可能改。
 
 **失败后重新发送**是客户端的事,协议不变:客户端把失败那个 turn 的 `user_message` 放回输入框,由人核对后作为新的 `session/prompt` 发出。它和别的 prompt 一样走权限流程,之前的批准不沿用。
 

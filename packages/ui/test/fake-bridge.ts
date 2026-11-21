@@ -6,6 +6,7 @@ import type {
   ConnectorInfo,
   CycleBridge,
   EnvironmentConfig,
+  PlanUsage,
   SessionSnapshot,
   SessionSummary,
   UpdateState,
@@ -129,6 +130,10 @@ export const fakeBridge = (
       folders: [{ name: "app" }, { name: "docs" }],
       truncated: false,
     })),
+    planUsage: record(
+      "planUsage",
+      async (_environment: string) => ({}) as Record<string, PlanUsage>,
+    ),
     readTrust: record("readTrust", async (_environment: string, path: string) => ({
       path,
       trusted: true,

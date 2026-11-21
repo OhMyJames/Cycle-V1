@@ -103,6 +103,7 @@ test.skipIf(!ready)(
           "markRead",
           "onEvent",
           "openSession",
+          "planUsage",
           "prompt",
           "readTrust",
           "removeConnector",

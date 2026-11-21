@@ -273,6 +273,20 @@ export type UpdateState = {
   | { kind: "error"; message: string; version?: string }
 );
 
+/** One of a subscription's usage limits (docs/protocol.md §8 "套餐用量"). */
+export type PlanWindow = {
+  /** `five_hour`, `seven_day`, or another the agent names. */
+  kind: string;
+  /** The share used, from 0; past 1 when over. */
+  utilization: number;
+  /** When it starts over, in milliseconds since the epoch. */
+  resetsAt: number;
+  status?: "allowed" | "allowed_warning" | "rejected" | undefined;
+};
+
+/** How much of an agent's account limits is used, as of `at` (milliseconds since the epoch). */
+export type PlanUsage = { windows: PlanWindow[]; at: number };
+
 /** What main tells the renderer. */
 export type AppEvent =
   | { type: "environments"; environments: EnvironmentConfig[] }
@@ -295,6 +309,8 @@ export type AppEvent =
       version: number;
     }
   | { type: "agent-defaults"; environmentId: string; agent: string }
+  /** An agent on that environment told how much of its account's plan limits is used. */
+  | { type: "plan-usage"; environmentId: string; agent: string; usage: PlanUsage }
   /** The environment's connectors changed, here or elsewhere: read them again. */
   | { type: "connectors"; environmentId: string }
   /** A session was deleted elsewhere while the connection was away: nothing of it is kept. */
@@ -365,6 +381,8 @@ export type AppApi = {
   listFolders(environmentId: string, path?: string, hidden?: boolean): Promise<FolderListing>;
   /** Whether a folder on that environment's machine is trusted. Fails when the daemon is too old. */
   readTrust(environmentId: string, path: string): Promise<FolderTrust>;
+  /** The latest plan usage of each agent on that environment, by agent id; none from an older daemon. */
+  planUsage(environmentId: string): Promise<Record<string, PlanUsage>>;
   /** Records whether a folder on that environment's machine is trusted; the folders under it follow. */
   setTrust(environmentId: string, path: string, trusted: boolean): Promise<FolderTrust>;
   /** Takes a prompt back out of the queue, to be edited. Answers with its blocks; fails if it has gone. */
@@ -465,6 +483,7 @@ export const API_METHODS = [
   "searchFiles",
   "listFolders",
   "readTrust",
+  "planUsage",
   "setTrust",
   "setSessionConfig",
   "renameSession",

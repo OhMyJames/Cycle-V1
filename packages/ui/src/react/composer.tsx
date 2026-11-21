@@ -9,7 +9,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { FileSearch, SendVia } from "../api.ts";
+import type { FileSearch, PlanUsage, SendVia } from "../api.ts";
 import {
   ATTACHMENT_LIMITS,
   type AttachmentProblem,
@@ -33,7 +33,7 @@ import { type PlanItem, type QueuedPrompt, textOf } from "../model/index.ts";
 import { commandText, filterCommands, slashQuery } from "../slash.ts";
 import { AnchoredPopover } from "./anchored-popover.tsx";
 import { optionsOf, propertiesOf } from "./config-form.tsx";
-import { ContextDetails } from "./context-details.tsx";
+import { ContextDetails, planRowsOf } from "./context-details.tsx";
 import { useI18n } from "./i18n.tsx";
 import { CloseIcon, PlusIcon, SendIcon, StopIcon } from "./icons.tsx";
 import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
@@ -76,6 +76,8 @@ export type ComposerProps = {
   plan?: PlanItem | undefined;
   /** How full the session's context is, and its compactions: the ring on the right of the utility bar. */
   context?: ContextState | undefined;
+  /** The account's plan limits as the session's agent last told them, shown under the context. */
+  planUsage?: PlanUsage | undefined;
 };
 
 /** What a box with no conversation behind it has of a list: one array, so that reading it twice is the same value. */
@@ -118,6 +120,7 @@ export function Composer({
   blank = false,
   plan,
   context,
+  planUsage,
 }: ComposerProps) {
   const { t, number } = useI18n();
   const store = useAppStore();
@@ -739,7 +742,9 @@ export function Composer({
                 onSet={onSetting}
               />
             ) : null}
-            {context !== undefined ? <ContextMeter context={context} /> : null}
+            {context !== undefined ? (
+              <ContextMeter context={context} planUsage={planUsage} />
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -758,7 +763,13 @@ const QUEUE_MOD = (event: KeyboardEvent) => (MOD === "⌘" ? event.metaKey : eve
  * details (`context-details.tsx`) open in the utility bar's popover, and say only what the agent reported
  * (docs/protocol.md §8, CYCL-74).
  */
-function ContextMeter({ context }: { context: ContextState }) {
+function ContextMeter({
+  context,
+  planUsage,
+}: {
+  context: ContextState;
+  planUsage?: PlanUsage | undefined;
+}) {
   const { t, number } = useI18n();
   const store = useAppStore();
   const reduced = Boolean(useReducedMotion());
@@ -861,6 +872,7 @@ function ContextMeter({ context }: { context: ContextState }) {
           store.track("context_details_opened", {
             state: !measured ? "empty" : before ? "before_compaction" : "measured",
             parts: measured && !before && (usage.parts?.length ?? 0) > 0,
+            plan: planRowsOf(planUsage, Date.now()).length > 0,
           });
           setOpen(true);
         }}
@@ -896,7 +908,7 @@ function ContextMeter({ context }: { context: ContextState }) {
         kind="context"
         focusable
       >
-        <ContextDetails context={context} percentOf={percentOf} />
+        <ContextDetails context={context} plan={planUsage} percentOf={percentOf} />
       </AnchoredPopover>
     </span>
   );

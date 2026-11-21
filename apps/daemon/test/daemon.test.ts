@@ -1713,3 +1713,64 @@ test("resuming restores model before effort and ignores intermediate config_opti
   const { meta } = await rowOf(c2, sessionId);
   expect(meta["cycle/config"]).toEqual({ model: "opus", effort: "high" });
 });
+
+test("plan usage an agent tells is the account's: kept for the agent, told to every client, never in a history", async () => {
+  const told = (at: number, utilization: number) => ({
+    sessionUpdate: "_cycle/plan_usage",
+    windows: [{ kind: "five_hour", utilization, resetsAt: 1_800_000_000_000, status: "allowed" }],
+    at,
+  });
+  const { daemon } = await start(
+    fakeAgent({
+      onPrompt: async ({ say }) => {
+        await say(told(2_000, 0.5));
+        // One told out of order, older than the last: it does not replace it.
+        await say(told(1_000, 0.1));
+        // One that is not one is dropped.
+        await say({ sessionUpdate: "_cycle/plan_usage", windows: "no", at: 3_000 });
+        await say({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "ok" },
+        });
+      },
+    }),
+  );
+  const watching = await connectClient(daemon);
+  const elsewhere = await connectClient(daemon);
+  expect(
+    (watching.init._meta as Record<string, Record<string, unknown>>)["cycle/capabilities"]
+      ?.planUsage,
+  ).toBe(true);
+  // Nothing told yet: nothing to read.
+  expect(await watching.agent.request("_cycle/plan_usage/read", {})).toEqual({ agents: {} });
+
+  const { sessionId } = await watching.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await watching.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await watching.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("hi") });
+  await until(() => watching.ended() >= 1, "the turn to end");
+
+  const usage = {
+    windows: [
+      { kind: "five_hour", utilization: 0.5, resetsAt: 1_800_000_000_000, status: "allowed" },
+    ],
+    at: 2_000,
+  };
+  // Every client is told, the one not looking at the session too, once.
+  await until(() => elsewhere.planUsage.length >= 1, "the other client to be told");
+  expect(watching.planUsage).toEqual([{ agent: "fake", usage }]);
+  expect(elsewhere.planUsage).toEqual([{ agent: "fake", usage }]);
+  expect(await elsewhere.agent.request("_cycle/plan_usage/read", {})).toEqual({
+    agents: { fake: usage },
+  });
+  // It is no update of the session's: not forwarded, not written, so not replayed.
+  expect(watching.kinds()).not.toContain("_cycle/plan_usage");
+  const later = await connectClient(daemon);
+  await later.agent.request(methods.agent.session.resume, {
+    sessionId,
+    cwd: "/tmp",
+    replayFrom: { type: "start" },
+  } as never);
+  await until(() => later.kinds().includes("replay_complete"), "the history to replay");
+  expect(later.kinds()).toContain("user_message");
+  expect(later.kinds()).not.toContain("_cycle/plan_usage");
+});
