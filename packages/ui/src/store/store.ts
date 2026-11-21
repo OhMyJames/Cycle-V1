@@ -188,6 +188,11 @@ export class AppStore {
   readonly #held = new Map<string, AppEvent[]>();
   /** In-flight `agents()` refreshes per environment, coalesced so bursts never spam the daemon. */
   readonly #loadingAgents = new Map<string, Promise<void>>();
+  /**
+   * How many plan-usage events each environment has had: a read's answer does not replace one told while it was
+   * asked. Counted here, not by time: a remote daemon's clock is not this one's.
+   */
+  readonly #planEvents = new Map<string, number>();
   #stop: (() => void) | undefined;
   /** The blank conversation's folder is being looked up for trust: a second send waits for the first. */
   #checkingTrust = false;
@@ -296,6 +301,10 @@ export class AppStore {
           void this.#readBlankDefaults(true);
         return;
       case "plan-usage":
+        this.#planEvents.set(
+          event.environmentId,
+          (this.#planEvents.get(event.environmentId) ?? 0) + 1,
+        );
         this.#set((s) => ({
           planUsage: {
             ...s.planUsage,
@@ -457,14 +466,14 @@ export class AppStore {
       });
       // What the daemon has of its agents' plan limits, on this connection: it replaces what was kept from before (a
       // daemon that restarted, or an agent signed in otherwise, has none), but not a change told while it was asked.
-      const asked = Date.now();
+      const before = this.#planEvents.get(environmentId) ?? 0;
       void this.#bridge
         .planUsage(environmentId)
         .then((told) =>
           this.#set((s) => {
-            const heard = Object.fromEntries(
-              Object.entries(s.planUsage[environmentId] ?? {}).filter(([, u]) => u.at >= asked),
-            );
+            const meanwhile = (this.#planEvents.get(environmentId) ?? 0) !== before;
+            // Both come from the same daemon, so their times compare.
+            const heard = meanwhile ? s.planUsage[environmentId] : undefined;
             return { planUsage: { ...s.planUsage, [environmentId]: newerPlanUsage(heard, told) } };
           }),
         )

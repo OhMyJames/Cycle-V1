@@ -1822,7 +1822,7 @@ test("the background roster reconciles a missed terminal across turns and accept
   );
 });
 
-test("plan limits Claude Code learns from a response are told once each time they change, in milliseconds", async () => {
+test("plan limits Claude Code learns from a response are told once each time they change, in milliseconds, only those it names", async () => {
   const rate = (utilization: number) =>
     ({
       type: "rate_limit_event",
@@ -1844,7 +1844,7 @@ test("plan limits Claude Code learns from a response are told once each time the
     // The same twice in a turn, then a change in the next.
     const said = fake.prompts.at(-1) ?? call.prompt;
     if (said === "third")
-      // An event about one limit only (no `unifiedWindows`): the others stay as they were.
+      // An event about one limit only (no `unifiedWindows`): only that one is told; the daemon keeps the others.
       return [
         ...turn,
         {
@@ -1892,7 +1892,7 @@ test("plan limits Claude Code learns from a response are told once each time the
       (last as unknown as { windows: { kind: string; status?: string }[] }).windows.map(
         (w) => `${w.kind}:${w.status}`,
       ),
-    ).toEqual(["five_hour:allowed", "seven_day:allowed_warning", "seven_day_opus:rejected"]);
+    ).toEqual(["seven_day_opus:rejected"]);
   });
 });
 

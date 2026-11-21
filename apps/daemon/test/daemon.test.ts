@@ -1774,3 +1774,47 @@ test("plan usage an agent tells is the account's: kept for the agent, told to ev
   expect(later.kinds()).toContain("user_message");
   expect(later.kinds()).not.toContain("_cycle/plan_usage");
 });
+
+test("plan limits are kept limit by limit: one process's older word of a limit does not undo another's newer one", async () => {
+  const told = (at: number, windows: object[]) => ({
+    sessionUpdate: "_cycle/plan_usage",
+    windows,
+    at,
+  });
+  const five = (utilization: number) => ({
+    kind: "five_hour",
+    utilization,
+    resetsAt: 1_800_000_000_000,
+  });
+  const opus = {
+    kind: "seven_day_opus",
+    utilization: 1,
+    resetsAt: 1_800_000_000_000,
+    status: "rejected",
+  };
+  const { daemon } = await start(
+    fakeAgent({
+      onPrompt: async ({ say, prompt }) => {
+        // Session B's process heard five_hour at 0.5; then session A's, which last heard it at 0.2 long ago, tells
+        // only of the Opus limit; then a word of five_hour older than B's.
+        if (prompt === "b") await say(told(2_000, [five(0.5)]));
+        if (prompt === "a") {
+          await say(told(3_000, [opus]));
+          await say(told(1_000, [five(0.2)]));
+        }
+      },
+    }),
+  );
+  const c = await connectClient(daemon);
+  for (const said of ["b", "a"]) {
+    const { sessionId } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+    await c.agent.request(methods.agent.session.prompt, { sessionId, prompt: text(said) });
+    await until(() => c.planUsage.length >= (said === "b" ? 1 : 2), "the limits to be told");
+  }
+  await new Promise((r) => setTimeout(r, 50));
+  // The old five_hour changed nothing, so nothing more was told.
+  expect(c.planUsage).toHaveLength(2);
+  expect(await c.agent.request("_cycle/plan_usage/read", {})).toEqual({
+    agents: { fake: { windows: [five(0.5), opus], at: 3_000 } },
+  });
+});

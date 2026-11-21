@@ -34,6 +34,7 @@ import {
   PLAN_USAGE_UPDATE,
   type PlanUsage,
   PlanUsageSchema,
+  type PlanWindow,
   planUsageRead,
   promptAckReturn,
   promptDequeue,
@@ -241,6 +242,8 @@ export class Daemon {
   readonly #conns = new Set<ClientConn>();
   /** The latest plan usage each agent told, since the daemon started (docs/protocol.md §8 "套餐用量"). */
   readonly #planUsage = new Map<string, PlanUsage>();
+  /** The same, limit by limit, with when each was told: what a newer word replaces. */
+  readonly #planLimits = new Map<string, Map<string, { window: PlanWindow; at: number }>>();
   #counter = 0;
   #closing = false;
 
@@ -700,10 +703,25 @@ export class Daemon {
   #notePlanUsage(agent: string, update: unknown): void {
     const parsed = PlanUsageSchema.safeParse(update);
     if (!parsed.success) return;
-    const usage = parsed.data;
-    const known = this.#planUsage.get(agent);
-    // An older word (two processes of the agent told it out of order) does not replace a newer one.
-    if (known !== undefined && known.at > usage.at) return;
+    const told = parsed.data;
+    // Limit by limit: an event may name only some, and each session's process tells what it last heard, so each
+    // limit keeps the newest word of it from any of them (an older one does not replace it).
+    const limits =
+      this.#planLimits.get(agent) ?? new Map<string, { window: PlanWindow; at: number }>();
+    let changed = false;
+    for (const window of told.windows) {
+      const known = limits.get(window.kind);
+      if (known !== undefined && known.at > told.at) continue;
+      limits.set(window.kind, { window, at: told.at });
+      changed = true;
+    }
+    if (!changed) return;
+    this.#planLimits.set(agent, limits);
+    const kept = [...limits.values()];
+    const usage: PlanUsage = {
+      windows: kept.map((l) => l.window),
+      at: Math.max(...kept.map((l) => l.at)),
+    };
     this.#planUsage.set(agent, usage);
     for (const conn of this.#conns)
       void conn.notify(PLAN_USAGE_CHANGED, { agent, usage }).catch(() => {});
