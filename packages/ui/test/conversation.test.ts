@@ -349,6 +349,15 @@ test("a usage carries what the window holds when the agent said, and only that u
     used: 40,
     size: 1000,
   });
+  // A count that leaves it out says auto-compaction is off: the old point does not stay.
+  expect(
+    at(counted, {
+      sessionUpdate: "usage_update",
+      used: 40,
+      size: 200,
+      _meta: { "cycle/context": { window: 200, parts: [] } },
+    }).usage,
+  ).toEqual({ used: 40, size: 200 });
   // A `_meta` that is not one is no parts.
   expect(
     at({ sessionUpdate: "usage_update", used: 1, size: 10, _meta: { "cycle/context": "x" } }).usage,

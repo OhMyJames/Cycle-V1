@@ -29,10 +29,10 @@ const connectorAuth = z.enum(["none", "oauth"]);
 
 const o = z.strictObject;
 
-/** Every event, and the properties it may carry. */
 /** What sent a message: Enter, the ⌘Enter shortcut, a button, or something that did not say. */
 const via = z.enum(["enter", "shortcut", "button", "other"]);
 
+/** Every event, and the properties it may carry. */
 export const EVENTS = {
   // ---- the app ----
   /** The app started. */

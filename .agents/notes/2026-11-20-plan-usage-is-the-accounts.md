@@ -7,7 +7,7 @@ Basis: the owner asked for subscription usage and reset times in the context pan
 ## Decision
 
 - The Claude adapter turns each changed `rate_limit_event` into a `session/update` of Cycle's own variant `_cycle/plan_usage` `{windows, at}`.
-- The daemon takes that variant out of the session's stream: never logged, never given a seq, never forwarded as a session update. It keeps the latest per agent in memory, an older `at` not replacing a newer one, and tells every connection `_cycle/plan_usage_changed {agent, usage}`. `_cycle/plan_usage/read` answers what it has; the capability is `planUsage`.
+- The daemon takes that variant out of the session's stream: never logged, never given a seq, never forwarded as a session update. It keeps, in memory, each agent's limits one by one, each replaced only by a word of it that is not older (each session has its own Claude process, so an event about one limit, or an old process's word, must not undo a newer one from another), and tells every connection `_cycle/plan_usage_changed {agent, usage}`. `_cycle/plan_usage/read` answers what it has; the capability is `planUsage`.
 - The client shows the windows it names (5-hour, weekly, weekly by model) under the context details, hides a window past its reset, and shows nothing for an agent that told none.
 
 ## Alternatives considered

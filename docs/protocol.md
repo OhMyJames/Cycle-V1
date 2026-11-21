@@ -276,8 +276,8 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 
 **套餐用量(`_cycle/plan_usage`,CYCL-74 之后)**:订阅账号的用量限额(5 小时、每周等)用了多少、什么时候重置。它属于 agent 在 daemon 那台机器上登录的**账号**,不属于某个 session,所以不进 session 的历史:
 
-- **agent → daemon**:agent 在某个 session 的流里发一条 `session/update`,`sessionUpdate: "_cycle/plan_usage"`,`{windows: [{kind, utilization, resetsAt, status?}], at}`。`kind` 是 `five_hour`、`seven_day`、`seven_day_opus` 等;`utilization` 是用掉的比例,从 0 起,超了会大于 1;`resetsAt`、`at` 是毫秒时间戳;`status` 是 `allowed`/`allowed_warning`/`rejected`。只在变化时发。
-- **daemon**:收下这条,不写日志、不占序号、不作为 `session/update` 转发;按 agent 记住最新的一份(`at` 更早的不覆盖),只在内存里,daemon 重启后要等下一次 agent 说。然后向每个连接发通知 `_cycle/plan_usage_changed`,`{agent, usage: {windows, at}}`。
+- **agent → daemon**:agent 在某个 session 的流里发一条 `session/update`,`sessionUpdate: "_cycle/plan_usage"`,`{windows: [{kind, utilization, resetsAt, status?}], at}`。`kind` 是 `five_hour`、`seven_day`、`seven_day_opus` 等;`utilization` 是用掉的比例,从 0 起,超了会大于 1;`resetsAt`、`at` 是毫秒时间戳;`status` 是 `allowed`/`allowed_warning`/`rejected`。只在变化时发,只带这次听到的限额(不必是全部)。
+- **daemon**:收下这条,不写日志、不占序号、不作为 `session/update` 转发;按 agent、按限额(`kind`)记住最新的:一条只说到某几个限额时,其余的保留;每个限额只被 `at` 不更早的那条替换(各 session 的进程各说各的,旧进程的旧消息不覆盖新的)。通知和读取给出的是合并后的全部限额,`at` 是其中最新的,只在内存里,daemon 重启后要等下一次 agent 说。然后向每个连接发通知 `_cycle/plan_usage_changed`,`{agent, usage: {windows, at}}`。
 - **客户端**:`_cycle/plan_usage/read`(`{}` → `{agents: {[agentId]: {windows, at}}}`)读 daemon 已知的,连接时读一次,之后跟通知更新。`cycle/capabilities` 有 `planUsage: true` 的 daemon 才有这两样。一个窗口过了 `resetsAt` 就不再显示,因为重置后用了多少不知道。
 - **Claude 的取法**:Claude Code 从每次 API 响应的头里读到限额,以 `rate_limit_event` 告诉 SDK,`rate_limit_info.unifiedWindows` 列出全部窗口(SDK 的类型里还没有这个字段,没有时只取 `rateLimitType` 那一个)。只有用订阅账号登录(`claude setup-token` 的 token 或 `/login`)时才有;API key 登录没有,也就什么都不发。SDK 的实验接口 `usage_EXPERIMENTAL…()` 不用:用 `setup-token` 的 token 时它答不上(缺 profile 权限),而且随时可能改。
 

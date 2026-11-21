@@ -601,9 +601,13 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
         (u._meta as Record<string, unknown> | null | undefined)?.["cycle/context"],
       );
       // Where it compacts stays with the window it was told for: the usage told after a compaction does not repeat it.
+      // Only when it says nothing of the window: a count without it says auto-compaction is off.
       const autoCompactAt =
-        context?.autoCompactAt ??
-        (c.usage?.size === Number(u.size) ? c.usage?.autoCompactAt : undefined);
+        context !== undefined
+          ? context.autoCompactAt
+          : c.usage?.size === Number(u.size)
+            ? c.usage?.autoCompactAt
+            : undefined;
       return {
         ...c,
         usage: {
