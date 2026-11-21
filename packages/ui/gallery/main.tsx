@@ -47,6 +47,8 @@ const bridgeFor = (scenario: Scenario) => {
       (scenario.sessions ?? []).filter((session) => session.environmentId === environment.id),
     ]),
   );
+  const planUsage = scenario.planUsage ?? {};
+  script.bridge.planUsage = async () => planUsage;
   script.bridge.environments = async () => ({ environments, status, sessions });
   script.bridge.sessions = async (environmentId) => sessions[environmentId] ?? [];
   script.bridge.openSession = async () => snapshotOf(scenario);

@@ -36,6 +36,7 @@ import {
   type FolderTrust,
   type NewSession,
   type PermissionRequest,
+  type PlanUsage,
   type PromptBlock,
   type SessionSnapshot,
   type SessionSummary,
@@ -366,6 +367,8 @@ export class ConnectionManager
         defaultsChanged: (agent) =>
           this.#options.emit({ type: "agent-defaults", environmentId, agent }),
         connectorsChanged: () => this.#options.emit({ type: "connectors", environmentId }),
+        planUsage: (agent, usage) =>
+          this.#options.emit({ type: "plan-usage", environmentId, agent, usage }),
         gone: (sessionId) => this.#onGone(environmentId, connection, sessionId),
         // A history that cannot be read after a reconnect: nothing more comes to it, the list row says why.
         unreadable: (sessionId) => this.#onUnreadable(connection, sessionId),
@@ -805,6 +808,10 @@ export class ConnectionManager
     hidden?: boolean,
   ): Promise<FolderListing> {
     return this.#connection(environmentId).client.listFolders(path, hidden);
+  }
+
+  async planUsage(environmentId: string): Promise<Record<string, PlanUsage>> {
+    return this.#connection(environmentId).client.readPlanUsage();
   }
 
   async readTrust(environmentId: string, path: string): Promise<FolderTrust> {

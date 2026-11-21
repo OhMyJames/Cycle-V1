@@ -32,6 +32,7 @@ export const connectClient = async (
   const permissions: unknown[] = [];
   const elicitations: unknown[] = [];
   const resolved: unknown[] = [];
+  const planUsage: unknown[] = [];
   let listChanged = 0;
   let defaultsChanged = 0;
   let connectorsChanged = 0;
@@ -55,6 +56,13 @@ export const connectClient = async (
       (p: unknown) => p as object,
       () => {
         defaultsChanged++;
+      },
+    )
+    .onNotification(
+      "_cycle/plan_usage_changed",
+      (p: unknown) => p as object,
+      ({ params }) => {
+        planUsage.push(params);
       },
     )
     .onNotification(
@@ -104,6 +112,8 @@ export const connectClient = async (
     listChanged: () => listChanged,
     defaultsChanged: () => defaultsChanged,
     connectorsChanged: () => connectorsChanged,
+    /** Every `_cycle/plan_usage_changed` this client was sent, in order. */
+    planUsage,
     kinds: () => seen.map((s) => s.update.sessionUpdate),
     /** Turns that have ended: an idle that says why, as opposed to a state snapshot. */
     ended: () =>

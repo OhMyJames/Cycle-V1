@@ -206,6 +206,12 @@ export function App() {
     () => (hasConversation ? { usage, compactions, compacting } : undefined),
     [hasConversation, usage, compactions, compacting],
   );
+  // The account's limits, as the session's agent last told them on this environment.
+  const planUsage = useAppState((s) =>
+    selectedEnvironment !== undefined && session !== undefined
+      ? s.planUsage[selectedEnvironment]?.[session.agent]
+      : undefined,
+  );
   const environmentState =
     selectedEnvironment !== undefined ? status[selectedEnvironment]?.state : undefined;
   const connected = environmentState === "connected";
@@ -700,6 +706,7 @@ export function App() {
                 activity={activity}
                 plan={plan}
                 context={context}
+                planUsage={planUsage}
                 onSent={() => setSent((n) => n + 1)}
               />
             ) : null}

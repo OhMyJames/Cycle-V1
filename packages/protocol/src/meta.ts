@@ -107,6 +107,8 @@ export const CapabilitiesSchema = z.object({
   filesInFolder: z.boolean().optional(),
   /** `_cycle/trust/read` and `_cycle/trust/set` are there (docs/protocol.md §8). */
   trust: z.boolean().optional(),
+  /** `_cycle/plan_usage/read` and `_cycle/plan_usage_changed` are there (docs/protocol.md §8 "套餐用量"). */
+  planUsage: z.boolean().optional(),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 

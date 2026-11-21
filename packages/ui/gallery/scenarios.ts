@@ -6,6 +6,7 @@ import type {
   EnvironmentConfig,
   EnvironmentStatus,
   PermissionRequest,
+  PlanUsage,
   SessionSnapshot,
   SessionSummary,
   UpdateState,
@@ -39,6 +40,8 @@ export type Scenario = {
   noAgents?: boolean;
   /** Folder trust: the daemon keeps it, and this is the decision for every folder (null: nobody has decided). */
   trust?: boolean | null;
+  /** What the environment's daemon heard of each agent's plan limits (docs/protocol.md §8 "套餐用量"). */
+  planUsage?: Record<string, PlanUsage>;
   /** Presses Tab this many times with real input events, so :focus-visible shows as it does for a keyboard. */
   tabs?: number;
   /**
@@ -1508,6 +1511,31 @@ export const scenarios: Record<string, Scenario> = {
     "The context ring's details: the total, a bar of the parts, a row a part, then when it compacts and the cost",
     [you("u1", "Why does the remote session fail, and fix it."), say("a1", "Fixed."), measured],
   ),
+  "composer-context-plan": {
+    ...contextScenario(
+      "The context ring's details with the account's plan limits under them: one getting close, one quiet",
+      [you("u1", "Why does the remote session fail, and fix it."), say("a1", "Fixed."), measured],
+    ),
+    planUsage: {
+      claude: {
+        at: Date.now(),
+        windows: [
+          {
+            kind: "five_hour",
+            utilization: 0.74,
+            resetsAt: Date.now() + 43 * 60_000,
+            status: "allowed",
+          },
+          {
+            kind: "seven_day",
+            utilization: 0.31,
+            resetsAt: Date.now() + 3 * 86_400_000,
+            status: "allowed",
+          },
+        ],
+      },
+    },
+  },
   "composer-context-plain": contextScenario(
     "The context ring's details from an agent that does not say what the window holds",
     [

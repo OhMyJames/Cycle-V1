@@ -115,10 +115,12 @@ export const EVENTS = {
   /**
    * The composer's context ring opened into its details. `state`: what it had to show, a number measured now, none
    * reported yet, or one from before the last compaction. `parts`: what the window holds was shown, part by part.
+   * `plan`: the account's plan limits were shown under it (never how much of them is used).
    */
   context_details_opened: o({
     state: z.enum(["measured", "empty", "before_compaction"]),
     parts: z.boolean(),
+    plan: z.boolean(),
   }),
   tool_link_opened: o({}),
   code_theme_changed: o({}),

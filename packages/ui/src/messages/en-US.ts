@@ -120,6 +120,15 @@ export const enUS = {
   "composer.context.empty": "No usage reported yet",
   "composer.context.beforeCompaction": "From before the last compaction",
   "composer.context.compacting": "Compacting now",
+  "composer.plan.title": "Plan usage",
+  "composer.plan.fiveHour": "5-hour limit",
+  "composer.plan.weekly": "Weekly limit",
+  "composer.plan.weeklyOpus": "Weekly limit, Opus",
+  "composer.plan.weeklySonnet": "Weekly limit, Sonnet",
+  "composer.plan.used": "{percent} · {resets}",
+  "composer.plan.resetsInMinutes": "resets in {minutes}m",
+  "composer.plan.resetsInHours": "resets in {hours}h {minutes}m",
+  "composer.plan.resetsOn": "resets {when}",
 
   // The commands that fit what is typed after a slash
   "composer.commands.label": "Commands",

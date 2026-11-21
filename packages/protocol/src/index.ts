@@ -3,5 +3,6 @@ export * from "./errors.ts";
 export * from "./meta.ts";
 export * from "./method.ts";
 export * from "./methods.ts";
+export * from "./plan-usage.ts";
 export * from "./prompt.ts";
 export * from "./queue.ts";

@@ -30,6 +30,11 @@ import {
   foldersList,
   META,
   NOTIFICATIONS,
+  PLAN_USAGE_CHANGED,
+  PLAN_USAGE_UPDATE,
+  type PlanUsage,
+  PlanUsageSchema,
+  planUsageRead,
   promptAckReturn,
   promptDequeue,
   QUEUE_LIMIT,
@@ -234,6 +239,8 @@ export class Daemon {
   /** Sessions being loaded, so a second request for one waits for the first load. */
   readonly #loading = new Map<string, Promise<Session>>();
   readonly #conns = new Set<ClientConn>();
+  /** The latest plan usage each agent told, since the daemon started (docs/protocol.md §8 "套餐用量"). */
+  readonly #planUsage = new Map<string, PlanUsage>();
   #counter = 0;
   #closing = false;
 
@@ -690,7 +697,24 @@ export class Daemon {
     return session.starting;
   }
 
+  #notePlanUsage(agent: string, update: unknown): void {
+    const parsed = PlanUsageSchema.safeParse(update);
+    if (!parsed.success) return;
+    const usage = parsed.data;
+    const known = this.#planUsage.get(agent);
+    // An older word (two processes of the agent told it out of order) does not replace a newer one.
+    if (known !== undefined && known.at > usage.at) return;
+    this.#planUsage.set(agent, usage);
+    for (const conn of this.#conns)
+      void conn.notify(PLAN_USAGE_CHANGED, { agent, usage }).catch(() => {});
+  }
+
   #onUpdate(session: Session, update: SessionUpdate): void {
+    // The account's, not the session's: kept for the agent and told to every client, never written to a history.
+    if ((update as { sessionUpdate?: unknown }).sessionUpdate === PLAN_USAGE_UPDATE) {
+      this.#notePlanUsage(session.entry.agent, update);
+      return;
+    }
     // Once the daemon is stopping, the turn's end is on record: what the agent says after it is not.
     if (session.resuming || session.historyError !== undefined || this.#closing) return;
     const state = update as { sessionUpdate: string; state?: string };
@@ -1523,6 +1547,7 @@ export class Daemon {
             filesInFolder: true,
             trust: true,
             connectors: true,
+            planUsage: true,
           },
         },
       } as never;
@@ -1888,6 +1913,7 @@ export class Daemon {
         })),
       ),
     }));
+    cycle(planUsageRead, () => ({ agents: Object.fromEntries(this.#planUsage) }));
     cycle(agentDefaultsRead, (params) => {
       this.#definition(params.agent);
       return { config: this.#defaults.get(params.agent) };

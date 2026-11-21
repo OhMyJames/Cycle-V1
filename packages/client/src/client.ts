@@ -30,6 +30,10 @@ import {
   META,
   NOTIFICATIONS,
   type ParamsOf,
+  PLAN_USAGE_CHANGED,
+  type PlanUsage,
+  PlanUsageChangedSchema,
+  planUsageRead,
   promptAckReturn,
   promptDequeue,
   type ResultOf,
@@ -120,6 +124,8 @@ export type ClientEvents = {
   connectorsChanged?: () => void;
   /** An agent's defaults were changed, here or by another client. */
   defaultsChanged?: (agent: string) => void;
+  /** An agent told how much of its account's plan limits is used (docs/protocol.md §8 "套餐用量"). */
+  planUsage?: (agent: string, usage: PlanUsage) => void;
   /**
    * A session this client was watching no longer exists on the daemon (another client deleted it
    * while this one was away). It is not watched any more; the others carry on.
@@ -375,6 +381,15 @@ export class CycleClient {
     return this.#call(trustRead, { path });
   }
 
+  /**
+   * The latest plan usage of each agent that told one since the daemon started. A daemon that does not say it keeps
+   * them is older: it is not asked, and the answer is none.
+   */
+  async readPlanUsage(): Promise<Record<string, PlanUsage>> {
+    if (this.#capabilities.planUsage !== true) return {};
+    return (await this.#call(planUsageRead, {})).agents as Record<string, PlanUsage>;
+  }
+
   /** Records whether a folder on the daemon's machine may run its own configuration's commands. */
   async setTrust(path: string, trusted: boolean): Promise<Trust> {
     if (this.#capabilities.trust !== true)
@@ -592,6 +607,14 @@ export class CycleClient {
         NOTIFICATIONS.agentDefaultsChanged,
         (p: unknown) => p as { agent: string },
         ({ params }) => this.#events.defaultsChanged?.(params.agent),
+      )
+      .onNotification(
+        PLAN_USAGE_CHANGED,
+        (p: unknown) => p,
+        ({ params }) => {
+          const told = PlanUsageChangedSchema.safeParse(params);
+          if (told.success) this.#events.planUsage?.(told.data.agent, told.data.usage);
+        },
       )
       .onNotification(
         CONNECTORS_CHANGED,
