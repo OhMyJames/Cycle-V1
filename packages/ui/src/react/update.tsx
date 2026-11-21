@@ -7,6 +7,7 @@ import { ConfirmDialog } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
 import { DownloadIcon, ErrorCircleIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
+import { Tip } from "./tip.tsx";
 
 /** Whole megabytes, and tenths while the whole is small (an update that changed a little). */
 const megabytes = (bytes: number, total: number): string =>
@@ -243,9 +244,11 @@ export function UpdateFooter() {
             void store.setAnalytics(!analytics.enabled);
         }}
       >
-        <MenuTrigger aria-label={t("app.settings")} title={t("app.settings")} data-variant="ghost">
-          <SettingsIcon />
-        </MenuTrigger>
+        <Tip label={t("app.settings")}>
+          <MenuTrigger data-variant="ghost">
+            <SettingsIcon />
+          </MenuTrigger>
+        </Tip>
         <MenuContent side="top" align="end">
           <CodeThemeItems />
           {analytics?.available ? (

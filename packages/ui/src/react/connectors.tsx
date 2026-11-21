@@ -37,6 +37,7 @@ import { ConfirmDialog } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
 import { MoreIcon } from "./icons.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
+import { Tip } from "./tip.tsx";
 
 type Problem = { problem: ConnectorProblem; message?: string | undefined };
 type Answer = { connector: ConnectorInfo } | Problem | { cancelled: true };
@@ -274,13 +275,11 @@ function ConnectorList(props: {
                       else if (value === "remove") setRemoving(connector);
                     }}
                   >
-                    <MenuTrigger
-                      data-variant="ghost"
-                      aria-label={t("connectors.actions", { name: connector.name })}
-                      title={t("connectors.actions", { name: connector.name })}
-                    >
-                      <MoreIcon />
-                    </MenuTrigger>
+                    <Tip label={t("connectors.actions", { name: connector.name })}>
+                      <MenuTrigger data-variant="ghost">
+                        <MoreIcon />
+                      </MenuTrigger>
+                    </Tip>
                     <MenuContent>
                       <MenuItem value="edit">{t("connectors.edit")}</MenuItem>
                       {oauth && connector.authorized ? (

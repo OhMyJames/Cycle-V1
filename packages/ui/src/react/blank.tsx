@@ -31,6 +31,7 @@ import { FolderBrowser } from "./folder-browser.tsx";
 import { useI18n } from "./i18n.tsx";
 import { MoreIcon, WarningIcon } from "./icons.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
+import { Tip } from "./tip.tsx";
 
 /**
  * What a new session starts with where nothing is set: the schema's `default` (docs/protocol.md §10). A session that
@@ -235,14 +236,11 @@ export function BlankConversationView({
                 if (value === "settings") setSettingsOpen(true);
               }}
             >
-              <MenuTrigger
-                aria-label={t("blank.settings")}
-                title={t("blank.settings")}
-                data-variant="ghost"
-                disabled={starting}
-              >
-                <MoreIcon />
-              </MenuTrigger>
+              <Tip label={t("blank.settings")}>
+                <MenuTrigger data-variant="ghost" disabled={starting}>
+                  <MoreIcon />
+                </MenuTrigger>
+              </Tip>
               <MenuContent>
                 <MenuItem value="settings" disabled={starting}>
                   {t("session.settings")}

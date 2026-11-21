@@ -1,12 +1,19 @@
 // The session's settings that are a choice (the permission mode, the model and its reasoning effort), at hand in the
 // composer utility bar: what the agent does next is decided where the next message is written. Read from the agent's
 // own schema, so nothing here knows Claude.
-// Each opens the utility bar's popover (`anchored-popover.tsx`): a short list that is read at a glance, so no filter.
-// The effort is a chip of its own beside the model's, offering only the levels that model takes. It shows what the
-// session has, never a value it was asked for and may not get: a change shows when the agent has made it.
-import { isComposing } from "@ui-sdk/core";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { AnchoredPopover } from "./anchored-popover.tsx";
+// Each is a menu of radio choices (the SDK's, so keys, focus, dismissal and placement are the same as every other menu):
+// a short list that is read at a glance, so no filter. The effort is a chip of its own beside the model's, offering only
+// the levels that model takes. The chip shows what the session has, never a value it was asked for and may not get.
+import {
+  Menu,
+  MenuContent,
+  MenuGroupLabel,
+  MenuItemIndicator,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuTrigger,
+} from "@ui-sdk/react/menu";
+import { useEffect, useId, useRef, useState } from "react";
 import { type Option, OptionLabel, optionsOf, propertiesOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
 import { CheckIcon, ShieldAlertIcon, ShieldIcon } from "./icons.tsx";
@@ -42,25 +49,18 @@ function SettingPickerChip({
   onSet: SetSetting;
 }) {
   const { t } = useI18n();
-  const pickerId = useId();
-  const listId = `${pickerId}-list`;
   const [open, setOpen] = useState(false);
-  const [highlighted, setHighlighted] = useState(0);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const headingId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  /** The highlight was moved by the pointer: the list is not scrolled to it. */
-  const pointedRef = useRef(false);
 
   const chosen = current === undefined ? undefined : options.find((o) => o.value === current);
   // A value the schema does not list (a model named in full, say) is still what the session runs on: it is shown as it is.
   const named = current === undefined ? t("config.notSet") : (chosen?.label ?? current);
   const label = current === undefined ? named : (valueLabel ?? named);
   const name = t("composer.setting", { setting: heading, value: named });
-  // What was last asked for and is not the session's yet. Not shown (the chip says what the session has), but it is
-  // what a choice is measured against: asking again for it sends nothing, and going back to the session's value while
-  // it is on its way sends that, so the last choice is the one that lands.
+  // What was last asked for and is not the session's yet. The chip does not show it, but the menu's tick does, and it
+  // is what a choice is measured against: asking again for it sends nothing, and going back to the session's value
+  // while it is on its way sends that, so the last choice is the one that lands.
   const [asked, setAsked] = useState<string | undefined>(undefined);
   const [seen, setSeen] = useState(current);
   if (seen !== current) {
@@ -69,160 +69,17 @@ function SettingPickerChip({
     setAsked(undefined);
   }
 
-  const close = useCallback((returnFocus: boolean) => {
-    setOpen(false);
-    if (returnFocus) triggerRef.current?.focus();
-  }, []);
-
-  const openMenu = () => {
-    if (disabled) return;
-    const selectedIndex = current === undefined ? 0 : options.findIndex((o) => o.value === current);
-    pointedRef.current = false;
-    setHighlighted(Math.max(selectedIndex, 0));
-    setOpen(true);
-  };
-
-  const choose = (option: Option) => {
-    if (option.value !== (asked ?? current)) {
-      const value = option.value;
-      setAsked(value);
-      // Settled with no change (refused, say): nothing is on its way any more, so the same choice can be made again.
-      void Promise.resolve(onSet(settingKey, value)).finally(() =>
-        setAsked((now) => (now === value ? undefined : now)),
-      );
-    }
-    close(true);
+  const choose = (value: string) => {
+    setAsked(value);
+    // Settled with no change (refused, say): nothing is on its way any more, so the same choice can be made again.
+    void Promise.resolve(onSet(settingKey, value)).finally(() =>
+      setAsked((now) => (now === value ? undefined : now)),
+    );
   };
 
   useEffect(() => {
     if (disabled && open) setOpen(false);
   }, [disabled, open]);
-
-  // The list takes the focus as it opens, however it was opened: arrows then move in it at once.
-  useEffect(() => {
-    if (open) listRef.current?.focus();
-  }, [open]);
-
-  const count = options.length;
-  const activeIndex = count === 0 ? -1 : Math.min(highlighted, count - 1);
-  const optionId = (index: number) => `${pickerId}-opt-${index}`;
-  const activeOptionId = activeIndex >= 0 ? optionId(activeIndex) : undefined;
-
-  useEffect(() => {
-    if (!open || activeIndex < 0 || pointedRef.current) return;
-    const item = listRef.current?.querySelector<HTMLElement>(
-      `[data-slot="setting-option"]:nth-of-type(${activeIndex + 1})`,
-    );
-    item?.scrollIntoView?.({ block: "nearest" });
-  }, [open, activeIndex]);
-
-  const move = (index: number) => {
-    pointedRef.current = false;
-    setHighlighted(index);
-    listRef.current?.focus();
-  };
-
-  const onPopoverKeyDown = (event: React.KeyboardEvent) => {
-    if (isComposing(event.nativeEvent)) return;
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      close(true);
-      return;
-    }
-    // Nothing else in it to go to: Tab leaves, and closes it.
-    if (event.key === "Tab") {
-      close(false);
-      return;
-    }
-    if (count === 0) return;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      move((activeIndex + 1) % count);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      move((activeIndex - 1 + count) % count);
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      move(0);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      move(count - 1);
-    } else if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      const target = options[activeIndex];
-      if (target !== undefined) choose(target);
-    }
-  };
-
-  const onTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-    event.preventDefault();
-    // Open, or already open with the focus back on the chip: either way the arrows go to the list.
-    if (open) listRef.current?.focus();
-    else openMenu();
-  };
-
-  const popover = (
-    <AnchoredPopover
-      open={open}
-      anchorRef={triggerRef}
-      ownerRef={rootRef}
-      popoverRef={popoverRef}
-      align={align}
-      onDismiss={close}
-      compact={compact}
-      // A press in the list keeps the focus where it is, so the list's keys keep working.
-      onMouseDown={(event) => event.preventDefault()}
-      onKeyDown={onPopoverKeyDown}
-    >
-      <div data-slot="setting-popover-head">{heading}</div>
-      <div
-        ref={listRef}
-        id={listId}
-        role="menu"
-        aria-label={heading}
-        {...(activeOptionId !== undefined ? { "aria-activedescendant": activeOptionId } : {})}
-        tabIndex={-1}
-        data-slot="setting-list"
-      >
-        {options.map((option, index) => {
-          const selected = option.value === current;
-          const active = index === activeIndex;
-          const displayOption = compact ? { ...option, description: undefined } : option;
-          return (
-            <button
-              key={option.value}
-              id={optionId(index)}
-              type="button"
-              role="menuitemradio"
-              aria-checked={selected}
-              tabIndex={-1}
-              data-slot="setting-option"
-              data-active={active || undefined}
-              data-selected={selected || undefined}
-              data-danger={option.danger || undefined}
-              title={option.description}
-              onMouseEnter={() => {
-                pointedRef.current = true;
-                setHighlighted(index);
-              }}
-              onClick={() => choose(option)}
-            >
-              <span data-slot="setting-option-body">
-                <OptionLabel option={displayOption} />
-              </span>
-              {selected ? (
-                <span data-slot="setting-check" aria-hidden="true">
-                  <CheckIcon size={13} />
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
-    </AnchoredPopover>
-  );
 
   const leadingIcon =
     settingKey === "mode" ? (
@@ -234,32 +91,57 @@ function SettingPickerChip({
     ) : null;
 
   return (
-    <div ref={rootRef} data-slot="setting-picker">
-      <button
+    // Not modal: with one chip's menu open, a press on the next chip opens that one, rather than only closing this.
+    <Menu modal={false} open={open} onOpenChange={(next) => setOpen(next && !disabled)}>
+      <MenuTrigger
         ref={triggerRef}
-        type="button"
-        data-slot="button"
         data-variant="ghost"
         data-kind="setting-chip"
         data-setting={settingKey}
         data-unset={current === undefined || undefined}
         data-danger={chosen?.danger || undefined}
-        data-open={open || undefined}
-        data-disabled={disabled || undefined}
         disabled={disabled}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? listId : undefined}
         aria-label={name}
         title={name}
-        onClick={() => (open ? close(false) : openMenu())}
-        onKeyDown={onTriggerKeyDown}
       >
         {leadingIcon}
         <span data-slot="setting-value">{label}</span>
-      </button>
-      {popover}
-    </div>
+      </MenuTrigger>
+      <MenuContent
+        side="top"
+        align={align}
+        sideOffset={6}
+        collisionPadding={12}
+        finalFocus={() => triggerRef.current}
+        aria-labelledby={headingId}
+        data-kind="setting"
+        data-compact={compact || undefined}
+      >
+        <MenuRadioGroup
+          value={asked ?? current ?? null}
+          onValueChange={(next) => {
+            if (typeof next === "string") choose(next);
+          }}
+        >
+          <MenuGroupLabel id={headingId}>{heading}</MenuGroupLabel>
+          {options.map((option) => (
+            <MenuRadioItem
+              key={option.value}
+              value={option.value}
+              label={option.label}
+              closeOnSelect
+              data-danger={option.danger || undefined}
+              title={option.description}
+            >
+              <OptionLabel option={compact ? { ...option, description: undefined } : option} />
+              <MenuItemIndicator>
+                <CheckIcon size={13} />
+              </MenuItemIndicator>
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuContent>
+    </Menu>
   );
 }
 

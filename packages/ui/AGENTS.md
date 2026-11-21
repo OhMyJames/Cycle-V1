@@ -27,6 +27,7 @@ These hold for every control, whoever wrote its behaviour (from old-cycle's `pac
 The gate does not enforce them.
 
 - Every control has a name a screen reader can say: its visible text, a `<label>` around it, or `aria-label`.
+  A control that has only an icon takes its name from a `Tip` (`src/react/tip.tsx`), which is also its tooltip.
   A placeholder is not a name, and neither is a `title`.
 - A group of controls has a name too (a segmented choice takes a label).
 - A key handler that acts on Enter asks `isComposing(event)` from `@ui-sdk/core` first, not the event's own

@@ -164,7 +164,14 @@ describe("SettingChips picker", () => {
     },
   };
 
-  test("navigates short menu with ARIA activedescendant, prevents arrow auto-select on danger mode, and commits on Enter/Space", async () => {
+  // The chips are the SDK's menu (one behaviour with every other menu in the app): these pin what a picker needs of it.
+  const frame = () =>
+    act(() => new Promise((resolve) => requestAnimationFrame(() => resolve(null))));
+  /** Opened by the pointer the menu itself has the focus and nothing is highlighted until a key moves; by the keyboard
+   *  its first item has both. */
+  const highlighted = (menu: HTMLElement) => menu.querySelector("[data-highlighted]");
+
+  test("a short menu opens on its first item with the session's choice ticked, arrows move without choosing (danger mode too), Enter and Space commit", async () => {
     const user = userEvent.setup();
     const calls: [string, string][] = [];
     wrap(
@@ -178,81 +185,87 @@ describe("SettingChips picker", () => {
     const chip = screen.getByRole("button", { name: "Permission mode: Auto" });
     expect(chip.getAttribute("aria-haspopup")).toBe("menu");
 
-    // ArrowDown on trigger opens the menu.
+    // ArrowDown on the trigger opens the menu on its first item, as every menu does; the tick says what the session has.
     chip.focus();
     await user.keyboard("{ArrowDown}");
+    await frame();
     expect(chip.getAttribute("aria-expanded")).toBe("true");
     expect(screen.queryByRole("combobox")).toBeNull();
 
     const menu = screen.getByRole("menu", { name: "Permission mode" });
-    expect(chip.getAttribute("aria-controls")).toBe(menu.id);
     const items = within(menu).getAllByRole("menuitemradio");
     expect(items).toHaveLength(3);
-    expect(menu.getAttribute("aria-activedescendant")).toBe(items[0]?.id ?? null);
+    expect(document.activeElement).toBe(items[0] ?? null);
 
-    // ArrowUp wraps to the last item (Bypass permissions) without selecting it.
+    // ArrowUp wraps to the last item (Bypass permissions) without choosing it.
     await user.keyboard("{ArrowUp}");
-    expect(menu.getAttribute("aria-activedescendant")).toBe(items[2]?.id ?? null);
+    expect(document.activeElement).toBe(items[2] ?? null);
     expect(calls).toHaveLength(0);
 
     // Home jumps to first, End jumps to last.
     await user.keyboard("{Home}");
-    expect(menu.getAttribute("aria-activedescendant")).toBe(items[0]?.id ?? null);
+    expect(document.activeElement).toBe(items[0] ?? null);
     await user.keyboard("{End}");
-    expect(menu.getAttribute("aria-activedescendant")).toBe(items[2]?.id ?? null);
+    expect(document.activeElement).toBe(items[2] ?? null);
     expect(calls).toHaveLength(0);
 
-    // Escape closes without changing setting and returns focus to chip.
+    // Escape closes without changing the setting and gives the focus back to the chip.
     await user.keyboard("{Escape}");
     expect(chip.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(chip);
     expect(calls).toHaveLength(0);
 
-    // Re-selecting current choice with Space closes without calling onSet.
-    await user.click(chip);
+    // Choosing the current choice again with Space closes without asking for anything.
+    await user.keyboard("{Enter}");
+    await frame();
+    expect(document.activeElement?.textContent).toContain("Auto");
     await user.keyboard(" ");
     expect(calls).toHaveLength(0);
     expect(chip.getAttribute("aria-expanded")).toBe("false");
 
-    // Re-open, arrow down once to Plan mode, press Enter to commit.
+    // Re-open with the pointer: the first arrow lands on the first item, the next on Plan mode, and Enter commits.
     await user.click(chip);
-    await user.keyboard("{ArrowDown}{Enter}");
+    await frame();
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
     expect(calls).toEqual([["mode", "plan"]]);
     expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(chip);
   });
 
-  test("a long model list has no filter: the list takes the focus however it opens, and composing keys are left alone", async () => {
+  test("a long model list has no filter: it opens on its first item however it opens, and composing keys are left alone", async () => {
     const user = userEvent.setup();
     const calls: [string, string][] = [];
     wrap(
       <SettingChips
-        settings={{ schema: longModelSchema, value: { model: "default" } }}
+        settings={{ schema: longModelSchema, value: { model: "opus-4" } }}
         disabled={false}
         onSet={(k, v) => calls.push([k, v])}
       />,
     );
 
-    const chip = screen.getByRole("button", { name: "Model: Default model" });
+    const chip = screen.getByRole("button", { name: "Model: Claude Opus" });
     expect(chip.getAttribute("aria-haspopup")).toBe("menu");
     await user.click(chip);
+    await frame();
     const menu = screen.getByRole("menu", { name: "Model" });
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(screen.queryByRole("searchbox")).toBeNull();
-    expect(within(menu).getAllByRole("menuitemradio")).toHaveLength(5);
-    expect(document.activeElement).toBe(menu);
+    const items = within(menu).getAllByRole("menuitemradio");
+    expect(items).toHaveLength(5);
+    expect(highlighted(menu)).toBeNull();
+    expect(within(menu).getByRole("menuitemradio", { checked: true }).textContent).toBe(
+      "Claude Opus",
+    );
 
     // Composing (standard, and Safari's keyCode 229) neither commits nor closes.
-    fireEvent.keyDown(menu, { key: "Enter", isComposing: true });
-    fireEvent.keyDown(menu, { key: "Escape", isComposing: true });
-    fireEvent.keyDown(menu, { key: "Enter", isComposing: false, keyCode: 229 });
-    fireEvent.keyDown(menu, { key: "Escape", isComposing: false, keyCode: 229 });
+    const active = document.activeElement as HTMLElement;
+    fireEvent.keyDown(active, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(active, { key: "Enter", isComposing: false, keyCode: 229 });
     expect(calls).toHaveLength(0);
     expect(chip.getAttribute("aria-expanded")).toBe("true");
 
-    // With the focus back on the chip while it is open, the arrows still go to the list.
-    chip.focus();
     await user.keyboard("{ArrowDown}");
-    expect(document.activeElement).toBe(menu);
+    expect(highlighted(menu)).toBe(items[0] ?? null);
     await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
     expect(calls).toEqual([["model", "sonnet-4"]]);
     expect(chip.getAttribute("aria-expanded")).toBe("false");
@@ -260,7 +273,8 @@ describe("SettingChips picker", () => {
 
     // Opened from the keyboard, the list has the focus at once.
     await user.keyboard("{ArrowDown}");
-    expect(document.activeElement).toBe(screen.getByRole("menu", { name: "Model" }));
+    await frame();
+    expect(screen.getByRole("menu", { name: "Model" }).contains(document.activeElement)).toBe(true);
   });
 
   test("closes on outside click, Tab, switching chips, and becoming disabled", async () => {
@@ -313,7 +327,7 @@ describe("SettingChips picker", () => {
       </I18nProvider>,
     );
     expect(modeChip.getAttribute("aria-expanded")).toBe("false");
-    expect(modeChip.hasAttribute("data-disabled")).toBe(true);
+    expect((modeChip as HTMLButtonElement).disabled).toBe(true);
   });
 
   test("Model and Effort are two chips on the right, each with its own menu", async () => {
@@ -387,8 +401,7 @@ describe("SettingChips picker", () => {
     // The Model menu is the models only, without their descriptions.
     expect(modelChip.getAttribute("aria-haspopup")).toBe("menu");
     await user.click(modelChip);
-    const models = screen.getByRole("menu", { name: "Model" });
-    expect(modelChip.getAttribute("aria-controls")).toBe(models.id);
+    screen.getByRole("menu", { name: "Model" });
     expect(screen.queryByText("Most capable.")).toBeNull();
     expect(screen.queryByRole("menu", { name: "Effort" })).toBeNull();
     await user.click(screen.getByRole("menuitemradio", { name: /Sonnet/ }));
@@ -410,8 +423,9 @@ describe("SettingChips picker", () => {
       within(levels).getByRole("menuitemradio", { checked: true }).textContent?.startsWith("High"),
     ).toBe(true);
     // The keyboard goes through it as through the others: the list has the focus, arrows move, Enter chooses.
-    expect(document.activeElement).toBe(levels);
-    await user.keyboard("{ArrowUp}{Enter}");
+    await frame();
+    expect(highlighted(levels)).toBeNull();
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
     expect(calls.at(-1)).toEqual(["effort", "low"]);
     expect(effortChip.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(effortChip);

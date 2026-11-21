@@ -56,6 +56,7 @@ import type { Away } from "./session-list.tsx";
 import { MOD, Sidebar, sessionTitle } from "./sidebar.tsx";
 import { ENVIRONMENT_STATE } from "./status.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
+import { Tip } from "./tip.tsx";
 import { DaemonBanner, UpdateBanner, UpdateFooter } from "./update.tsx";
 
 type Panel =
@@ -438,15 +439,19 @@ export function App() {
   if (!ready) return <div data-slot="starting">Starting…</div>;
 
   const sidebarToggle = (
-    <Button
-      data-variant="ghost"
-      data-kind="sidebar-toggle"
-      aria-label={t(sidebarCollapsed ? "sidebar.show" : "sidebar.hide")}
-      title={`${t(sidebarCollapsed ? "sidebar.show" : "sidebar.hide")}  ${MOD}B`}
-      onClick={() => toggleSidebar("click")}
+    <Tip
+      label={t(sidebarCollapsed ? "sidebar.show" : "sidebar.hide")}
+      shortcut="mod+b"
+      side="bottom"
     >
-      <SidebarIcon />
-    </Button>
+      <Button
+        data-variant="ghost"
+        data-kind="sidebar-toggle"
+        onClick={() => toggleSidebar("click")}
+      >
+        <SidebarIcon />
+      </Button>
+    </Tip>
   );
 
   return (
@@ -580,13 +585,11 @@ export function App() {
                       else if (value === "delete") open("delete");
                     }}
                   >
-                    <MenuTrigger
-                      aria-label="Session actions"
-                      title="Session actions"
-                      data-variant="ghost"
-                    >
-                      <MoreIcon />
-                    </MenuTrigger>
+                    <Tip label={t("session.actions")} side="bottom">
+                      <MenuTrigger data-variant="ghost">
+                        <MoreIcon />
+                      </MenuTrigger>
+                    </Tip>
                     <MenuContent>
                       {session.unknownBackground?.length ? (
                         <MenuItem value="dismiss-background">

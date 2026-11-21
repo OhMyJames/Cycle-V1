@@ -1,4 +1,5 @@
 import { Button } from "@ui-sdk/react/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@ui-sdk/react/popover";
 import { MotionGlobalConfig, useMotionValue, useReducedMotion, useSpring } from "motion/react";
 import {
   useCallback,
@@ -31,7 +32,6 @@ import { mentionQuery, mentionRow } from "../mention.ts";
 import type { ContextState, Status } from "../model/conversation.ts";
 import { type PlanItem, type QueuedPrompt, textOf } from "../model/index.ts";
 import { commandText, filterCommands, slashQuery } from "../slash.ts";
-import { AnchoredPopover } from "./anchored-popover.tsx";
 import { optionsOf, propertiesOf } from "./config-form.tsx";
 import { ContextDetails, planRowsOf } from "./context-details.tsx";
 import { useI18n } from "./i18n.tsx";
@@ -42,6 +42,7 @@ import { PlanStrip } from "./plan.tsx";
 import { SettingChips, type SettingsOf } from "./setting-chips.tsx";
 import { MOD } from "./sidebar.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
+import { Tip } from "./tip.tsx";
 
 export type ComposerProps = {
   /** The environment it is on, for what its daemon can do. */
@@ -632,16 +633,16 @@ export function Composer({
         <div data-slot="composer-lead">
           {canAttach ? (
             <>
-              <Button
-                data-variant="ghost"
-                data-kind="composer-plus"
-                aria-label={t("composer.attach")}
-                title={t("composer.attach")}
-                disabled={!enabled}
-                onClick={() => picker.current?.click()}
-              >
-                <PlusIcon size={16} />
-              </Button>
+              <Tip label={t("composer.attach")}>
+                <Button
+                  data-variant="ghost"
+                  data-kind="composer-plus"
+                  disabled={!enabled}
+                  onClick={() => picker.current?.click()}
+                >
+                  <PlusIcon size={16} />
+                </Button>
+              </Tip>
               <input
                 ref={picker}
                 type="file"
@@ -692,30 +693,30 @@ export function Composer({
             </Button>
           ) : null}
           {showSend ? (
-            <Button
-              data-variant="solid"
-              data-kind="round"
-              data-action="send"
-              disabled={!canSend}
-              aria-label={sendName}
-              title={sendName}
-              onClick={() => void send(steers, "button")}
-            >
-              <SendIcon size={15} />
-            </Button>
+            <Tip label={sendName}>
+              <Button
+                data-variant="solid"
+                data-kind="round"
+                data-action="send"
+                disabled={!canSend}
+                onClick={() => void send(steers, "button")}
+              >
+                <SendIcon size={15} />
+              </Button>
+            </Tip>
           ) : null}
           {working ? (
-            <Button
-              data-variant="outline"
-              data-kind="round"
-              data-action="stop"
-              disabled={!connected}
-              aria-label={t("composer.stop")}
-              title={t("composer.stopKey", { key: STOP_KEY })}
-              onClick={() => void store.cancel()}
-            >
-              <StopIcon size={11} />
-            </Button>
+            <Tip label={t("composer.stop")} shortcut="mod+.">
+              <Button
+                data-variant="outline"
+                data-kind="round"
+                data-action="stop"
+                disabled={!connected}
+                onClick={() => void store.cancel()}
+              >
+                <StopIcon size={11} />
+              </Button>
+            </Tip>
           ) : null}
         </div>
       </div>
@@ -752,8 +753,6 @@ export function Composer({
   );
 }
 
-/** How the key that stops a turn is written here: ⌘. on a Mac, Ctrl+. elsewhere (the same test as the handler's). */
-const STOP_KEY = `${MOD}.`;
 /** The key that queues: ⌘Enter on a Mac, Ctrl+Enter elsewhere. One name, in the placeholder and on the button. */
 const QUEUE_KEY = `${MOD}Enter`;
 const QUEUE_MOD = (event: KeyboardEvent) => (MOD === "⌘" ? event.metaKey : event.ctrlKey);
@@ -804,17 +803,7 @@ function ContextMeter({
       : t("composer.context.ring", { percent });
 
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLSpanElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const detailsId = useId();
-  const close = useCallback((returnFocus: boolean) => {
-    setOpen(false);
-    if (returnFocus) triggerRef.current?.focus();
-  }, []);
-  useEffect(() => {
-    if (open) popoverRef.current?.focus();
-  }, [open]);
+  const titleId = useId();
 
   const arcRef = useRef<SVGCircleElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
@@ -849,67 +838,62 @@ function ContextMeter({
   }, [instant, spring, around, percentOf]);
 
   return (
-    <span ref={rootRef} data-slot="context-picker">
-      <button
-        ref={triggerRef}
-        type="button"
-        data-slot="context-meter"
-        data-tone={tone}
-        data-full={full || undefined}
-        data-empty={!measured || undefined}
-        data-before={before || undefined}
-        data-open={open || undefined}
-        aria-label={name}
-        title={name}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? detailsId : undefined}
-        onClick={() => {
-          if (open) {
-            close(false);
-            return;
-          }
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (next)
           store.track("context_details_opened", {
             state: !measured ? "empty" : before ? "before_compaction" : "measured",
             parts: measured && !before && (usage.parts?.length ?? 0) > 0,
             plan: planRowsOf(planUsage, Date.now()).length > 0,
           });
-          setOpen(true);
-        }}
-      >
-        <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true">
-          <circle cx="7" cy="7" r={r} data-slot="context-track" />
-          <circle
-            ref={arcRef}
-            cx="7"
-            cy="7"
-            r={r}
-            data-slot="context-fill"
-            strokeDasharray={around}
-            strokeDashoffset={around * (1 - initialShareRef.current)}
-            transform="rotate(-90 7 7)"
-          />
-        </svg>
-        {/* Always there, so the rolling number has somewhere to land; hidden while nothing is measured. */}
-        <span ref={textRef} data-slot="context-percent" aria-hidden="true">
-          {initialPercentRef.current}
-        </span>
-      </button>
-      <AnchoredPopover
-        open={open}
-        anchorRef={triggerRef}
-        ownerRef={rootRef}
-        popoverRef={popoverRef}
+        setOpen(next);
+      }}
+    >
+      <Tip label={name}>
+        <PopoverTrigger
+          data-kind="context-meter"
+          data-tone={tone}
+          data-full={full || undefined}
+          data-empty={!measured || undefined}
+          data-before={before || undefined}
+        >
+          <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true">
+            <circle cx="7" cy="7" r={r} data-slot="context-track" />
+            <circle
+              ref={arcRef}
+              cx="7"
+              cy="7"
+              r={r}
+              data-slot="context-fill"
+              strokeDasharray={around}
+              strokeDashoffset={around * (1 - initialShareRef.current)}
+              transform="rotate(-90 7 7)"
+            />
+          </svg>
+          {/* Always there, so the rolling number has somewhere to land; hidden while nothing is measured. */}
+          <span ref={textRef} data-slot="context-percent" aria-hidden="true">
+            {initialPercentRef.current}
+          </span>
+        </PopoverTrigger>
+      </Tip>
+      {/* Nothing in it takes the focus, so the details themselves do: a screen reader reads them as they open. */}
+      <PopoverContent
+        side="top"
         align="end"
-        onDismiss={close}
-        id={detailsId}
-        role="dialog"
-        label={t("composer.context.title")}
-        kind="context"
-        focusable
+        sideOffset={6}
+        collisionPadding={12}
+        initialFocus="content"
+        aria-labelledby={titleId}
+        data-kind="context"
       >
-        <ContextDetails context={context} plan={planUsage} percentOf={percentOf} />
-      </AnchoredPopover>
-    </span>
+        <ContextDetails
+          context={context}
+          plan={planUsage}
+          percentOf={percentOf}
+          titleId={titleId}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }

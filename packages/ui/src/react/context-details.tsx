@@ -57,11 +57,14 @@ export function ContextDetails({
   context,
   plan,
   percentOf,
+  titleId,
 }: {
   context: ContextState;
   plan?: PlanUsage | undefined;
   /** The share as the ring says it ("<1%" for a little). */
   percentOf: (share: number) => string;
+  /** The id of the title, for what holds the details to be named by it. */
+  titleId?: string;
 }) {
   const { t, number, date } = useI18n();
   const { usage } = context;
@@ -147,7 +150,7 @@ export function ContextDetails({
   return (
     <div data-slot="context-details">
       <div data-slot="context-head">
-        <span>{t("composer.context.title")}</span>
+        <span id={titleId}>{t("composer.context.title")}</span>
         {measured ? (
           <span data-slot="context-total" data-before={before || undefined}>
             {t("composer.context.total", {

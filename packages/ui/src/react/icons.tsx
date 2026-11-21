@@ -1,6 +1,6 @@
 // The interface's icons: one line set from iconmcp (16-unit grid, 1.5 stroke, round), drawn in the text's colour.
 // Add one here, never inline an svg in a component. DESIGN.md section 7 lists what is needed.
-// Each is decoration: a control that has only an icon must name itself (aria-label).
+// Each is decoration: a control that has only an icon is named by a `Tip` (tip.tsx).
 import type { ReactNode, SVGProps } from "react";
 
 export type IconProps = { size?: number } & Omit<

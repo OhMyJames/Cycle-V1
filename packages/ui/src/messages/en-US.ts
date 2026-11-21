@@ -89,7 +89,6 @@ export const enUS = {
   "composer.queueKey": "Queue ({key})",
   "composer.steer": "Send now",
   "composer.stop": "Stop",
-  "composer.stopKey": "Stop ({key})",
   "composer.setting": "{setting}: {value}",
   "composer.effort.modelDefault": "Model default",
   "composer.effort.chip": "Default effort",
@@ -279,6 +278,8 @@ export const enUS = {
   "step.elapsedMinutesSeconds": "{minutes}m {seconds}s",
   "thinking.show": "Show thinking",
   "session.settings": "Session settings",
+  "session.actions": "Session actions",
+  "environment.actions": "Environment actions",
 
   // The session list
   "sessions.label": "Sessions",

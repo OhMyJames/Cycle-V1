@@ -453,7 +453,7 @@ summary:focus-visible {
     [data-slot="search-title"],
     [data-slot="update-text"] [data-slot="hint"],
     [data-slot="setting-value"],
-    [data-slot="setting-option"] [data-slot="option-description"],
+    [data-slot="menu-content"] [data-slot="option-description"],
     [data-slot="queued-text"],
     [data-slot="attachment-name"],
     [data-slot="picker-description"],
@@ -487,7 +487,7 @@ summary:focus-visible {
   [data-slot="search-title"],
   [data-slot="update-text"] [data-slot="hint"],
   [data-slot="setting-value"],
-  [data-slot="setting-option"] [data-slot="option-description"],
+  [data-slot="menu-content"] [data-slot="option-description"],
   [data-slot="queued-text"],
   [data-slot="attachment-name"],
   [data-slot="picker-description"],
@@ -644,9 +644,9 @@ svg[data-slot="dot"] {
   animation: cycle-spin 0.9s linear infinite;
 }
 
-/* What floats: a 1px edge, hardware specular sheen, a shadow, and the raised surface.
-   Corners nest: a menu of 16 with 6 of padding holds rows of 10, and a dialog is 20. */
-:is([data-slot="menu-content"], [data-slot="select-content"]) {
+/* What floats: a 1px edge, hardware specular sheen, a shadow, and the raised surface. Every menu, select and popover
+   is this one surface (CYCL-65). Corners nest: a menu of 16 with 6 of padding holds rows of 10, and a dialog is 20. */
+:is([data-slot="menu-content"], [data-slot="select-content"], [data-slot="popover-content"]) {
   padding: 0.375rem;
   border: 1px solid var(--ui-border);
   border-radius: var(--cycle-radius-card);
@@ -655,6 +655,36 @@ svg[data-slot="dot"] {
   transition:
     opacity var(--cycle-motion-enter) var(--cycle-ease),
     transform var(--cycle-motion-enter) var(--cycle-ease);
+}
+
+/* A tip names a control that has only an icon (CYCL-65): small, on the raised surface like everything that floats, and
+   quick, since moving along a toolbar reads as one tip that follows the pointer. */
+[data-slot="tooltip-content"] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--cycle-radius-sm);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-popover);
+  color: var(--cycle-ink);
+  font-family: var(--cycle-font-display);
+  font-size: var(--cycle-text-meta);
+  line-height: 1.3;
+  transition: opacity var(--cycle-motion-state) var(--cycle-ease);
+}
+
+[data-slot="tooltip-content"]:is([data-starting-style], [data-ending-style]) {
+  opacity: 0;
+}
+
+[data-slot="tooltip-content"][data-instant] {
+  transition: none;
+}
+
+[data-slot="tooltip-shortcut"] {
+  color: var(--cycle-ink-muted);
 }
 
 :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) {
@@ -675,6 +705,7 @@ svg[data-slot="dot"] {
 :is(
   [data-slot="menu-content"],
   [data-slot="select-content"],
+  [data-slot="popover-content"],
   [data-slot="dialog-content"],
   [data-slot="alert-dialog-content"]
 ):is([data-starting-style], [data-ending-style]) {
@@ -685,6 +716,7 @@ svg[data-slot="dot"] {
 :is(
   [data-slot="menu-content"],
   [data-slot="select-content"],
+  [data-slot="popover-content"],
   [data-slot="dialog-content"],
   [data-slot="alert-dialog-content"]
 )[data-ending-style] {
@@ -2644,15 +2676,9 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   min-width: 0;
 }
 
-/* How full the context is: a spring progress ring and its percentage on the right. A button: the details open in the
-   utility bar's popover (CYCL-74). Swells softly on 100% completion. */
-[data-slot="context-picker"] {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-}
-
-[data-slot="context-meter"] {
+/* How full the context is: a spring progress ring and its percentage on the right. A button: the details open in a
+   popover (CYCL-74). Swells softly on 100% completion. */
+[data-kind="context-meter"] {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -2672,28 +2698,28 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
     background-color var(--cycle-motion-state) var(--cycle-ease);
 }
 
-[data-slot="context-meter"]:is(:hover, [data-open]) {
+[data-kind="context-meter"]:is(:hover, [data-open]) {
   background: var(--cycle-surface-hover);
 }
 
-[data-slot="context-meter"]:not([data-tone]):is(:hover, [data-open]) {
+[data-kind="context-meter"]:not([data-tone]):is(:hover, [data-open]) {
   color: var(--cycle-ink);
 }
 
 /* Nothing measured yet: the empty track alone. Measured before the last compaction: shown, but not as now's. */
-[data-slot="context-meter"][data-empty] [data-slot="context-percent"] {
+[data-kind="context-meter"][data-empty] [data-slot="context-percent"] {
   display: none;
 }
 
-[data-slot="context-meter"][data-before] [data-slot="context-fill"] {
+[data-kind="context-meter"][data-before] [data-slot="context-fill"] {
   opacity: 0.45;
 }
 
-[data-slot="context-meter"][data-before] [data-slot="context-track"] {
+[data-kind="context-meter"][data-before] [data-slot="context-track"] {
   stroke-dasharray: 1.5 2;
 }
 
-[data-slot="context-meter"] circle {
+[data-kind="context-meter"] circle {
   fill: none;
   stroke-width: 1.75;
 }
@@ -2707,7 +2733,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   stroke-linecap: round;
 }
 
-[data-slot="context-meter"][data-full] [data-slot="context-fill"] {
+[data-kind="context-meter"][data-full] [data-slot="context-fill"] {
   animation: cycle-ring-swell 600ms cubic-bezier(0.3, 1.6, 0.5, 1);
 }
 
@@ -2718,14 +2744,8 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 /* A setting at hand: refined borderless chip in the utility bar; permission carries a shield icon (attention orange when
-   high-risk), the model in full ink and its effort beside it, muted like the rest. Each opens its own portaled picker. */
-[data-slot="setting-picker"] {
-  position: relative;
-  display: inline-flex;
-  min-width: 0;
-}
-
-[data-slot="button"][data-variant="ghost"][data-kind="setting-chip"] {
+   high-risk), the model in full ink and its effort beside it, muted like the rest. Each opens its own menu. */
+[data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"] {
   min-width: 0;
   max-width: 15rem;
   height: 1.625rem;
@@ -2737,14 +2757,14 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   color: var(--cycle-ink-muted);
 }
 
-[data-slot="button"][data-variant="ghost"][data-kind="setting-chip"]:is(
-  :hover:not([data-disabled]),
+[data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"]:is(
+  :hover:not(:disabled),
   [data-open]
 ) {
   color: var(--cycle-ink);
 }
 
-[data-slot="button"][data-variant="ghost"][data-kind="setting-chip"][data-setting="model"] {
+[data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"][data-setting="model"] {
   color: var(--cycle-ink);
 }
 
@@ -2753,22 +2773,13 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   opacity: 0.85;
 }
 
-:is(
-  [data-slot="button"],
-  [data-slot="menu-trigger"]
-)[data-variant="ghost"][data-kind="setting-chip"][data-unset] {
+[data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"][data-unset] {
   color: var(--ui-muted-foreground);
 }
 
-:is(
-  [data-slot="button"],
-  [data-slot="menu-trigger"]
-)[data-variant="ghost"][data-kind="setting-chip"][data-danger],
-:is(
-  [data-slot="button"],
-  [data-slot="menu-trigger"]
-)[data-variant="ghost"][data-kind="setting-chip"][data-danger]:is(
-  :hover:not([data-disabled]),
+[data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"][data-danger],
+[data-slot="menu-trigger"][data-variant="ghost"][data-kind="setting-chip"][data-danger]:is(
+  :hover:not(:disabled),
   [data-open]
 ) {
   color: var(--cycle-attention);
@@ -2779,25 +2790,24 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   overflow: hidden;
 }
 
-[data-slot="setting-popover"] {
-  position: fixed;
-  z-index: 40;
-  box-sizing: border-box;
+/* A picker's menu: as wide as its longest name, and scrolled inside when the window is short. */
+[data-slot="menu-content"][data-kind="setting"] {
   min-width: 13.5rem;
-  width: max-content;
   max-width: min(19.5rem, calc(100vw - 1.5rem));
-  padding: 0.3125rem;
-  border: 1px solid var(--cycle-border-default);
-  border-radius: var(--cycle-radius-card);
-  background: var(--cycle-surface-raised);
-  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-popover);
+  max-height: min(22rem, var(--available-height));
+  overflow-y: auto;
 }
 
-[data-slot="setting-popover"][data-kind="context"] {
+[data-slot="menu-content"][data-kind="setting"][data-compact] {
+  max-width: min(16.5rem, calc(100vw - 1.5rem));
+}
+
+[data-slot="popover-content"][data-kind="context"] {
   width: 17.5rem;
 }
 
-[data-slot="setting-popover"][data-kind="context"]:focus-visible {
+/* The details take the focus only so a screen reader reads them; the ring of the trigger says where it came from. */
+[data-slot="popover-content"][data-kind="context"]:focus-visible {
   outline: none;
 }
 
@@ -3004,90 +3014,76 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   background: currentColor;
 }
 
-[data-slot="setting-popover"][data-compact] {
-  min-width: 13.25rem;
-  max-width: min(16.5rem, calc(100vw - 1.5rem));
-}
-
-[data-slot="setting-popover-head"] {
-  padding: 0.1875rem 0.5rem 0.25rem;
-  font-family: var(--cycle-font-display);
-  font-size: 0.6875rem;
-  font-weight: 500;
-  color: var(--cycle-ink-muted);
-}
-
-[data-slot="setting-list"] {
-  display: flex;
-  flex-direction: column;
-  gap: 0.0625rem;
-  max-height: min(22rem, 56vh);
-  overflow-y: auto;
-  outline: none;
-}
-
-[data-slot="setting-option"] {
-  display: flex;
-  align-items: center;
+/* One menu row everywhere (CYCL-65): a plain fill under the pointer or the keys, no slide, and a radio or checkbox
+   tick on the right, in the accent. A choice may carry a name, a tag and a line of what it does (`OptionLabel`). */
+:is([data-slot="menu-item"], [data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"]) {
   gap: 0.5rem;
-  width: 100%;
-  padding: 0.3125rem 0.5rem;
-  border: 0;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.5rem;
   border-radius: var(--ui-radius);
-  background: transparent;
   color: var(--cycle-ink);
-  font-family: var(--ui-font-sans);
   font-size: var(--cycle-text-ui);
   line-height: 1.3;
-  text-align: left;
   cursor: pointer;
 }
 
-[data-slot="setting-option"] [data-slot="option"] {
-  gap: 0.0625rem;
-}
-
-[data-slot="setting-option"] [data-slot="option"]:has([data-slot="option-description"]) {
-  padding: 0;
-}
-
-[data-slot="setting-option"] [data-slot="option-description"] {
-  font-size: 0.71875rem;
-  line-height: 1.35;
-  color: var(--cycle-ink-muted);
-}
-
-[data-slot="setting-option"][data-active] {
+:is(
+  [data-slot="menu-item"],
+  [data-slot="menu-radio-item"],
+  [data-slot="menu-checkbox-item"]
+)[data-highlighted] {
   background: var(--cycle-surface-hover);
 }
 
-[data-slot="setting-check"] {
+:is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"]) {
+  padding-inline-start: 0.5rem;
+}
+
+[data-slot="menu-item-indicator"] {
+  position: static;
+  order: 1;
   flex: none;
   display: grid;
   place-items: center;
   width: 1rem;
   height: 1rem;
+  margin-inline-start: auto;
   color: var(--cycle-accent);
 }
 
-[data-slot="setting-option"][data-danger] [data-slot="option-name"],
-[data-slot="setting-option"][data-danger] [data-slot="setting-check"] {
-  color: var(--cycle-attention);
+[data-slot="menu-group-label"] {
+  padding: 0.25rem 0.5rem;
+  font-family: var(--cycle-font-display);
+  font-size: var(--cycle-text-meta);
+  font-weight: 500;
+  color: var(--cycle-ink-muted);
 }
 
-[data-slot="setting-option-body"] {
+[data-slot="menu-radio-item"] [data-slot="option"] {
   flex: 1;
   min-width: 0;
+  gap: 0.0625rem;
+  padding: 0;
 }
 
-[data-slot="setting-option"] [data-slot="option-name"] {
+[data-slot="menu-radio-item"] [data-slot="option-name"] {
   font-family: var(--cycle-font-display);
-  font-size: 0.8125rem;
   font-weight: 500;
 }
 
-[data-slot="setting-option"][data-selected] [data-slot="option-name"] {
+[data-slot="menu-radio-item"][data-checked] [data-slot="option-name"] {
   font-weight: 600;
+}
+
+[data-slot="menu-content"] [data-slot="option-description"] {
+  font-size: var(--cycle-text-meta);
+  line-height: 1.35;
+  color: var(--cycle-ink-muted);
+}
+
+[data-slot="menu-radio-item"][data-danger]
+  :is([data-slot="option-name"], [data-slot="menu-item-indicator"]) {
+  color: var(--cycle-attention);
 }
 
 @media (forced-colors: active) {

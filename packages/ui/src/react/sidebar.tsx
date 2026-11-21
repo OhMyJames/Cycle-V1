@@ -7,6 +7,7 @@ import { useI18n } from "./i18n.tsx";
 import { MoreIcon, PlugIcon, PlusIcon, SearchIcon } from "./icons.tsx";
 import { type Away, SessionListView } from "./session-list.tsx";
 import { ENVIRONMENT_STATE, StatusDot } from "./status.tsx";
+import { Tip } from "./tip.tsx";
 import { WorkspaceSwitcher } from "./workspace-switcher.tsx";
 
 export type SidebarProps = {
@@ -116,13 +117,11 @@ export function Sidebar(props: SidebarProps) {
             else if (raw === "untrust") props.onTrust?.(false);
           }}
         >
-          <MenuTrigger
-            aria-label="Environment actions"
-            title="Environment actions"
-            data-variant="ghost"
-          >
-            <MoreIcon />
-          </MenuTrigger>
+          <Tip label={t("environment.actions")}>
+            <MenuTrigger data-variant="ghost">
+              <MoreIcon />
+            </MenuTrigger>
+          </Tip>
           <MenuContent>
             {props.trust !== undefined && props.onTrust !== undefined ? (
               <>

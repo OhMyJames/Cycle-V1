@@ -266,8 +266,8 @@ const hostAction = async (root: HTMLElement, item: string) => {
 
 // The context ring opened into its details, in each of the states it has something to say about.
 const openContext = async (root: HTMLElement) => {
-  await until(() => root.querySelector('[data-slot="context-meter"]') !== null, "the context ring");
-  root.querySelector<HTMLElement>('[data-slot="context-meter"]')?.click();
+  await until(() => root.querySelector('[data-kind="context-meter"]') !== null, "the context ring");
+  root.querySelector<HTMLElement>('[data-kind="context-meter"]')?.click();
   await until(
     () => document.querySelector('[data-kind="context"]') !== null,
     "the context details",
@@ -1211,6 +1211,23 @@ export const scenarios: Record<string, Scenario> = {
       await new Promise((r) => setTimeout(r, 200));
     },
   },
+  // The composer's pickers are menus like every other (CYCL-65): opened, on the session's choice.
+  ...Object.fromEntries(
+    (["mode", "model"] as const).map((setting) => [
+      `menu-${setting}`,
+      {
+        title: `The ${setting === "mode" ? "permission mode" : "model"} picker is open`,
+        sessions: [session("s1", { title: "Fix the remote session" })],
+        history: conversation,
+        after: async (root: HTMLElement) => {
+          const chip = `[data-kind="setting-chip"][data-setting="${setting}"]`;
+          await until(() => root.querySelector(chip) !== null, "the setting chip");
+          root.querySelector<HTMLElement>(chip)?.click();
+          await new Promise((r) => setTimeout(r, 250));
+        },
+      } satisfies Scenario,
+    ]),
+  ),
   "menu-host": {
     title: "The host's menu is open (a remote host)",
     environments: [BUILD, LOCAL],
