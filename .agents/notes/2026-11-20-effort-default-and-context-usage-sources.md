@@ -12,7 +12,7 @@ The composer shows the session's effort and a context ring, and CYCL-74 opens th
 
 - `effort: "default"` means "Cycle does not override". It is shown as the model's default, never as a concrete level. Which levels a model takes comes from `ModelInfo.supportsEffort` / `supportedEffortLevels`, carried on each model choice as `_meta["cycle/efforts"]` (`[]` none, absent unknown) and cached by the daemon for the new-session page. When unknown, every level is offered and the SDK decides; when the catalog arrives, an unsupported value goes back to `default`.
 - `usage_update` is sent at the end of each turn and, when `compact_boundary` carries `post_tokens`, right after `compaction_update: completed`, with the window from the process's last usage and no cost. Without `post_tokens` nothing is sent; a client treats the usage it has as from before the compaction.
-- No per-category breakdown, cache split or compaction count fields now. Details show used, window, cost and compaction state only.
+- No per-category breakdown, cache split or compaction count fields now. Details show used, window, cost and compaction state only. (Superseded the same day for the breakdown: 2026-11-20-context-breakdown-from-getcontextusage.md.)
 
 Spec: docs/protocol.md §8 "上下文用量" and §10 "思考强度".
 

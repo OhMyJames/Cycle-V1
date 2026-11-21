@@ -95,24 +95,31 @@ export const enUS = {
   "composer.effort.chip": "Default effort",
 
   // How full the context is: the ring under the input, and its details
-  "composer.context.title": "Context",
+  "composer.context.title": "Context window",
   "composer.context.ring": "Context {percent} full. Show details",
   "composer.context.ringBefore":
     "Context was {percent} full before the last compaction. Show details",
   "composer.context.ringEmpty": "Context usage not reported yet. Show details",
-  "composer.context.used": "Used",
-  "composer.context.window": "Window",
-  "composer.context.tokens": "{amount} tokens",
-  "composer.context.share": "{percent} full",
   "composer.context.underPercent": "<{percent}",
+  "composer.context.total": "{used} / {size} ({percent})",
+  "composer.context.parts": "What the context window holds",
+  "composer.context.part.systemPrompt": "System prompt",
+  "composer.context.part.systemTools": "System tools",
+  "composer.context.part.mcpTools": "MCP tools",
+  "composer.context.part.mcpInstructions": "MCP instructions",
+  "composer.context.part.agents": "Custom agents",
+  "composer.context.part.memory": "Memory files",
+  "composer.context.part.skills": "Skills",
+  "composer.context.part.messages": "Messages",
+  "composer.context.part.autocompactBuffer": "Autocompact buffer",
+  "composer.context.part.compactBuffer": "Compact buffer",
+  "composer.context.part.free": "Free space",
+  "composer.context.autoCompactAt": "Auto-compacts at",
   "composer.context.cost": "Session cost",
   "composer.context.compactions": "Compactions",
-  "composer.context.empty": "No usage yet. The agent reports it when a reply finishes.",
-  "composer.context.windowNote":
-    "Used counts all of the context, cached parts included. The window is the model's; the agent may compact before it is full.",
-  "composer.context.beforeCompaction":
-    "Measured before the last compaction. The new amount comes with the next reply.",
-  "composer.context.compacting": "Compacting the context now.",
+  "composer.context.empty": "No usage reported yet",
+  "composer.context.beforeCompaction": "From before the last compaction",
+  "composer.context.compacting": "Compacting now",
 
   // The commands that fit what is typed after a slash
   "composer.commands.label": "Commands",

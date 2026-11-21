@@ -19,6 +19,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { answersOf, formOf, type Question, questionsOf } from "./ask.ts";
 import { type SdkContent, toSdkContent } from "./content.ts";
+import { askContext, CONTEXT_META, type ContextBreakdown } from "./context.ts";
 import { NO_SETUP, type SessionSetup, setupOf } from "./setup.ts";
 import { Subagents } from "./subagents.ts";
 import { PlanState, type StopReason, stopReasonOf, TurnTranslator, toolKind } from "./translate.ts";
@@ -330,6 +331,23 @@ const modelOptions = (
   }
   return [...base, { value: session.model, name: session.model, _meta: { "cycle/custom": true } }];
 };
+
+/**
+ * The turn's usage with what the window holds, when the process said: the window is then the one Claude Code measures
+ * against (its compaction window when that is smaller than the model's), so the share and the parts agree. When it
+ * did not say this time, the window this process last told stays (`known`, cleared on a new process or model), so
+ * the ring does not jump between two windows for the same tokens.
+ */
+const withContext = (
+  usage: SessionUpdate,
+  context: ContextBreakdown | undefined,
+  known: number | undefined,
+): SessionUpdate =>
+  context !== undefined
+    ? ({ ...usage, size: context.window, _meta: { [CONTEXT_META]: context } } as SessionUpdate)
+    : known !== undefined
+      ? ({ ...usage, size: known } as SessionUpdate)
+      : usage;
 
 /** `_meta` key on a model choice: the effort levels it takes (docs/protocol.md §10). Same as `META.efforts`. */
 export const EFFORTS_META = "cycle/efforts";
@@ -1044,17 +1062,25 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
             const taken = (message as { user_message_uuids?: string[] }).user_message_uuids;
             if (taken !== undefined) for (const id of taken) turn.steers.delete(id);
             if (taken !== undefined && turn.steers.size > 0 && !turn.cancelled) continue;
+            let usage = turn.translator.usageOf(message);
+            // What the window holds, asked while the turn is still this one's, so nothing of a next turn comes
+            // before its end. Not for a turn whose usage is not told (stopped) or whose process is going.
+            if (
+              usage !== undefined &&
+              !turn.cancelled &&
+              turn.steers.size === 0 &&
+              session.live === live
+            ) {
+              const context = await askContext(live.query);
+              // Put into the turn while that was asked: Claude's next to answer, in this process, as above.
+              if (taken !== undefined && turn.steers.size > 0 && !turn.cancelled) continue;
+              usage = withContext(usage, context, session.contextSize);
+            }
             // A turn that ends with something put into it still waiting (stopped, or unknown): Claude
             // would answer it afterwards, with no turn to show it in. The process goes before it can begin
             // that; the next prompt starts another, which resumes the session.
             if (turn.steers.size > 0) release(session, true);
-            await finish(
-              client,
-              session,
-              turn,
-              stopReasonOf(message),
-              turn.translator.usageOf(message),
-            );
+            await finish(client, session, turn, stopReasonOf(message), usage);
           }
         }
       } catch (error) {

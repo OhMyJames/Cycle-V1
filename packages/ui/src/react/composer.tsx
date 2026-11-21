@@ -33,6 +33,7 @@ import { type PlanItem, type QueuedPrompt, textOf } from "../model/index.ts";
 import { commandText, filterCommands, slashQuery } from "../slash.ts";
 import { AnchoredPopover } from "./anchored-popover.tsx";
 import { optionsOf, propertiesOf } from "./config-form.tsx";
+import { ContextDetails } from "./context-details.tsx";
 import { useI18n } from "./i18n.tsx";
 import { CloseIcon, PlusIcon, SendIcon, StopIcon } from "./icons.tsx";
 import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
@@ -754,7 +755,8 @@ const QUEUE_MOD = (event: KeyboardEvent) => (MOD === "⌘" ? event.metaKey : eve
 
 /**
  * How full the context is: a spring-driven progress ring with a synchronized rolling percentage. It is a button: the
- * details open in the utility bar's popover, and say only what the agent reported (docs/protocol.md §8, CYCL-74).
+ * details (`context-details.tsx`) open in the utility bar's popover, and say only what the agent reported
+ * (docs/protocol.md §8, CYCL-74).
  */
 function ContextMeter({ context }: { context: ContextState }) {
   const { t, number } = useI18n();
@@ -835,20 +837,6 @@ function ContextMeter({ context }: { context: ContextState }) {
     });
   }, [instant, spring, around, percentOf]);
 
-  const tokens = (amount: number) => t("composer.context.tokens", { amount: number(amount) });
-  // The agent names the currency: one Intl does not know is written as given, not thrown on.
-  const costOf = (cost: { amount: number; currency: string }) => {
-    try {
-      return number(cost.amount, {
-        style: "currency",
-        currency: cost.currency,
-        maximumFractionDigits: cost.amount < 0.1 ? 3 : 2,
-      });
-    } catch {
-      return `${number(cost.amount)} ${cost.currency}`;
-    }
-  };
-
   return (
     <span ref={rootRef} data-slot="context-picker">
       <button
@@ -872,6 +860,7 @@ function ContextMeter({ context }: { context: ContextState }) {
           }
           store.track("context_details_opened", {
             state: !measured ? "empty" : before ? "before_compaction" : "measured",
+            parts: measured && !before && (usage.parts?.length ?? 0) > 0,
           });
           setOpen(true);
         }}
@@ -907,44 +896,7 @@ function ContextMeter({ context }: { context: ContextState }) {
         kind="context"
         focusable
       >
-        <div data-slot="setting-popover-head">{t("composer.context.title")}</div>
-        {measured ? (
-          <dl data-slot="context-details">
-            <div data-slot="context-row">
-              <dt>{t("composer.context.used")}</dt>
-              <dd>
-                {tokens(usage.used)}
-                <span data-slot="context-row-aside">
-                  {t("composer.context.share", { percent })}
-                </span>
-              </dd>
-            </div>
-            <div data-slot="context-row">
-              <dt>{t("composer.context.window")}</dt>
-              <dd>{tokens(usage.size)}</dd>
-            </div>
-            {usage.cost !== undefined ? (
-              <div data-slot="context-row">
-                <dt>{t("composer.context.cost")}</dt>
-                <dd>{costOf(usage.cost)}</dd>
-              </div>
-            ) : null}
-            {context.compactions > 0 ? (
-              <div data-slot="context-row">
-                <dt>{t("composer.context.compactions")}</dt>
-                <dd>{number(context.compactions)}</dd>
-              </div>
-            ) : null}
-          </dl>
-        ) : null}
-        <div data-slot="context-notes">
-          {context.compacting ? (
-            <p data-tone="attention">{t("composer.context.compacting")}</p>
-          ) : null}
-          {!measured ? <p>{t("composer.context.empty")}</p> : null}
-          {measured && before ? <p>{t("composer.context.beforeCompaction")}</p> : null}
-          {measured ? <p>{t("composer.context.windowNote")}</p> : null}
-        </div>
+        <ContextDetails context={context} percentOf={percentOf} />
       </AnchoredPopover>
     </span>
   );

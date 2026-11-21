@@ -20,6 +20,8 @@ export const META = {
   open: "cycle/open",
   /** On a model choice: the effort levels that model takes (`[]` when it takes none); absent when not known (docs/protocol.md §10). */
   efforts: "cycle/efforts",
+  /** On a `usage_update`: what the context window holds, by part (docs/protocol.md §8). */
+  context: "cycle/context",
   /** In `session/new`: the id the daemon proposes for the agent's own session. */
   sessionId: "cycle/sessionId",
   /** In a `session/list` row. */
