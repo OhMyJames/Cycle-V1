@@ -9,7 +9,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AnchoredPopover } from "./anchored-popover.tsx";
 import { type Option, OptionLabel, optionsOf, propertiesOf } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
-import { CheckIcon, ChevronDownIcon, ShieldAlertIcon, ShieldIcon } from "./icons.tsx";
+import { CheckIcon, ShieldAlertIcon, ShieldIcon } from "./icons.tsx";
 
 export type SettingsOf = {
   /** The agent's `configSchema`. */
@@ -257,12 +257,6 @@ function SettingPickerChip({
       >
         {leadingIcon}
         <span data-slot="setting-value">{label}</span>
-        <ChevronDownIcon
-          size={12}
-          data-slot="setting-chevron"
-          data-open={open || undefined}
-          aria-hidden="true"
-        />
       </button>
       {popover}
     </div>

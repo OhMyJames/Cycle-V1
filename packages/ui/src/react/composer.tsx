@@ -293,7 +293,7 @@ export function Composer({
     const inputEl = field.querySelector<HTMLElement>('[data-slot="composer-input"]');
     if (inputEl === null || inputEl.scrollHeight === 0) return;
     const style = getComputedStyle(inputEl);
-    const lineHeight = Number.parseFloat(style.lineHeight) || 22;
+    const lineHeight = Number.parseFloat(style.lineHeight) || 21;
     const paddingY =
       (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
     const contentHeight = inputEl.scrollHeight - paddingY;

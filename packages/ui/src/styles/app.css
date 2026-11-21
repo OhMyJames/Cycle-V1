@@ -48,7 +48,7 @@
   --radius-sm: var(--cycle-radius-sm);
   --radius-md: var(--ui-radius);
   --radius-lg: var(--cycle-radius-card);
-  --radius-xl: var(--cycle-radius-message);
+  --radius-xl: var(--cycle-radius-card);
   --radius-2xl: var(--cycle-radius-composer);
 }
 
@@ -226,17 +226,17 @@
   --cycle-text-body: 0.875rem;
   --cycle-text-title: 1rem;
   --cycle-leading-meta: 1.5;
-  --cycle-leading-ui: 1.54;
-  --cycle-leading-body: 1.57;
+  --cycle-leading-ui: 1.46;
+  --cycle-leading-body: 1.5;
   --cycle-leading-title: 1.4;
   --cycle-weight: 420;
 
   /* Concentric rounded radii: inner = outer - padding.
-     24 composer - 14 pad = 10 controls; 16 popover - 6 pad = 10 menu rows. */
+     16 composer - 6 pad = 10 controls; 16 popover - 6 pad = 10 menu rows. */
   --cycle-radius-sm: 6px;
   --cycle-radius-card: 16px;
-  --cycle-radius-message: 20px;
-  --cycle-radius-composer: 24px;
+  --cycle-radius-message: 14px;
+  --cycle-radius-composer: 16px;
   --cycle-radius-pill: 9999px;
 
   /* Hardware specular rim & layered elevation (inspired by Rare UI's .border-apple).
@@ -246,6 +246,13 @@
     inset 0 1px 0 0 light-dark(rgb(255 255 255 / 92%), rgb(255 255 255 / 12%)),
     inset 0 -1px 0 0 light-dark(transparent, rgb(0 0 0 / 40%));
   --cycle-edge-accent: inset 0 1px 0 0 rgb(255 255 255 / 28%), inset 0 -1px 0 0 rgb(0 0 0 / 16%);
+  /* The main input box's edge: its one border and a faint top light, no inner ring (two lines read as a frame). */
+  --cycle-edge-composer: inset 0 1px 0 0 light-dark(rgb(255 255 255 / 90%), rgb(255 255 255 / 4%));
+  /* The main input box focused: a little more lift than at rest. With the border a step deeper, that is all of it: one
+     border, no ring (owner's word, CYCL-75). */
+  --cycle-focus-composer:
+    0 6px 20px -6px light-dark(rgb(0 0 0 / 12%), rgb(0 0 0 / 75%)),
+    0 1px 3px light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 50%));
   --cycle-shadow-composer:
     0 4px 16px -4px light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 60%)),
     0 1px 3px light-dark(rgb(0 0 0 / 4%), rgb(0 0 0 / 45%));
@@ -652,7 +659,7 @@ svg[data-slot="dot"] {
 
 :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) {
   border: 1px solid var(--ui-border);
-  border-radius: var(--cycle-radius-message);
+  border-radius: var(--cycle-radius-card);
   background: var(--cycle-surface-raised);
   box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-dialog);
   transition:
@@ -1372,7 +1379,7 @@ html[data-platform="darwin"]
   border: 1px solid var(--cycle-border-default);
   border-radius: var(--cycle-radius-message);
   box-shadow: var(--cycle-edge-hardware);
-  padding: 0.5rem 0.875rem;
+  padding: 0.375rem 0.75rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -2441,13 +2448,13 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 /* Part 1: Extension tray — docked cleanly above the input box, strictly one compact row per extension type.
-   Inset matches the flat top span of the capsule (single-line) or card (multiline) beneath it. */
+   Inset matches the flat top span of the box beneath it (its 16px radius). */
 [data-slot="composer-extensions"] {
   display: flex;
   flex-direction: column;
   max-height: 12rem;
   overflow-y: auto;
-  margin: 0 1.5rem;
+  margin: 0 1rem;
   border: 1px solid var(--cycle-border-subtle);
   border-bottom: 0;
   border-radius: var(--cycle-radius-card) var(--cycle-radius-card) 0 0;
@@ -2496,12 +2503,12 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   grid-template-areas: "lead field actions";
   align-items: center;
   column-gap: 0.375rem;
-  padding: 0.4375rem 0.5rem;
+  padding: 0.375rem;
   border: 1px solid var(--cycle-border-default);
-  /* One radius for one line and many: at one line's height it is a capsule, taller it is a card. No jump between. */
+  /* One radius for one line and many: a rounded rectangle at one line's height (not a capsule) and taller. No jump. */
   border-radius: var(--cycle-radius-composer);
   background: var(--cycle-surface-raised);
-  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-composer);
+  box-shadow: var(--cycle-edge-composer), var(--cycle-shadow-composer);
   transition:
     border-color var(--cycle-motion-state) var(--cycle-ease),
     box-shadow var(--cycle-motion-state) var(--cycle-ease);
@@ -2516,7 +2523,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 [data-slot="composer-box"][data-no-lead]:not([data-multiline]) {
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas: "field actions";
-  padding-left: 0.9375rem;
+  padding-left: 0.875rem;
   column-gap: 0.5rem;
 }
 
@@ -2536,11 +2543,18 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
     "lead . actions";
 }
 
-/* Quiet focus: the edge lifts one step toward the input border and a soft halo shows; no dark double ring. The box is
-   where the caret lives most of the day, so its focus is a nudge, not an alarm (owner's word, CYCL-75). */
+/* Quiet focus: the one border gets deeper and the box lifts a little; no ring, no halo, no inner rim, so it is never two
+   lines. The box is where the caret lives most of the day: its focus is a nudge, not an alarm (owner's word, CYCL-75). */
 [data-slot="composer-box"]:has([data-slot="composer-input"]:focus-visible) {
-  border-color: color-mix(in srgb, var(--cycle-input-border) 45%, var(--cycle-border-default));
-  box-shadow: var(--cycle-focus-halo), var(--cycle-edge-hardware), var(--cycle-shadow-composer);
+  border-color: color-mix(in srgb, var(--cycle-input-border) 60%, var(--cycle-border-default));
+  box-shadow: var(--cycle-edge-composer), var(--cycle-focus-composer);
+}
+
+@media (prefers-contrast: more) {
+  /* Focus never makes the edge fainter than at rest. */
+  [data-slot="composer-box"]:has([data-slot="composer-input"]:focus-visible) {
+    border-color: var(--cycle-input-border);
+  }
 }
 
 [data-slot="composer"][data-dropping] [data-slot="composer-box"] {
@@ -2758,16 +2772,6 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   [data-open]
 ) {
   color: var(--cycle-attention);
-}
-
-[data-slot="setting-chevron"] {
-  flex: none;
-  opacity: 0.65;
-  transition: transform var(--cycle-motion-disclosure) var(--cycle-ease);
-}
-
-[data-slot="setting-chevron"][data-open] {
-  transform: rotate(180deg);
 }
 
 [data-slot="setting-value"] {
