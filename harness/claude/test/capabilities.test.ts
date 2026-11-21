@@ -1842,7 +1842,25 @@ test("plan limits Claude Code learns from a response are told once each time the
     const turn = textTurn(ID, "m", "ok");
     const result = turn.pop() as SDKMessage;
     // The same twice in a turn, then a change in the next.
-    return call.prompt === "first" || fake.prompts.at(-1) === "first"
+    const said = fake.prompts.at(-1) ?? call.prompt;
+    if (said === "third")
+      // An event about one limit only (no `unifiedWindows`): the others stay as they were.
+      return [
+        ...turn,
+        {
+          type: "rate_limit_event",
+          uuid: "r",
+          session_id: ID,
+          rate_limit_info: {
+            status: "rejected",
+            rateLimitType: "seven_day_opus",
+            utilization: 1,
+            resetsAt: 1_795_484_598,
+          },
+        } as unknown as SDKMessage,
+        result,
+      ];
+    return said === "first"
       ? [...turn, rate(0.69), rate(0.69), result]
       : [...turn, rate(0.7), result];
   });
@@ -1867,6 +1885,14 @@ test("plan limits Claude Code learns from a response are told once each time the
     expect(
       (told[1] as unknown as { windows: { utilization: number }[] }).windows[0]?.utilization,
     ).toBe(0.7);
+
+    await prompt(agent, idle, [{ type: "text", text: "third" }]);
+    const last = updates.filter((u) => (u.sessionUpdate as string) === "_cycle/plan_usage").at(-1);
+    expect(
+      (last as unknown as { windows: { kind: string; status?: string }[] }).windows.map(
+        (w) => `${w.kind}:${w.status}`,
+      ),
+    ).toEqual(["five_hour:allowed", "seven_day:allowed_warning", "seven_day_opus:rejected"]);
   });
 });
 
@@ -1884,4 +1910,6 @@ test("a rate limit event without the windows says the one it is about; one that 
     planWindowsOf({ unifiedWindows: { five_hour: { utilization: "x", resetsAt: 1 } } }),
   ).toEqual([]);
   expect(planWindowsOf(undefined)).toEqual([]);
+  // A limit with no name is no limit: the daemon would refuse the whole usage for it.
+  expect(planWindowsOf({ unifiedWindows: { "": { utilization: 0.1, resetsAt: 1 } } })).toEqual([]);
 });

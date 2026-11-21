@@ -241,7 +241,8 @@ export function ContextDetails({
                   </span>
                   <span data-slot="plan-limit-value">
                     {t("composer.plan.used", {
-                      percent: number(w.utilization, { style: "percent" }),
+                      // Down, not to the nearest: 99.6% is not yet at the limit, and does not read as 100%.
+                      percent: number(Math.floor(w.utilization * 100) / 100, { style: "percent" }),
                       resets: resetsOf(w.resetsAt),
                     })}
                   </span>

@@ -20,7 +20,7 @@ import type {
 import { answersOf, formOf, type Question, questionsOf } from "./ask.ts";
 import { type SdkContent, toSdkContent } from "./content.ts";
 import { askContext, CONTEXT_META, type ContextBreakdown } from "./context.ts";
-import { PLAN_USAGE_UPDATE, planWindowsOf } from "./plan-usage.ts";
+import { PLAN_USAGE_UPDATE, type PlanWindow, planWindowsOf } from "./plan-usage.ts";
 import { NO_SETUP, type SessionSetup, setupOf } from "./setup.ts";
 import { Subagents } from "./subagents.ts";
 import { PlanState, type StopReason, stopReasonOf, TurnTranslator, toolKind } from "./translate.ts";
@@ -565,9 +565,13 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
    * adapter: it is the account's, and the daemon keeps it for the agent, not the session.
    */
   let planKey: string | undefined;
+  /** Each limit as last told, by kind: an event about one limit does not take the others away. */
+  const planWindows = new Map<string, PlanWindow>();
   const tellPlanUsage = async (client: AgentContext, session: SessionState, info: unknown) => {
-    const windows = planWindowsOf(info);
-    if (windows.length === 0) return;
+    const told = planWindowsOf(info);
+    if (told.length === 0) return;
+    for (const w of told) planWindows.set(w.kind, w);
+    const windows = [...planWindows.values()];
     const key = JSON.stringify(windows);
     if (key === planKey) return;
     planKey = key;

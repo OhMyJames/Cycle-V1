@@ -455,16 +455,18 @@ export class AppStore {
         const agents = await this.#bridge.agents(environmentId);
         this.#set((s) => ({ agents: { ...s.agents, [environmentId]: agents } }));
       });
-      // What the daemon heard of its agents' plan limits before this connection: nothing to show if it cannot say.
+      // What the daemon has of its agents' plan limits, on this connection: it replaces what was kept from before (a
+      // daemon that restarted, or an agent signed in otherwise, has none), but not a change told while it was asked.
+      const asked = Date.now();
       void this.#bridge
         .planUsage(environmentId)
         .then((told) =>
-          this.#set((s) => ({
-            planUsage: {
-              ...s.planUsage,
-              [environmentId]: newerPlanUsage(s.planUsage[environmentId], told),
-            },
-          })),
+          this.#set((s) => {
+            const heard = Object.fromEntries(
+              Object.entries(s.planUsage[environmentId] ?? {}).filter(([, u]) => u.at >= asked),
+            );
+            return { planUsage: { ...s.planUsage, [environmentId]: newerPlanUsage(heard, told) } };
+          }),
         )
         .catch(() => undefined);
       // A blank conversation on it was waiting to know which agent it starts.
@@ -929,6 +931,7 @@ export class AppStore {
       const { [environmentId]: _sessions, ...sessions } = s.sessions;
       const { [environmentId]: _agents, ...agents } = s.agents;
       const { [environmentId]: _status, ...status } = s.status;
+      const { [environmentId]: _plan, ...planUsage } = s.planUsage;
       const views = Object.fromEntries(
         Object.entries(s.views).filter(([, view]) => view.environmentId !== environmentId),
       );
@@ -938,6 +941,7 @@ export class AppStore {
         sessions,
         agents,
         status,
+        planUsage,
         views,
         ...(open
           ? {

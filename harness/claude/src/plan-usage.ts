@@ -18,7 +18,8 @@ type PlanStatus = "allowed" | "allowed_warning" | "rejected";
 const STATUSES: readonly string[] = ["allowed", "allowed_warning", "rejected"];
 
 const windowOf = (kind: string, value: unknown): PlanWindow[] => {
-  if (typeof value !== "object" || value === null) return [];
+  // A limit with no name is not one (the protocol takes none).
+  if (kind === "" || typeof value !== "object" || value === null) return [];
   const { utilization, resetsAt, status } = value as Record<string, unknown>;
   if (typeof utilization !== "number" || !Number.isFinite(utilization) || utilization < 0)
     return [];

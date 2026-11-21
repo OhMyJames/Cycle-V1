@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { PermissionRequest, SessionSnapshot } from "../../src/api.ts";
+import type { PermissionRequest, PlanUsage, SessionSnapshot } from "../../src/api.ts";
 import { codeTheme } from "../../src/code-theme.ts";
 import { applyUpdate, emptyConversation } from "../../src/model/index.ts";
 import { App, StoreProvider } from "../../src/react/index.ts";
@@ -1955,11 +1955,13 @@ test("the context ring opens into what was reported: nothing yet, now's usage pa
 
 test("the account's plan limits show under the context: the latest the daemon heard, gone once a limit starts over", async () => {
   const now = Date.now();
+  let daemonHas: () => Record<string, PlanUsage> = () => ({});
   const { user, emit, calls } = await mount({
     configure: (script) => {
       script.bridge.sessions = async () => [summary("s1")];
+      script.bridge.planUsage = async () => daemonHas();
       // What the daemon heard before the app connected: one limit getting close, one that has since started over.
-      script.bridge.planUsage = async () => ({
+      daemonHas = () => ({
         fake: {
           at: now - 60_000,
           windows: [
@@ -2007,7 +2009,7 @@ test("the account's plan limits show under the context: the latest the daemon he
           resetsAt: now + 3 * 3_600_000 + 5 * 60_000 + 30_000,
           status: "allowed_warning",
         },
-        { kind: "seven_day", utilization: 0.2, resetsAt: now + 3 * 86_400_000 },
+        { kind: "seven_day", utilization: 0.996, resetsAt: now + 3 * 86_400_000 },
       ],
     },
   });
@@ -2015,18 +2017,33 @@ test("the account's plan limits show under the context: the latest the daemon he
   const again = await screen.findByRole("dialog", { name: "Context window" });
   const rows = limits(again);
   expect(rows[0]).toBe("5-hour limit|95% · resets in 3h 6m|danger");
-  expect(rows[1]).toMatch(/^Weekly limit\|20% · resets .+\|$/);
+  // Not yet at the limit does not read as at it: 99.6% is 99%.
+  expect(rows[1]).toMatch(/^Weekly limit\|99% · resets .+\|danger$/);
   await user.keyboard("{Escape}");
+
+  // The connection comes back to a daemon that has none (it restarted, or the agent is signed in with a key now):
+  // what was kept from before goes.
+  daemonHas = () => ({});
+  emit({ type: "environment-status", environmentId: "local", state: "reconnecting" });
+  emit({ type: "environment-status", environmentId: "local", state: "connected" });
+  await waitFor(async () => {
+    await user.click(ring);
+    const shown = await screen.findByRole("dialog", { name: "Context window" });
+    const none = shown.querySelector('[data-slot="plan-usage"]') === null;
+    await user.keyboard("{Escape}");
+    expect(none).toBe(true);
+  });
 
   // Whether the limits were shown is counted, never how much of them is used.
   const opened = calls
     .filter(([name, event]) => name === "track" && event === "context_details_opened")
     .map(([, , props]) => props);
-  expect(opened).toEqual([
+  expect(opened.slice(0, 2)).toEqual([
     { state: "empty", parts: false, plan: true },
     { state: "empty", parts: false, plan: true },
   ]);
-  expect(JSON.stringify(opened)).not.toMatch(/74|95|0\.2/);
+  expect(opened.at(-1)).toEqual({ state: "empty", parts: false, plan: false });
+  expect(JSON.stringify(opened)).not.toMatch(/74|95|99/);
 });
 
 test("with no plan limits told (a login with an API key), the context shows none", async () => {
