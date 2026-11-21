@@ -248,9 +248,11 @@
   --cycle-edge-accent: inset 0 1px 0 0 rgb(255 255 255 / 28%), inset 0 -1px 0 0 rgb(0 0 0 / 16%);
   /* The main input box's edge: its one border and a faint top light, no inner ring (two lines read as a frame). */
   --cycle-edge-composer: inset 0 1px 0 0 light-dark(rgb(255 255 255 / 90%), rgb(255 255 255 / 4%));
-  /* The main input box focused: a hairline ring a few pixels out (an outline, so the gap is see-through), instead of a
-     halo band. Half the input border's strength: there, not loud. */
-  --cycle-focus-composer: 1px solid color-mix(in srgb, var(--cycle-input-border) 50%, transparent);
+  /* The main input box focused: a little more lift than at rest. With the border a step deeper, that is all of it: one
+     border, no ring (owner's word, CYCL-75). */
+  --cycle-focus-composer:
+    0 6px 20px -6px light-dark(rgb(0 0 0 / 12%), rgb(0 0 0 / 75%)),
+    0 1px 3px light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 50%));
   --cycle-shadow-composer:
     0 4px 16px -4px light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 60%)),
     0 1px 3px light-dark(rgb(0 0 0 / 4%), rgb(0 0 0 / 45%));
@@ -2541,20 +2543,17 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
     "lead . actions";
 }
 
-/* Quiet focus: the border lifts one step and a hairline ring shows a few pixels out, the way a refined input marks
-   it; no halo band, no inner rim, so never three lines at once. The box is where the caret lives most of the day:
-   its focus is a nudge, not an alarm (owner's word, CYCL-75). */
+/* Quiet focus: the one border gets deeper and the box lifts a little; no ring, no halo, no inner rim, so it is never two
+   lines. The box is where the caret lives most of the day: its focus is a nudge, not an alarm (owner's word, CYCL-75). */
 [data-slot="composer-box"]:has([data-slot="composer-input"]:focus-visible) {
-  border-color: color-mix(in srgb, var(--cycle-input-border) 30%, var(--cycle-border-default));
-  outline: var(--cycle-focus-composer);
-  outline-offset: 3px;
+  border-color: color-mix(in srgb, var(--cycle-input-border) 60%, var(--cycle-border-default));
+  box-shadow: var(--cycle-edge-composer), var(--cycle-focus-composer);
 }
 
 @media (prefers-contrast: more) {
   /* Focus never makes the edge fainter than at rest. */
   [data-slot="composer-box"]:has([data-slot="composer-input"]:focus-visible) {
     border-color: var(--cycle-input-border);
-    outline-color: var(--cycle-input-border);
   }
 }
 
