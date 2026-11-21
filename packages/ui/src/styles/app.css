@@ -232,7 +232,7 @@
   --cycle-weight: 420;
 
   /* Concentric rounded radii: inner = outer - padding.
-     24 composer - 14 pad = 10 controls; 16 popover - 6 pad = 10 menu rows. */
+     16 composer - 6 pad = 10 controls; 16 popover - 6 pad = 10 menu rows. */
   --cycle-radius-sm: 6px;
   --cycle-radius-card: 16px;
   --cycle-radius-message: 14px;
@@ -248,9 +248,9 @@
   --cycle-edge-accent: inset 0 1px 0 0 rgb(255 255 255 / 28%), inset 0 -1px 0 0 rgb(0 0 0 / 16%);
   /* The main input box's edge: its one border and a faint top light, no inner ring (two lines read as a frame). */
   --cycle-edge-composer: inset 0 1px 0 0 light-dark(rgb(255 255 255 / 90%), rgb(255 255 255 / 4%));
-  /* The main input box focused: a hairline ring a few pixels out, on the workspace, instead of a halo band. */
-  --cycle-focus-composer:
-    0 0 0 3px var(--cycle-surface-workspace), 0 0 0 4px var(--cycle-border-subtle);
+  /* The main input box focused: a hairline ring a few pixels out (an outline, so the gap is see-through), instead of a
+     halo band. Half the input border's strength: there, not loud. */
+  --cycle-focus-composer: 1px solid color-mix(in srgb, var(--cycle-input-border) 50%, transparent);
   --cycle-shadow-composer:
     0 4px 16px -4px light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 60%)),
     0 1px 3px light-dark(rgb(0 0 0 / 4%), rgb(0 0 0 / 45%));
@@ -2446,13 +2446,13 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 }
 
 /* Part 1: Extension tray — docked cleanly above the input box, strictly one compact row per extension type.
-   Inset matches the flat top span of the capsule (single-line) or card (multiline) beneath it. */
+   Inset matches the flat top span of the box beneath it (its 16px radius). */
 [data-slot="composer-extensions"] {
   display: flex;
   flex-direction: column;
   max-height: 12rem;
   overflow-y: auto;
-  margin: 0 1.5rem;
+  margin: 0 1rem;
   border: 1px solid var(--cycle-border-subtle);
   border-bottom: 0;
   border-radius: var(--cycle-radius-card) var(--cycle-radius-card) 0 0;
@@ -2503,7 +2503,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   column-gap: 0.375rem;
   padding: 0.375rem;
   border: 1px solid var(--cycle-border-default);
-  /* One radius for one line and many: at one line's height it is a capsule, taller it is a card. No jump between. */
+  /* One radius for one line and many: a rounded rectangle at one line's height (not a capsule) and taller. No jump. */
   border-radius: var(--cycle-radius-composer);
   background: var(--cycle-surface-raised);
   box-shadow: var(--cycle-edge-composer), var(--cycle-shadow-composer);
@@ -2546,7 +2546,16 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
    its focus is a nudge, not an alarm (owner's word, CYCL-75). */
 [data-slot="composer-box"]:has([data-slot="composer-input"]:focus-visible) {
   border-color: color-mix(in srgb, var(--cycle-input-border) 30%, var(--cycle-border-default));
-  box-shadow: var(--cycle-edge-composer), var(--cycle-focus-composer), var(--cycle-shadow-composer);
+  outline: var(--cycle-focus-composer);
+  outline-offset: 3px;
+}
+
+@media (prefers-contrast: more) {
+  /* Focus never makes the edge fainter than at rest. */
+  [data-slot="composer-box"]:has([data-slot="composer-input"]:focus-visible) {
+    border-color: var(--cycle-input-border);
+    outline-color: var(--cycle-input-border);
+  }
 }
 
 [data-slot="composer"][data-dropping] [data-slot="composer-box"] {

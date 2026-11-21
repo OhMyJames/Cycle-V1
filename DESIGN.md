@@ -96,18 +96,18 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
 
 - **间距**：4px 网格（`--ui-spacing`），常规布局间距取 1、2、3、4、6、8 倍（为满足同心圆角嵌套 `内圆角 = 外圆角 − 内边距`，容器内边距允许使用 `6px / 10px / 14px` 半档）；基本间距 `--cycle-gap` 为 `0.75rem`（12px），turn 之间 `--cycle-gap-turn` 为 `2rem`（32px）。
 - **内容列**：对话、权限区、输入框、空白页条件区共用同一条居中列宽：`--cycle-measure`（`48rem`，约 72 字符），水平内边距由 `--cycle-column-pad` 算出。
-- **圆角（六档圆润同心，内圆角 = 外圆角 − 内边距）**：
+- **圆角（同心阶梯，内圆角 = 外圆角 − 内边距；CYCL-75 起主输入框与卡片同为 16px，气泡 14px）**：
   - `--cycle-radius-sm`（`6px`）：徽标、计划勾框、行内代码、按键胶囊、缩略图
   - `--ui-radius`（`10px`）：控件、按钮、侧栏行、菜单项、输入框控件、工具展开块
   - `--cycle-radius-card`（`16px`）：菜单与候选列表（`padding: 6px` 内嵌 `10px` 项）、工具/代码/表格/连接器卡片、权限卡
   - `--cycle-radius-message`（`14px`）：用户消息气泡（一行高时是圆角矩形，不是胶囊）
-  - `--cycle-radius-composer`（`16px`）：主输入框外框，单行 44px 高时是圆角矩形而不是胶囊（CYCL-75，负责人：胶囊不精致）
+  - `--cycle-radius-composer`（`16px`）：主输入框外框，单行 46px 高（含边框）时是圆角矩形而不是胶囊；`padding: 6px` 内嵌 `10px` 控件（CYCL-75，负责人：胶囊不精致）
   - `--cycle-radius-pill`（`9999px`）：全圆胶囊（`Send` / `Stop`、`Queue`、`SettingChip`、`Earlier`、`option-tag`）
 
 ### 2.3 硬件微高光、阴影、遮罩与动效令牌
 
 - **硬件微高光描边（参考 Rare UI `.border-apple`）**：
-  - `--cycle-edge-composer`：主输入框专用，只保留 1px 顶部受光，不叠全周内描边，免得与边框成两条线；`--cycle-focus-composer`：主输入框聚焦时，在工作区底色上隔 3px 画一圈 `border-subtle` 细线，代替光晕带（CYCL-75，负责人要求更精致）。
+  - `--cycle-edge-composer`：主输入框专用，只保留 1px 顶部受光，不叠全周内描边，免得与边框成两条线；`--cycle-focus-composer`：主输入框聚焦时的轮廓线，`outline-offset: 3px` 画一圈半强度的 `input-border` 细线，代替光晕带；高对比模式下边框与细线都用全强度 `input-border`（CYCL-75，负责人要求更精致）。
   - `--cycle-edge-hardware`：1px 顶部受光内高光 + 极淡全周内描边（暗色下叠加底部暗边），赋予卡片、浮层、输入框与描边按钮阳极氧化铝般的立体触感；同时提供 `.border-apple` 兼容工具类供 Rare UI 组件复用。
   - `--cycle-edge-accent`：安全橙实心按钮的顶部微高光与底部压边（`inset 0 1px 0 rgb(255 255 255 / 28%)`），让主操作自带按压实体感。
 - **阴影与遮罩**：`--cycle-shadow-composer`（主输入框轻量托起）、`--cycle-shadow-popover`（菜单、权限卡、候选列表）、`--cycle-shadow-dialog`（对话框、搜索面板）、`--cycle-scrim`（模态遮罩）。深色模式下阴影更深，配合 `--cycle-edge-hardware` 与更亮一档的 `surface-raised` 区分层次。
@@ -123,15 +123,15 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
 
 所有界面容器必须归属于以下材质预设之一，不再在局部各自组合边框与阴影：
 
-| 材质名             | 底色                                  | 边框与边缘高光                                                                                                                 | 圆角                             | 阴影                      | 适用对象                                                |
-| ------------------ | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- | ------------------------- | ------------------------------------------------------- |
-| `Surface/Base`     | `workspace` / `sidebar`               | 无                                                                                                                             | 0                                | 无                        | 主区、侧栏背景                                          |
-| `Surface/Ghost`    | 透明（悬停 `hover`，选中 `selected`） | 无                                                                                                                             | 10px (`--ui-radius`) 或 `pill`   | 无                        | 侧栏行、动作行、工具单行/折叠头、设置芯片               |
-| `Surface/Sunken`   | `surface-message`                     | 用户气泡用 `border-default` + `--cycle-edge-hardware`，内嵌无边                                                                | 6 / 10 / 20px                    | 无                        | 用户消息气泡、工具输入输出、行内代码、按键胶囊          |
-| `Surface/Card`     | `surface-raised`                      | `1px border-default` + `--cycle-edge-hardware`                                                                                 | 16px (`--cycle-radius-card`)     | 无                        | 代码块卡片、表格卡片、连接器列表                        |
-| `Surface/Popover`  | `surface-raised`                      | `1px border-default` + `--cycle-edge-hardware`（权限卡顶边 3px `attention`）                                                   | 16px (`--cycle-radius-card`)     | `--cycle-shadow-popover`  | 下拉菜单、`Select` 列表、`PickerMenu`、`PermissionCard` |
-| `Surface/Dialog`   | `surface-raised`                      | `1px border-default` + `--cycle-edge-hardware`                                                                                 | 16px (`--cycle-radius-card`)     | `--cycle-shadow-dialog`   | 模态对话框、确认框、`⌘K` 搜索面板                       |
-| `Surface/Composer` | `surface-raised`                      | `1px border-default` + `--cycle-edge-composer`（只有顶部微光，无内描边）；聚焦时边框提一级，外圈 `--cycle-focus-composer` 细线 | 16px (`--cycle-radius-composer`) | `--cycle-shadow-composer` | 主输入框整块                                            |
+| 材质名             | 底色                                  | 边框与边缘高光                                                                                                                                                                           | 圆角                             | 阴影                      | 适用对象                                                |
+| ------------------ | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ------------------------- | ------------------------------------------------------- |
+| `Surface/Base`     | `workspace` / `sidebar`               | 无                                                                                                                                                                                       | 0                                | 无                        | 主区、侧栏背景                                          |
+| `Surface/Ghost`    | 透明（悬停 `hover`，选中 `selected`） | 无                                                                                                                                                                                       | 10px (`--ui-radius`) 或 `pill`   | 无                        | 侧栏行、动作行、工具单行/折叠头、设置芯片               |
+| `Surface/Sunken`   | `surface-message`                     | 用户气泡用 `border-default` + `--cycle-edge-hardware`，内嵌无边                                                                                                                          | 6 / 10 / 14px                    | 无                        | 用户消息气泡、工具输入输出、行内代码、按键胶囊          |
+| `Surface/Card`     | `surface-raised`                      | `1px border-default` + `--cycle-edge-hardware`                                                                                                                                           | 16px (`--cycle-radius-card`)     | 无                        | 代码块卡片、表格卡片、连接器列表                        |
+| `Surface/Popover`  | `surface-raised`                      | `1px border-default` + `--cycle-edge-hardware`（权限卡顶边 3px `attention`）                                                                                                             | 16px (`--cycle-radius-card`)     | `--cycle-shadow-popover`  | 下拉菜单、`Select` 列表、`PickerMenu`、`PermissionCard` |
+| `Surface/Dialog`   | `surface-raised`                      | `1px border-default` + `--cycle-edge-hardware`                                                                                                                                           | 16px (`--cycle-radius-card`)     | `--cycle-shadow-dialog`   | 模态对话框、确认框、`⌘K` 搜索面板                       |
+| `Surface/Composer` | `surface-raised`                      | `1px border-default` + `--cycle-edge-composer`（只有顶部微光，无内描边）；聚焦时边框提一级，外圈隔 3px 一道 `--cycle-focus-composer` 轮廓细线（`outline`，空隙透明，不压住上方扩展托盘） | 16px (`--cycle-radius-composer`) | `--cycle-shadow-composer` | 主输入框整块                                            |
 
 ### 2.5 Rare UI / shadcn 令牌桥接（Tailwind v4 `@theme inline`）
 
@@ -213,7 +213,7 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
   - 初次仅渲染最后 60 块；向上滚动至距顶 `< 800px` 或点击 `Show earlier` 时向上增量加载 60 块，通过首块位移修正保持视口不跳动；页面内存中记住最近 50 个会话的阅读锚点；用户向上翻阅时提供浮动的回到底部入口。
 - **Composer 三段式与排队/插话**：
   - **上方拓展区（`composer-extensions`）**：无内容时不占高度；有内容时作为略内缩的衔接托盘停靠于输入区顶边，每类拓展严格占一行并由细线分隔（活跃 `PlanStrip`、排队消息 `queued`、离线/阻塞状态、拖拽提示、附件报错）。
-  - **中间输入区（`composer-box`）**：克制微边（`--cycle-border-default`）+ 顶部硬件高光；聚焦时只把边向 `--cycle-input-border` 提亮一档，外圈隔 3px 一道 `--cycle-focus-composer` 细线，不叠光晕、不画内描边（CYCL-75：输入框一天里大部分时间都有焦点，焦点只是提示）；高对比模式下用 `--cycle-input-border`，强制色模式下用系统 `Highlight` 轮廓。圆角统一用 `--cycle-radius-composer`（16px）：一行（44px）和展开后都是同一个圆角矩形，两种状态之间不跳变。默认单行（左 `+` 添加附件[仅声明 `image` 能力时显示]、中 Lexical Markdown 输入框、右侧动作：空闲时一个圆形发送按钮，空态中性柔灰、有内容亮安全橙；运行时 Queue / Send now / Stop 并排在同一行，不因按钮多而变高）；只有输入超出一行、出现换行或添加附件时才展开为三行布局（附件卡片在上、2 行内容区、底部动作栏），且不闪烁回弹。`/` 与 `@` 的候选菜单以整个输入框为宽（不是输入格），长文件名末尾省略，目录提示最多占 40%；`@` 后文件夹里什么都没有时明说。
+  - **中间输入区（`composer-box`）**：克制微边（`--cycle-border-default`）+ 顶部硬件高光；聚焦时只把边向 `--cycle-input-border` 提亮一档，外圈隔 3px 一道 `--cycle-focus-composer` 细线，不叠光晕、不画内描边（CYCL-75：输入框一天里大部分时间都有焦点，焦点只是提示）；高对比模式下用 `--cycle-input-border`，强制色模式下用系统 `Highlight` 轮廓。圆角统一用 `--cycle-radius-composer`（16px）：一行（46px，含边框）和展开后都是同一个圆角矩形，两种状态之间不跳变。默认单行（左 `+` 添加附件[仅声明 `image` 能力时显示]、中 Lexical Markdown 输入框、右侧动作：空闲时一个圆形发送按钮，空态中性柔灰、有内容亮安全橙；运行时 Queue / Send now / Stop 并排在同一行，不因按钮多而变高）；只有输入超出一行、出现换行或添加附件时才展开为三行布局（附件卡片在上、2 行内容区、底部动作栏），且不闪烁回弹。`/` 与 `@` 的候选菜单以整个输入框为宽（不是输入格），长文件名末尾省略，目录提示最多占 40%；`@` 后文件夹里什么都没有时明说。
   - **下方工具区（`composer-tools`）**：框外无边框紧凑一行；左侧放置权限模式芯片（带盾牌图标；完整会话设置收进头部 `"…"` 菜单），右侧放置 Model 芯片、Effort 芯片与 Fluid UI 风格弹性 `ContextMeter` 用量环（欠阻尼弹簧同步弧线与百分比，满额轻膨；它是按钮，点开与模型、权限同一种 `Surface/Popover`（`context-details.tsx`），像 `/context` 一样直接列数字：总量与比例、分段条、每部分一行（强调色由深到浅的单一色相，压缩预留用墨色，剩余留空），再列自动压缩点、费用与压缩次数，全部 `meta` 字号、等宽数字，不写说明；只有无数据、压缩中、压缩前三种状态写一行字；订阅账号时底部再列 Plan usage（每个限额一行比例与重置时间加细条，平时墨色，快到用注意色，到了用危险色）；压缩后未更新时底圈改虚线、弧线变淡）。
   - **发送与草稿**：文本草稿持久化到 `localStorage`（按环境+会话键隔离），图片与 `@` 链接保持在内存；发送失败或被退回时自动放回输入框前端，不丢内容。
   - **命令与提及**：行首 `/` 触发 agent 命令候选；`@` 触发工作区文件搜索，发送时附带 `resource_link`。
