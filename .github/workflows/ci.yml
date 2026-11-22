@@ -4,7 +4,7 @@
 #  browser      every push to main, every pull request and by hand: the interface's tests in headless Chromium
 #               (`bun run test:browser`). About 23 s of tests and 2.2 GB at its peak, which is why it is not in the gate.
 #  integration  every push to main, every pull request and by hand: all six suites (about 35 s of work). Starts real
-#               processes (Claude, a daemon, Electron under xvfb): serial, a deadline per suite, about 1.5 GB at
+#               processes (Claude, a daemon, Electron under xvfb, the page in headless Chromium): serial, a deadline per suite, about 1.5 GB at
 #               its peak. It needs no secrets: the model is a mock, and nothing here may read an API key from the
 #               environment. --strict: a suite that skipped itself because the runner lacks Electron, xvfb or sshd
 #               is a failure here, not an "ok".
@@ -81,6 +81,7 @@ jobs:
           path: |
             ~/.bun/install/cache
             ~/.cache/electron
+            ~/.cache/ms-playwright
           key: integration-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: integration-${{ runner.os }}-
       - name: Libraries Electron needs, and xvfb
@@ -90,4 +91,7 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       # bun does not run Electron's postinstall, which is what downloads the binary.
       - run: bun node_modules/.bun/electron@*/node_modules/electron/install.js
+      # The web suite's browser, and the libraries it needs.
+      - run: bunx playwright install --with-deps chromium-headless-shell
+        working-directory: apps/desktop
       - run: bun run test:integration --strict --summary "$GITHUB_STEP_SUMMARY"

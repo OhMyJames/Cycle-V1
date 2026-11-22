@@ -306,7 +306,7 @@ bun packages/ui/gallery/shoot.ts permission --themes dark         # 指定场景
 bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸，列出每张
 ```
 
-画廊使用临时 profile 在 macOS Electron 或 Linux xvfb 中运行，检查根页面溢出、控制台错误、焦点环、列表首项可见性与输入框边界对比度。在浏览器中预览：`bun packages/ui/gallery/build.ts` 后打开 `packages/ui/gallery/dist/index.html`（`?s=<场景>` 或 `?s=tokens`）。
+画廊在无界面的 Chromium 中运行（Playwright，每张图一个新的浏览器上下文，2 倍像素，不开窗口、不抢焦点），检查根页面溢出、控制台错误、焦点环、列表首项可见性与输入框边界对比度。在浏览器中预览：`bun packages/ui/gallery/build.ts`，再 `bun scripts/serve-dir.ts packages/ui/gallery/dist`，打开它给出的地址（加 `?s=<场景>` 或 `?s=tokens`）；直接打开文件不行，模块脚本不从 file:// 加载。
 
 核心场景（定义在 `packages/ui/gallery/scenarios.ts`）：`tokens`、`empty`、`empty-conversation`、`conversation`、`streaming`、`permission`、`permission-queue`、`turn-error`、`turn-error-changed`、`turn-error-resent`、`turn-retrying`、`parallel`、`reconnected`、`history-0.3.4`（CYCL-50 的对照样例：并行调用、断线续接、旧历史回放）、`host-down`、`host-reconnecting`、`session-reconnecting`、`many-sessions`、`update-available`、`update-failed`、`daemon-old`、`new-session`、`dialog-add-host`、`dialog-agent-defaults`、`long`、`long-back`、`session-focus`、`turns`、`files`（文件工具的 diff 与计数）、`work`（命令输出与错误、子 agent、压缩、计划条）、`ask`（提问表单）、`web`（搜索结果链接、抓取失败、MCP 与未知工具）、`markdown` / `markdown-top` / `markdown-stream` / `markdown-streaming` / `markdown-link`（CYCL-53 的对照样例：长回答的版式与折叠、逐批流式时视图停在底部且块不重画、链接确认）等。
 
