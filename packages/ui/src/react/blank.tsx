@@ -29,7 +29,8 @@ import { ConfigForm, optionsOf, propertiesOf, withEffortFor } from "./config-for
 import { ConversationView } from "./conversation.tsx";
 import { FolderBrowser } from "./folder-browser.tsx";
 import { useI18n } from "./i18n.tsx";
-import { MoreIcon, WarningIcon } from "./icons.tsx";
+import { MoreIcon } from "./icons.tsx";
+import { StateBlock } from "./state-block.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 import { Tip } from "./tip.tsx";
 
@@ -267,30 +268,27 @@ export function BlankConversationView({
             agents !== undefined &&
             agent === undefined &&
             status?.state === "connected" ? (
-              <div data-slot="empty-block" role="status">
-                <WarningIcon size={20} data-tone="attention" />
-                <p data-slot="empty-title">
-                  {t("blank.noAgent", { environment: environment?.name ?? blank.environmentId })}
-                </p>
-                <p data-slot="hint">
-                  {t("blank.noAgentHint", {
-                    environment: environment?.name ?? blank.environmentId,
-                  })}
-                </p>
-                <Button
-                  data-variant="outline"
-                  onClick={() => void store.reloadAgents(blank.environmentId)}
-                >
-                  {t("blank.retryAgents")}
-                </Button>
-              </div>
+              <StateBlock
+                tone="away"
+                align="start"
+                title={t("blank.noAgent", {
+                  environment: environment?.name ?? blank.environmentId,
+                })}
+                body={t("blank.noAgentHint", {
+                  environment: environment?.name ?? blank.environmentId,
+                })}
+                action={{
+                  label: t("blank.retryAgents"),
+                  onAction: () => void store.reloadAgents(blank.environmentId),
+                }}
+              />
             ) : blank.unreadable === true ? (
-              <div data-slot="empty-block" role="alert">
-                <p>{t("blank.unreadable")}</p>
-                <Button data-variant="outline" onClick={store.retryBlank}>
-                  {t("blank.retry")}
-                </Button>
-              </div>
+              <StateBlock
+                tone="error"
+                align="start"
+                title={t("blank.unreadable")}
+                action={{ label: t("blank.retry"), onAction: store.retryBlank }}
+              />
             ) : (
               <p>{t("blank.lead")}</p>
             )}

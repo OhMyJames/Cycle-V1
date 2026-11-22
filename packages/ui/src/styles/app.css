@@ -1168,7 +1168,8 @@ html[data-platform="darwin"]
     textarea,
     code,
     [data-slot="reason"],
-    [data-slot="empty-title"],
+    [data-slot="state-title"],
+    [data-slot="state-body"],
     [data-slot="composer"],
     [data-slot="blank-where"],
     [data-slot="conversation"]
@@ -1420,27 +1421,81 @@ html[data-platform="darwin"]
   padding: 2rem;
 }
 
-[data-slot="empty-block"] {
+/* A state where content would be (CYCL-67, `state-block.tsx`): nothing yet, loading, failed or away. A page's is
+   centred under a title; an inline one sits in its list or panel with the icon beside the title. */
+[data-slot="state"] {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
   max-width: 32rem;
   text-align: center;
+  color: var(--cycle-ink-muted);
 }
 
-[data-slot="empty-block"] > svg:not([data-tone]) {
-  color: var(--ui-destructive);
+[data-slot="state"][data-align="start"] {
+  align-items: flex-start;
+  text-align: left;
 }
 
-[data-slot="empty-title"] {
+[data-slot="state-title"] {
   margin: 0;
-  color: var(--ui-foreground);
+  color: var(--cycle-ink);
   font-family: var(--cycle-font-display);
   font-size: var(--cycle-text-title);
   font-weight: 600;
   letter-spacing: var(--cycle-tracking-display);
   line-height: var(--cycle-leading-title);
+}
+
+[data-slot="state-body"] {
+  margin: 0;
+  font-size: var(--cycle-text-ui);
+  line-height: var(--cycle-leading-ui);
+}
+
+[data-slot="state"] > svg {
+  flex: none;
+}
+
+[data-slot="state"][data-tone="error"] > svg {
+  color: var(--ui-destructive);
+}
+
+[data-slot="state"][data-tone="away"] > svg {
+  color: var(--cycle-attention);
+}
+
+[data-slot="state"][data-size="inline"] {
+  align-items: flex-start;
+  gap: 0.375rem;
+  max-width: none;
+  text-align: left;
+}
+
+[data-slot="state"][data-size="inline"]:has(> svg, > [data-slot="spinner"]) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.5rem;
+}
+
+[data-slot="state"][data-size="inline"] > :not(svg, [data-slot="spinner"]) {
+  grid-column: 2;
+  justify-self: start;
+}
+
+[data-slot="state"][data-size="inline"] [data-slot="state-title"] {
+  font-family: var(--ui-font-sans);
+  font-size: var(--cycle-text-ui);
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: var(--cycle-leading-ui);
+}
+
+[data-slot="state"][data-tone="empty"][data-size="inline"] [data-slot="state-title"] {
+  color: var(--cycle-ink-muted);
+  font-weight: var(--cycle-weight);
 }
 
 /* A path a decision is about (folder trust) is read like a reason: whole, wrapped, selectable. */
@@ -3524,11 +3579,6 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 
 [data-slot="blank-lead"] p {
   margin: 0;
-}
-
-[data-slot="blank-lead"] [data-slot="empty-block"] {
-  align-items: flex-start;
-  text-align: left;
 }
 
 /* A fieldset, so that it is one named group and is disabled whole while the session is being made. */

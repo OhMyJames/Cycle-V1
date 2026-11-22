@@ -5,6 +5,7 @@ import { Listbox, ListboxItem } from "@ui-sdk/react/listbox";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FolderListing, ListFolders } from "../api.ts";
 import { useI18n } from "./i18n.tsx";
+import { StateBlock } from "./state-block.tsx";
 
 export type FolderBrowserProps = {
   /** Where it starts: a folder, absolute; without it (or when it cannot be read) the environment's home. */
@@ -118,18 +119,19 @@ export function FolderBrowser({ start, list, onChoose, onBack }: FolderBrowserPr
           </Button>
         </div>
         {shown.kind === "loading" && listing === undefined ? (
-          <p data-slot="hint">{t("folders.loading")}</p>
+          <StateBlock size="inline" tone="loading" title={t("folders.loading")} />
         ) : null}
         {shown.kind === "error" ? (
-          <div data-slot="stack" role="alert">
-            <p>{t("folders.error", { reason: shown.reason })}</p>
-            <Button data-variant="outline" onClick={() => void go(shown.path, hidden)}>
-              {t("folders.retry")}
-            </Button>
-          </div>
+          <StateBlock
+            size="inline"
+            tone="error"
+            title={t("folders.error")}
+            reason={shown.reason}
+            action={{ label: t("folders.retry"), onAction: () => void go(shown.path, hidden) }}
+          />
         ) : null}
         {listing !== undefined && listing.folders.length === 0 ? (
-          <p data-slot="hint">{t("folders.empty")}</p>
+          <StateBlock size="inline" tone="empty" title={t("folders.empty")} />
         ) : null}
         {listing !== undefined && listing.folders.length > 0 ? (
           <Listbox

@@ -28,6 +28,7 @@ import { useEffect, useState } from "react";
 import type { AgentInfo, EnvironmentConfig } from "../api.ts";
 import { ConfigForm } from "./config-form.tsx";
 import { useI18n } from "./i18n.tsx";
+import { StateBlock } from "./state-block.tsx";
 
 type OpenProps = { open: boolean; onOpenChange: (open: boolean) => void };
 
@@ -351,8 +352,11 @@ export function AgentDefaultsDialog({
           ) : null}
           {agent !== undefined && loaded === agentKey ? (
             <ConfigForm schema={agent.configSchema} value={config} onChange={setConfig} />
+          ) : unread ? (
+            <StateBlock size="inline" tone="error" title={t("defaults.unreadable")} />
+          ) : agent !== undefined ? (
+            <StateBlock size="inline" tone="loading" title={t("defaults.reading")} />
           ) : null}
-          {unread ? <p data-slot="hint">{t("defaults.unreadable")}</p> : null}
         </div>
         <div data-slot="row" data-dialog-footer="">
           <DialogClose disabled={busy}>Close</DialogClose>

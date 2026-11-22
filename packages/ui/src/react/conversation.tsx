@@ -27,6 +27,7 @@ import { ThoughtIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
 import { Markdown } from "./markdown.tsx";
 import { PlanBlock } from "./plan.tsx";
+import { StateBlock } from "./state-block.tsx";
 import { ToolCard } from "./tool.tsx";
 import { EndBlock, Notice, StepLine, WorkBlock } from "./turn.tsx";
 
@@ -306,9 +307,15 @@ export function ConversationView({
       aria-label={t("conversation.label")}
       aria-busy={loading}
     >
-      {loading ? <div data-slot="loading">{t("conversation.loading")}</div> : null}
+      {loading ? (
+        <div data-slot="loading">
+          <StateBlock tone="loading" title={t("conversation.loading")} />
+        </div>
+      ) : null}
       {!loading && conversation.items.length === 0 ? (
-        <div data-slot="empty">{t("conversation.empty")}</div>
+        <div data-slot="loading">
+          <StateBlock tone="empty" title={t("conversation.empty")} />
+        </div>
       ) : null}
       {start > 0 ? (
         <button type="button" data-slot="earlier" onClick={showEarlier}>

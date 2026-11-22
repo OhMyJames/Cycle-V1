@@ -18,6 +18,7 @@ export const enUS = {
   "session.away": "{environment} · {state}",
   "session.awayBanner":
     "{environment} is not connected. This is what the session had when it went away.",
+  "defaults.reading": "Reading the defaults…",
   "defaults.unreadable":
     "The saved settings of this agent could not be read, so they are not shown. Close this and open it again.",
   "newSession.environment": "Environment",
@@ -37,6 +38,10 @@ export const enUS = {
   "layout.panel": "Panel",
   "empty.chooseOrStart": "Choose a session, or start a new one.",
   "empty.startSession": "Start a new session",
+  "app.starting": "Starting…",
+  "environment.connecting": "Connecting to this environment…",
+  "environment.notConnected": "Not connected to this environment.",
+  "environment.connectAgain": "Connect again",
 
   // A new session before its first message: the blank conversation
   "blank.title": "New session",
@@ -315,7 +320,7 @@ export const enUS = {
   "folders.truncated": "Only the first {count} folders are shown.",
   "folders.choose": "Choose this folder",
   "folders.cancel": "Back",
-  "folders.error": "This folder cannot be shown: {reason}",
+  "folders.error": "This folder cannot be shown.",
   "folders.retry": "Try again",
   "newSession.browse": "Browse…",
 
@@ -339,7 +344,7 @@ export const enUS = {
   "connectors.none":
     "No connected environment can keep connectors. Connect one, or update Cycle on it.",
   "connectors.loading": "Reading connectors…",
-  "connectors.unreadable": "The connectors could not be read: {reason}",
+  "connectors.unreadable": "The connectors could not be read.",
   "connectors.retry": "Try again",
   "connectors.empty": "No connectors yet. Add an MCP server and every session can use it.",
   "connectors.add": "Add connector",

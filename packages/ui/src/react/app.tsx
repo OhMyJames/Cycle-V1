@@ -50,6 +50,7 @@ import { SearchDialog } from "./search.tsx";
 import type { Away } from "./session-list.tsx";
 import { MOD, Sidebar, sessionTitle } from "./sidebar.tsx";
 import { SplitLayout, type SplitPanel } from "./split-layout.tsx";
+import { StateBlock } from "./state-block.tsx";
 import { ENVIRONMENT_STATE } from "./status.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 import { Tip } from "./tip.tsx";
@@ -433,7 +434,12 @@ export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  if (!ready) return <div data-slot="starting">Starting…</div>;
+  if (!ready)
+    return (
+      <div data-slot="starting">
+        <StateBlock tone="loading" title={t("app.starting")} />
+      </div>
+    );
 
   const sidebarToggle = (
     <Tip
@@ -634,32 +640,31 @@ export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
             ) : (
               <div data-slot="empty">
                 {environmentState === "connected" ? (
-                  <div data-slot="empty-block">
-                    <p data-slot="empty-title">{t("empty.chooseOrStart")}</p>
-                    {connectedEnvironments.length > 0 ? (
-                      <Button data-variant="outline" onClick={() => newSession()}>
-                        {t("empty.startSession")}
-                      </Button>
-                    ) : null}
-                  </div>
+                  <StateBlock
+                    tone="empty"
+                    title={t("empty.chooseOrStart")}
+                    action={
+                      connectedEnvironments.length > 0
+                        ? { label: t("empty.startSession"), onAction: () => newSession() }
+                        : undefined
+                    }
+                  />
                 ) : environmentState === "connecting" || environmentState === "reconnecting" ? (
-                  <p>Connecting to this environment…</p>
+                  <StateBlock tone="loading" title={t("environment.connecting")} />
                 ) : (
-                  <div data-slot="empty-block" role="alert">
-                    <ErrorCircleIcon size={20} />
-                    <p data-slot="empty-title">Not connected to this environment.</p>
-                    {environmentError !== undefined ? (
-                      <code data-slot="reason">{environmentError}</code>
-                    ) : null}
-                    {selectedEnvironment !== undefined ? (
-                      <Button
-                        data-variant="outline"
-                        onClick={() => void store.connectEnvironment(selectedEnvironment)}
-                      >
-                        Retry
-                      </Button>
-                    ) : null}
-                  </div>
+                  <StateBlock
+                    tone="error"
+                    title={t("environment.notConnected")}
+                    reason={environmentError}
+                    action={
+                      selectedEnvironment !== undefined
+                        ? {
+                            label: t("environment.connectAgain"),
+                            onAction: () => void store.connectEnvironment(selectedEnvironment),
+                          }
+                        : undefined
+                    }
+                  />
                 )}
               </div>
             )}
