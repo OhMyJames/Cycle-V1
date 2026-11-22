@@ -105,6 +105,10 @@ const previewOf = (prompt: QueuedPrompt): { text: string; images: number } => ({
   images: prompt.prompt.filter((b) => b.type === "image").length,
 });
 
+/** The message box on the page, for a shortcut or a page that hands it the focus. One composer is on a page at a time. */
+export const composerInput = (): HTMLElement | null =>
+  document.querySelector<HTMLElement>('[data-slot="composer"] [data-slot="composer-input"]');
+
 export function Composer({
   environmentId,
   sessionKey,
