@@ -382,6 +382,52 @@ export const scenarios: Record<string, Scenario> = {
       }),
     ],
   },
+  plan: {
+    title:
+      "The plan above the input box, opened: what is open first, what is done ticked, struck and below",
+    sessions: [session("s1", { title: "Overview panel", state: "running" })],
+    history: [
+      you("u1", "Build the overview panel."),
+      u({
+        sessionUpdate: "plan_update",
+        plan: {
+          type: "items",
+          planId: "tasks",
+          entries: [
+            {
+              content: "CYCL-85 research overview data sources",
+              priority: "medium",
+              status: "completed",
+            },
+            {
+              content: "CYCL-86 design overview hierarchy & interactions",
+              priority: "medium",
+              status: "completed",
+            },
+            {
+              content: "CYCL-87 add missing L1 events (protocol doc first, mapping, replay)",
+              priority: "medium",
+              status: "completed",
+            },
+            { content: "CYCL-90 right panel container", priority: "medium", status: "in_progress" },
+            {
+              content: "CYCL-88 overview panel implementation",
+              priority: "medium",
+              status: "pending",
+            },
+          ],
+        },
+      }),
+    ],
+    after: async (root) => {
+      await until(
+        () => root.querySelector('[data-kind="plan-strip"] > button') !== null,
+        "the plan strip",
+      );
+      root.querySelector<HTMLElement>('[data-kind="plan-strip"] > button')?.click();
+      await new Promise((r) => setTimeout(r, 300));
+    },
+  },
   work: {
     title:
       "A command's output and errors apart, a sub-agent in the background, a compaction, a plan proposed, and the plan above the input box",
