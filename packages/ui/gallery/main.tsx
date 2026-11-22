@@ -92,6 +92,7 @@ const bridgeFor = (scenario: Scenario) => {
                       description: "Fastest for quick edits and lookups.",
                     },
                   ],
+                  default: "default",
                 },
                 effort: {
                   type: "string",

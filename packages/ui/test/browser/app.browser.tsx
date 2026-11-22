@@ -1,7 +1,7 @@
-import { afterEach, expect, test } from "bun:test";
 import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { afterEach, expect, test } from "vitest";
+import { userEvent } from "vitest/browser";
 import type { PermissionRequest, PlanUsage, SessionSnapshot } from "../../src/api.ts";
 import { codeTheme } from "../../src/code-theme.ts";
 import { applyUpdate, emptyConversation } from "../../src/model/index.ts";
@@ -9,7 +9,8 @@ import { App, StoreProvider } from "../../src/react/index.ts";
 import { MOD } from "../../src/react/sidebar.tsx";
 import { AppStore } from "../../src/store/index.ts";
 import { fakeBridge, idle, summary, text } from "../fake-bridge.ts";
-import { boxText, press, ready, write } from "./box.ts";
+import { chosenFolder, typeFolder } from "./blank.ts";
+import { boxText, press, ready, sleep, write } from "./box.ts";
 
 afterEach(() => {
   cleanup();
@@ -353,6 +354,9 @@ test("a permission request is shown with its options, and the click answers it",
   expect(within(log).queryByText("Waiting for your answer")).toBeNull();
 });
 
+/** What a person presses for a choice: its label, which lies over the input the way the card draws it. */
+const labelOf = (input: HTMLElement): HTMLElement => input.closest("label") ?? input;
+
 test("an agent's questions are a form: a choice, several choices, an answer of one's own; only what was filled goes back", async () => {
   const { user, emit, named } = await mount();
   await openFirstSession(user);
@@ -408,10 +412,10 @@ test("an agent's questions are a form: a choice, several choices, an answer of o
   const card = await screen.findByLabelText("Claude has some questions");
   expect(card.textContent).toContain("Which library should we use?");
   expect(card.textContent).toContain("Already a dependency");
-  await user.click(within(card).getByRole("radio", { name: /zod/ }));
-  await user.click(within(card).getByRole("checkbox", { name: /macOS/ }));
-  await user.click(within(card).getByRole("checkbox", { name: /Linux/ }));
-  await user.click(within(card).getByRole("checkbox", { name: /macOS/ }));
+  await user.click(labelOf(within(card).getByRole("radio", { name: /zod/ })));
+  await user.click(labelOf(within(card).getByRole("checkbox", { name: /macOS/ })));
+  await user.click(labelOf(within(card).getByRole("checkbox", { name: /Linux/ })));
+  await user.click(labelOf(within(card).getByRole("checkbox", { name: /macOS/ })));
   const [, second] = within(card).getAllByPlaceholderText("Your own answer");
   await user.type(second as HTMLElement, "FreeBSD");
   await user.click(within(card).getByText("Send answers"));
@@ -536,15 +540,14 @@ test("a new session is a blank conversation: nothing is made until its first mes
   });
   await user.click(await screen.findByRole("button", { name: "New session" }));
   expect(await screen.findByRole("heading", { name: "New session" })).toBeTruthy();
-  expect(screen.getByText("The session starts when you send the first message.")).toBeTruthy();
-  // It starts from the folder of the workspace that is shown: the person replaces it.
+  // It starts from the folder of the workspace that is shown, named by its last part: the person replaces it.
   const where = screen.getByRole("group", { name: "Where the session runs" });
-  const folder = within(where).getByRole("textbox", { name: "Folder" });
-  expect((folder as HTMLInputElement).value).toBe("/work");
-  await user.clear(folder);
-  // No folder: the box takes words, and says why they cannot go yet.
-  expect(await screen.findByText("Choose a folder for the agent to work in.")).toBeTruthy();
-  await user.type(folder, "/work/new");
+  expect(await chosenFolder()).toBe("/work");
+  expect(within(where).getByRole("button", { name: "Folder: /work" }).textContent).toContain(
+    "work",
+  );
+  await typeFolder(user, "/work/new");
+  expect(await chosenFolder()).toBe("/work/new");
   // What it starts with is shown under the box, before anything is made.
   await screen.findByRole("button", { name: "mode: plan" });
   expect(named("createSession")).toEqual([]);
@@ -958,10 +961,9 @@ test("a file that is not an image the agent takes is refused with the reason, an
   await screen.findByRole("button", { name: "Attach image" });
   const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
   if (picker === null) throw new Error("no file input");
-  // The picker's own filter (`accept`) is only a hint: a drop or a paste brings anything, so the code checks again.
-  await userEvent
-    .setup({ applyAccept: false })
-    .upload(picker, new File(["x"], "pic.bmp", { type: "image/bmp" }));
+  // The picker's own filter (`accept`) is only a hint: a drop or a paste brings anything, so the code checks again. (The
+  // browser's own upload does not apply it either.)
+  await userEvent.upload(picker, new File(["x"], "pic.bmp", { type: "image/bmp" }));
   expect((await screen.findByRole("alert")).textContent).toContain(
     "pic.bmp is not a PNG, JPEG, GIF or WebP image.",
   );
@@ -1010,8 +1012,10 @@ test("an update that is found is offered, asks before it restarts, and the foote
   expect(
     screen.getAllByText(/Downloading the changes for 0.2.0: 5 of 40 MB/).length,
   ).toBeGreaterThan(0);
-  // No button to start it again while it works, and no second check.
-  expect(screen.queryByRole("button", { name: "Update and restart" })).toBeNull();
+  // No button to start it again while it works, and no second check. (The dialog that asked leaves with its own motion.)
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "Update and restart" })).toBeNull(),
+  );
   await user.click(screen.getByRole("button", { name: /^Settings/ }));
   expect(
     (await screen.findByRole("button", { name: "Check for updates" })).hasAttribute("disabled"),
@@ -1047,7 +1051,10 @@ test("a daemon too old for the app says so in one line with a button, and updati
   expect(named("upgradeDaemon")).toHaveLength(0);
   const dialog = await screen.findByRole("alertdialog");
   await user.click(within(dialog).getByRole("button", { name: "Update" }));
-  await waitFor(() => expect(named("upgradeDaemon")).toEqual([["upgradeDaemon", "local"]]));
+  // Nothing is waiting, so the app does not say when.
+  await waitFor(() =>
+    expect(named("upgradeDaemon")).toEqual([["upgradeDaemon", "local", undefined]]),
+  );
   await emit({
     type: "environment-status",
     environmentId: "local",
@@ -1434,7 +1441,7 @@ test("a name that fits nothing is said so, an @ in an address opens nothing, and
   await ready(box);
   await write(box, "write to me@example.com");
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await sleep(200);
   });
   expect(screen.queryByRole("listbox", { name: "Files and folders" })).toBeNull();
   const empty = () => document.querySelector('[data-slot="picker"][role="status"]');
@@ -1447,7 +1454,7 @@ test("a name that fits nothing is said so, an @ in an address opens nothing, and
   };
   await write(box, "q");
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await sleep(200);
   });
   expect(store.getState().error).toBeUndefined();
 });
@@ -1544,7 +1551,7 @@ test("a daemon that does not find files is not asked for them", async () => {
   await ready(box);
   await write(box, "@ma");
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await sleep(250);
   });
   expect(screen.queryByRole("listbox", { name: "Files and folders" })).toBeNull();
   expect(named("searchFiles")).toHaveLength(0);
@@ -1574,7 +1581,7 @@ test("while the first message makes the session it is shown, nothing can be chan
   expect(where.disabled).toBe(true);
   await act(async () => {
     fail(new Error("No such folder"));
-    await Bun.sleep(5);
+    await sleep(5);
   });
   expect(await screen.findByText("No such folder")).toBeTruthy();
   await waitFor(() => expect(boxText(box)).toBe("Fix the build"));
@@ -1585,13 +1592,9 @@ test("while the first message makes the session it is shown, nothing can be chan
 test("asking for a new session while one is blank keeps it as it is", async () => {
   const { user } = await mount();
   await user.click(await screen.findByRole("button", { name: "New session" }));
-  const folder = (await screen.findByRole("textbox", { name: "Folder" })) as HTMLInputElement;
-  await user.clear(folder);
-  await user.type(folder, "/new/project");
+  await typeFolder(user, "/new/project");
   await user.click(screen.getByRole("button", { name: "New session" }));
-  expect((screen.getByRole("textbox", { name: "Folder" }) as HTMLInputElement).value).toBe(
-    "/new/project",
-  );
+  expect(await chosenFolder()).toBe("/new/project");
 });
 
 test("empty state offers Start a new session and high-risk mode chip carries data-danger", async () => {

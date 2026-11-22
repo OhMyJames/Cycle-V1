@@ -1724,6 +1724,57 @@ export const scenarios: Record<string, Scenario> = {
     attach: true,
     blank: { cwd: "/Users/me/work/app" },
   },
+  "new-session-folders": {
+    title: "New session: the folder's menu, with the folders this environment has sessions in",
+    sessions: [
+      session("s1", { title: "Fix the remote session", cwd: "/Users/me/work/app" }),
+      session("s2", {
+        title: "Tidy the docs",
+        cwd: "/Users/me/work/clients/northwind/a-very-long-repository-name-for-the-billing-service",
+        updatedAt: "2020-01-01T00:00:00.000Z",
+      }),
+      session("s3", {
+        title: "Notes",
+        cwd: "/Users/me/notes",
+        updatedAt: "2019-12-01T00:00:00.000Z",
+      }),
+    ],
+    blank: { cwd: "/Users/me/work/app" },
+    after: async (root) => {
+      await until(() => root.querySelector('[data-kind="blank-folder"]') !== null, "the folder");
+      root.querySelector<HTMLElement>('[data-kind="blank-folder"]')?.click();
+      await until(() => document.querySelector('[data-kind="blank-folders"]') !== null, "the menu");
+      await frames(4);
+    },
+  },
+  "new-session-untrusted": {
+    title:
+      "New session in a folder nobody has decided on, with a long name: marked before the first message",
+    sessions: [],
+    trust: null,
+    blank: {
+      cwd: "/Users/me/work/clients/northwind/a-very-long-repository-name-for-the-billing-service-and-more",
+    },
+    after: (root) =>
+      until(() => root.querySelector('[data-slot="blank-trust"]') !== null, "the trust mark"),
+  },
+  "new-session-offline": {
+    title:
+      "New session whose environment dropped: says so once, with Connect again; the draft stays",
+    sessions: [session("s1", { title: "Fix the remote session", cwd: "/Users/me/work/app" })],
+    blank: { cwd: "/Users/me/work/app" },
+    after: async (root, emit) => {
+      await until(() => root.querySelector('[data-kind="blank-folder"]') !== null, "the folder");
+      emit({
+        type: "environment-status",
+        environmentId: "local",
+        state: "closed",
+        error: "daemon exited (code 1)",
+      });
+      await until(() => root.querySelector('[data-slot="blank-lead"]') !== null, "the state");
+      await frames(2);
+    },
+  },
   "new-session-starting": {
     title: "The first message is sent, and the session is being made",
     sessions: [session("s1", { title: "Fix the remote session" })],

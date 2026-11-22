@@ -90,6 +90,9 @@ ConnectionManager(会话、环境、权限的动作) ─────────
 | `slash_command_used`     | 从菜单选了斜杠命令                                                  | 无(命令名由 agent 给,不发)                                                                                                                                                   | 页面 `composer.tsx` |
 | `turn_resend_opened`     | 在失败的回合尾点了"Send again",消息放回输入框                       | `failure`:`agent_exited`/`daemon_stopped`/`history`/`resume`/`agent_error`(按错误码,不发错误信息);`changed`:回合里已经跑过命令或改过文件、先提示过                           | 页面 `turn.tsx`     |
 | `turn_resent`            | 放回的消息发出去了                                                  | `edited`:是否改过再发(不发内容)                                                                                                                                              | 页面 `store.ts`     |
+| `blank_folder_chosen`    | 在新建会话的空白页上选了文件夹                                      | `via`:`recent`(有会话的文件夹)/`browse`(系统或 daemon 的文件夹浏览)/`typed`(输入路径);不发路径                                                                               | 页面 `blank.tsx`    |
+| `blank_connect_pressed`  | 空白页的环境没连上，点了 Connect again                              | 无                                                                                                                                                                           | 页面 `blank.tsx`    |
+| `blank_sent`             | 空白页的第一条消息发出                                              | `waited`:打开空白页到发出的时长,`under_10s`/`under_1m`/`under_5m`/`longer`                                                                                                   | 页面 `store.ts`     |
 
 ## 加新功能时怎么埋点
 

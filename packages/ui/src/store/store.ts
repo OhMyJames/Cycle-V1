@@ -48,6 +48,10 @@ export const viewKey = (environmentId: string, sessionId: string): string =>
  */
 export const BLANK_KEY = "blank";
 
+/** How long a blank conversation was open before its first message, in four words: only that is reported. */
+const waitedOf = (ms: number): EventProps<"blank_sent">["waited"] =>
+  ms < 10_000 ? "under_10s" : ms < 60_000 ? "under_1m" : ms < 300_000 ? "under_5m" : "longer";
+
 /**
  * A new session before its first message: only here, in the client. The daemon hears of it when that message is sent
  * (`session/new`, then `session/prompt`), and only then is it in the list (docs/protocol.md §6).
@@ -71,6 +75,11 @@ export type BlankConversation = {
    * session is made (docs/protocol.md §8 "信任文件夹"). `failed`: why the answer could not be kept.
    */
   asking?: { path: string; failed?: string };
+  /**
+   * Whether its folder is trusted, read when the folder is chosen, so that the page can say before the first message
+   * that it will be asked (`undecided`). Undefined while it is read, or when the daemon cannot say.
+   */
+  trust?: "trusted" | "untrusted" | "undecided";
 };
 
 export type SessionView = {
@@ -205,6 +214,10 @@ export class AppStore {
   #stop: (() => void) | undefined;
   /** The blank conversation's folder is being looked up for trust: a second send waits for the first. */
   #checkingTrust = false;
+  /** When the blank conversation now open was opened: how long it took to send its first message is reported. */
+  #blankOpenedAt = 0;
+  /** The latest read of the blank folder's trust, or answer to it: an older read that comes back after is not used. */
+  #trustRead = 0;
   /** What each session's box holds, written and not sent. */
   readonly drafts: DraftStore;
   /** What each session's right panel shows (CYCL-90). */
@@ -304,8 +317,11 @@ export class AppStore {
       case "environment-status": {
         const was = this.#state.status[event.environmentId]?.state;
         this.#set((s) => ({ status: { ...s.status, [event.environmentId]: toStatus(event) } }));
-        if (event.state === "connected" && was !== "connected")
+        if (event.state === "connected" && was !== "connected") {
           void this.#loadAgents(event.environmentId);
+          // Whether its folder is trusted could not be asked before the daemon said it keeps trust.
+          if (this.#state.blank?.environmentId === event.environmentId) void this.#readBlankTrust();
+        }
         return;
       }
       case "sessions":
@@ -539,9 +555,11 @@ export class AppStore {
             agent: undefined,
             config: undefined,
           };
+    if (blank !== open) this.#blankOpenedAt = Date.now();
     this.#set({ blank, selectedEnvironment: blank.environmentId, selectedSession: undefined });
     if (blank.config === undefined && blank.unreadable === undefined)
       void this.#readBlankDefaults();
+    if (blank !== open) void this.#readBlankTrust();
   };
 
   /** Changes what the blank conversation will start as. Not while it is starting. */
@@ -560,7 +578,10 @@ export class AppStore {
       // A folder and an agent of one environment mean nothing on another.
       next = { environmentId: change.environmentId, cwd: "", agent: undefined, config: undefined };
     }
-    if (change.cwd !== undefined) next.cwd = change.cwd;
+    if (change.cwd !== undefined && change.cwd !== next.cwd) {
+      next.cwd = change.cwd;
+      delete next.trust;
+    }
     if (change.agent !== undefined && change.agent !== next.agent) {
       // Another agent has other settings: what was chosen for this one is not for it.
       next = { ...next, agent: change.agent, config: undefined };
@@ -580,7 +601,27 @@ export class AppStore {
     }
     this.#set({ blank: next, selectedEnvironment: next.environmentId });
     if (next.config === undefined && next.unreadable === undefined) void this.#readBlankDefaults();
+    if (next.cwd !== blank.cwd || next.environmentId !== blank.environmentId)
+      void this.#readBlankTrust();
   };
+
+  /**
+   * Reads whether the blank conversation's folder is trusted, for the page to say so before the first message. Only a
+   * hint: the first message reads it again, and asks. Nothing is said when the daemon cannot tell, or the read fails.
+   */
+  async #readBlankTrust(): Promise<void> {
+    const blank = this.#state.blank;
+    if (blank === undefined) return;
+    const cwd = blank.cwd.trim();
+    if (cwd === "" || this.#state.status[blank.environmentId]?.capabilities?.trust !== true) return;
+    const asked = ++this.#trustRead;
+    const read = await this.#bridge.readTrust(blank.environmentId, cwd).catch(() => undefined);
+    const now = this.#state.blank;
+    if (read === undefined || now === undefined || asked !== this.#trustRead) return;
+    if (now.environmentId !== blank.environmentId || now.cwd.trim() !== cwd) return;
+    const trust = read.trusted === null ? "undecided" : read.trusted ? "trusted" : "untrusted";
+    if (now.trust !== trust) this.#set({ blank: { ...now, trust } });
+  }
 
   /**
    * Answers whether to trust the blank conversation's folder, and then sends its first message. Undefined: neither, the
@@ -603,8 +644,11 @@ export class AppStore {
       return;
     }
     if (this.#state.blank !== blank) return;
-    this.#set({ blank: rest });
-    await this.#sendBlank(rest, true);
+    // What was just decided is what the folder is now: a read still on its way is older.
+    this.#trustRead++;
+    const decided: BlankConversation = { ...rest, trust: trusted ? "trusted" : "untrusted" };
+    this.#set({ blank: decided });
+    await this.#sendBlank(decided, true);
   };
 
   /** Reads the agent's defaults again, after a read that failed. */
@@ -697,6 +741,9 @@ export class AppStore {
         config: blank.config ?? {},
       }),
     );
+    if (sessionId !== undefined)
+      // Once, when the session is made: a start that fails and is sent again is not counted twice.
+      this.track("blank_sent", { waited: waitedOf(Date.now() - this.#blankOpenedAt) });
     if (sessionId === undefined) {
       this.drafts.restore(BLANK_KEY, [content]);
       if (this.#state.blank === starting) this.#set({ blank: { ...blank, cwd } });

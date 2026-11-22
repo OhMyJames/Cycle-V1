@@ -660,6 +660,7 @@ const SHORTCUTS: readonly { group: string; rows: readonly { action: string; keys
     group: "settings.shortcuts.app",
     rows: [
       { action: "settings.shortcuts.newSession", keys: "mod N" },
+      { action: "settings.shortcuts.folder", keys: "mod O" },
       { action: "settings.shortcuts.search", keys: "mod K" },
       { action: "settings.shortcuts.settings", keys: "mod ," },
       { action: "settings.shortcuts.sidebar", keys: "mod B" },

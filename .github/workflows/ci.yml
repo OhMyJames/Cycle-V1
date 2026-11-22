@@ -1,6 +1,8 @@
-# Two jobs, sized for a 2-core, 4 GB machine (GitHub's standard runner is no smaller).
+# Three jobs, sized for a 2-core, 4 GB machine (GitHub's standard runner is no smaller).
 #
 #  check        every push and pull request. The same `bun run check` as the pre-commit hook.
+#  browser      every push to main, every pull request and by hand: the interface's tests in headless Chromium
+#               (`bun run test:browser`). About 23 s of tests and 2.2 GB at its peak, which is why it is not in the gate.
 #  integration  every push to main, every pull request and by hand: all six suites (about 35 s of work). Starts real
 #               processes (Claude, a daemon, Electron under xvfb): serial, a deadline per suite, about 1.5 GB at
 #               its peak. It needs no secrets: the model is a mock, and nothing here may read an API key from the
@@ -37,6 +39,34 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run check
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cache/ms-playwright
+          key: browser-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: browser-${{ runner.os }}-
+      - run: bun install --frozen-lockfile --ignore-scripts
+      # The libraries Chromium needs (the browser itself is cached, and installed by test:browser when it is not).
+      - run: bunx playwright install-deps chromium-headless-shell
+        working-directory: packages/ui
+      - run: bun run test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failures
+          path: packages/ui/.vitest/
+          if-no-files-found: ignore
+          retention-days: 14
 
   integration:
     runs-on: ubuntu-latest

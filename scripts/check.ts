@@ -24,9 +24,10 @@ const rules: Rule[] = [
         f.startsWith("packages/analytics/src/") ||
         f.startsWith("packages/client/src/") ||
         f.startsWith("packages/ui/src/") ||
+        f.startsWith("packages/ui/test/browser/") ||
         f.startsWith("apps/desktop/src/")
       ),
-    why: "Electron's main process is Node. Use node: modules there (see packages/client/src/transport.ts).",
+    why: "Electron's main process is Node, and the interface's tests run in a browser. Use node: modules or the web's own APIs there (see packages/client/src/transport.ts).",
   },
   {
     name: "no suppressed checks",
@@ -139,18 +140,12 @@ if (failures.length > 0) {
 }
 console.log("boundaries ok");
 
-// The interface's tests need a browser's globals, which would break the other tests if every test had
-// them, so they are named *.dom.tsx and run on their own, with happy-dom preloaded.
-const domTests = Array.from(new Glob("packages/ui/test/dom/*.dom.tsx").scanSync({ cwd: root })).map(
-  (file) => `./${file}`,
-);
-
 const steps: [string, string[]][] = [
   ["css", ["bun", "run", "--cwd", "packages/ui", "build:css"]],
   ["typecheck", ["bun", "run", "typecheck"]],
   ["lint", ["bun", "run", "lint"]],
+  // The interface's tests run in a real browser and are not here: `bun run test:browser`, and CI's browser job.
   ["test", ["bun", "test"]],
-  ["test (dom)", ["bun", "test", "--preload", "./packages/ui/test/dom/setup.ts", ...domTests]],
 ];
 const timings: string[] = [];
 for (const [name, cmd] of steps) {

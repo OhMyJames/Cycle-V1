@@ -96,6 +96,11 @@ export class Session {
   trustStale = false;
   /** Set while an agent process is being started, so two prompts do not start two. */
   starting: Promise<AgentLink> | undefined;
+  /**
+   * When something last happened here (a record written, a client attaching or leaving, an agent started), in ms. An
+   * agent left with nothing to do for long enough is let go (docs/daemon.md "空闲回收"); the next prompt starts it again.
+   */
+  lastActive = 0;
 
   constructor(id: string, entry: SessionEntry, log: SessionLog) {
     this.id = id;

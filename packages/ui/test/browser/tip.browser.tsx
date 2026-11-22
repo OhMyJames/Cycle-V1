@@ -1,8 +1,8 @@
-import { afterEach, expect, test } from "bun:test";
-import { act, cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { Button } from "@ui-sdk/react/button";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
+import { afterEach, expect, test } from "vitest";
+import { userEvent } from "vitest/browser";
 import { Tip } from "../../src/react/tip.tsx";
 
 afterEach(cleanup);
@@ -34,8 +34,12 @@ test("a tip names a control that has only an icon, and tells its keys, without t
   const toggle = screen.getByRole("button", { name: "Hide sidebar" });
   expect(toggle.hasAttribute("aria-label")).toBe(false);
   expect(toggle.hasAttribute("title")).toBe(false);
-  expect(toggle.getAttribute("aria-keyshortcuts")).toBe(
-    /Mac/.test(navigator.userAgent) ? "Meta+B" : "Control+B",
+  // ui-sdk's first render is the same on every platform (as a server would render it, so that hydration agrees); the
+  // platform's keys follow once it is mounted. That is ui-sdk's choice, not this app's.
+  await waitFor(() =>
+    expect(toggle.getAttribute("aria-keyshortcuts")).toBe(
+      /Mac/.test(navigator.userAgent) ? "Meta+B" : "Control+B",
+    ),
   );
   // The control is still the one it wraps: its own slot and its own press.
   expect(toggle.getAttribute("data-slot")).toBe("button");
