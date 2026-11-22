@@ -95,7 +95,10 @@ test.skipIf(!built)(
       await page.locator('[data-kind="blank-folder"]').click();
       await page.getByRole("menuitem", { name: "Enter a path…" }).click();
       const pathField = page.getByRole("dialog").locator("input");
-      await until(() => pathField.evaluate((el) => el === document.activeElement), (v) => v);
+      await until(
+        () => pathField.evaluate((el) => el === document.activeElement),
+        (v) => v,
+      );
       await page.keyboard.press("ControlOrMeta+A");
       await page.keyboard.press("Backspace");
       await page.keyboard.type(cwd);
