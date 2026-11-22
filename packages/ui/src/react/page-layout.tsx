@@ -2,6 +2,7 @@
 // On the left, where the sidebar was, the way back and the page's sections; on the right the section that is chosen.
 // The sections are the SDK's tabs, set upright: the arrows move and select, Home and End, and only the chosen
 // section is in the page. Escape goes back, unless something opened over the page (a dialog, a menu) is what it closes.
+import { isComposing } from "@ui-sdk/core";
 import { Button } from "@ui-sdk/react/button";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@ui-sdk/react/tabs";
 import { type ReactNode, useEffect, useRef } from "react";
@@ -51,7 +52,8 @@ export function PageLayout({
   // page is drawn outside it, so an Escape from there is that thing's own.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // An Escape that cancels an input method's text is that text's own, not the page's.
+      if (event.key !== "Escape" || event.defaultPrevented || isComposing(event)) return;
       const target = event.target as Node | null;
       const root = rootRef.current;
       if (root === null) return;

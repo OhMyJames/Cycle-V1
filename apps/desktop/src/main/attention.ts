@@ -27,7 +27,8 @@ export type AttentionDeps = {
   create: (options: { title: string; subtitle?: string; body: string }) => NotificationLike;
   /** Brings the whole app forward (on a Mac, a window shown is not enough while another app is in front). */
   activate: () => void;
-  translator: Translator;
+  /** The language of what is said, asked for each notification: the person may have changed it since the start. */
+  translator: () => Translator;
   emit: (event: AppEvent) => void;
 };
 
@@ -60,7 +61,7 @@ export const notifyAttention = (deps: AttentionDeps) => (notice: AttentionNotice
     title: titleOf(notice),
     // Which machine, when it is not this one: the same title may be on two.
     ...(notice.environmentId === "local" ? {} : { subtitle: notice.environmentName }),
-    body: deps.translator.t(`attention.${notice.kind}`),
+    body: deps.translator().t(`attention.${notice.kind}`),
   });
   shown.add(notification);
   const done = () => void shown.delete(notification);

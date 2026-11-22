@@ -121,6 +121,8 @@ export type AppState = {
   analytics: AnalyticsStatus | undefined;
   /** How the app looks and reads, as the person chose (main keeps it). Undefined until main has said. */
   preferences: PreferencesState | undefined;
+  /** Counts the times a notification was pressed: its session is shown, over whatever page is open. */
+  focusRequests: number;
   /** Counts the times something asked for the input box to take the focus (a message put back to send again). */
   composerFocus: number;
 };
@@ -155,6 +157,7 @@ const initial = (): AppState => ({
   update: undefined,
   analytics: undefined,
   preferences: undefined,
+  focusRequests: 0,
   composerFocus: 0,
 });
 
@@ -360,6 +363,7 @@ export class AppStore {
         this.#set({ update: event.state });
         return;
       case "focus-session":
+        this.#set((s) => ({ focusRequests: s.focusRequests + 1 }));
         void this.focusSession(event.environmentId, event.sessionId);
         return;
       case "session-gone":

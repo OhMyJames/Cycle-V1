@@ -167,18 +167,9 @@ export const startApp = async (options: AppOptions) => {
     track: (name, props) => analytics.track(name, props),
   });
   // What main says itself (a notification) is in the language chosen now, not the one at the start.
-  const language = (): Translator => {
+  const translator = (): Translator => {
     const { language, systemLanguage } = preferences.state();
     return translatorFor(resolveLanguage(language, systemLanguage));
-  };
-  const translator: Translator = {
-    get locale() {
-      return language().locale;
-    },
-    t: (key, params) => language().t(key, params),
-    number: (value, options) => language().number(value, options),
-    list: (items) => language().list(items),
-    date: (value, options) => language().date(value, options),
   };
 
   const emit = (event: AppEvent) => {

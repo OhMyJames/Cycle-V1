@@ -2,6 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EVENTS } from "@cycle/analytics/events";
+import { LANGUAGE_CHOICES, SETTINGS_SECTIONS, THEME_CHOICES } from "@cycle/ui";
 import {
   DEFAULT_PREFERENCES,
   filePreferencesStore,
@@ -68,12 +70,16 @@ test("a value that is not one of the choices is not taken, from the file or from
   expect(await control.set({ theme: "<script>", language: 7 })).toMatchObject(DEFAULT_PREFERENCES);
   expect(await control.set("dark")).toMatchObject(DEFAULT_PREFERENCES);
   await control.set({ theme: "light" });
-  // What a newer version kept in the file is written back as it was.
+  // What a newer version kept in the file is written back as it was: its other keys, and the language this version
+  // does not know, which the person has not chosen over here.
   expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
     later: { a: 1 },
     theme: "light",
-    language: "system",
+    language: "tlh",
   });
+  // Once the person chooses a language here, theirs is what is kept.
+  await control.set({ language: "zh-CN" });
+  expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({ language: "zh-CN" });
 });
 
 test("a change is counted by its word, a choice that changes nothing is not, and one that cannot be kept changes nothing", async () => {
@@ -106,4 +112,34 @@ test("a change is counted by its word, a choice that changes nothing is not, and
   expect(control.state()).toMatchObject({ theme: "light", language: "en-US" });
   expect(applied).toEqual(["system", "light"]);
   expect(events).toHaveLength(2);
+});
+
+test("two changes made at once both hold: the second starts from what the first came to", async () => {
+  const applied: string[] = [];
+  const kept = memoryPreferencesStore();
+  const control = await startPreferences({
+    store: {
+      load: kept.load,
+      save: async (preferences) => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        await kept.save(preferences);
+      },
+    },
+    systemLanguage: () => "en-US",
+    applyTheme: (theme) => applied.push(theme),
+  });
+  const [, second] = await Promise.all([
+    control.set({ theme: "dark" }),
+    control.set({ language: "zh-CN" }),
+  ]);
+  expect(second).toMatchObject({ theme: "dark", language: "zh-CN" });
+  expect(await kept.load()).toEqual({ theme: "dark", language: "zh-CN" });
+  // A change that could not be kept does not stop the one after it.
+  expect(applied).toEqual(["system", "dark"]);
+});
+
+test("the words the analytics take for a theme, a language and a section are the ones the app has", () => {
+  expect(EVENTS.theme_changed.shape.theme.options).toEqual([...THEME_CHOICES]);
+  expect(EVENTS.language_changed.shape.language.options).toEqual([...LANGUAGE_CHOICES]);
+  expect(EVENTS.settings_section_shown.shape.section.options).toEqual([...SETTINGS_SECTIONS]);
 });

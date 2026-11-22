@@ -67,6 +67,13 @@ import { useAppState, useAppStore } from "./store-context.tsx";
 import { Tip } from "./tip.tsx";
 import { DaemonBanner, UpdateBanner, UpdateFooter } from "./update.tsx";
 
+/**
+ * What is drawn over a page and takes its keys first: a dialog, a menu, the choices of a select. Not every listbox: the
+ * sidebar's list of sessions is one too.
+ */
+const OVER_THE_PAGE =
+  '[role="dialog"], [role="alertdialog"], [role="menu"], [data-slot="select-content"]';
+
 type Panel =
   | "none"
   | "add-environment"
@@ -259,6 +266,13 @@ function AppWindow() {
     store.track("panel_opened", { panel: "settings", via });
   };
   const closeSettings = () => setSettings(undefined);
+  // Left by the person (Escape, Back, the shortcut): the keyboard goes back to the button that opened the page. Left
+  // for something else (a new session, a found one, a notification's), the keyboard is that thing's.
+  const returnFocus = useRef(false);
+  const leaveSettings = () => {
+    returnFocus.current = true;
+    setSettings(undefined);
+  };
   const showSection = (section: SettingsSection) => {
     if (section === settings) return;
     lastSection.current = section;
@@ -480,8 +494,11 @@ function AppWindow() {
       event.preventDefault();
       action();
     };
-    if (key === ",")
-      run(() => (settings === undefined ? openSettings("shortcut") : closeSettings()));
+    if (key === ",") {
+      // What is open over the page (a confirmation, a list of choices) is answered first.
+      if (document.querySelector(OVER_THE_PAGE) !== null) return;
+      run(() => (settings === undefined ? openSettings("shortcut") : leaveSettings()));
+    }
     // The settings page is over the sessions: only what leaves it (a search, a new session) is taken.
     else if (settings !== undefined && key !== "k" && key !== "n") return;
     else if (key === "k") run(() => open("search", "shortcut"));
@@ -528,19 +545,18 @@ function AppWindow() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Something else was opened (from the search, a notification, a new session): the settings page gives way to it.
-  const [shownOpen, setShownOpen] = useState(openKey);
-  if (shownOpen !== openKey) {
-    setShownOpen(openKey);
+  // A notification was pressed: its session is what the person asked for, also when it is the one already open.
+  const focusRequests = useAppState((s) => s.focusRequests);
+  const [shownRequests, setShownRequests] = useState(focusRequests);
+  if (shownRequests !== focusRequests) {
+    setShownRequests(focusRequests);
     if (settings !== undefined) setSettings(undefined);
   }
-  // Back from the page, the keyboard is where it left: on the button that opened it.
   const settingsOpen = settings !== undefined;
-  const wasSettingsOpen = useRef(false);
   useEffect(() => {
-    if (wasSettingsOpen.current && !settingsOpen)
-      appRef.current?.querySelector<HTMLElement>('[data-kind="settings-open"]')?.focus();
-    wasSettingsOpen.current = settingsOpen;
+    if (settingsOpen || !returnFocus.current) return;
+    returnFocus.current = false;
+    appRef.current?.querySelector<HTMLElement>('[data-kind="settings-open"]')?.focus();
   }, [settingsOpen]);
 
   if (!ready)
@@ -583,7 +599,7 @@ function AppWindow() {
         <SettingsPage
           section={settings}
           onSection={showSection}
-          onClose={closeSettings}
+          onClose={leaveSettings}
           banner={errorBanner}
           environments={environments}
           status={status}

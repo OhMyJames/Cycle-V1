@@ -153,6 +153,15 @@ test("an agent's defaults are read, changed and saved for the environment chosen
     ]),
   );
   expect(await screen.findByText("Saved")).toBeTruthy();
+  // The environment tells every client its defaults changed, the one that saved them too: the form reads them again
+  // where it is, still on the environment chosen and still saying it saved.
+  await act(async () => {
+    script.emit({ type: "agent-defaults", environmentId: "far", agent: "fake" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  expect(screen.getByText("Saved")).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "Environment" }).textContent).toContain("Build box");
+  expect(screen.queryByText("Reading the defaults…")).toBeNull();
 });
 
 test("with no environment connected, the defaults say so and lead to the environments", async () => {
@@ -252,4 +261,42 @@ test("the shortcuts are listed with their keys, to look up and not to change", a
   ]);
   expect(within(page).queryByRole("textbox")).toBeNull();
   expect(within(page).queryByRole("button")).toBeNull();
+});
+
+test("Settings stays while it is used, also when what was open under it goes away", async () => {
+  const { user, store, named } = await mount({ environments: [far] });
+  await act(() => store.selectSession("far", "s1"));
+  await user.click(await screen.findByRole("button", { name: /^Settings/ }));
+  await user.click(await screen.findByRole("tab", { name: "Environments" }));
+  await user.click(await screen.findByRole("button", { name: "Actions for Build box" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Remove" }));
+  const confirm = await screen.findByRole("alertdialog", { name: "Remove Build box?" });
+  // The shortcut does not take the page away from under a question it is asking.
+  await user.keyboard(`{${mod}>},{/${mod}}`);
+  expect(screen.getByRole("alertdialog", { name: "Remove Build box?" })).toBeTruthy();
+  await user.click(within(confirm).getByRole("button", { name: "Remove environment" }));
+  await waitFor(() => expect(named("removeEnvironment")).toHaveLength(1));
+  // The session that was open was on it and is gone: the person is still where they were working.
+  expect(screen.getByRole("heading", { name: "Environments", level: 2 })).toBeTruthy();
+});
+
+test("a notification's session is shown over Settings, also when it is the one already open", async () => {
+  const { user, store, emit } = await mount();
+  await act(() => store.selectSession("local", "s1"));
+  await user.click(await screen.findByRole("button", { name: /^Settings/ }));
+  await screen.findByRole("tablist", { name: "Settings sections" });
+  await act(async () => emit({ type: "focus-session", environmentId: "local", sessionId: "s1" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("tablist", { name: "Settings sections" })).toBeNull(),
+  );
+});
+
+test("leaving Settings for a new session leaves the keyboard with the new session, not on the button that opened Settings", async () => {
+  const { user } = await mount();
+  await user.click(await screen.findByRole("button", { name: /^Settings/ }));
+  await screen.findByRole("tablist", { name: "Settings sections" });
+  await user.keyboard(`{${mod}>}n{/${mod}}`);
+  await screen.findByRole("textbox", { name: "Message" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(document.activeElement).not.toBe(screen.getByRole("button", { name: /^Settings/ }));
 });

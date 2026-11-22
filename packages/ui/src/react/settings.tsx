@@ -22,6 +22,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -35,6 +36,7 @@ import {
 } from "../api.ts";
 import { CODE_THEMES, type CodeThemeId, codeTheme } from "../code-theme.ts";
 import { LANGUAGES, resolveLanguage } from "../languages.ts";
+import { SETTINGS_SECTIONS, type SettingsSection } from "../settings-sections.ts";
 import { ConfigForm } from "./config-form.tsx";
 import { ConfirmDialog } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
@@ -48,15 +50,7 @@ import { useAppState, useAppStore } from "./store-context.tsx";
 import { Tip } from "./tip.tsx";
 import { updateLine } from "./update.tsx";
 
-/** The sections, in the order they are listed. The words are also what the analytics name them by. */
-export const SETTINGS_SECTIONS = [
-  "general",
-  "appearance",
-  "environments",
-  "defaults",
-  "shortcuts",
-] as const;
-export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+export { SETTINGS_SECTIONS, type SettingsSection };
 
 export type SettingsPageProps = {
   section: SettingsSection;
@@ -463,11 +457,12 @@ function DefaultsSection({
             </Select>
           </Field>
         ) : null}
-        {/* Keyed by the environment and by what it last said of its defaults: changed elsewhere, the form starts again from them. */}
+        {/* Another environment's form starts from nothing. What this one says of its defaults (`revision`) is read again in place. */}
         <EnvironmentDefaults
-          key={`${environment.id}:${revision}`}
+          key={environment.id}
           environment={environment}
           agents={agents[environment.id] ?? []}
+          revision={revision}
         />
       </div>
     </PageGroup>
@@ -477,9 +472,11 @@ function DefaultsSection({
 function EnvironmentDefaults({
   environment,
   agents,
+  revision,
 }: {
   environment: EnvironmentConfig;
   agents: AgentInfo[];
+  revision: number;
 }) {
   const store = useAppStore();
   const environmentId = environment.id;
@@ -498,6 +495,7 @@ function EnvironmentDefaults({
       agents={agents}
       read={read}
       onSave={save}
+      revision={revision}
     />
   );
 }
@@ -509,6 +507,11 @@ export type AgentDefaultsFormProps = {
   read: (agent: string) => Promise<Record<string, string> | undefined>;
   /** Answering `false` says it was not saved (what went wrong is shown elsewhere). */
   onSave: (agent: string, config: Record<string, string>) => Promise<boolean | undefined>;
+  /**
+   * Counts the times the environment said its defaults changed, here or elsewhere: each is read again, in place. A save
+   * made here comes back as one too, so the form must not start over for it.
+   */
+  revision?: number;
 };
 
 /** The defaults of one environment's agents: which agent, when it has several, and that agent's settings. */
@@ -517,6 +520,7 @@ export function AgentDefaultsForm({
   agents,
   read,
   onSave,
+  revision = 0,
 }: AgentDefaultsFormProps) {
   const { t } = useI18n();
   const [agentId, setAgentId] = useState<string | null>(null);
@@ -561,6 +565,7 @@ export function AgentDefaultsForm({
         agent={agent}
         read={read}
         onSave={onSave}
+        revision={revision}
         onRetry={() => setAttempt((n) => n + 1)}
       />
     </>
@@ -571,11 +576,13 @@ function AgentDefaultsFields({
   agent,
   read,
   onSave,
+  revision,
   onRetry,
 }: {
   agent: AgentInfo;
   read: AgentDefaultsFormProps["read"];
   onSave: AgentDefaultsFormProps["onSave"];
+  revision: number;
   onRetry: () => void;
 }) {
   const { t } = useI18n();
@@ -585,22 +592,29 @@ function AgentDefaultsFields({
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const agentId = agent.id;
+  // Read when shown, and again each time the environment says its defaults changed. What is shown stays while the new
+  // is read; a read that fails then leaves it, since it is still what was last read.
+  const read0 = useRef(true);
   useEffect(() => {
+    const first = read0.current;
+    read0.current = false;
+    // `revision` is what asks for the read again.
+    void revision;
     let current = true;
     read(agentId).then(
       (defaults) => {
         if (!current) return;
-        if (defaults === undefined) setUnread(true);
-        else setConfig(defaults);
+        if (defaults !== undefined) setConfig(defaults);
+        else if (first) setUnread(true);
       },
       () => {
-        if (current) setUnread(true);
+        if (current && first) setUnread(true);
       },
     );
     return () => {
       current = false;
     };
-  }, [read, agentId]);
+  }, [read, agentId, revision]);
   const save = async () => {
     if (config === undefined || busy) return;
     setBusy(true);
