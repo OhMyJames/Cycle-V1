@@ -14,6 +14,7 @@ import type {
 import { type CodeThemeId, codeTheme } from "../src/code-theme.ts";
 import { applyUpdate, emptyConversation } from "../src/model/index.ts";
 import { thinking } from "../src/thinking.ts";
+import { READING, READING_STREAMING } from "../test/markdown-samples.ts";
 import {
   BEFORE_DROP,
   OLD_UPDATES_SENT,
@@ -824,6 +825,159 @@ export const scenarios: Record<string, Scenario> = {
     title: "Code blocks in five languages (syntax colours, light and dark)",
     sessions: [session("s1", { title: "Colour the code" })],
     history: [you("u1", "Show it."), say("a1", CODE), idle({ stopReason: "end_turn" })],
+  },
+  markdown: {
+    title:
+      "A long answer read again: headings, nested lists, a task list, a quote, a wide table, a long code block in part, links",
+    sessions: [session("s1", { title: "Fix the reconnect" })],
+    history: [
+      you("u1", "What did you change?"),
+      say("a1", READING),
+      idle({ stopReason: "end_turn" }),
+    ],
+    after: async (root) => {
+      // Colours arrive after the first layout; the conversation still opens at its end.
+      await until(
+        () => root.querySelector('[data-streamdown="code-block-body"] span[style]') !== null,
+        "colours",
+      );
+      await frames(4);
+      const c = conversationOf(root);
+      const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
+      if (gap > 2) throw new Error(`gallery: the conversation opened ${gap}px above its end`);
+    },
+  },
+  "markdown-top": {
+    title: "The same answer, read from its top",
+    sessions: [session("s1", { title: "Fix the reconnect" })],
+    history: [
+      you("u1", "What did you change?"),
+      say("a1", READING),
+      idle({ stopReason: "end_turn" }),
+    ],
+    after: async (root) => {
+      conversationOf(root).scrollTop = 0;
+      await frames(3);
+    },
+  },
+  "markdown-expand": {
+    title:
+      "A long block shown whole at the end of a conversation: all of it, no scroll inside it, the view stays",
+    sessions: [session("s1", { title: "Fix the reconnect" })],
+    history: [
+      you("u1", "What did you change?"),
+      say("a1", READING),
+      idle({ stopReason: "end_turn" }),
+    ],
+    after: async (root) => {
+      await until(
+        () => root.querySelector('[data-streamdown="code-block-body"] span[style]') !== null,
+        "colours",
+      );
+      await frames(4);
+      const c = conversationOf(root);
+      const toggle = root.querySelector<HTMLElement>('[data-slot="code-fold-toggle"]');
+      if (toggle === null) throw new Error("gallery: no folded block");
+      const top = c.scrollTop;
+      toggle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      toggle.click();
+      await frames(6);
+      const body = toggle.parentElement?.querySelector<HTMLElement>(
+        '[data-streamdown="code-block-body"]',
+      );
+      const problems: string[] = [];
+      if (body !== undefined && body !== null && body.scrollHeight > body.clientHeight + 1)
+        problems.push(
+          `the block scrolls inside itself (${body.clientHeight} of ${body.scrollHeight}px)`,
+        );
+      if (Math.abs(c.scrollTop - top) > 2) problems.push(`the view moved ${c.scrollTop - top}px`);
+      if (problems.length > 0) throw new Error(`gallery: ${problems.join("; ")}`);
+    },
+  },
+  "markdown-link": {
+    title: "A link in a message asks before it opens: the whole address, its words aside",
+    sessions: [session("s1", { title: "Fix the reconnect" })],
+    history: [
+      you("u1", "Where is it documented?"),
+      say(
+        "a1",
+        "In [the protocol](https://example.com/docs/protocol/reconnect?section=backoff&version=0.3.11#retry), under backoff.",
+      ),
+      idle({ stopReason: "end_turn" }),
+    ],
+    after: async (root) => {
+      const link = root.querySelector<HTMLElement>('[data-slot="message"] a');
+      if (link === null) throw new Error("gallery: no link in the message");
+      link.click();
+      await until(() => document.querySelector('[role="alertdialog"]') !== null, "the question");
+      await frames(4);
+    },
+  },
+  "markdown-stream": {
+    title:
+      "The answer written on screen, batch by batch: the view follows the end, no block is drawn again, colours never drop",
+    sessions: [session("s1", { state: "running", title: "Fix the reconnect" })],
+    history: [you("u1", "What did you change?"), running()],
+    after: async (root, emit) => {
+      const c = conversationOf(root);
+      const BATCH = 40;
+      let version = 2;
+      let block: Element | null = null;
+      let coloured = 0;
+      const problems: string[] = [];
+      const send = (update: SessionUpdate) =>
+        emit({
+          type: "update",
+          environmentId: "local",
+          sessionId: "s1",
+          update,
+          version: ++version,
+        });
+      for (let at = 0; at < READING.length; at += BATCH) {
+        send(
+          u({
+            sessionUpdate: "agent_message_chunk",
+            messageId: "a1",
+            content: { type: "text", text: READING.slice(at, at + BATCH) },
+          }),
+        );
+        await frames(2);
+        const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
+        if (gap > 48) problems.push(`${gap}px from the end at ${at}`);
+        if (block !== null && !block.isConnected)
+          problems.push(`a code block was drawn again at ${at}`);
+        const last = Array.from(root.querySelectorAll('[data-streamdown="code-block"]')).at(-1);
+        if (last !== undefined && last !== block) {
+          block = last;
+          coloured = 0;
+        }
+        const spans =
+          block?.querySelectorAll('[data-streamdown="code-block-body"] span[style]').length ?? 0;
+        if (spans < coloured) problems.push(`colours dropped at ${at}`);
+        coloured = spans;
+      }
+      const held = block;
+      send(idle({ stopReason: "end_turn" }));
+      await frames(6);
+      if (held !== null && !held.isConnected)
+        problems.push("the code block was drawn again when the turn ended");
+      if (root.querySelector("[data-folded]") !== null)
+        problems.push("a block written on screen was folded");
+      if (problems.length > 0) throw new Error(`gallery: ${problems.slice(0, 5).join("; ")}`);
+    },
+  },
+  "markdown-streaming": {
+    title: "The same answer while it streams, cut inside its code block",
+    sessions: [session("s1", { state: "running", title: "Fix the reconnect" })],
+    history: [
+      you("u1", "What did you change?"),
+      running(),
+      u({
+        sessionUpdate: "agent_message_chunk",
+        messageId: "a1",
+        content: { type: "text", text: READING_STREAMING },
+      }),
+    ],
   },
   // The same code in each of the five colour choices.
   ...Object.fromEntries(

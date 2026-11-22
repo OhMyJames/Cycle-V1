@@ -1666,6 +1666,137 @@ html[data-platform="darwin"]
   font-size: 0.9em;
 }
 
+/* Headings on the four sizes (DESIGN.md §2.1), not Streamdown's 30/24/20: a reply's headings mark its parts, they are not
+   page titles. The first block of a message has no space above it. */
+[data-slot="message"] :is(h1, h2, h3, h4, h5, h6)[data-streamdown^="heading"] {
+  margin-block: 1rem 0.5rem;
+  font-size: var(--cycle-text-body);
+  font-weight: 600;
+  line-height: var(--cycle-leading-body);
+}
+
+[data-slot="message"] :is([data-streamdown="heading-1"], [data-streamdown="heading-2"]) {
+  font-size: var(--cycle-text-title);
+}
+
+[data-slot="message"] [data-streamdown]:first-child {
+  margin-top: 0;
+}
+
+/* Lists: numbers and bullets hang outside the text, the same for both kinds and at every depth, so wrapped lines and
+   nested lists line up under the words. Items sit close; a list inside an item is closer still. */
+[data-slot="message"] :is([data-streamdown="ordered-list"], [data-streamdown="unordered-list"]) {
+  list-style-position: outside;
+  padding-inline-start: 1.5rem;
+}
+
+[data-slot="message"] [data-streamdown="list-item"] {
+  padding-block: 0.125rem;
+  padding-inline-start: 0.25rem;
+}
+
+[data-slot="message"] [data-streamdown="list-item"]::marker {
+  color: var(--cycle-ink-muted);
+}
+
+[data-slot="message"] [data-streamdown="list-item"] > :is(ol, ul) {
+  margin-top: 0.125rem;
+}
+
+/* A task list: the box is the marker. */
+[data-slot="message"] .contains-task-list {
+  list-style: none;
+  padding-inline-start: 0.25rem;
+}
+
+[data-slot="message"] .task-list-item input[type="checkbox"] {
+  margin: 0 0.5rem 0 0;
+  vertical-align: -0.125rem;
+}
+
+[data-slot="message"] [data-streamdown="blockquote"] {
+  margin-block: 0.5rem;
+  padding-inline-start: 0.75rem;
+  border-inline-start: 2px solid var(--cycle-border-default);
+  color: var(--cycle-ink-secondary);
+  font-style: normal;
+}
+
+/* A table is read across: its words break between words, not anywhere (the message's own rule would squeeze a column to
+   a letter's width). A long path in a cell may break; a table wider than the column scrolls inside its card. */
+[data-slot="message"] :is([data-streamdown="table-header-cell"], [data-streamdown="table-cell"]) {
+  min-width: 6rem;
+  overflow-wrap: break-word;
+  word-break: normal;
+  text-wrap: pretty;
+}
+
+[data-slot="message"] [data-streamdown="table-header-cell"] {
+  white-space: nowrap;
+}
+
+[data-slot="message"] [data-streamdown="table-cell"] [data-streamdown="inline-code"] {
+  overflow-wrap: anywhere;
+}
+
+/* A block with no language (command output, a listing) has no head to name it: Copy floats over its top corner. */
+[data-slot="message"]
+  [data-streamdown="code-block"]:has([data-streamdown="code-block-header"][data-language=""])
+  [data-streamdown="code-block-header"] {
+  display: none;
+}
+
+[data-slot="message"]
+  [data-streamdown="code-block"]:has([data-streamdown="code-block-header"][data-language=""])
+  [data-streamdown="code-block-body"] {
+  padding-top: 0.75rem;
+}
+
+[data-slot="message"]
+  [data-streamdown="code-block"]:has([data-streamdown="code-block-header"][data-language=""])
+  [data-streamdown="code-block-actions"] {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+}
+
+/* A long code block shown in part: its first lines, fading out, and a button under them in the same card. */
+[data-slot="code-fold"] {
+  position: relative;
+}
+
+[data-slot="code-fold"]:has(> [data-slot="code-fold-toggle"]) [data-streamdown="code-block"] {
+  padding-bottom: 2rem;
+}
+
+[data-slot="code-fold"][data-folded] [data-streamdown="code-block-body"] > pre {
+  max-height: 12lh;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black calc(100% - 3lh), transparent);
+}
+
+[data-slot="code-fold-toggle"] {
+  position: absolute;
+  bottom: calc(0.5rem + 1px);
+  left: 0.75rem;
+  height: 1.5rem;
+  padding-inline: 0.5rem;
+  border-radius: var(--ui-radius);
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
+  transition: background-color var(--cycle-motion-state) var(--cycle-ease);
+}
+
+[data-slot="code-fold-toggle"]:hover {
+  background: var(--cycle-surface-hover);
+  color: var(--cycle-ink);
+}
+
+[data-slot="code-fold-toggle"]:focus-visible {
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: 0;
+}
+
 /* An image of a conversation: a thumbnail that opens large. It is a data URL; nothing is fetched. */
 [data-slot="image"] {
   display: inline-block;

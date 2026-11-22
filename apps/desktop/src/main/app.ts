@@ -66,10 +66,14 @@ const updateResult = (
   }
 };
 
-const isWeb = (url: string): boolean => {
+/**
+ * What a link the page asks to open may be: a web page, or an address to write to (the mail app). The page checks the same
+ * list (`isSafeLink` in @cycle/ui) and asks the person first; this is the check that does not trust the page.
+ */
+const OPENABLE = new Set(["https:", "http:", "mailto:"]);
+const isOpenable = (url: string): boolean => {
   try {
-    const { protocol } = new URL(url);
-    return protocol === "https:" || protocol === "http:";
+    return OPENABLE.has(new URL(url).protocol);
   } catch {
     return false;
   }
@@ -264,15 +268,15 @@ export const startApp = async (options: AppOptions) => {
     },
   });
   const contents = window.webContents;
-  // A link in the conversation opens in the user's browser, if it is a web link, and never here.
+  // A link in the conversation opens in the user's browser (or mail app, for mailto), and never here.
   contents.setWindowOpenHandler(({ url }) => {
-    if (isWeb(url)) void shell.openExternal(url);
+    if (isOpenable(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
   contents.on("will-navigate", (event, url) => {
     if (url === indexUrl) return;
     event.preventDefault();
-    if (isWeb(url)) void shell.openExternal(url);
+    if (isOpenable(url)) void shell.openExternal(url);
   });
   contents.on("will-attach-webview", (event) => event.preventDefault());
   await window.loadURL(indexUrl);

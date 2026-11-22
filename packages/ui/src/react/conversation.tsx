@@ -181,6 +181,8 @@ const remember = (key: string, reading: Reading) => {
 const LEAD_PX = 800;
 /** Within this many pixels of the end, the reader counts as at the end and follows what arrives. */
 const NEAR_END_PX = 48;
+/** Growth this soon after the reader pressed a control in the conversation is theirs, not something arriving. */
+const ACTED_MS = 600;
 
 export function ConversationView({
   conversation,
@@ -284,6 +286,53 @@ export function ConversationView({
     if (blocks.length === 0 && conversation.status === "idle" && follow === 0) return;
     el.scrollTop = el.scrollHeight;
   }, [blocks, conversation.status, follow, loading]);
+
+  // What is drawn can grow after it is laid out: code is coloured when its highlighter loads, a code block off screen is
+  // measured when it comes near. While following the end, the end is kept in view through that too; when reading above
+  // it, nothing is moved. Growth the reader caused (showing a code block whole, opening a tool) is theirs to read: the view
+  // stays, and it follows the end again only once they are back at it. One observer for the view's life; blocks added or
+  // removed are watched or let go as they come.
+  const acted = useRef(0);
+  const following = useRef({ loading });
+  following.current.loading = loading;
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null || typeof ResizeObserver === "undefined") return;
+    const keep = new ResizeObserver(() => {
+      if (!stuck.current || following.current.loading) return;
+      if (performance.now() - acted.current < ACTED_MS) {
+        stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END_PX;
+        return;
+      }
+      el.scrollTop = el.scrollHeight;
+    });
+    for (const child of Array.from(el.children)) keep.observe(child);
+    const children = new MutationObserver((changes) => {
+      for (const change of changes) {
+        for (const node of Array.from(change.addedNodes))
+          if (node instanceof Element) keep.observe(node);
+        for (const node of Array.from(change.removedNodes))
+          if (node instanceof Element) keep.unobserve(node);
+      }
+    });
+    children.observe(el, { childList: true });
+    // Only a control: a click that selects words, while a reply streams, is no reason to stop following it.
+    const act = (event: Event) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("button, summary, [role='button']")
+      )
+        acted.current = performance.now();
+    };
+    el.addEventListener("pointerdown", act, true);
+    el.addEventListener("keydown", act, true);
+    return () => {
+      keep.disconnect();
+      children.disconnect();
+      el.removeEventListener("pointerdown", act, true);
+      el.removeEventListener("keydown", act, true);
+    };
+  }, []);
 
   const onScroll = () => {
     const el = ref.current;

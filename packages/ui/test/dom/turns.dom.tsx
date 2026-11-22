@@ -598,8 +598,24 @@ test("an MCP tool reads by its title and the first short line of its input; a se
   await user.click(search);
   const link = within(log).getByRole("link", { name: "Test runner" });
   expect(link.getAttribute("href")).toBe("https://bun.sh/docs/cli/test");
-  link.addEventListener("click", (event) => event.preventDefault());
-  await user.click(link);
+  const opened: unknown[][] = [];
+  const windowOpen = window.open;
+  window.open = ((...args: unknown[]) => {
+    opened.push(args);
+    return null;
+  }) as typeof window.open;
+  try {
+    // A click asks first, showing where the link goes; nothing is opened or counted until the person says yes.
+    await user.click(link);
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog.textContent).toContain("https://bun.sh/docs/cli/test");
+    expect(opened).toEqual([]);
+    expect(script.calls.filter(([name]) => name === "track")).toEqual([]);
+    await user.click(within(dialog).getByRole("button", { name: "Open link" }));
+    expect(opened).toEqual([["https://bun.sh/docs/cli/test", "_blank", "noopener,noreferrer"]]);
+  } finally {
+    window.open = windowOpen;
+  }
   // That a link was opened, never which.
   expect(script.calls.filter(([name]) => name === "track")).toEqual([
     ["track", "tool_link_opened", {}],
