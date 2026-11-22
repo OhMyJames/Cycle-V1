@@ -1,6 +1,6 @@
 // The Overview tab of the right panel (CYCL-88): what the open session is doing besides its turns, read from what the
-// daemon replays, so it is the same after a restart. From what is going on to what does not change: the goal (only
-// when one is set), the todo list, the background, the context window, the environment. A block with nothing to show
+// daemon replays, so it is the same after a restart. From where it runs to what it is doing: the environment, the goal
+// (only when one is set), the context window, the todo list, the background. A block with nothing to show
 // says why in a line; what the agent does not report is said, not made up (.agents/notes/2026-11-22-overview-sources-and-layout.md).
 import { Button } from "@ui-sdk/react/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
@@ -262,6 +262,34 @@ export function Overview() {
         </p>
       ) : null}
 
+      <Section title={t("overview.environment")}>
+        <dl data-slot="overview-facts-list">
+          <dt>{t("overview.where")}</dt>
+          <dd>{environment?.name ?? environmentId}</dd>
+          <dt>{t("overview.folder")}</dt>
+          <dd data-slot="overview-path" title={session?.cwd}>
+            {session?.cwd ?? t("overview.unknown")}
+          </dd>
+          <dt>{t("overview.agent")}</dt>
+          <dd>{agent?.name ?? session?.agent ?? t("overview.unknown")}</dd>
+          {SETTINGS.map(([id, label]) => {
+            const setting = settingOf(
+              conversation.configOptions,
+              agent?.configSchema,
+              session?.config,
+              id,
+            );
+            if (setting === undefined) return null;
+            return [
+              <dt key={`${id}:t`}>{t(label)}</dt>,
+              <dd key={`${id}:d`}>
+                {setting.value === "default" ? t("overview.default") : setting.name}
+              </dd>,
+            ];
+          })}
+        </dl>
+      </Section>
+
       {goal != null ? (
         <Section title={t("overview.goal")}>
           <p data-slot="overview-goal">{goal.condition}</p>
@@ -280,6 +308,16 @@ export function Overview() {
           ) : null}
         </Section>
       ) : null}
+
+      {/* The context details carry their own title, as in the popover of the composer. */}
+      <section data-slot="overview-section" aria-labelledby={contextTitle}>
+        <ContextDetails
+          context={contextOf(conversation)}
+          plan={planUsage}
+          percentOf={percentOf}
+          titleId={contextTitle}
+        />
+      </section>
 
       <Section
         title={t("overview.todo")}
@@ -334,44 +372,6 @@ export function Overview() {
           </Collapsible>
         ) : null}
         <Quiet>{t("overview.background.untracked")}</Quiet>
-      </Section>
-
-      {/* The context details carry their own title, as in the popover of the composer. */}
-      <section data-slot="overview-section" aria-labelledby={contextTitle}>
-        <ContextDetails
-          context={contextOf(conversation)}
-          plan={planUsage}
-          percentOf={percentOf}
-          titleId={contextTitle}
-        />
-      </section>
-
-      <Section title={t("overview.environment")}>
-        <dl data-slot="overview-facts-list">
-          <dt>{t("overview.where")}</dt>
-          <dd>{environment?.name ?? environmentId}</dd>
-          <dt>{t("overview.folder")}</dt>
-          <dd data-slot="overview-path" title={session?.cwd}>
-            {session?.cwd ?? t("overview.unknown")}
-          </dd>
-          <dt>{t("overview.agent")}</dt>
-          <dd>{agent?.name ?? session?.agent ?? t("overview.unknown")}</dd>
-          {SETTINGS.map(([id, label]) => {
-            const setting = settingOf(
-              conversation.configOptions,
-              agent?.configSchema,
-              session?.config,
-              id,
-            );
-            if (setting === undefined) return null;
-            return [
-              <dt key={`${id}:t`}>{t(label)}</dt>,
-              <dd key={`${id}:d`}>
-                {setting.value === "default" ? t("overview.default") : setting.name}
-              </dd>,
-            ];
-          })}
-        </dl>
       </Section>
     </div>
   );

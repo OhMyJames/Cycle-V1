@@ -71,7 +71,7 @@ export const enUS = {
   "overview.state.stopped": "stopped",
   "overview.state.unknown": "status unknown",
   "overview.environment": "Environment",
-  "overview.where": "Environment",
+  "overview.where": "Runs on",
   "overview.folder": "Folder",
   "overview.agent": "Agent",
   "overview.model": "Model",
