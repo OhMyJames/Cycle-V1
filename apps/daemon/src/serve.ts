@@ -10,7 +10,14 @@ import { VERSION } from "./version.ts";
 export type ServeOptions = {
   /** Each line the log writes is also given here (the foreground `cycle serve` at a terminal). */
   echo?: (line: string) => void;
+  /** What is done once the daemon has stopped because it was idle (docs/daemon.md "空闲退出"). Default: exit with 0. */
+  idleExit?: () => void;
+  /** How often idle agents and an idle daemon are looked for. Default 30 s; tests make it short. */
+  sweepMs?: number;
 };
+
+/** Minutes from the config as ms, or undefined for 0: off. */
+const minutes = (value: number): number | undefined => (value > 0 ? value * 60_000 : undefined);
 
 const loggerFor = (paths: Paths, config: Config, echo?: (line: string) => void): FileLogger =>
   fileLogger({ path: paths.log, ...config.log, ...(echo !== undefined ? { echo } : {}) });
@@ -41,6 +48,7 @@ export const serve = async (paths: Paths, options: ServeOptions = {}) => {
       version: VERSION,
       log,
       ...(config.claude.warmStart ? { maxAheadAgents: config.claude.maxWarm } : {}),
+      ...(config.idle.agentMinutes > 0 ? { agentIdleMs: config.idle.agentMinutes * 60_000 } : {}),
     });
     let clients = 0;
     server = await listenUnix({
@@ -59,9 +67,11 @@ export const serve = async (paths: Paths, options: ServeOptions = {}) => {
   const pidFile = join(paths.dataDir, "daemon.pid");
   await writeFile(pidFile, `${process.pid}\n`);
   log.info("listening", { socket: paths.socket });
-  return {
-    log,
-    close: async () => {
+  let closing: Promise<void> | undefined;
+  // One stop, whoever asks for it (a signal, the idle exit): a second caller waits for the first.
+  const close = (): Promise<void> => {
+    closing ??= (async () => {
+      clearInterval(sweep);
       const working = daemon.activity();
       log.info("daemon_stopping", {
         working: working.length,
@@ -72,8 +82,20 @@ export const serve = async (paths: Paths, options: ServeOptions = {}) => {
       await daemon.close();
       log.info("daemon_stopped");
       log.close();
-    },
+    })();
+    return closing;
   };
+  // Agents with nothing to do are let go, and a daemon with nothing at all stops (docs/daemon.md "空闲回收"、"空闲退出").
+  const exitAfter = minutes(config.idle.exitMinutes);
+  const sweep = setInterval(() => {
+    if (closing !== undefined) return;
+    daemon.reclaimIdleAgents();
+    const since = daemon.idleSince();
+    if (exitAfter === undefined || since === undefined || Date.now() - since < exitAfter) return;
+    log.info("idle_exit", { idleMinutes: Math.round((Date.now() - since) / 60_000) });
+    void close().then(options.idleExit ?? (() => process.exit(0)));
+  }, options.sweepMs ?? 30_000);
+  return { log, close };
 };
 
 /**

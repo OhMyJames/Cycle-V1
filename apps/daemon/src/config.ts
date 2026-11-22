@@ -36,6 +36,21 @@ export const ConfigSchema = z.object({
       maxWarm: 3,
       progressSummaries: true,
     }),
+  /** What is let go when nothing is happening (docs/daemon.md "空闲回收"、"空闲退出"). 0 turns either off. */
+  idle: z
+    .object({
+      /**
+       * A session's agent process, once it has had nothing to do and nobody attached this long, is ended (about
+       * 230 MB each for Claude). The session stays; its next prompt starts and resumes the agent.
+       */
+      agentMinutes: z.number().min(0).default(10),
+      /**
+       * The daemon itself, once no client has been connected and no session has been doing anything this long, stops.
+       * Nothing is lost; the next `cycle proxy` (a client connecting) starts it again.
+       */
+      exitMinutes: z.number().min(0).default(30),
+    })
+    .default({ agentMinutes: 10, exitMinutes: 30 }),
   /** The daemon's own log, `<dataDir>/daemon.log` (docs/daemon.md "日志"). Events only, never content. */
   log: z
     .object({
