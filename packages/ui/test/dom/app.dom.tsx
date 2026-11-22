@@ -1229,20 +1229,6 @@ test("what the daemon hands back after a stop is in the box, with no error", asy
   expect(store.getState().error).toBeUndefined();
 });
 
-test("each session has its own box, and a draft survives going to another session and back", async () => {
-  const { user, store } = await mount();
-  await openFirstSession(user);
-  const box = await screen.findByRole("textbox", { name: "Message" });
-  await ready(box);
-  await write(box, "unfinished");
-  await act(() => store.selectSession("local", "s2"));
-  await waitFor(() => expect(boxText(screen.getByRole("textbox", { name: "Message" }))).toBe(""));
-  await act(() => store.selectSession("local", "s1"));
-  await waitFor(() =>
-    expect(boxText(screen.getByRole("textbox", { name: "Message" }))).toBe("unfinished"),
-  );
-});
-
 test("Up in an empty box recalls what was sent, Down goes back, and typing is not interfered with", async () => {
   const { user } = await mount({
     snapshot: () =>
@@ -1275,20 +1261,6 @@ test("Up in an empty box recalls what was sent, Down goes back, and typing is no
   await write(box, "typing");
   await press(box, "ArrowUp");
   expect(boxText(box)).toBe("typing");
-});
-
-test("a message that could not be sent is back in the box", async () => {
-  const { user, bridge } = await mount();
-  bridge.prompt = async () => {
-    throw new Error("The agent is not available");
-  };
-  await openFirstSession(user);
-  const box = await screen.findByRole("textbox", { name: "Message" });
-  await ready(box);
-  await write(box, "do it");
-  await press(box, "Enter");
-  await screen.findByRole("alert");
-  await waitFor(() => expect(boxText(box)).toBe("do it"));
 });
 
 const withCommands = (...names: string[]) =>

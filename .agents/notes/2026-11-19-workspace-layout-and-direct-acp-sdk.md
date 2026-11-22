@@ -35,3 +35,4 @@ The workspace had grown to 10 packages with four structural issues:
 ## Related
 
 - Partially replaces the packaging mechanism (re-exporting via `packages/acp`) recorded in historical [docs/decisions/0005-acp-v2.md](../../docs/decisions/0005-acp-v2.md); the core decision in 0005 (L1 modeled on ACP v2 stable set, exact pinned SDK version, Cycle extensions in `@cycle/protocol`) remains in force.
+- The bullet in Consequences about `scripts/integration-plan.ts` selecting suites is replaced by [integration runs every suite](2026-11-21-integration-runs-every-suite.md): every suite now runs on every PR.

@@ -1,14 +1,11 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { onMain, patchStep } from "./release-guard.ts";
 
-let dir: string;
-beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "cycle-v1-guard-"));
-});
-afterEach(() => rm(dir, { recursive: true, force: true }));
+let dir: string | undefined;
+afterAll(() => (dir ? rm(dir, { recursive: true, force: true }) : undefined));
 
 /** A git hook runs with GIT_DIR and friends set: what the test runs must not see them. */
 const clean = (): Record<string, string> =>
@@ -36,7 +33,9 @@ const git = (cwd: string, ...args: string[]): string => {
 
 /** An "origin" with main (c1, c2) and a branch that never merged (c1, side), cloned the way CI does. */
 const fixture = async (depth?: number) => {
-  const origin = join(dir, "origin");
+  if (dir === undefined) throw new Error("the fixture's directory was not made");
+  const here = join(dir, depth ? `shallow-${depth}` : "full");
+  const origin = join(here, "origin");
   Bun.spawnSync(["git", "init", "-q", "-b", "main", origin], { env: clean() });
   git(origin, "commit", "-q", "--allow-empty", "-m", "c1");
   const c1 = git(origin, "rev-parse", "HEAD");
@@ -46,28 +45,35 @@ const fixture = async (depth?: number) => {
   git(origin, "commit", "-q", "--allow-empty", "-m", "side");
   const side = git(origin, "rev-parse", "HEAD");
   git(origin, "checkout", "-q", "main");
-  const clone = join(dir, "clone");
-  git(dir, "clone", "-q", ...(depth ? ["--depth", String(depth)] : []), `file://${origin}`, clone);
+  const clone = join(here, "clone");
+  git(here, "clone", "-q", ...(depth ? ["--depth", String(depth)] : []), `file://${origin}`, clone);
   git(clone, "fetch", "-q", "origin", "side");
   return { clone, c1, c2, side };
 };
 
+// Built once: the tests only read it (the one that adds tags gives them names of its own).
+let repo: Awaited<ReturnType<typeof fixture>>;
+beforeAll(async () => {
+  dir = await mkdtemp(join(tmpdir(), "cycle-v1-guard-"));
+  repo = await fixture();
+});
+
 test("the current main and an older commit of main are on main", async () => {
-  const { clone, c1, c2 } = await fixture();
+  const { clone, c1, c2 } = repo;
   expect(onMain(clone, c2)).toEqual({ ok: true, commit: c2 });
   expect(onMain(clone, c1)).toEqual({ ok: true, commit: c1 });
   expect(onMain(clone, "origin/main")).toEqual({ ok: true, commit: c2 });
 });
 
 test("a commit that was never merged into main is refused, with its sha in the message", async () => {
-  const { clone, side } = await fixture();
+  const { clone, side } = repo;
   const verdict = onMain(clone, side);
   expect(verdict.ok).toBe(false);
   if (!verdict.ok) expect(verdict.why).toContain(side);
 });
 
 test("an annotated tag is judged by the commit it points to", async () => {
-  const { clone, c1, side } = await fixture();
+  const { clone, c1, side } = repo;
   git(clone, "tag", "-a", "-m", "m", "v-main", c1);
   git(clone, "tag", "-a", "-m", "m", "v-side", side);
   expect(onMain(clone, "v-main").ok).toBe(true);
@@ -82,7 +88,7 @@ test("a shallow clone is refused: main's history is not there to look in", async
 });
 
 test("no main to compare with, and a ref that is not a commit, are refused", async () => {
-  const { clone, c2 } = await fixture();
+  const { clone, c2 } = repo;
   const none = onMain(clone, c2, "origin/nope");
   expect(none.ok).toBe(false);
   if (!none.ok) expect(none.why).toContain("origin/nope");
@@ -90,7 +96,7 @@ test("no main to compare with, and a ref that is not a commit, are refused", asy
 });
 
 test("the command exits 1 for the branch commit and 0 for main", async () => {
-  const { clone, c2, side } = await fixture();
+  const { clone, c2, side } = repo;
   const run = (ref: string) =>
     Bun.spawnSync(["bun", join(import.meta.dir, "release-guard.ts"), ref, "--repo", clone], {
       env: clean(),
