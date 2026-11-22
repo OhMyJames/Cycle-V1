@@ -2,14 +2,21 @@
 
 目标机器:2 核 4 GB。门禁的时间在 2026-11-21 一台 Apple 芯片开发机上量的;集成测试的时间是 GitHub 的 2 核 runner 上的。
 
-## 两层
+## 三层
 
 |      | 命令                       | 时间     | 峰值内存        | 谁跑                                      |
 | ---- | -------------------------- | -------- | --------------- | ----------------------------------------- |
-| 门禁 | `bun run check`            | 约 20 秒 | 约 0.5 GB       | 每次提交(pre-commit)、每次 push 和 PR(CI) |
+| 门禁 | `bun run check`            | 约 14 秒 | 约 0.5 GB       | 每次提交(pre-commit)、每次 push 和 PR(CI) |
+| 界面 | `bun run test:browser`     | 约 23 秒 | 约 2.2 GB       | push 到 main、PR、手动(CI)                |
 | 集成 | `bun run test:integration` | 约 35 秒 | 约 1.5 GB(冒烟) | push 到 main、PR、手动(CI)                |
 
-门禁依次是:边界检查、Tailwind 生成 css、类型检查(约 1 秒)、lint、常规测试(约 890 个,12 秒)、界面测试(约 190 个,8 秒,需要 happy-dom 所以单独一步)。`check.ts` 在最后打印每一步的耗时。
+门禁依次是:边界检查、Tailwind 生成 css、类型检查(约 1 秒)、lint、常规测试(约 890 个,12 秒)。`check.ts` 在最后打印每一步的耗时。
+
+**界面测试在真实浏览器里跑**(`packages/ui/test/browser/*.browser.tsx`,约 200 个):Vitest 的浏览器模式,经 Playwright 启动无界面的 Chromium,不开窗口、不抢焦点。页面加载应用自己的样式表,窗口 1200×800(和桌面端一样),所以布局、可见性、焦点、选区都是真的。点击和按键用 `vitest/browser` 的 `userEvent`,是浏览器自己的输入事件:点击前等元素可见、可用、静止,和人一样点不到被盖住或已禁用的按钮;输入框(Lexical)是真的敲字和按键,不再走编辑器的命令。Motion 的动画跳过,CSS 的过渡照常跑。第一次运行时 `test:browser` 会自己下载 Chromium(约 100 MB,之后只检查一下,约半秒)。失败时 `packages/ui/.vitest/` 里有那一刻的截图,CI 会上传它。
+
+它不在门禁里:两个文件并行约 23 秒、各进程内存加起来约 2.2 GB(一个一个跑 41 秒、1.6 GB),对 2 核 4 GB 的提交前检查太重。CI 里它是单独的 `browser` 作业,和 `check`、`integration` 并行;在 GitHub 的 2 核 runner 上测试本身约 33 秒,装 Chromium 要的系统库约 23 秒,整个作业约 1 分 20 秒,是三个作业里最长的。改了界面,提交前自己跑一次 `bun run test:browser`。
+
+2026-11-21 从 happy-dom 换过来时,真实浏览器发现了 happy-dom 掩盖的几件事,都是测试写得不对,不是应用的错:ui-sdk 的快捷键提示在挂载后才换成本平台的按键;对话框关闭有退出动画,要等它离开;双击一个第一下就禁用的按钮只能真的双击;选项的输入框被 label 盖着,人点的是 label。
 
 集成测试会启动真实进程(Claude、daemon、Electron),所以不在门禁里。6 个套件**串行**,每个有自己的时限:
 

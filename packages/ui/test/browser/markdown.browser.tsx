@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { afterEach, expect, test } from "vitest";
+import { server, userEvent } from "vitest/browser";
 import { StoreProvider } from "../../src/react/index.ts";
 import { FOLD_OVER, Markdown } from "../../src/react/markdown.tsx";
 import { AppStore } from "../../src/store/index.ts";
@@ -68,9 +68,8 @@ test("half a message streams without breaking the page", () => {
 });
 
 test("Tailwind has the classes the markup uses, or it would be drawn bare", async () => {
-  const css = await Bun.file(
-    new URL("../../src/styles/built.css", import.meta.url).pathname,
-  ).text();
+  // Read from disk by the test runner (the path is from this package's root): the page itself cannot.
+  const css = await server.commands.readFile("src/styles/built.css");
   const c = html(
     "# T\n\n- a\n\n> q\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```ts\nx\n```\n\n[l](https://e.com)",
   );

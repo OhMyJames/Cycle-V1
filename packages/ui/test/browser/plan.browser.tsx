@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, expect, test } from "vitest";
 import { createTranslator, SOURCE_LOCALE } from "../../src/i18n.ts";
 import { enUS } from "../../src/messages/en-US.ts";
 import type { PlanEntry } from "../../src/model/index.ts";

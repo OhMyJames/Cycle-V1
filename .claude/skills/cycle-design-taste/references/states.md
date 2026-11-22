@@ -1,6 +1,6 @@
 # 状态
 
-一块界面只画了"正常"就没有做完。下面每块都要有这些状态的画面,并在 DOM 测试里各有一条(`packages/ui/test/dom/app.dom.tsx`)。
+一块界面只画了"正常"就没有做完。下面每块都要有这些状态的画面,并在界面测试里各有一条(`packages/ui/test/browser/app.browser.tsx`,`bun run test:browser`)。
 
 通用的六种:**空**、**加载**、**出错**、**断线或重连**、**内容很长**、**数量很多**。
 
