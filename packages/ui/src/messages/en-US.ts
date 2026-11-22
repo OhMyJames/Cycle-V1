@@ -152,6 +152,7 @@ export const enUS = {
   "composer.steer": "Send now",
   "composer.stop": "Stop",
   "composer.setting": "{setting}: {value}",
+  "composer.default.suffix": "{name} (default)",
   "composer.effort.modelDefault": "Model default",
   "composer.effort.chip": "Default effort",
 
@@ -356,6 +357,9 @@ export const enUS = {
   "sessions.showArchived": "Show archived",
   "sessions.hideArchived": "Hide archived",
   "sidebar.newSession": "New session",
+  // What the sidebar buttons show; their accessible names stay the full ones above
+  "sidebar.newShort": "New",
+  "sidebar.searchShort": "Search",
   // What a row says of its session, in words (the dot is its colour and shape)
   "mark.needsYou": "Needs you",
   "mark.running": "Running",

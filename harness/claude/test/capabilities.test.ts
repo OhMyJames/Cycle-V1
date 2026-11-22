@@ -529,6 +529,72 @@ test("initializationResult() failure falls back independently to supportedComman
   });
 });
 
+test("the default model is the model it stands for, with its version, not an option of its own", async () => {
+  const fake = fakeQuery(() => textTurn(ID, "m", "ok"));
+  fake.state.availableModels = [
+    {
+      value: "default",
+      resolvedModel: "claude-opus-5-5",
+      displayName: "Default (recommended)",
+      description: "Use the default model (currently Opus 5.5) · $4/$20 per Mtok",
+    },
+    {
+      value: "opus",
+      resolvedModel: "claude-opus-5-5",
+      displayName: "Opus",
+      description: "Opus 5.5 · Best for everyday, complex tasks",
+    },
+    {
+      value: "sonnet",
+      resolvedModel: "claude-sonnet-5-5",
+      displayName: "Sonnet",
+      description: "Sonnet 5.5 · Efficient for routine tasks",
+    },
+  ];
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "hello" }]);
+    await waitFor(() => updates.some((u) => u.sessionUpdate === "config_option_update"));
+    const announced = updates.findLast((u) => u.sessionUpdate === "config_option_update") as
+      | {
+          configOptions?: {
+            configId: string;
+            currentValue: string;
+            options: { value: string; name: string }[];
+          }[];
+        }
+      | undefined;
+    const model = announced?.configOptions?.find((o) => o.configId === "model");
+    // The alias row that `default` duplicates is folded into it.
+    expect(model?.options.map((o) => [o.value, o.name])).toEqual([
+      ["default", "Opus 5.5 (default)"],
+      ["sonnet", "Sonnet 5.5"],
+    ]);
+    expect(model?.currentValue).toBe("default");
+
+    // Pinned to the model `default` stands for: the pin keeps its own row, so it is seen and `default` can be chosen.
+    const answer = (await agent.request(methods.agent.session.setConfigOption, {
+      sessionId: ID,
+      configId: "model",
+      type: "id",
+      value: "opus",
+    } as never)) as {
+      configOptions: {
+        configId: string;
+        currentValue: string;
+        options: { value: string; name: string }[];
+      }[];
+    };
+    const pinned = answer.configOptions.find((o) => o.configId === "model");
+    expect(pinned?.currentValue).toBe("opus");
+    expect(pinned?.options.map((o) => [o.value, o.name])).toEqual([
+      ["default", "Opus 5.5 (default)"],
+      ["opus", "Opus 5.5"],
+      ["sonnet", "Sonnet 5.5"],
+    ]);
+  });
+});
+
 test("a mode Claude changes by itself is told to the client, and kept for the next process", async () => {
   const fake = fakeQuery((call) =>
     call.prompt === "plan it"

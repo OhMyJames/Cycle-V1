@@ -297,6 +297,64 @@ const findModelInfo = (
   return models.find((m) => m.value === target || m.resolvedModel === target);
 };
 
+/**
+ * What a discovered model is called: its alias name with the version Claude Code gives first in the description
+ * ("Opus 5.5 · Best for …" → "Opus 5.5"), so the list says which model each name is today.
+ */
+const versionedName = (m: ModelInfo): string => {
+  const name = m.displayName || m.value;
+  const lead = m.description?.split(" · ")[0]?.trim();
+  // Only the name and a version ("Opus 5.5"), never a phrase that happens to start with the name.
+  return lead !== undefined &&
+    lead.toLowerCase().startsWith(`${name.toLowerCase()} `) &&
+    /^\d+(\.\d+)*$/.test(lead.slice(name.length + 1))
+    ? lead
+    : name;
+};
+
+/** The rows that are the model `default` stands for, when the SDK says so (`resolvedModel`). */
+const aliasesOfDefault = (models: readonly ModelInfo[]): readonly ModelInfo[] => {
+  const fallback = models.find((m) => m.value === "default");
+  if (fallback?.resolvedModel === undefined) return [];
+  return models.filter((m) => m.value !== "default" && m.resolvedModel === fallback.resolvedModel);
+};
+
+/**
+ * The list as offered: `default` is not an option of its own but the model it stands for, "Opus 5.5 (default)", with the
+ * rows it duplicates folded into it. A session pinned to one of those rows keeps it, so the pin is seen and `default`
+ * can still be chosen. When the SDK does not say which model `default` is, it keeps a row of its own.
+ */
+const discoveredModelOptions = (models: readonly ModelInfo[], pinned: string | undefined) => {
+  const aliases = aliasesOfDefault(models);
+  const row = (m: ModelInfo) => {
+    const efforts = effortLevelsOf(m);
+    return {
+      value: m.value,
+      name: versionedName(m),
+      ...(m.description ? { description: m.description } : {}),
+      ...(efforts !== undefined ? { _meta: { [EFFORTS_META]: efforts } } : {}),
+    };
+  };
+  const out: ReturnType<typeof row>[] = [];
+  if (!models.some((m) => m.value === "default")) out.push({ ...DEFAULT_MODEL_OPTION });
+  for (const m of models) {
+    if (aliases.includes(m) && m.value !== pinned) continue;
+    if (m.value !== "default") {
+      out.push(row(m));
+      continue;
+    }
+    const named = aliases[0];
+    const current = /currently ([^)]+)\)/.exec(m.description ?? "")?.[1]?.trim();
+    const base = named !== undefined ? versionedName(named) : current;
+    out.push({
+      ...row(m),
+      name: base === undefined ? DEFAULT_MODEL_OPTION.name : `${base} (default)`,
+      ...(named?.description ? { description: named.description } : {}),
+    });
+  }
+  return out;
+};
+
 const modelOptions = (
   session: SessionState,
   discovered: readonly ModelInfo[] | undefined,
@@ -313,26 +371,9 @@ const modelOptions = (
     _meta?: Record<string, unknown>;
   }[] =
     discovered !== undefined && discovered.length > 0
-      ? [
-          ...(discovered.some((m) => m.value === "default") ? [] : [{ ...DEFAULT_MODEL_OPTION }]),
-          ...discovered.map((m) => {
-            const efforts = effortLevelsOf(m);
-            return {
-              value: m.value,
-              name:
-                m.value === "default" &&
-                (!m.displayName || m.displayName.toLowerCase() === "default")
-                  ? DEFAULT_MODEL_OPTION.name
-                  : m.displayName || m.value,
-              ...(m.description ? { description: m.description } : {}),
-              ...(efforts !== undefined ? { _meta: { [EFFORTS_META]: efforts } } : {}),
-            };
-          }),
-        ]
+      ? discoveredModelOptions(discovered, session.model)
       : CLAUDE_MODELS.map((m) => ({ ...m }));
-  if (session.model === undefined || base.some((m) => m.value === session.model)) {
-    return base;
-  }
+  if (session.model === undefined || base.some((m) => m.value === session.model)) return base;
   return [...base, { value: session.model, name: session.model, _meta: { "cycle/custom": true } }];
 };
 
