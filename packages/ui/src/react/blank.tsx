@@ -31,13 +31,12 @@ import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "rea
 import type { EnvironmentConfig } from "../api.ts";
 import { applyUpdate, emptyConversation } from "../model/index.ts";
 import { BLANK_KEY, type BlankConversation } from "../store/index.ts";
-import { Composer } from "./composer.tsx";
+import { Composer, composerInput } from "./composer.tsx";
 import { propertiesOf, withEffortFor } from "./config-form.tsx";
 import { ConversationView } from "./conversation.tsx";
 import { FolderBrowser } from "./folder-browser.tsx";
 import { useI18n } from "./i18n.tsx";
 import { CheckIcon, ChevronDownIcon } from "./icons.tsx";
-import { MOD } from "./sidebar.tsx";
 import { StateBlock } from "./state-block.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 import { Tip } from "./tip.tsx";
@@ -50,12 +49,6 @@ const baseName = (path: string): string => {
   const trimmed = path.replace(/\/+$/, "");
   return trimmed === "" ? path : trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
 };
-
-/** The box takes the focus: what is written there is what the page is for. */
-const focusBox = () =>
-  document
-    .querySelector<HTMLElement>('[data-slot="composer"] [data-slot="composer-input"]')
-    ?.focus();
 
 /**
  * What a new session starts with where nothing is set: the schema's `default` (docs/protocol.md §10). A session that
@@ -101,6 +94,12 @@ export function BlankConversationView({
     useAppState((s) => s.environments.find((h) => h.id === blank.environmentId)) ??
     environments.find((h) => h.id === blank.environmentId);
   const environmentName = environment?.name ?? blank.environmentId;
+  // Where it can be moved to: the connected environments, and its own even while that is away, so that a page whose
+  // environment dropped can go to another that is up.
+  const choices =
+    environment === undefined || environments.some((h) => h.id === environment.id)
+      ? environments
+      : [environment, ...environments];
   const [browsing, setBrowsing] = useState(false);
   const [typing, setTyping] = useState(false);
   const [answering, setAnswering] = useState(false);
@@ -132,16 +131,27 @@ export function BlankConversationView({
   const local = environment?.kind === "local";
   const canBrowse = connected && (local || status?.capabilities?.folders === true);
   const cwd = blank.cwd.trim();
+  // Where the focus goes when the menu or dialog the folder was chosen in closes: with where it runs settled, what is
+  // left is the message, so the box; given up, back to the folder's button.
+  const chosen = useRef(false);
+  const afterChoosing = () => {
+    const box = chosen.current ? composerInput() : null;
+    chosen.current = false;
+    return box ?? folderTrigger.current;
+  };
   const choose = (path: string, via: "recent" | "browse" | "typed") => {
     store.changeBlank({ cwd: path });
     store.track("blank_folder_chosen", { via });
-    // With where it runs settled, what is left is the message.
-    requestAnimationFrame(focusBox);
+    chosen.current = true;
   };
   const browse = async () => {
     if (!local) return setBrowsing(true);
-    const chosen = await store.chooseDirectory();
-    if (chosen !== undefined) choose(chosen, "browse");
+    const path = await store.chooseDirectory();
+    if (path === undefined) return;
+    // The system's chooser is a window of its own: nothing of the page closes after it to hand the focus on.
+    choose(path, "browse");
+    chosen.current = false;
+    composerInput()?.focus();
   };
 
   // Where the page starts: the box when the folder is known, else the folder, which is what is missing. Only as the page
@@ -150,25 +160,7 @@ export function BlankConversationView({
   useEffect(() => {
     if (opened.current.starting !== undefined) return;
     if (opened.current.cwd.trim() === "") folderTrigger.current?.focus();
-    else focusBox();
-  }, []);
-
-  // ⌘O chooses the folder, from wherever the focus is on the page; not while a dialog is over it.
-  const chooseKey = useRef<() => void>(() => {});
-  chooseKey.current = () => {
-    if (starting || browsing || typing || blank.asking !== undefined) return;
-    folderTrigger.current?.click();
-  };
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      const mod = MOD === "⌘" ? event.metaKey : event.ctrlKey;
-      if (!mod || event.altKey || event.shiftKey || event.key.toLowerCase() !== "o") return;
-      if (document.querySelector('[role="dialog"], [role="alertdialog"]') !== null) return;
-      event.preventDefault();
-      chooseKey.current();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    else composerInput()?.focus();
   }, []);
 
   // Why it cannot be sent yet, said above the box (once: the box itself keeps its usual words). Empty while what it starts
@@ -192,9 +184,9 @@ export function BlankConversationView({
   // the box goes to the foot, where it is in a session.
   const where = (
     <fieldset data-slot="blank-where" disabled={starting} aria-label={t("blank.where")}>
-      {environments.length > 1 && connected ? (
+      {choices.length > 1 ? (
         <Select
-          items={environments.map((h) => ({ value: h.id, label: h.name }))}
+          items={choices.map((h) => ({ value: h.id, label: h.name }))}
           value={blank.environmentId}
           onValueChange={(next) => {
             if (typeof next === "string") store.changeBlank({ environmentId: next });
@@ -204,7 +196,7 @@ export function BlankConversationView({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {environments.map((h) => (
+            {choices.map((h) => (
               <SelectItem key={h.id} value={h.id}>
                 {h.name}
               </SelectItem>
@@ -235,7 +227,13 @@ export function BlankConversationView({
             <ChevronDownIcon size={13} aria-hidden="true" />
           </MenuTrigger>
         </Tip>
-        <MenuContent align="start" sideOffset={6} collisionPadding={12} data-kind="blank-folders">
+        <MenuContent
+          align="start"
+          sideOffset={6}
+          collisionPadding={12}
+          finalFocus={afterChoosing}
+          data-kind="blank-folders"
+        >
           {recent.length > 0 ? (
             <MenuGroup>
               <MenuGroupLabel>{t("blank.folder.recent")}</MenuGroupLabel>
@@ -447,7 +445,7 @@ export function BlankConversationView({
       </Dialog>
       <Dialog open={typing} onOpenChange={setTyping}>
         <DialogBackdrop />
-        <DialogContent finalFocus={() => folderTrigger.current}>
+        <DialogContent finalFocus={afterChoosing}>
           <DialogTitle>{t("blank.folder.typeTitle")}</DialogTitle>
           <DialogDescription>
             {t("blank.folder.typeLead", { environment: environmentName })}
@@ -466,7 +464,7 @@ export function BlankConversationView({
       </Dialog>
       <Dialog open={browsing} onOpenChange={setBrowsing}>
         <DialogBackdrop />
-        <DialogContent>
+        <DialogContent finalFocus={afterChoosing}>
           <DialogTitle>{t("folders.title")}</DialogTitle>
           {browsing ? (
             <FolderBrowser

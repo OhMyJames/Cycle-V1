@@ -290,6 +290,24 @@ test("an environment whose daemon cannot list folders is typed into, not browsed
   expect(within(menu).getByRole("menuitem", { name: "Enter a path…" })).toBeTruthy();
 });
 
+test("a blank page whose environment drops can be moved to one that is up", async () => {
+  const { user, emit, named } = await mount();
+  await user.click(await screen.findByRole("button", { name: "New session" }));
+  const where = await screen.findByRole("group", { name: "Where the session runs" });
+  await user.click(within(where).getByRole("combobox", { name: "Environment" }));
+  await user.click(await screen.findByRole("option", { name: "Build box" }));
+  await emit({ type: "environment-status", environmentId: "far", state: "closed" });
+  await screen.findByText("Not connected to Build box.");
+  // Still there, with this computer to go to.
+  await user.click(within(where).getByRole("combobox", { name: "Environment" }));
+  await user.click(await screen.findByRole("option", { name: "This computer" }));
+  await waitFor(() => expect(screen.queryByText("Not connected to Build box.")).toBeNull());
+  await typeFolder(user, "/srv/app");
+  await sendFirst("hi");
+  await waitFor(() => expect(named("createSession")).toHaveLength(1));
+  expect(named("createSession")[0]?.[1]).toBe("local");
+});
+
 test("a host that is not connected cannot have a session started on it", async () => {
   const { user } = await mount({ far: "closed" });
   await user.click(await screen.findByRole("button", { name: "New session" }));

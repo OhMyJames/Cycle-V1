@@ -211,6 +211,8 @@ export class AppStore {
   #checkingTrust = false;
   /** When the blank conversation now open was opened: how long it took to send its first message is reported. */
   #blankOpenedAt = 0;
+  /** The latest read of the blank folder's trust, or answer to it: an older read that comes back after is not used. */
+  #trustRead = 0;
   /** What each session's box holds, written and not sent. */
   readonly drafts: DraftStore;
   /** What each session's right panel shows (CYCL-90). */
@@ -304,8 +306,11 @@ export class AppStore {
       case "environment-status": {
         const was = this.#state.status[event.environmentId]?.state;
         this.#set((s) => ({ status: { ...s.status, [event.environmentId]: toStatus(event) } }));
-        if (event.state === "connected" && was !== "connected")
+        if (event.state === "connected" && was !== "connected") {
           void this.#loadAgents(event.environmentId);
+          // Whether its folder is trusted could not be asked before the daemon said it keeps trust.
+          if (this.#state.blank?.environmentId === event.environmentId) void this.#readBlankTrust();
+        }
         return;
       }
       case "sessions":
@@ -598,9 +603,10 @@ export class AppStore {
     if (blank === undefined) return;
     const cwd = blank.cwd.trim();
     if (cwd === "" || this.#state.status[blank.environmentId]?.capabilities?.trust !== true) return;
+    const asked = ++this.#trustRead;
     const read = await this.#bridge.readTrust(blank.environmentId, cwd).catch(() => undefined);
     const now = this.#state.blank;
-    if (read === undefined || now === undefined) return;
+    if (read === undefined || now === undefined || asked !== this.#trustRead) return;
     if (now.environmentId !== blank.environmentId || now.cwd.trim() !== cwd) return;
     const trust = read.trusted === null ? "undecided" : read.trusted ? "trusted" : "untrusted";
     if (now.trust !== trust) this.#set({ blank: { ...now, trust } });
@@ -627,6 +633,8 @@ export class AppStore {
       return;
     }
     if (this.#state.blank !== blank) return;
+    // What was just decided is what the folder is now: a read still on its way is older.
+    this.#trustRead++;
     const decided: BlankConversation = { ...rest, trust: trusted ? "trusted" : "untrusted" };
     this.#set({ blank: decided });
     await this.#sendBlank(decided, true);
@@ -713,7 +721,6 @@ export class AppStore {
     const content = promptBlocks(this.drafts.get(BLANK_KEY));
     if (content === undefined) return;
     this.drafts.clear(BLANK_KEY);
-    this.track("blank_sent", { waited: waitedOf(Date.now() - this.#blankOpenedAt) });
     const starting: BlankConversation = { ...blank, cwd, starting: content };
     this.#set({ blank: starting });
     const sessionId = await this.#attempt(() =>
@@ -723,6 +730,9 @@ export class AppStore {
         config: blank.config ?? {},
       }),
     );
+    if (sessionId !== undefined)
+      // Once, when the session is made: a start that fails and is sent again is not counted twice.
+      this.track("blank_sent", { waited: waitedOf(Date.now() - this.#blankOpenedAt) });
     if (sessionId === undefined) {
       this.drafts.restore(BLANK_KEY, [content]);
       if (this.#state.blank === starting) this.#set({ blank: { ...blank, cwd } });

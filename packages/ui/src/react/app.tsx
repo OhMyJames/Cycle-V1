@@ -30,7 +30,7 @@ import { BLANK_KEY, viewKey } from "../store/index.ts";
 import { thinking } from "../thinking.ts";
 import { AnalyticsNotice } from "./analytics.tsx";
 import { BlankConversationView } from "./blank.tsx";
-import { Composer } from "./composer.tsx";
+import { Composer, composerInput } from "./composer.tsx";
 import { ConfigForm, mergeConfigSchema, propertiesOf } from "./config-form.tsx";
 import { ConnectorsDialog } from "./connectors.tsx";
 import { ConversationView } from "./conversation.tsx";
@@ -279,15 +279,18 @@ export function App() {
   // A blank conversation is open in place of a session: the sidebar shows its folder, if it has sessions there.
   const openKey =
     session !== undefined ? sessionKey(session) : blank !== undefined ? BLANK_KEY : undefined;
-  // The folders a blank conversation offers: those its environment has sessions in, newest first.
+  // The folders a blank conversation offers: those its environment has sessions in that are not archived, newest first,
+  // named among themselves only (one environment: no environment's name after them), whatever the sidebar shows.
   const blankEnvironment = blank?.environmentId;
   const blankRecent = useMemo(
     () =>
-      workspaces
-        .filter((w) => w.environmentId === blankEnvironment && w.cwd !== "")
-        .slice(0, 8)
-        .map((w) => ({ cwd: w.cwd, name: w.name })),
-    [workspaces, blankEnvironment],
+      blankEnvironment === undefined
+        ? []
+        : workspacesOf(sessions.filter((s) => s.environmentId === blankEnvironment))
+            .filter((w) => w.cwd !== "")
+            .slice(0, 8)
+            .map((w) => ({ cwd: w.cwd, name: w.name })),
+    [sessions, blankEnvironment],
   );
   const current = currentWorkspace(workspaces, {
     chosen: chosen !== undefined && chosen.on === openKey ? chosen.workspace : undefined,
@@ -447,11 +450,17 @@ export function App() {
     else if (key === "n" && connectedEnvironments.length > 0) run(() => newSession("shortcut"));
     else if (key === "b") run(() => toggleSidebar("shortcut"));
     else if (key === "\\" && panelKey !== undefined) run(() => toggleSidePanel("shortcut"));
-    else if (key === "l")
+    else if (key === "l") run(() => composerInput()?.focus());
+    else if (
+      key === "o" &&
+      blank !== undefined &&
+      document.querySelector('[role="dialog"], [role="alertdialog"]') === null
+    )
+      // The blank page's folder menu: what its button does when pressed.
       run(() =>
         document
-          .querySelector<HTMLElement>('[data-slot="composer"] [data-slot="composer-input"]')
-          ?.focus(),
+          .querySelector<HTMLButtonElement>('[data-kind="blank-folder"]:not(:disabled)')
+          ?.click(),
       );
     else if (key === "." && connected && activity !== "idle") run(() => void store.cancel());
     else if (

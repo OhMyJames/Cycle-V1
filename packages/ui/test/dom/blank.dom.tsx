@@ -59,6 +59,9 @@ test("the folder's menu offers the folders with sessions, and the one chosen is 
   ]);
   await user.click(within(menu).getByRole("menuitem", { name: /^api/ }));
   expect(await chosenFolder()).toBe("/srv/api");
+  await waitFor(() =>
+    expect(document.activeElement?.closest('[data-slot="composer"]')).not.toBeNull(),
+  );
   expect(named("track")).toContainEqual(["track", "blank_folder_chosen", { via: "recent" }]);
   const box = await screen.findByRole("textbox", { name: "Message" });
   await ready(box);
@@ -86,6 +89,10 @@ test("a path typed is used with Enter, and is reported only as typed", async () 
   await user.clear(field);
   await user.type(field, "/srv/new{Enter}");
   expect(await chosenFolder()).toBe("/srv/new");
+  // With the folder settled, the focus is in the box, to write the message.
+  await waitFor(() =>
+    expect(document.activeElement?.closest('[data-slot="composer"]')).not.toBeNull(),
+  );
   expect(named("track")).toContainEqual(["track", "blank_folder_chosen", { via: "typed" }]);
 });
 
@@ -177,4 +184,39 @@ test("a page opened in a folder starts with the box focused; one with no folder,
   await newSession(again.user);
   const folder = await screen.findByRole("button", { name: /^Choose a folder/ });
   await waitFor(() => expect(document.activeElement).toBe(folder));
+});
+
+test("a failed start sent again is reported as sent once, when its session is made", async () => {
+  const { user, named, bridge } = await mount();
+  let refuse = true;
+  const create = bridge.createSession;
+  bridge.createSession = async (...args) => {
+    if (refuse) throw new Error("No such folder");
+    return create(...args);
+  };
+  await newSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "hi");
+  await press(box, "Enter");
+  expect(await screen.findByText("No such folder")).toBeTruthy();
+  expect(named("track").filter((call) => call[1] === "blank_sent")).toHaveLength(0);
+  refuse = false;
+  await waitFor(() => expect(boxText(box)).toBe("hi"));
+  await press(box, "Enter");
+  await waitFor(() => expect(named("prompt")).toHaveLength(1));
+  expect(named("track").filter((call) => call[1] === "blank_sent")).toHaveLength(1);
+});
+
+test("the folders offered are this environment's with sessions that are not archived", async () => {
+  const { user } = await mount((script) => {
+    script.bridge.sessions = async (environmentId: string) => [
+      summary("s1", environmentId),
+      { ...summary("s4", environmentId), cwd: "/old", archived: true },
+    ];
+  });
+  await newSession(user);
+  const menu = await openFolders(user);
+  expect(within(menu).queryByRole("menuitem", { name: /^old/ })).toBeNull();
+  expect(within(menu).getByRole("menuitem", { name: /^work/ })).toBeTruthy();
 });

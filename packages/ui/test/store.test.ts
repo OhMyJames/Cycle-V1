@@ -748,3 +748,22 @@ test("config_option_update only reloads agents when a live update introduces a n
   await Bun.sleep(5);
   expect(agentCalls).toBe(2);
 });
+
+test("the blank folder's trust is read once its environment says it keeps trust", async () => {
+  const script = fakeBridge({ connected: false });
+  script.bridge.readTrust = async (_environment, path) => ({ path, trusted: null, from: null });
+  const store = new AppStore(script.bridge);
+  await store.start();
+  store.openBlank({ environmentId: "local", cwd: "/work" });
+  // Not connected: nothing can be asked yet.
+  await Bun.sleep(5);
+  expect(store.getState().blank?.trust).toBeUndefined();
+  script.emit({
+    type: "environment-status",
+    environmentId: "local",
+    state: "connected",
+    capabilities: { queue: true, files: true, folders: true, trust: true },
+  });
+  await Bun.sleep(10);
+  expect(store.getState().blank?.trust).toBe("undecided");
+});
