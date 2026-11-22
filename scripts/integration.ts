@@ -1,13 +1,13 @@
 // `bun run test:integration`: the tests that start real processes (Claude, a daemon, Electron: under xvfb on
-// Linux, hidden and out of the Dock on macOS). They are not in the gate: each takes seconds to a minute and the heaviest holds about 1.5 GB.
+// Linux, hidden and out of the Dock on macOS; and the page in headless Chromium). They are not in the gate: each takes seconds to a minute and the heaviest holds about 1.5 GB.
 //
 // Serial on purpose: the target is a 2-core, 4 GB machine, where running two Electron stacks at once
 // would not finish sooner and could be killed for memory. Each suite has a deadline of its own, so a
 // hang costs that, not the 10 minutes of a default.
 //   bun run test:integration          all of them
-//   bun run test:integration smoke    only those whose name contains "smoke"
+//   bun run test:integration web      only those whose name contains "web"
 // Options: --strict (a suite that was skipped, or ran no test, fails: for a machine that is meant to have
-// Electron, sshd and, on Linux, xvfb), --summary <file> (a markdown table of the result: CI's step summary).
+// Electron, sshd, Chromium and, on Linux, xvfb), --summary <file> (a markdown table of the result: CI's step summary).
 // The list of suites, and what a suite's result means, are in integration-suites.ts.
 
 import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
@@ -118,13 +118,22 @@ const finish = () => {
   process.exit(rows.some((r) => r.status === "FAIL") ? 1 : 0);
 };
 
-if (chosen.some((s) => s.name === "smoke")) {
-  console.log("== build the desktop app");
-  if ((await run(["bun", "run", "build"], "apps/desktop", 60)).code !== 0) {
+// The web suite opens the built page, in Playwright's Chromium (installed here if it is not: half a second if it is).
+if (chosen.some((s) => s.name === "web")) {
+  console.log("== build the desktop app, and have Chromium");
+  const ready =
+    (await run(["bun", "run", "build"], "apps/desktop", 60)).code === 0 &&
+    (await run(["bunx", "playwright", "install", "chromium-headless-shell"], "apps/desktop", 300))
+      .code === 0;
+  if (!ready) {
     for (const suite of chosen)
       rows.push(
-        suite.name === "smoke"
-          ? { name: suite.name, status: "FAIL", reason: "the desktop app did not build" }
+        suite.name === "web"
+          ? {
+              name: suite.name,
+              status: "FAIL",
+              reason: "the desktop app did not build, or Chromium could not be installed",
+            }
           : { name: suite.name, status: "not run", reason: "the build before the suites failed" },
       );
     finish();
