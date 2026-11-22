@@ -62,7 +62,43 @@ agent 是 daemon 的子进程,daemon 停止时进行中的 turn 不会继续。�
 
 **队列**:终态不退回队列。排队的 prompt 按"排队"的重启规则留着,下一次有客户端附着时以 `reason: "interrupted"` 退回输入框。
 
-**`Daemon.activity()`**:daemon 里同一个"有没有在工作"的判断(turn、待回答的请求、后台任务、排队数),给以后的空闲退出(CYCL-104)用:只在它为空时退出。
+**`Daemon.activity()`**:daemon 里同一个"有没有在工作"的判断(turn、待回答的请求、后台任务、排队数)。`cycle stop` 和下面的空闲退出都用它:只在它为空时停。
+
+## 空闲回收和空闲退出
+
+CYCL-104。目标机器是 2 核 4 GB,长期挂着的 daemon 不能让进程越攒越多。
+
+**实测**(`bun apps/daemon/scripts/measure-memory.ts`,真实 Claude、haiku,每个 session 一个短回合,2026-11-22,macOS arm64):
+
+| 状态                       | daemon 下的进程 | daemon | daemon + agent |
+| -------------------------- | --------------- | ------ | -------------- |
+| 0 个 session               | 0               | 88 MB  | 88 MB          |
+| 1 个 session,有客户端附着  | 2               | 93 MB  | 439 MB         |
+| 5 个                       | 10              | 83 MB  | 1613 MB        |
+| 10 个                      | 20              | 76 MB  | 2959 MB        |
+| 10 个,客户端离开、回收之后 | 0               | 75 MB  | 75 MB          |
+| 10 个,重开其中 1 个        | 2               | 76 MB  | 425 MB         |
+
+一个 session 是两个进程：适配器(`cycle adapter claude`,约 40–50 MB)和它下面的 Claude(约 300 MB)。适配器在 Claude 空闲 5 分钟后自己结束 Claude(决策 0007),但适配器进程本身一直留着：一台用了几个小时的机器上能看到一串只剩适配器的进程。daemon 里的 session 本身很小(日志不在内存里，只记条数和时间),不回收。
+
+**空闲回收**(`Daemon.reclaimIdleAgents()`,`serve` 每 30 秒调一次):一个 session 的 agent 进程在下面这些都成立、并持续 `idle.agentMinutes`(默认 10 分钟)后被结束：
+
+- 没有客户端附着(附着就是在看它;客户端离开时开始计时，而不是从最后一条记录算起);
+- 没有进行中的 turn、没有待回答的请求;队列为空，或者是已经扣着等客户端取回的队列(见"排队",它不需要 agent,原因不变);
+- 没有在跑的后台子 agent(`cycle/background` 为 0)。只剩"结束原因未知"的记录不算(protocol.md §8)。
+
+计时从最后一件事算起：写进日志的记录(daemon 自己的 `meta` 不算)、附着或离开、有请求要用 agent(prompt、改设置)、agent 启动完成。结束的方式和预热上限、信任变化时一样(`link.kill()`),并且当场按 agent 已退出处理，不等连接关闭的通知，这样紧接着来的 prompt 会起一个新的，不会交给正在退出的那个。session 留在内存和列表里，状态是 `stopped`,下一个 prompt 按已有路径启动并 `session/resume` 它。日志记 `agent_reclaimed`(session id 和空闲秒数)。和预热上限(`claude.maxWarm`,CYCL-24)是两回事：上限管"同时有几个",回收管"空闲多久";预热起来、没人发 prompt 的进程，没人附着时同样按时间回收。
+
+**空闲退出**(`serve` 里同一个定时器):`Daemon.idleSince()` 在下面都成立时给出从何时起空闲：没有任何客户端连着、没有 session 在加载或启动 agent、`activity()` 为空。持续 `idle.exitMinutes`(默认 30 分钟)后，daemon 按收到 `SIGTERM` 的同一条路径停下(日志 `idle_exit`,然后 `daemon_stopping`),退出码 0。
+
+停下的顺序(两种停法一样):先不再接新连接(这之后连上来的立刻被断开，客户端重连);再结束 agent、写完索引和缓存;最后才删 pid 文件、关 socket。socket 一直占着，新的 daemon 在旧的写完之前起不来，两个进程不会同时写一个数据目录。
+
+- 不丢状态:`activity()` 为空就没有被打断的东西;索引、日志、排队的 prompt 都在磁盘上(排队的照"排队"的规则，等下一次有客户端附着)。
+- 自动拉起：桌面端本地和 ssh 都通过 `cycle proxy` 连接，连接断了就重连;`proxy` 发现没有 daemon 在听就先启动一个。所以有客户端连着时 daemon 不会退出，没有客户端时退出了，下一次连接把它拉起来。
+- 回收 agent 是 daemon 自己的事，不重新开始空闲计时。
+- 两个都可以关:`0` 就是关。
+
+**限制**:桌面端打开过的 session 在这次连接里一直附着(`CycleClient.unwatch` 只在客户端本地生效，不告诉 daemon),所以桌面端连着时，这些 session 的 agent 不被回收，只靠适配器 5 分钟释放 Claude。桌面端关掉或断开(远端机器上合上笔记本)之后才全部回收。
 
 **从桌面端升级远端 daemon**:确认框先看那个环境的会话列表。没有在工作的会话,命令末尾是 `cycle stop`(若这期间有会话开始工作,它不在终端里,会拒绝并报错,不会中断它们)。有就列出会话名,让人选:
 
@@ -79,7 +115,7 @@ agent 是 daemon 的子进程,daemon 停止时进行中的 turn 不会继续。�
 - **daemon 的打包和安装**:现在是 `bun apps/daemon/src/main.ts`;没有 `cycle` 可执行文件,也没有远端机器上的安装步骤。ssh 通道里的命令得由调用方写全。
 - **daemon 退出时对客户端的通知**:客户端仍靠连接断开发现,然后重连;重连后按 `cycle/seq` 补发,看到被打断的 turn 的终态(`daemon_stopped`),由此知道发生了什么(见下面"停止和升级")。没有另发一条"要停了"的通知。
 - **重启后续接 agent**:进行中的 turn 被打断,不续接(agent 是 daemon 的子进程,状态在进程里);后台子 agent 也不重建。
-- **空闲退出和 session 的内存回收**:已加载的 session 一直在内存里。
+- **附着着的 session 的回收**:桌面端不对看过的 session 取消附着，所以它连着时这些 session 的适配器进程不回收(见"空闲回收和空闲退出")。
 - **客户端先于 `initialize` 发请求的处理**:交给 SDK(返回 `-32600`)。
 
 ## 运行
@@ -143,6 +179,7 @@ cycle claude auth status   # 用同样的环境跑 claude 的其他命令
 - `configDir` 默认是 `<数据目录>/claude`,一个独立目录,里面没有登录。要用已有登录,把它**有意地**指向那个目录(比如 `~/.claude`);要新登录,用 `CLAUDE_CONFIG_DIR=<目录> claude auth login`。
 - `HOME` 默认不传(回落到 `configDir`),免得 Claude 找到没人打算共享的登录或设置。
 - `log`(可省):`{ "level": "info", "maxBytes": 1000000, "files": 3 }`,见下面"日志"。
+- `idle`(可省):`{ "agentMinutes": 10, "exitMinutes": 30 }`,空闲多久结束一个 session 的 agent、空闲多久 daemon 自己退出;`0` 关掉。见上面"空闲回收和空闲退出"。
 
 ## 日志
 

@@ -115,6 +115,13 @@ export type DaemonOptions = {
    * No limit when it is not given.
    */
   maxAheadAgents?: number;
+  /**
+   * How long a session's agent may sit with nothing to do and nobody attached before it is let go (`reclaimIdleAgents`):
+   * the process ends, the session stays, and its next prompt starts and resumes one. Never, when not given.
+   */
+  agentIdleMs?: number;
+  /** For tests: the clock idle times are measured by. */
+  now?: () => number;
   /** For tests: replaces the connectors kept in `$CYCLE_HOME/connectors/` (docs/protocol.md §14). */
   connectors?: ConnectorService;
   /** Where what it does and what goes wrong is told (docs/daemon.md "日志"): events and ids, never content. */
@@ -235,6 +242,10 @@ export class Daemon {
   readonly #trust: FolderTrust;
   readonly #connectors: ConnectorService;
   readonly #maxAhead: number | undefined;
+  readonly #agentIdleMs: number | undefined;
+  readonly #now: () => number;
+  /** When the daemon started, or a client last connected or left: where an idle daemon starts counting. */
+  #lastClientAt: number;
   readonly #log: Logger;
   readonly #sessions = new Map<string, Session>();
   /** Sessions being loaded, so a second request for one waits for the first load. */
@@ -257,6 +268,9 @@ export class Daemon {
   ) {
     this.#version = options.version ?? "dev";
     this.#maxAhead = options.maxAheadAgents;
+    this.#agentIdleMs = options.agentIdleMs;
+    this.#now = options.now ?? Date.now;
+    this.#lastClientAt = this.#now();
     this.#log = options.log ?? silentLogger;
     this.#agents = new Map(options.agents.map((a) => [a.id, a]));
     this.#store =
@@ -315,6 +329,7 @@ export class Daemon {
     };
     holder.value = conn;
     this.#conns.add(conn);
+    this.#lastClientAt = this.#now();
     void connection.closed.then(() => this.#dropped(conn));
     return { closed: connection.closed, close: () => connection.close() };
   }
@@ -341,6 +356,70 @@ export class Daemon {
       });
     }
     return active;
+  }
+
+  /**
+   * Whether a session's agent can be let go without anything noticing: nobody is attached, and nothing is running,
+   * waiting or in the background. What it held is on disk; the next prompt starts and resumes the agent. A queue already
+   * held for a client to take back (docs/daemon.md "排队") needs no agent: it does not hold one, and keeps its reason.
+   */
+  #reclaimable(session: Session): boolean {
+    return (
+      !session.closed &&
+      session.link !== undefined &&
+      session.starting === undefined &&
+      session.attachments.size === 0 &&
+      // A request waiting for an answer counts as a turn in progress.
+      !this.#turnInProgress(session) &&
+      (session.queue.length === 0 || session.heldReason !== undefined) &&
+      // A task the agent's list no longer has, its end unknown, does not hold it on its own (docs/protocol.md §8).
+      session.backgroundCount() === 0
+    );
+  }
+
+  /**
+   * Lets go of each agent that has had nothing to do, with nobody attached, for `agentIdleMs` (docs/daemon.md
+   * "空闲回收"). Its process ends; the session stays loaded (it is small: the history is on disk) and its next prompt
+   * starts the agent again. Returns the sessions whose agent was let go.
+   */
+  reclaimIdleAgents(): string[] {
+    const limit = this.#agentIdleMs;
+    if (limit === undefined || this.#closing) return [];
+    const now = this.#now();
+    const reclaimed: string[] = [];
+    for (const session of this.#sessions.values()) {
+      if (!this.#reclaimable(session) || now - session.lastActive < limit) continue;
+      this.#log.info("agent_reclaimed", {
+        session: session.id,
+        idleSeconds: Math.round((now - session.lastActive) / 1000),
+      });
+      const link = session.link;
+      link?.kill();
+      // Gone from now, not when its connection is seen to close: a prompt that comes in between starts a new agent
+      // instead of being handed to the one going away. The close, when it comes, finds it already done.
+      this.#onAgentClosed(session, link);
+      reclaimed.push(session.id);
+    }
+    return reclaimed;
+  }
+
+  /**
+   * Since when the daemon has had no client and nothing to do (docs/daemon.md "空闲退出"), or undefined while it has:
+   * a client connected, a session loading or starting its agent, or something `activity()` lists. A daemon idle long
+   * enough can stop without losing anything.
+   */
+  idleSince(): number | undefined {
+    if (this.#closing || this.#conns.size > 0 || this.#loading.size > 0) return undefined;
+    if (this.activity().length > 0) return undefined;
+    let since = this.#lastClientAt;
+    // A queue with no turn behind it is on disk and waits for a client either way (docs/daemon.md "排队"), and a
+    // background task the agent no longer lists is not known to be working: neither holds the daemon.
+    for (const session of this.#sessions.values()) {
+      if (session.closed) continue;
+      if (session.starting !== undefined) return undefined;
+      since = Math.max(since, session.lastActive);
+    }
+    return since;
   }
 
   /** A turn has started and not ended: on record, or as the daemon has it (a prompt still on its way to the agent). */
@@ -376,11 +455,14 @@ export class Daemon {
 
   #dropped(conn: ClientConn): void {
     this.#conns.delete(conn);
+    this.#lastClientAt = this.#now();
     for (const session of this.#sessions.values()) {
       for (const attachment of [...session.attachments]) {
         if (attachment.conn === conn) {
           attachment.detach();
           session.attachments.delete(attachment);
+          // Nobody watching from now: the idle time starts here, not from the last record.
+          session.lastActive = this.#now();
         }
       }
       if (session.returnOwner?.conn === conn && !session.returnOwner.acknowledging) {
@@ -439,6 +521,7 @@ export class Daemon {
     const load = (async () => {
       const log = await this.#store.open(sessionId, "existing");
       const session = new Session(sessionId, entry, log);
+      session.lastActive = this.#now();
       // The queue is the last snapshot in the log; the index says whether there is anything to look for.
       if (entry.queued === true) await this.#restoreQueue(session);
       this.#clamp(session);
@@ -691,9 +774,15 @@ export class Daemon {
 
   /** The agent for a session, started if it is not running. */
   async #ensureAgent(session: Session): Promise<AgentLink> {
+    // Whatever asks for the agent is about to use it (a prompt, a setting): not idle, so not let go under it.
+    session.lastActive = this.#now();
     if (session.link !== undefined) return session.link;
     session.starting ??= this.#startAgent(session, "resume")
-      .then(({ link }) => link)
+      .then(({ link }) => {
+        // A start is something happening: its idle time is counted from when it is up.
+        session.lastActive = this.#now();
+        return link;
+      })
       .finally(() => {
         session.starting = undefined;
       });
@@ -1074,6 +1163,8 @@ export class Daemon {
   }
 
   #observe(session: Session, record: LogRecord): void {
+    // The daemon's own notes (an agent let go, say) are not something happening in the session.
+    if (record.kind !== "meta") session.lastActive = this.#now();
     // A request put to the owner (a permission, a form) is worth seeing whatever the agent says of
     // its own state: the Claude adapter says nothing, and the daemon knows it is waiting.
     if (record.kind === "request") {
@@ -1674,6 +1765,7 @@ export class Daemon {
         }
         // Publish the session only after every requested setting has been accepted.
         this.#sessions.set(id, session);
+        session.lastActive = this.#now();
         await this.#index.put(id, session.entry);
         this.#changed();
         this.#letGoOfOldestAhead(session);
@@ -1737,6 +1829,7 @@ export class Daemon {
       }
       const attachment: Attachment = { conn, ready: false, detach: () => {} };
       session.attachments.add(attachment);
+      session.lastActive = this.#now();
       const deliver = this.#deliver(session, attachment);
       try {
         const { detach } = await attach(session.log, after, deliver, async (replayedTo) => {
