@@ -112,12 +112,12 @@ export const EVENTS = {
   panel_opened: o({ panel, via: z.enum(["click", "shortcut"]) }),
   sidebar_toggled: o({ open: z.boolean(), via: z.enum(["click", "shortcut"]) }),
   /**
-   * The right panel opened or closed (CYCL-90). `via`: its button, ⌘\, or its handle (folded by a key, a double-click
-   * or a drag). `tab`: the kind of tab it shows, or showed when it closed.
+   * The right panel opened or closed (CYCL-90). `via`: its button, ⌘\, its handle (folded by a key, a double-click
+   * or a drag), or a tab's own button in the header (Overview). `tab`: the kind of tab it shows, or showed when it closed.
    */
   side_panel_toggled: o({
     open: z.boolean(),
-    via: z.enum(["click", "shortcut", "handle"]),
+    via: z.enum(["click", "shortcut", "handle", "tab_button"]),
     tab: panelTab,
   }),
   /** Another tab of the right panel was chosen. */

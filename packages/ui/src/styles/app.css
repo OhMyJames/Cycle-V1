@@ -1581,6 +1581,11 @@ html[data-platform="darwin"]
   justify-content: flex-start;
 }
 
+/* A tab's button while its tab is what the panel shows: the selected surface, as a chosen tab has. */
+[data-kind="panel-toggle"][data-active] {
+  background: var(--cycle-surface-selected);
+}
+
 [data-kind="sidebar-toggle"],
 [data-kind="panel-toggle"] {
   flex: none;

@@ -25,6 +25,7 @@ import {
   sessionList,
   workspacesOf,
 } from "../sessions.ts";
+import type { PanelTabKind } from "../side-panel.ts";
 import { BLANK_KEY, viewKey } from "../store/index.ts";
 import { thinking } from "../thinking.ts";
 import { AnalyticsNotice } from "./analytics.tsx";
@@ -42,7 +43,14 @@ import {
 } from "./dialogs.tsx";
 import { FormCard } from "./form.tsx";
 import { useI18n } from "./i18n.tsx";
-import { ErrorCircleIcon, MoreIcon, PanelIcon, SidebarIcon, WarningIcon } from "./icons.tsx";
+import {
+  ErrorCircleIcon,
+  MoreIcon,
+  OverviewIcon,
+  PanelIcon,
+  SidebarIcon,
+  WarningIcon,
+} from "./icons.tsx";
 import { useDay, useInFront } from "./in-front.ts";
 import { PermissionCard } from "./permission.tsx";
 import { currentPlan } from "./plan.tsx";
@@ -238,6 +246,21 @@ export function App() {
     sidePanels.setOpen(panelKey, !sidePanel.open);
     store.track("side_panel_toggled", { open: !sidePanel.open, via, tab: sidePanel.active });
   };
+  // A tab's own button in the header: opens the panel on that tab; on it already, closes the panel.
+  const toggleTab = (tab: PanelTabKind) => {
+    if (panelKey === undefined || sidePanel === undefined) return;
+    if (sidePanel.open && sidePanel.active === tab) {
+      sidePanels.setOpen(panelKey, false);
+      store.track("side_panel_toggled", { open: false, via: "tab_button", tab });
+    } else if (sidePanel.open) {
+      sidePanels.show(panelKey, tab);
+      store.track("side_panel_tab_shown", { tab });
+    } else {
+      sidePanels.show(panelKey, tab);
+      store.track("side_panel_toggled", { open: true, via: "tab_button", tab });
+    }
+  };
+  const overviewShown = sidePanel?.open === true && sidePanel.active === "overview";
   // The workspaces, and the one the sidebar shows; the list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
   const environmentLabels = useMemo(
     () => environments.map((h) => ({ id: h.id, name: h.name, local: h.kind === "local" })),
@@ -644,6 +667,16 @@ export function App() {
                       </MenuItem>
                     </MenuContent>
                   </Menu>
+                  <Tip label={t(overviewShown ? "overview.hide" : "overview.show")} side="bottom">
+                    <Button
+                      data-variant="ghost"
+                      data-kind="panel-toggle"
+                      data-active={overviewShown || undefined}
+                      onClick={() => toggleTab("overview")}
+                    >
+                      <OverviewIcon />
+                    </Button>
+                  </Tip>
                   <Tip
                     label={t(sidePanel?.open === true ? "panel.hide" : "panel.show")}
                     shortcut="mod+\\"

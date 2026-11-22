@@ -40,6 +40,8 @@ export const enUS = {
   "panel.hide": "Hide panel",
   "panel.tabs": "Panel tabs",
   "panel.tab.overview": "Overview",
+  "overview.show": "Show overview",
+  "overview.hide": "Hide overview",
   "overview.noSession": "No session is open",
   "overview.loading": "Loading the session",
   "overview.away": "{environment} is not connected. This is what it last said.",

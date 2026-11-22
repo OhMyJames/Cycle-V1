@@ -184,6 +184,17 @@ export const SidebarIcon = ({ size = 16, ...rest }: IconProps) => (
   </Svg>
 );
 
+/** iconmcp: layout-dashboard */
+export const OverviewIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="2" />
+      <line x1="2.25" y1="7" x2="13.75" y2="7" />
+      <line x1="7.5" y1="7" x2="7.5" y2="13.25" />
+    </g>
+  </Svg>
+);
+
 /** iconmcp: sidebar-right */
 export const PanelIcon = ({ size = 16, ...rest }: IconProps) => (
   <Svg size={size} {...rest}>

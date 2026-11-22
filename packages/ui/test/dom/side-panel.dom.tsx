@@ -82,3 +82,19 @@ test("a deleted session's panel is forgotten", async () => {
   expect(store.sidePanels.get("local:s1").open).toBe(false);
   expect(localStorage.getItem("cycle:side-panel")).toBeNull();
 });
+
+test("the Overview's own button opens the panel on the Overview, and closes it from there", async () => {
+  const { user, tracked } = await mount();
+  await user.click(await screen.findByRole("option", { name: /first/ }));
+  await user.click(await screen.findByRole("button", { name: "Show overview" }));
+  await waitFor(() => expect(panel()).not.toBeNull());
+  expect(screen.getByRole("tab", { name: "Overview", selected: true })).toBeDefined();
+  // The panel's own button still says it can hide the panel.
+  expect(screen.getByRole("button", { name: "Hide panel" })).toBeDefined();
+  await user.click(screen.getByRole("button", { name: "Hide overview" }));
+  await waitFor(() => expect(panel()).toBeNull());
+  expect(tracked()).toEqual([
+    ["side_panel_toggled", { open: true, via: "tab_button", tab: "overview" }],
+    ["side_panel_toggled", { open: false, via: "tab_button", tab: "overview" }],
+  ]);
+});
