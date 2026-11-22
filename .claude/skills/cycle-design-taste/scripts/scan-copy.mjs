@@ -50,8 +50,12 @@ const readable = (line, previous = "") => {
   // `=>` is an arrow, not the end of a tag: what follows it is code.
   for (const m of line.matchAll(/(?<!=)>([^<>{}]*[A-Za-z][^<>{}]*)</g)) out.push(m[1].trim());
   if (/>\s*$/.test(previous) && !/=>\s*$/.test(previous) && /^\s*[A-Z][^<>{}=;()|]*$/.test(line)) out.push(line.trim());
-  for (const m of line.matchAll(/\b(?:title|aria-label|placeholder|alt|\w*[lL]abel|description)=(?:"([^"]+)"|\{["'`]([^"'`]+)["'`]\})/g))
-    out.push((m[1] ?? m[2]).trim());
+  // An attribute's text: a plain string, or every string literal in its braces (`{host || "Shown in the list"}`,
+  // `{open ? "Hide panel" : "Show panel"}`).
+  for (const m of line.matchAll(/\b(?:title|aria-label|placeholder|alt|\w*[lL]abel|description)=(?:"([^"]+)"|\{([^}]*)\})/g)) {
+    if (m[1] !== undefined) out.push(m[1].trim());
+    else for (const lit of m[2].matchAll(/(["'`])([^"'`]+)\1/g)) out.push(lit[2].trim());
+  }
   for (const m of line.matchAll(/\b(?:throw new Error|notice|error|message|detail)[^"'`\n]*(["'`])([^"'`]{6,})\1/g)) out.push(m[2].trim());
   // Words a user reads, not a class name, an identifier or a type.
   return out.filter((s) => /[A-Za-z]{3}/.test(s) && (/\s/.test(s) || /^[A-Z]/.test(s)) && !/[|]|=>|^t\(/.test(s));
