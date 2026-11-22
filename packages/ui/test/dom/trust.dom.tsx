@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
 import { fakeBridge } from "../fake-bridge.ts";
+import { chosenFolder, typeFolder } from "./blank.ts";
 import { boxText, press, ready, write } from "./box.ts";
 
 afterEach(cleanup);
@@ -40,9 +41,7 @@ const mount = async (trusted: boolean | null) => {
 /** Opens a blank conversation in `path` and sends its first message: what makes the session, and so what asks. */
 const startIn = async (user: ReturnType<typeof userEvent.setup>, path: string) => {
   await user.click(await screen.findByRole("button", { name: "New session" }));
-  const folder = await screen.findByRole("textbox", { name: "Folder" });
-  await user.clear(folder);
-  await user.type(folder, path);
+  await typeFolder(user, path);
   const box = await screen.findByRole("textbox", { name: "Message" });
   await ready(box);
   await write(box, "Fix the build");
@@ -75,9 +74,7 @@ test("the question can be left, and a session can start without trusting the fol
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Trust this folder?" })).toBeNull(),
   );
-  expect((screen.getByRole("textbox", { name: "Folder" }) as HTMLInputElement).value).toBe(
-    "/srv/app",
-  );
+  expect(await chosenFolder()).toBe("/srv/app");
   expect(boxText(box)).toBe("Fix the build");
   expect(named("setTrust")).toHaveLength(0);
   expect(named("createSession")).toHaveLength(0);
@@ -127,4 +124,19 @@ test("an answer that cannot be kept says why, starts nothing, and can be given a
   bridge.setTrust = working;
   await user.click(within(dialog).getByRole("button", { name: "Trust and start" }));
   await waitFor(() => expect(named("createSession")).toHaveLength(1));
+});
+
+test("a folder nobody has decided on is marked before the first message, and one decided on is not", async () => {
+  const { user } = await mount(null);
+  await user.click(await screen.findByRole("button", { name: "New session" }));
+  const mark = await screen.findByText("Not trusted yet");
+  // It describes the folder's button, so it is heard with the folder rather than as a stop of its own.
+  const folder = await screen.findByRole("button", { name: /^Folder: / });
+  expect(folder.getAttribute("aria-describedby")).toBe(mark.id);
+  cleanup();
+  const decided = await mount(true);
+  await decided.user.click(await screen.findByRole("button", { name: "New session" }));
+  await screen.findByRole("button", { name: /^Folder: / });
+  await waitFor(() => expect(decided.named("readTrust").length).toBeGreaterThan(0));
+  expect(screen.queryByText("Not trusted yet")).toBeNull();
 });

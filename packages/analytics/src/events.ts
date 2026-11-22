@@ -154,6 +154,15 @@ export const EVENTS = {
   }),
   /** The message put back by "Send again" was sent; `edited`: not as it was. */
   turn_resent: o({ edited: z.boolean() }),
+  /**
+   * A new session's folder was chosen on its blank page (CYCL-55): from the folders it has sessions in, the system's or
+   * the daemon's folder browser, or by typing its path. Never which folder.
+   */
+  blank_folder_chosen: o({ via: z.enum(["recent", "browse", "typed"]) }),
+  /** "Connect again" was pressed on a blank page whose environment was not connected. */
+  blank_connect_pressed: o({}),
+  /** A blank page's first message went: how long the page was open before it, in four words. */
+  blank_sent: o({ waited: z.enum(["under_10s", "under_1m", "under_5m", "longer"]) }),
 } as const;
 
 export type EventName = keyof typeof EVENTS;
@@ -177,6 +186,9 @@ export const UI_EVENTS = [
   "code_block_expanded",
   "turn_resend_opened",
   "turn_resent",
+  "blank_folder_chosen",
+  "blank_connect_pressed",
+  "blank_sent",
 ] as const satisfies readonly EventName[];
 export type UiEventName = (typeof UI_EVENTS)[number];
 

@@ -167,14 +167,26 @@ const main = async () => {
     };
     await run(`window.cycle.setAgentDefaults("local", "claude", ${JSON.stringify(defaults)})`);
 
-    // A new session: a blank conversation, whose folder is typed. Its session is made by the first message below.
+    // A new session: a blank conversation, whose folder is typed through its folder menu's "Enter a path…" (CYCL-55).
+    // Its session is made by the first message below.
     await click(byText("button", "New session"));
-    await waitFor(
-      "the blank conversation",
-      `document.querySelector('[data-slot="blank-where"] input')`,
+    await waitFor("the blank conversation", `document.querySelector('[data-kind="blank-folder"]')`);
+    await click(`document.querySelector('[data-kind="blank-folder"]')`);
+    await waitFor("the folder menu", `document.querySelector('[data-kind="blank-folders"]')`);
+    await click(
+      `[...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent === "Enter a path…")`,
     );
-    await click(`document.querySelector('[data-slot="blank-where"] input')`);
+    await waitFor(
+      "the path field, focused",
+      `document.activeElement?.closest('[role="dialog"]') && document.activeElement.tagName === "INPUT"`,
+    );
+    contents.selectAll();
     await type(env.SMOKE_CWD as string);
+    await press("Return");
+    await waitFor(
+      "the folder chosen",
+      `!document.querySelector('[role="dialog"]') && document.querySelector('[data-kind="blank-folder"]:not([data-unset])')`,
+    );
     await waitFor(
       "the composer to be ready",
       `document.querySelector('[data-slot="composer"] [data-slot="composer-input"]')?.getAttribute('contenteditable') === 'true'`,

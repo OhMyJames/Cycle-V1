@@ -9,6 +9,7 @@ import { App, StoreProvider } from "../../src/react/index.ts";
 import { MOD } from "../../src/react/sidebar.tsx";
 import { AppStore } from "../../src/store/index.ts";
 import { fakeBridge, idle, summary, text } from "../fake-bridge.ts";
+import { chosenFolder, typeFolder } from "./blank.ts";
 import { boxText, press, ready, write } from "./box.ts";
 
 afterEach(() => {
@@ -536,15 +537,14 @@ test("a new session is a blank conversation: nothing is made until its first mes
   });
   await user.click(await screen.findByRole("button", { name: "New session" }));
   expect(await screen.findByRole("heading", { name: "New session" })).toBeTruthy();
-  expect(screen.getByText("The session starts when you send the first message.")).toBeTruthy();
-  // It starts from the folder of the workspace that is shown: the person replaces it.
+  // It starts from the folder of the workspace that is shown, named by its last part: the person replaces it.
   const where = screen.getByRole("group", { name: "Where the session runs" });
-  const folder = within(where).getByRole("textbox", { name: "Folder" });
-  expect((folder as HTMLInputElement).value).toBe("/work");
-  await user.clear(folder);
-  // No folder: the box takes words, and says why they cannot go yet.
-  expect(await screen.findByText("Choose a folder for the agent to work in.")).toBeTruthy();
-  await user.type(folder, "/work/new");
+  expect(await chosenFolder()).toBe("/work");
+  expect(within(where).getByRole("button", { name: "Folder: /work" }).textContent).toContain(
+    "work",
+  );
+  await typeFolder(user, "/work/new");
+  expect(await chosenFolder()).toBe("/work/new");
   // What it starts with is shown under the box, before anything is made.
   await screen.findByRole("button", { name: "mode: plan" });
   expect(named("createSession")).toEqual([]);
@@ -1611,13 +1611,9 @@ test("while the first message makes the session it is shown, nothing can be chan
 test("asking for a new session while one is blank keeps it as it is", async () => {
   const { user } = await mount();
   await user.click(await screen.findByRole("button", { name: "New session" }));
-  const folder = (await screen.findByRole("textbox", { name: "Folder" })) as HTMLInputElement;
-  await user.clear(folder);
-  await user.type(folder, "/new/project");
+  await typeFolder(user, "/new/project");
   await user.click(screen.getByRole("button", { name: "New session" }));
-  expect((screen.getByRole("textbox", { name: "Folder" }) as HTMLInputElement).value).toBe(
-    "/new/project",
-  );
+  expect(await chosenFolder()).toBe("/new/project");
 });
 
 test("empty state offers Start a new session and high-risk mode chip carries data-danger", async () => {

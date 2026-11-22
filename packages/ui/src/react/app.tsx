@@ -279,6 +279,16 @@ export function App() {
   // A blank conversation is open in place of a session: the sidebar shows its folder, if it has sessions there.
   const openKey =
     session !== undefined ? sessionKey(session) : blank !== undefined ? BLANK_KEY : undefined;
+  // The folders a blank conversation offers: those its environment has sessions in, newest first.
+  const blankEnvironment = blank?.environmentId;
+  const blankRecent = useMemo(
+    () =>
+      workspaces
+        .filter((w) => w.environmentId === blankEnvironment && w.cwd !== "")
+        .slice(0, 8)
+        .map((w) => ({ cwd: w.cwd, name: w.name })),
+    [workspaces, blankEnvironment],
+  );
   const current = currentWorkspace(workspaces, {
     chosen: chosen !== undefined && chosen.on === openKey ? chosen.workspace : undefined,
     open: session ?? blank,
@@ -605,6 +615,7 @@ export function App() {
               <BlankConversationView
                 blank={blank}
                 environments={connectedEnvironments}
+                recent={blankRecent}
                 connected={connected}
                 follow={sent}
                 sidebarToggle={sidebarToggle}

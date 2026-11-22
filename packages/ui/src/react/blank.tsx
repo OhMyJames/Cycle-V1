@@ -5,14 +5,21 @@ import { Button } from "@ui-sdk/react/button";
 import {
   Dialog,
   DialogBackdrop,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogTitle,
 } from "@ui-sdk/react/dialog";
 import { Field, FieldLabel } from "@ui-sdk/react/field";
 import { Input } from "@ui-sdk/react/input";
-import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
+import {
+  Menu,
+  MenuContent,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "@ui-sdk/react/menu";
 import {
   Select,
   SelectContent,
@@ -20,19 +27,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@ui-sdk/react/select";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { EnvironmentConfig } from "../api.ts";
 import { applyUpdate, emptyConversation } from "../model/index.ts";
 import { BLANK_KEY, type BlankConversation } from "../store/index.ts";
 import { Composer } from "./composer.tsx";
-import { ConfigForm, optionsOf, propertiesOf, withEffortFor } from "./config-form.tsx";
+import { propertiesOf, withEffortFor } from "./config-form.tsx";
 import { ConversationView } from "./conversation.tsx";
 import { FolderBrowser } from "./folder-browser.tsx";
 import { useI18n } from "./i18n.tsx";
-import { MoreIcon } from "./icons.tsx";
+import { CheckIcon, ChevronDownIcon } from "./icons.tsx";
+import { MOD } from "./sidebar.tsx";
 import { StateBlock } from "./state-block.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 import { Tip } from "./tip.tsx";
+
+/** A folder offered on the blank page: one the environment already has sessions in, newest first. */
+export type RecentFolder = { cwd: string; name: string };
+
+/** The last part of a path, which is what tells folders apart; the whole path is in the control's name and title. */
+const baseName = (path: string): string => {
+  const trimmed = path.replace(/\/+$/, "");
+  return trimmed === "" ? path : trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
+};
+
+/** The box takes the focus: what is written there is what the page is for. */
+const focusBox = () =>
+  document
+    .querySelector<HTMLElement>('[data-slot="composer"] [data-slot="composer-input"]')
+    ?.focus();
 
 /**
  * What a new session starts with where nothing is set: the schema's `default` (docs/protocol.md §10). A session that
@@ -49,6 +72,7 @@ const defaultsOf = (schema: Record<string, unknown>): Settings =>
 export function BlankConversationView({
   blank,
   environments,
+  recent,
   connected,
   follow,
   sidebarToggle,
@@ -57,6 +81,8 @@ export function BlankConversationView({
   blank: BlankConversation;
   /** The environments a session can be started on: those that are connected. */
   environments: EnvironmentConfig[];
+  /** The folders the blank conversation's environment has sessions in, newest first. */
+  recent: readonly RecentFolder[];
   /** The blank conversation's environment is connected. */
   connected: boolean;
   follow: number;
@@ -70,16 +96,16 @@ export function BlankConversationView({
   const agents = useAppState((s) => s.agents[blank.environmentId]);
   const available = useMemo(() => (agents ?? []).filter((a) => a.available), [agents]);
   const agent = store.blankAgent(blank);
-  const environment = environments.find((h) => h.id === blank.environmentId);
+  // The environment of the blank conversation, connected or not: its name is said when it is away.
+  const environment =
+    useAppState((s) => s.environments.find((h) => h.id === blank.environmentId)) ??
+    environments.find((h) => h.id === blank.environmentId);
+  const environmentName = environment?.name ?? blank.environmentId;
   const [browsing, setBrowsing] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [typing, setTyping] = useState(false);
   const [answering, setAnswering] = useState(false);
-  const hasExtraSettings =
-    agent !== undefined &&
-    propertiesOf(agent.configSchema).some(([, property]) => {
-      const choices = optionsOf(property);
-      return choices === undefined || choices.length === 0;
-    });
+  const folderTrigger = useRef<HTMLButtonElement>(null);
+  const trustId = useId();
   const answer = async (trusted: boolean | undefined) => {
     setAnswering(true);
     try {
@@ -89,6 +115,8 @@ export function BlankConversationView({
     }
   };
   const starting = blank.starting !== undefined;
+  const noAgent =
+    connected && agents !== undefined && agent === undefined && status?.state === "connected";
   // The first message, shown as it will be in the session while the session is being made.
   const shown = useMemo(
     () =>
@@ -102,90 +130,164 @@ export function BlankConversationView({
     [blank.starting],
   );
   const local = environment?.kind === "local";
-  const canBrowse = local || status?.capabilities?.folders === true;
+  const canBrowse = connected && (local || status?.capabilities?.folders === true);
+  const cwd = blank.cwd.trim();
+  const choose = (path: string, via: "recent" | "browse" | "typed") => {
+    store.changeBlank({ cwd: path });
+    store.track("blank_folder_chosen", { via });
+    // With where it runs settled, what is left is the message.
+    requestAnimationFrame(focusBox);
+  };
   const browse = async () => {
     if (!local) return setBrowsing(true);
     const chosen = await store.chooseDirectory();
-    if (chosen !== undefined) store.changeBlank({ cwd: chosen });
+    if (chosen !== undefined) choose(chosen, "browse");
   };
+
+  // Where the page starts: the box when the folder is known, else the folder, which is what is missing. Only as the page
+  // is opened (what it was opened with), not each time the folder changes.
+  const opened = useRef(blank);
+  useEffect(() => {
+    if (opened.current.starting !== undefined) return;
+    if (opened.current.cwd.trim() === "") folderTrigger.current?.focus();
+    else focusBox();
+  }, []);
+
+  // ⌘O chooses the folder, from wherever the focus is on the page; not while a dialog is over it.
+  const chooseKey = useRef<() => void>(() => {});
+  chooseKey.current = () => {
+    if (starting || browsing || typing || blank.asking !== undefined) return;
+    folderTrigger.current?.click();
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const mod = MOD === "⌘" ? event.metaKey : event.ctrlKey;
+      if (!mod || event.altKey || event.shiftKey || event.key.toLowerCase() !== "o") return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]') !== null) return;
+      event.preventDefault();
+      chooseKey.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Why it cannot be sent yet, said above the box (once: the box itself keeps its usual words). Empty while what it starts
-  // with is still being read, which says nothing of its own.
+  // with is still being read, or when the page says why above (no agent), which says nothing of its own there.
   const blocked = starting
     ? t("blank.starting")
-    : blank.cwd.trim() === ""
-      ? t("blank.chooseFolder")
-      : agent === undefined || blank.config === undefined
-        ? ""
-        : undefined;
+    : noAgent
+      ? ""
+      : cwd === ""
+        ? t("blank.chooseFolder")
+        : agent === undefined || blank.config === undefined
+          ? ""
+          : undefined;
   const placeholder = t("composer.placeholder.idle");
+  const folderName = cwd === "" ? t("blank.folder.choose") : baseName(cwd);
+  const folderLabel =
+    cwd === "" ? t("blank.folder.choose") : t("blank.folder.named", { path: cwd });
 
-  // Before the first message the box sits in the middle with where it runs just above it (old-cycle's new session): what
-  // is chosen and what is written are one thing. Once it is sent, the message shows as the conversation and the box goes
-  // to the foot, where it is in a session.
-  // Where it runs: above the box, and still there, off, while the session is being made from the first message.
+  // Before the first message the box sits in the middle with where it runs in one line just above it (old-cycle's new
+  // session): what is chosen and what is written are one thing. Once it is sent, the message shows as the conversation and
+  // the box goes to the foot, where it is in a session.
   const where = (
     <fieldset data-slot="blank-where" disabled={starting} aria-label={t("blank.where")}>
-      {environments.length > 1 ? (
-        <Field name="environment">
-          <FieldLabel>{t("newSession.environment")}</FieldLabel>
-          <Select
-            items={environments.map((h) => ({ value: h.id, label: h.name }))}
-            value={blank.environmentId}
-            onValueChange={(next) => {
-              if (typeof next === "string") store.changeBlank({ environmentId: next });
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {environments.map((h) => (
-                <SelectItem key={h.id} value={h.id}>
-                  {h.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
+      {environments.length > 1 && connected ? (
+        <Select
+          items={environments.map((h) => ({ value: h.id, label: h.name }))}
+          value={blank.environmentId}
+          onValueChange={(next) => {
+            if (typeof next === "string") store.changeBlank({ environmentId: next });
+          }}
+        >
+          <SelectTrigger data-kind="blank-environment" aria-label={t("newSession.environment")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {environments.map((h) => (
+              <SelectItem key={h.id} value={h.id}>
+                {h.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       ) : null}
-      <Field name="cwd" data-kind="blank-folder">
-        <FieldLabel>{t("blank.folder")}</FieldLabel>
-        <div data-slot="row">
-          <Input
-            value={blank.cwd}
-            placeholder={t("blank.folder.placeholder")}
-            spellCheck={false}
-            onChange={(e) => store.changeBlank({ cwd: e.currentTarget.value })}
-          />
-          {canBrowse ? (
-            <Button data-variant="outline" disabled={starting} onClick={() => void browse()}>
-              {t("newSession.browse")}
-            </Button>
-          ) : null}
-        </div>
-      </Field>
-      {available.length > 1 ? (
-        <Field name="agent">
-          <FieldLabel>{t("blank.agent")}</FieldLabel>
-          <Select
-            items={available.map((a) => ({ value: a.id, label: a.name }))}
-            value={agent?.id ?? null}
-            onValueChange={(next) => {
-              if (typeof next === "string") store.changeBlank({ agent: next });
-            }}
+      <Menu
+        modal={false}
+        onAction={(value) => {
+          if (value === "browse") void browse();
+          else if (value === "type") setTyping(true);
+          else if (typeof value === "string" && value.startsWith("recent:"))
+            choose(value.slice("recent:".length), "recent");
+        }}
+      >
+        {/* The tip names it, with the whole path: the button shows only the folder's last part. */}
+        <Tip label={folderLabel} shortcut="mod+o">
+          <MenuTrigger
+            ref={folderTrigger}
+            data-variant="ghost"
+            data-kind="blank-folder"
+            data-unset={cwd === "" || undefined}
+            disabled={starting}
+            aria-describedby={blank.trust === "undecided" ? trustId : undefined}
           >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {available.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  {a.name}
-                </SelectItem>
+            <span data-slot="blank-folder-name">{folderName}</span>
+            <ChevronDownIcon size={13} aria-hidden="true" />
+          </MenuTrigger>
+        </Tip>
+        <MenuContent align="start" sideOffset={6} collisionPadding={12} data-kind="blank-folders">
+          {recent.length > 0 ? (
+            <MenuGroup>
+              <MenuGroupLabel>{t("blank.folder.recent")}</MenuGroupLabel>
+              {recent.map((folder) => (
+                <MenuItem
+                  key={folder.cwd}
+                  value={`recent:${folder.cwd}`}
+                  label={folder.name}
+                  title={folder.cwd}
+                  data-kind="blank-recent"
+                  data-current={folder.cwd === cwd || undefined}
+                >
+                  <span data-slot="blank-recent-name">{folder.name}</span>
+                  <span data-slot="blank-recent-path">
+                    {/* Left to right inside, so that the slashes stay where they are when the start is cut. */}
+                    <span dir="ltr">{folder.cwd}</span>
+                  </span>
+                  {folder.cwd === cwd ? <CheckIcon size={13} aria-hidden="true" /> : null}
+                </MenuItem>
               ))}
-            </SelectContent>
-          </Select>
-        </Field>
+            </MenuGroup>
+          ) : null}
+          {recent.length > 0 ? <MenuSeparator /> : null}
+          {canBrowse ? <MenuItem value="browse">{t("newSession.browse")}</MenuItem> : null}
+          <MenuItem value="type">{t("blank.folder.type")}</MenuItem>
+        </MenuContent>
+      </Menu>
+      {/* Not a stop of its own: the folder's button is described by it, so it is heard with the folder. */}
+      {blank.trust === "undecided" ? (
+        <span data-slot="blank-trust" id={trustId} title={t("blank.untrusted.hint")}>
+          {t("blank.untrusted")}
+        </span>
+      ) : null}
+      {available.length > 1 ? (
+        <Select
+          items={available.map((a) => ({ value: a.id, label: a.name }))}
+          value={agent?.id ?? null}
+          onValueChange={(next) => {
+            if (typeof next === "string") store.changeBlank({ agent: next });
+          }}
+        >
+          <SelectTrigger data-kind="blank-agent" aria-label={t("blank.agent")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {available.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       ) : null}
     </fieldset>
   );
@@ -215,7 +317,7 @@ export function BlankConversationView({
             })
           : store.changeBlank({ setting: { key, value } })
       }
-      enabled={!starting}
+      enabled={!starting && !noAgent}
       connected={connected}
       activity="idle"
       blocked={blocked}
@@ -223,6 +325,63 @@ export function BlankConversationView({
       onSent={onSent}
     />
   );
+  // What stands between the page and its first message, said once, with the one thing to do about it. Nothing when all
+  // is ready: the page is the folder and the box.
+  const state = (() => {
+    if (status?.state === "reconnecting") return null; // The banner above says so, and it comes back by itself.
+    if (status?.state === "connecting")
+      return (
+        <StateBlock
+          tone="loading"
+          align="start"
+          size="inline"
+          title={t("blank.connecting", { environment: environmentName })}
+        />
+      );
+    // That the draft stays is said once, by the box (composer.offline).
+    if (!connected)
+      return (
+        <StateBlock
+          tone="away"
+          align="start"
+          size="inline"
+          title={t("blank.notConnected", { environment: environmentName })}
+          reason={status?.error}
+          action={{
+            label: t("environment.connectAgain"),
+            onAction: () => {
+              store.track("blank_connect_pressed", {});
+              void store.connectEnvironment(blank.environmentId);
+            },
+          }}
+        />
+      );
+    if (noAgent)
+      return (
+        <StateBlock
+          tone="away"
+          align="start"
+          size="inline"
+          title={t("blank.noAgent", { environment: environmentName })}
+          body={t("blank.noAgentHint", { environment: environmentName })}
+          action={{
+            label: t("blank.retryAgents"),
+            onAction: () => void store.reloadAgents(blank.environmentId),
+          }}
+        />
+      );
+    if (blank.unreadable === true)
+      return (
+        <StateBlock
+          tone="error"
+          align="start"
+          size="inline"
+          title={t("blank.unreadable")}
+          action={{ label: t("blank.retry"), onAction: store.retryBlank }}
+        />
+      );
+    return null;
+  })();
   return (
     <>
       <header data-slot="session-header">
@@ -230,26 +389,6 @@ export function BlankConversationView({
         <div data-slot="session-heading">
           <h1>{t("blank.title")}</h1>
         </div>
-        {hasExtraSettings && blank.config !== undefined ? (
-          <div data-slot="row">
-            <Menu
-              onAction={(value) => {
-                if (value === "settings") setSettingsOpen(true);
-              }}
-            >
-              <Tip label={t("blank.settings")}>
-                <MenuTrigger data-variant="ghost" disabled={starting}>
-                  <MoreIcon />
-                </MenuTrigger>
-              </Tip>
-              <MenuContent>
-                <MenuItem value="settings" disabled={starting}>
-                  {t("session.settings")}
-                </MenuItem>
-              </MenuContent>
-            </Menu>
-          </div>
-        ) : null}
       </header>
       {/* One tree before and after the first message is sent, so the box and the choices keep their focus and state when a
           start fails and they come back: only the stage's layout changes (data-starting). */}
@@ -262,38 +401,9 @@ export function BlankConversationView({
             loading={false}
             awaitingApproval={false}
           />
-        ) : (
-          <div data-slot="blank-lead">
-            {connected &&
-            agents !== undefined &&
-            agent === undefined &&
-            status?.state === "connected" ? (
-              <StateBlock
-                tone="away"
-                align="start"
-                title={t("blank.noAgent", {
-                  environment: environment?.name ?? blank.environmentId,
-                })}
-                body={t("blank.noAgentHint", {
-                  environment: environment?.name ?? blank.environmentId,
-                })}
-                action={{
-                  label: t("blank.retryAgents"),
-                  onAction: () => void store.reloadAgents(blank.environmentId),
-                }}
-              />
-            ) : blank.unreadable === true ? (
-              <StateBlock
-                tone="error"
-                align="start"
-                title={t("blank.unreadable")}
-                action={{ label: t("blank.retry"), onAction: store.retryBlank }}
-              />
-            ) : (
-              <p>{t("blank.lead")}</p>
-            )}
-          </div>
-        )}
+        ) : state !== null ? (
+          <div data-slot="blank-lead">{state}</div>
+        ) : null}
         {where}
         {box}
       </div>
@@ -335,25 +445,23 @@ export function BlankConversationView({
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+      <Dialog open={typing} onOpenChange={setTyping}>
         <DialogBackdrop />
-        <DialogContent>
-          <DialogTitle>{t("blank.settings")}</DialogTitle>
-          <DialogDescription>{t("blank.settings.lead")}</DialogDescription>
-          {settingsOpen && agent !== undefined && blank.config !== undefined ? (
-            <ConfigForm
-              schema={agent.configSchema}
-              value={{ ...defaultsOf(agent.configSchema), ...blank.config }}
-              onChange={(config) =>
-                store.changeBlank({
-                  config: withEffortFor(agent.configSchema, config, defaultsOf(agent.configSchema)),
-                })
-              }
+        <DialogContent finalFocus={() => folderTrigger.current}>
+          <DialogTitle>{t("blank.folder.typeTitle")}</DialogTitle>
+          <DialogDescription>
+            {t("blank.folder.typeLead", { environment: environmentName })}
+          </DialogDescription>
+          {typing ? (
+            <PathForm
+              start={cwd}
+              onCancel={() => setTyping(false)}
+              onChoose={(path) => {
+                setTyping(false);
+                choose(path, "typed");
+              }}
             />
           ) : null}
-          <div data-slot="row" data-dialog-footer="">
-            <DialogClose>{t("common.close")}</DialogClose>
-          </div>
         </DialogContent>
       </Dialog>
       <Dialog open={browsing} onOpenChange={setBrowsing}>
@@ -362,11 +470,11 @@ export function BlankConversationView({
           <DialogTitle>{t("folders.title")}</DialogTitle>
           {browsing ? (
             <FolderBrowser
-              start={blank.cwd.startsWith("/") ? blank.cwd : undefined}
+              start={cwd.startsWith("/") ? cwd : undefined}
               list={(path, hidden) => store.listFolders(blank.environmentId, path, hidden)}
               onChoose={(path) => {
-                store.changeBlank({ cwd: path });
                 setBrowsing(false);
+                choose(path, "browse");
               }}
               onBack={() => setBrowsing(false)}
             />
@@ -374,5 +482,48 @@ export function BlankConversationView({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** A folder by its path, typed: a form, so Enter uses it, with the path field focused. */
+function PathForm({
+  start,
+  onChoose,
+  onCancel,
+}: {
+  start: string;
+  onChoose: (path: string) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useI18n();
+  const [path, setPath] = useState(start);
+  const typed = path.trim();
+  return (
+    <form
+      data-slot="form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (typed !== "") onChoose(typed);
+      }}
+    >
+      <Field name="cwd">
+        <FieldLabel>{t("blank.folder")}</FieldLabel>
+        <Input
+          autoFocus
+          value={path}
+          placeholder={t("blank.folder.placeholder")}
+          spellCheck={false}
+          onChange={(event) => setPath(event.currentTarget.value)}
+        />
+      </Field>
+      <div data-slot="row" data-dialog-footer="">
+        <Button type="button" data-variant="ghost" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+        <Button type="submit" data-variant="solid" disabled={typed === ""}>
+          {t("blank.folder.use")}
+        </Button>
+      </div>
+    </form>
   );
 }
