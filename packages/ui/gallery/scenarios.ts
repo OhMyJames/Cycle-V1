@@ -49,6 +49,8 @@ export type Scenario = {
    * never answered, so that the page stays as it is while a session is being made.
    */
   blank?: { cwd?: string; starting?: string };
+  /** The right panel is open beside the conversation, with sample tabs (CYCL-66): the columns at this window's width. */
+  sidePanel?: boolean;
   /** Runs once the page has drawn: open a dialog, press a key, or send an event as the app's main process would. */
   after?: (root: HTMLElement, emit: (event: AppEvent) => void) => Promise<void>;
 };
@@ -222,11 +224,22 @@ const permission = (title: string, command: string): PermissionRequest => ({
   ],
 });
 
+/** An element's accessible name: its label, what names it (an icon-only button's tip), else its text. */
+const nameOf = (e: Element): string =>
+  e.getAttribute("aria-label") ??
+  (e
+    .getAttribute("aria-labelledby")
+    ?.split(" ")
+    .map((id) => e.ownerDocument.getElementById(id)?.textContent ?? "")
+    .join(" ")
+    .trim() ||
+    (e.textContent?.trim() ?? ""));
+
 const click = async (root: HTMLElement, text: string) => {
   for (let i = 0; i < 50; i++) {
     const found = Array.from(root.querySelectorAll('button, [role="menuitem"]')).find(
       // By its name: a button's label when it has one (the sidebar's actions also show their shortcut), else its text.
-      (b) => (b.getAttribute("aria-label") ?? b.textContent?.trim()) === text,
+      (b) => nameOf(b) === text,
     );
     if (found) return void (found as HTMLElement).click();
     await new Promise((r) => setTimeout(r, 50));
@@ -250,7 +263,9 @@ const openSearch = async (root: HTMLElement) => {
 
 const clickByLabel = async (root: HTMLElement, label: string) => {
   for (let i = 0; i < 50; i++) {
-    const found = root.querySelector(`[aria-label="${label}"]`) as HTMLElement | null;
+    const found = Array.from(root.querySelectorAll("[aria-label], [aria-labelledby]")).find(
+      (e) => nameOf(e) === label,
+    ) as HTMLElement | undefined;
     if (found) return void found.click();
     await new Promise((r) => setTimeout(r, 50));
   }
@@ -266,8 +281,8 @@ const hostAction = async (root: HTMLElement, item: string) => {
 
 // The context ring opened into its details, in each of the states it has something to say about.
 const openContext = async (root: HTMLElement) => {
-  await until(() => root.querySelector('[data-slot="context-meter"]') !== null, "the context ring");
-  root.querySelector<HTMLElement>('[data-slot="context-meter"]')?.click();
+  await until(() => root.querySelector('[data-kind="context-meter"]') !== null, "the context ring");
+  root.querySelector<HTMLElement>('[data-kind="context-meter"]')?.click();
   await until(
     () => document.querySelector('[data-kind="context"]') !== null,
     "the context details",
@@ -1211,6 +1226,30 @@ export const scenarios: Record<string, Scenario> = {
       await new Promise((r) => setTimeout(r, 200));
     },
   },
+  // The right panel beside the conversation (CYCL-66): at 1200 the conversation gives way, at 720 the sidebar folds.
+  "panel-open": {
+    title: "The right panel is open beside the conversation",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    history: conversation,
+    sidePanel: true,
+  },
+  // The composer's pickers are menus like every other (CYCL-65): opened, on the session's choice.
+  ...Object.fromEntries(
+    (["mode", "model"] as const).map((setting) => [
+      `menu-${setting}`,
+      {
+        title: `The ${setting === "mode" ? "permission mode" : "model"} picker is open`,
+        sessions: [session("s1", { title: "Fix the remote session" })],
+        history: conversation,
+        after: async (root: HTMLElement) => {
+          const chip = `[data-kind="setting-chip"][data-setting="${setting}"]`;
+          await until(() => root.querySelector(chip) !== null, "the setting chip");
+          root.querySelector<HTMLElement>(chip)?.click();
+          await new Promise((r) => setTimeout(r, 250));
+        },
+      } satisfies Scenario,
+    ]),
+  ),
   "menu-host": {
     title: "The host's menu is open (a remote host)",
     environments: [BUILD, LOCAL],

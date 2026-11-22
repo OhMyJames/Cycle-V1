@@ -53,9 +53,10 @@ test("a session of a host that is away cannot be opened unless it was already, a
   // Its last list is there, from main, though the environment is not connected.
   expect(store.getState().sessions.local?.map((x) => x.sessionId)).toEqual(["s1"]);
   await store.selectSession("local", "s1");
-  expect(store.getState().error).toBe(
-    "This computer is not connected, so this session cannot be opened.",
-  );
+  expect(store.getState().error).toEqual({
+    key: "session.awayCannotOpen",
+    params: { environment: "This computer" },
+  });
   expect(store.getState().selectedSession).toBeUndefined();
   expect(script.named("openSession")).toEqual([]);
 

@@ -18,6 +18,7 @@ export const enUS = {
   "session.away": "{environment} · {state}",
   "session.awayBanner":
     "{environment} is not connected. This is what the session had when it went away.",
+  "defaults.reading": "Reading the defaults…",
   "defaults.unreadable":
     "The saved settings of this agent could not be read, so they are not shown. Close this and open it again.",
   "newSession.environment": "Environment",
@@ -32,8 +33,15 @@ export const enUS = {
   // Empty state and sidebar toggle
   "sidebar.show": "Show sidebar",
   "sidebar.hide": "Hide sidebar",
+  "layout.resizeSidebar": "Resize sidebar",
+  "layout.resizePanel": "Resize panel",
+  "layout.panel": "Panel",
   "empty.chooseOrStart": "Choose a session, or start a new one.",
   "empty.startSession": "Start a new session",
+  "app.starting": "Starting…",
+  "environment.connecting": "Connecting to this environment…",
+  "environment.notConnected": "Not connected to this environment.",
+  "environment.connectAgain": "Connect again",
 
   // A new session before its first message: the blank conversation
   "blank.title": "New session",
@@ -89,7 +97,6 @@ export const enUS = {
   "composer.queueKey": "Queue ({key})",
   "composer.steer": "Send now",
   "composer.stop": "Stop",
-  "composer.stopKey": "Stop ({key})",
   "composer.setting": "{setting}: {value}",
   "composer.effort.modelDefault": "Model default",
   "composer.effort.chip": "Default effort",
@@ -279,6 +286,8 @@ export const enUS = {
   "step.elapsedMinutesSeconds": "{minutes}m {seconds}s",
   "thinking.show": "Show thinking",
   "session.settings": "Session settings",
+  "session.actions": "Session actions",
+  "environment.actions": "Environment actions",
 
   // The session list
   "sessions.label": "Sessions",
@@ -311,7 +320,7 @@ export const enUS = {
   "folders.truncated": "Only the first {count} folders are shown.",
   "folders.choose": "Choose this folder",
   "folders.cancel": "Back",
-  "folders.error": "This folder cannot be shown: {reason}",
+  "folders.error": "This folder cannot be shown.",
   "folders.retry": "Try again",
   "newSession.browse": "Browse…",
 
@@ -335,7 +344,7 @@ export const enUS = {
   "connectors.none":
     "No connected environment can keep connectors. Connect one, or update Cycle on it.",
   "connectors.loading": "Reading connectors…",
-  "connectors.unreadable": "The connectors could not be read: {reason}",
+  "connectors.unreadable": "The connectors could not be read.",
   "connectors.retry": "Try again",
   "connectors.empty": "No connectors yet. Add an MCP server and every session can use it.",
   "connectors.add": "Add connector",
@@ -453,6 +462,59 @@ export const enUS = {
 
   // App update dismiss
   "update.dismiss": "Later",
+  "dialog.close": "Close",
+  "dialog.cancel": "Cancel",
+  "banner.dismiss": "Dismiss",
+  "environment.reconnectingBanner":
+    "Connection lost. Reconnecting… what you miss will be shown when it is back.",
+  "environment.add": "Add environment",
+  "environment.addTitle": "Add an environment",
+  "environment.addSubmit": "Add",
+  "environment.sshNote":
+    "Cycle connects with your system's ssh, so your keys and ~/.ssh/config apply. There is no password prompt.",
+  "environment.address": "Address",
+  "environment.addressHint": "user@host, or an alias",
+  "environment.name": "Name",
+  "environment.nameHint": "Shown in the list",
+  "environment.command": "Command on the environment",
+  "environment.remove": "Remove {name}",
+  "environment.status": "{environment} · {state}",
+  "environment.state.connected": "Connected",
+  "environment.state.connecting": "Connecting…",
+  "environment.state.reconnecting": "Reconnecting…",
+  "environment.state.closed": "Not connected",
+  "session.settingsDescription": "A change applies to the next thing the agent does.",
+  "session.rename": "Rename",
+  "session.archive": "Archive",
+  "session.restore": "Restore",
+  "session.delete": "Delete",
+  "session.deleteTitle": "Delete this session?",
+  "session.deleteDescription": "Its whole history is removed for good. This cannot be undone.",
+  "session.deleteConfirm": "Delete session",
+  "session.awayCannotOpen": "{environment} is not connected, so this session cannot be opened.",
+  "trust.changeFailed": "The folder's trust could not be changed: {reason}",
+  "defaults.title": "Agent defaults",
+  "defaults.menuFor": "Agent defaults · {environment}",
+  "defaults.description": "New sessions of the agent start with these settings.",
+  "defaults.agent": "Agent",
+  "defaults.save": "Save",
+  "rename.title": "Rename",
+  "rename.name": "Name",
+  "rename.submit": "Rename",
+  "config.nothingToSet": "This agent has nothing to set.",
+  "update.checking": "Checking for updates…",
+  "update.upToDate": "Up to date",
+  "update.available": "Version {version} is available",
+  "update.downloading": "Downloading {version}: {received} of {total} MB",
+  "update.downloadingChanges": "Downloading the changes for {version}: {received} of {total} MB",
+  "update.installing": "Installing {version}…",
+  "update.failed": "Updating to {version} failed: {reason}",
+  "update.tryAgain": "Try again",
+  "update.install": "Update and restart",
+  "update.confirmTitle": "Update to {version}?",
+  "update.confirmDescription":
+    "Cycle closes and opens again as the new version. A session on This computer that is working is interrupted; sessions on other environments carry on.",
+  "update.current": "Cycle {version}",
 
   // The code colours choice
   "codeTheme.label": "Code colours",

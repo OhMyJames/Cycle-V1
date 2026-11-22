@@ -5,7 +5,7 @@
 //   bun scan-copy.mjs [files or folders...]     (default: packages/ui/src/react)
 // Exit 1 when something is found, so it can gate a change; every hit names the rule in references/copy.md.
 //
-//   bun scan-copy.mjs --i18n [--update]
+//   bun scan-copy.mjs --i18n [--update | --list]
 // The i18n ratchet: counts the user-visible text still written in the code (JSX text, title, aria-label, placeholder, alt)
 // instead of coming from the message catalog (`t("key")`), per file, and compares it with i18n-baseline.json beside this
 // script. A file may only go down: a new string is written in the catalog (packages/ui/src/messages/en-US.ts), not in the
@@ -40,14 +40,25 @@ const i18n = args.includes("--i18n");
 const paths = args.filter((a) => !a.startsWith("--"));
 for (const p of paths.length ? paths : ["packages/ui/src/react"]) walk(p);
 
-/** The strings a user can read on one line of a component. */
-const readable = (line) => {
+/**
+ * The strings a user can read on one line of a component: JSX text (on the line of its tags, or on a line of its own
+ * after a tag), the text of title, aria-label, placeholder, alt and any `...label`/`description` prop, and the words of
+ * an error or a notice. `previous` is the line before, for text on a line of its own.
+ */
+const readable = (line, previous = "") => {
   const out = [];
-  for (const m of line.matchAll(/>([^<>{}]*[A-Za-z][^<>{}]*)</g)) out.push(m[1].trim());
-  for (const m of line.matchAll(/\b(?:title|aria-label|placeholder|alt|label)=["{`]+([^"}`]+)/g)) out.push(m[1].trim());
+  // `=>` is an arrow, not the end of a tag: what follows it is code.
+  for (const m of line.matchAll(/(?<!=)>([^<>{}]*[A-Za-z][^<>{}]*)</g)) out.push(m[1].trim());
+  if (/>\s*$/.test(previous) && !/=>\s*$/.test(previous) && /^\s*[A-Z][^<>{}=;()|]*$/.test(line)) out.push(line.trim());
+  // An attribute's text: a plain string, or every string literal in its braces (`{host || "Shown in the list"}`,
+  // `{open ? "Hide panel" : "Show panel"}`).
+  for (const m of line.matchAll(/\b(?:title|aria-label|placeholder|alt|\w*[lL]abel|description)=(?:"([^"]+)"|\{([^}]*)\})/g)) {
+    if (m[1] !== undefined) out.push(m[1].trim());
+    else for (const lit of m[2].matchAll(/(["'`])([^"'`]+)\1/g)) out.push(lit[2].trim());
+  }
   for (const m of line.matchAll(/\b(?:throw new Error|notice|error|message|detail)[^"'`\n]*(["'`])([^"'`]{6,})\1/g)) out.push(m[2].trim());
-  // Words a user reads, not a class name or an identifier.
-  return out.filter((s) => /[A-Za-z]{3}/.test(s) && (/\s/.test(s) || /^[A-Z]/.test(s)));
+  // Words a user reads, not a class name, an identifier or a type.
+  return out.filter((s) => /[A-Za-z]{3}/.test(s) && (/\s/.test(s) || /^[A-Z]/.test(s)) && !/[|]|=>|^t\(/.test(s));
 };
 
 if (i18n) {
@@ -57,12 +68,17 @@ if (i18n) {
   for (const file of files) {
     if (/icons\.tsx$/.test(file)) continue;
     const list = [];
-    readFileSync(file, "utf8").split("\n").forEach((line, i) => {
+    const lines = readFileSync(file, "utf8").split("\n");
+    lines.forEach((line, i) => {
       if (/^\s*(import|\/\/|\*)/.test(line)) return;
-      for (const text of readable(line)) list.push(`${i + 1}: ${text}`);
+      for (const text of readable(line, lines[i - 1])) list.push(`${i + 1}: ${text}`);
     });
     counts[file] = list.length;
     where[file] = list;
+  }
+  if (args.includes("--list")) {
+    for (const [file, list] of Object.entries(where))
+      if (list.length > 0) console.log(`${file}\n${list.map((l) => `    ${l}`).join("\n")}`);
   }
   if (args.includes("--update")) {
     writeFileSync(baselinePath, `${JSON.stringify(counts, null, 2)}\n`);

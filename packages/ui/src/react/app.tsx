@@ -15,12 +15,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@ui-sdk/react/menu";
-import {
-  createResizableController,
-  Resizable,
-  ResizableHandle,
-  ResizablePanel,
-} from "@ui-sdk/react/resizable";
+import { createResizableController } from "@ui-sdk/react/resizable";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { contextOf } from "../model/conversation.ts";
 import {
@@ -54,8 +49,11 @@ import { currentPlan } from "./plan.tsx";
 import { SearchDialog } from "./search.tsx";
 import type { Away } from "./session-list.tsx";
 import { MOD, Sidebar, sessionTitle } from "./sidebar.tsx";
+import { SplitLayout, type SplitPanel } from "./split-layout.tsx";
+import { StateBlock } from "./state-block.tsx";
 import { ENVIRONMENT_STATE } from "./status.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
+import { Tip } from "./tip.tsx";
 import { DaemonBanner, UpdateBanner, UpdateFooter } from "./update.tsx";
 
 type Panel =
@@ -114,7 +112,7 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
       <DialogBackdrop />
       <DialogContent>
         <DialogTitle>{t("session.settings")}</DialogTitle>
-        <DialogDescription>A change applies to the next thing the agent does.</DialogDescription>
+        <DialogDescription>{t("session.settingsDescription")}</DialogDescription>
         <ConfigForm
           schema={schema}
           value={session.config ?? {}}
@@ -128,14 +126,15 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
           }}
         />
         <div data-slot="row" data-dialog-footer="">
-          <DialogClose>Close</DialogClose>
+          <DialogClose>{t("dialog.close")}</DialogClose>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-export function App() {
+/** `sidePanel`: the right panel, open, when there is one (CYCL-90 brings it; the gallery passes one to try the columns). */
+export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
   const store = useAppStore();
   const { t } = useI18n();
   const showThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
@@ -180,10 +179,10 @@ export function App() {
     for (const h of environments) {
       const state = status[h.id]?.state ?? "closed";
       if (state !== "connected")
-        map.set(h.id, { name: h.name, word: ENVIRONMENT_STATE[state].word });
+        map.set(h.id, { name: h.name, word: t(ENVIRONMENT_STATE[state].word) });
     }
     return map;
-  }, [environments, status]);
+  }, [environments, status, t]);
   const view =
     selectedEnvironment !== undefined && selectedSession !== undefined
       ? views[viewKey(selectedEnvironment, selectedSession)]
@@ -435,31 +434,35 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  if (!ready) return <div data-slot="starting">Starting…</div>;
+  if (!ready)
+    return (
+      <div data-slot="starting">
+        <StateBlock tone="loading" title={t("app.starting")} />
+      </div>
+    );
 
   const sidebarToggle = (
-    <Button
-      data-variant="ghost"
-      data-kind="sidebar-toggle"
-      aria-label={t(sidebarCollapsed ? "sidebar.show" : "sidebar.hide")}
-      title={`${t(sidebarCollapsed ? "sidebar.show" : "sidebar.hide")}  ${MOD}B`}
-      onClick={() => toggleSidebar("click")}
+    <Tip
+      label={t(sidebarCollapsed ? "sidebar.show" : "sidebar.hide")}
+      shortcut="mod+b"
+      side="bottom"
     >
-      <SidebarIcon />
-    </Button>
+      <Button
+        data-variant="ghost"
+        data-kind="sidebar-toggle"
+        onClick={() => toggleSidebar("click")}
+      >
+        <SidebarIcon />
+      </Button>
+    </Tip>
   );
 
   return (
     <div data-slot="app" ref={appRef}>
-      <Resizable controller={layout} autoSaveId="cycle-layout">
-        <ResizablePanel
-          id="sidebar"
-          defaultSize="256px"
-          minSize="200px"
-          maxSize="360px"
-          collapsible
-          collapsedSize="0px"
-        >
+      <SplitLayout
+        controller={layout}
+        panel={sidePanel}
+        sidebar={
           <Sidebar
             environments={environments}
             status={status}
@@ -507,27 +510,24 @@ export function App() {
           >
             <UpdateFooter />
           </Sidebar>
-        </ResizablePanel>
-        <ResizableHandle aria-label="Resize sidebar" />
-        <ResizablePanel id="main" minSize="480px">
+        }
+        main={
           <main data-slot="main">
             <UpdateBanner />
             <AnalyticsNotice />
             {error !== undefined ? (
               <div data-slot="banner" data-severity="error" role="alert">
                 <ErrorCircleIcon />
-                <span>{error}</span>
+                <span>{typeof error === "string" ? error : t(error.key, error.params)}</span>
                 <Button data-variant="ghost" onClick={store.dismissError}>
-                  Dismiss
+                  {t("banner.dismiss")}
                 </Button>
               </div>
             ) : null}
             {environmentState === "reconnecting" && environmentIncompatible === undefined ? (
               <div data-slot="banner" data-severity="warning" role="status">
                 <WarningIcon />
-                <span>
-                  Connection lost. Reconnecting… what you miss will be shown when it is back.
-                </span>
+                <span>{t("environment.reconnectingBanner")}</span>
               </div>
             ) : null}
             {view !== undefined &&
@@ -580,13 +580,11 @@ export function App() {
                       else if (value === "delete") open("delete");
                     }}
                   >
-                    <MenuTrigger
-                      aria-label="Session actions"
-                      title="Session actions"
-                      data-variant="ghost"
-                    >
-                      <MoreIcon />
-                    </MenuTrigger>
+                    <Tip label={t("session.actions")} side="bottom">
+                      <MenuTrigger data-variant="ghost">
+                        <MoreIcon />
+                      </MenuTrigger>
+                    </Tip>
                     <MenuContent>
                       {session.unknownBackground?.length ? (
                         <MenuItem value="dismiss-background">
@@ -595,7 +593,7 @@ export function App() {
                           })}
                         </MenuItem>
                       ) : null}
-                      <MenuItem value="rename">Rename</MenuItem>
+                      <MenuItem value="rename">{t("session.rename")}</MenuItem>
                       {sessionSchema !== undefined && propertiesOf(sessionSchema).length > 0 ? (
                         <MenuItem value="settings" disabled={!connected}>
                           {t("session.settings")}
@@ -609,11 +607,11 @@ export function App() {
                         {t("thinking.show")}
                       </MenuCheckboxItem>
                       <MenuItem value="archive">
-                        {session.archived ? "Restore" : "Archive"}
+                        {t(session.archived ? "session.restore" : "session.archive")}
                       </MenuItem>
                       <MenuSeparator />
                       <MenuItem value="delete" data-destructive>
-                        Delete
+                        {t("session.delete")}
                       </MenuItem>
                     </MenuContent>
                   </Menu>
@@ -640,32 +638,31 @@ export function App() {
             ) : (
               <div data-slot="empty">
                 {environmentState === "connected" ? (
-                  <div data-slot="empty-block">
-                    <p data-slot="empty-title">{t("empty.chooseOrStart")}</p>
-                    {connectedEnvironments.length > 0 ? (
-                      <Button data-variant="outline" onClick={() => newSession()}>
-                        {t("empty.startSession")}
-                      </Button>
-                    ) : null}
-                  </div>
+                  <StateBlock
+                    tone="empty"
+                    title={t("empty.chooseOrStart")}
+                    action={
+                      connectedEnvironments.length > 0
+                        ? { label: t("empty.startSession"), onAction: () => newSession() }
+                        : undefined
+                    }
+                  />
                 ) : environmentState === "connecting" || environmentState === "reconnecting" ? (
-                  <p>Connecting to this environment…</p>
+                  <StateBlock tone="loading" title={t("environment.connecting")} />
                 ) : (
-                  <div data-slot="empty-block" role="alert">
-                    <ErrorCircleIcon size={20} />
-                    <p data-slot="empty-title">Not connected to this environment.</p>
-                    {environmentError !== undefined ? (
-                      <code data-slot="reason">{environmentError}</code>
-                    ) : null}
-                    {selectedEnvironment !== undefined ? (
-                      <Button
-                        data-variant="outline"
-                        onClick={() => void store.connectEnvironment(selectedEnvironment)}
-                      >
-                        Retry
-                      </Button>
-                    ) : null}
-                  </div>
+                  <StateBlock
+                    tone="error"
+                    title={t("environment.notConnected")}
+                    reason={environmentError}
+                    action={
+                      selectedEnvironment !== undefined
+                        ? {
+                            label: t("environment.connectAgain"),
+                            onAction: () => void store.connectEnvironment(selectedEnvironment),
+                          }
+                        : undefined
+                    }
+                  />
                 )}
               </div>
             )}
@@ -711,8 +708,8 @@ export function App() {
               />
             ) : null}
           </main>
-        </ResizablePanel>
-      </Resizable>
+        }
+      />
 
       <SearchDialog
         open={panel === "search"}
@@ -796,9 +793,9 @@ export function App() {
           <ConfirmDialog
             open={panel === "delete"}
             onOpenChange={(open) => !open && close()}
-            title="Delete this session?"
-            description="Its whole history is removed for good. This cannot be undone."
-            confirmLabel="Delete"
+            title={t("session.deleteTitle")}
+            description={t("session.deleteDescription")}
+            confirmLabel={t("session.deleteConfirm")}
             destructive
             onConfirm={() => store.deleteSession(session.sessionId)}
           />

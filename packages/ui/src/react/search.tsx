@@ -99,9 +99,9 @@ export function SearchDialog(props: SearchDialogProps) {
                     {environment !== undefined && environment.kind !== "local" ? (
                       <Remote
                         environment={environment}
-                        state={
-                          ENVIRONMENT_STATE[props.status[environment.id]?.state ?? "closed"].word
-                        }
+                        state={t(
+                          ENVIRONMENT_STATE[props.status[environment.id]?.state ?? "closed"].word,
+                        )}
                       />
                     ) : null}
                     {workspace.name}

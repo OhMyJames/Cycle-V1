@@ -36,7 +36,9 @@ import type {
 import { ConfirmDialog } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
 import { MoreIcon } from "./icons.tsx";
+import { StateBlock } from "./state-block.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
+import { Tip } from "./tip.tsx";
 
 type Problem = { problem: ConnectorProblem; message?: string | undefined };
 type Answer = { connector: ConnectorInfo } | Problem | { cancelled: true };
@@ -202,14 +204,21 @@ function ConnectorList(props: {
 
   const unreadable =
     read?.error !== undefined ? (
-      <div data-slot="row" role="alert">
-        <span data-slot="hint">{t("connectors.unreadable", { reason: read.error })}</span>
-        <Button onClick={() => void store.loadConnectors(environmentId)}>
-          {t("connectors.retry")}
-        </Button>
-      </div>
+      <StateBlock
+        size="inline"
+        tone="error"
+        title={t("connectors.unreadable")}
+        reason={read.error}
+        action={{
+          label: t("connectors.retry"),
+          onAction: () => void store.loadConnectors(environmentId),
+        }}
+      />
     ) : null;
-  if (list === undefined) return unreadable ?? <p data-slot="hint">{t("connectors.loading")}</p>;
+  if (list === undefined)
+    return (
+      unreadable ?? <StateBlock size="inline" tone="loading" title={t("connectors.loading")} />
+    );
   return (
     <div data-slot="stack">
       {unreadable}
@@ -226,7 +235,7 @@ function ConnectorList(props: {
         </p>
       ) : null}
       {list.length === 0 ? (
-        <p data-slot="hint">{t("connectors.empty")}</p>
+        <StateBlock size="inline" tone="empty" title={t("connectors.empty")} />
       ) : (
         <ul data-slot="connector-list">
           {list.map((connector) => {
@@ -274,13 +283,11 @@ function ConnectorList(props: {
                       else if (value === "remove") setRemoving(connector);
                     }}
                   >
-                    <MenuTrigger
-                      data-variant="ghost"
-                      aria-label={t("connectors.actions", { name: connector.name })}
-                      title={t("connectors.actions", { name: connector.name })}
-                    >
-                      <MoreIcon />
-                    </MenuTrigger>
+                    <Tip label={t("connectors.actions", { name: connector.name })}>
+                      <MenuTrigger data-variant="ghost">
+                        <MoreIcon />
+                      </MenuTrigger>
+                    </Tip>
                     <MenuContent>
                       <MenuItem value="edit">{t("connectors.edit")}</MenuItem>
                       {oauth && connector.authorized ? (

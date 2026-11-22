@@ -88,7 +88,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     return (
       <MenuItem key={w.key} value={w.key} data-away={away(w.environmentId) || undefined}>
         {environment !== undefined ? (
-          <Remote environment={environment} state={stateOf(w.environmentId).word} />
+          <Remote environment={environment} state={t(stateOf(w.environmentId).word)} />
         ) : null}
         <span data-slot="workspace-name">{w.name}</span>
         <Badge counts={w.counts} />
@@ -115,7 +115,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
         title={t("workspace.switch")}
       >
         {environment !== undefined ? (
-          <Remote environment={environment} state={stateOf(current.environmentId).word} />
+          <Remote environment={environment} state={t(stateOf(current.environmentId).word)} />
         ) : null}
         <span data-slot="workspace-name">{current.name}</span>
         <Badge counts={props.elsewhere.counts} />
@@ -129,7 +129,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
                 <MenuGroup key={g.environmentId}>
                   <MenuGroupLabel>
                     <StatusDot tone={how.tone} shape={how.shape} />
-                    {environmentOf(g.environmentId)?.name ?? g.environmentId} · {how.word}
+                    {environmentOf(g.environmentId)?.name ?? g.environmentId} · {t(how.word)}
                   </MenuGroupLabel>
                   {g.items.map(item)}
                 </MenuGroup>

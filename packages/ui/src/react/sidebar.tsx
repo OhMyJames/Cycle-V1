@@ -7,6 +7,7 @@ import { useI18n } from "./i18n.tsx";
 import { MoreIcon, PlugIcon, PlusIcon, SearchIcon } from "./icons.tsx";
 import { type Away, SessionListView } from "./session-list.tsx";
 import { ENVIRONMENT_STATE, StatusDot } from "./status.tsx";
+import { Tip } from "./tip.tsx";
 import { WorkspaceSwitcher } from "./workspace-switcher.tsx";
 
 export type SidebarProps = {
@@ -116,13 +117,11 @@ export function Sidebar(props: SidebarProps) {
             else if (raw === "untrust") props.onTrust?.(false);
           }}
         >
-          <MenuTrigger
-            aria-label="Environment actions"
-            title="Environment actions"
-            data-variant="ghost"
-          >
-            <MoreIcon />
-          </MenuTrigger>
+          <Tip label={t("environment.actions")}>
+            <MenuTrigger data-variant="ghost">
+              <MoreIcon />
+            </MenuTrigger>
+          </Tip>
           <MenuContent>
             {props.trust !== undefined && props.onTrust !== undefined ? (
               <>
@@ -132,10 +131,10 @@ export function Sidebar(props: SidebarProps) {
                 <MenuSeparator />
               </>
             ) : null}
-            <MenuItem value="add-environment">Add environment</MenuItem>
+            <MenuItem value="add-environment">{t("environment.add")}</MenuItem>
             {connected.map((h) => (
               <MenuItem key={h.id} value={`agent-defaults:${h.id}`}>
-                {several ? `Agent defaults · ${h.name}` : "Agent defaults"}
+                {several ? t("defaults.menuFor", { environment: h.name }) : t("defaults.title")}
               </MenuItem>
             ))}
             {props.environments.some((h) => h.kind !== "local") ? <MenuSeparator /> : null}
@@ -150,7 +149,7 @@ export function Sidebar(props: SidebarProps) {
                   value={`remove-environment:${h.id}`}
                   data-destructive
                 >
-                  {`Remove ${h.name}`}
+                  {t("environment.remove", { name: h.name })}
                 </MenuItem>,
               ])}
           </MenuContent>
@@ -159,6 +158,7 @@ export function Sidebar(props: SidebarProps) {
       {apart.map((h) => {
         const state = props.status[h.id];
         const how = ENVIRONMENT_STATE[state?.state ?? "closed"];
+        const line = t("environment.status", { environment: h.name, state: t(how.word) });
         return (
           <span
             key={h.id}
@@ -167,8 +167,8 @@ export function Sidebar(props: SidebarProps) {
             role="status"
           >
             <StatusDot tone={how.tone} shape={how.shape} />
-            <span data-slot="environment-name" title={`${h.name} · ${how.word}`}>
-              {h.name} · {how.word}
+            <span data-slot="environment-name" title={line}>
+              {line}
             </span>
             {state?.error !== undefined && (state?.state ?? "closed") === "closed" ? (
               <span data-slot="hint" title={state.error}>
@@ -177,7 +177,7 @@ export function Sidebar(props: SidebarProps) {
             ) : null}
             {(state?.state ?? "closed") === "closed" ? (
               <Button data-variant="ghost" onClick={() => props.onConnectEnvironment(h.id)}>
-                Retry
+                {t("environment.connectAgain")}
               </Button>
             ) : null}
           </span>

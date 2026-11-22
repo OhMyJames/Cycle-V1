@@ -7,6 +7,10 @@ import { join } from "node:path";
 import { app, clipboard } from "electron";
 import { startApp } from "../../src/main/app.ts";
 
+/** In the page: an element's accessible name, as a person hears it (an icon-only button's comes from its tip). */
+const NAME_OF =
+  '((e) => e.getAttribute("aria-label") ?? (e.getAttribute("aria-labelledby") ? e.getAttribute("aria-labelledby").split(" ").map((id) => document.getElementById(id)?.textContent ?? "").join(" ").trim() : null) ?? e.textContent.trim())';
+
 const env = process.env as Record<string, string>;
 // Each step is also appended, synchronously, to SMOKE_LOG when set, so a run that hangs can be read.
 const out = (value: unknown) => {
@@ -116,9 +120,10 @@ const main = async () => {
     await sleep(50);
   };
 
-  // By the name a person hears: the label when there is one (the sidebar's actions also show their shortcut), else the text.
+  // By the name a person hears: the label when there is one (the sidebar's actions also show their shortcut), then what
+  // names it (an icon-only button is named by its tip, through aria-labelledby), else the text.
   const byText = (selector: string, text: string) =>
-    `[...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => (e.getAttribute("aria-label") ?? e.textContent.trim()) === ${JSON.stringify(text)})`;
+    `[...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => ${NAME_OF}(e) === ${JSON.stringify(text)})`;
 
   // Parenthesised: it is spliced into larger expressions, and `a ?? ""` binds loosely.
   const conversationText = () =>
@@ -150,7 +155,7 @@ const main = async () => {
 
     await waitFor(
       "a host to be connected (the New session button is on)",
-      `[...document.querySelectorAll('button')].some((b) => b.getAttribute('aria-label') === 'New session' && !b.disabled)`,
+      `[...document.querySelectorAll('button')].some((b) => ${NAME_OF}(b) === 'New session' && !b.disabled)`,
     );
     out({ step: "connected" });
     // Set the way the "Agent defaults" dialog sets them. The mode that asks first: what follows
@@ -218,7 +223,7 @@ const main = async () => {
     out({
       step: "typed",
       active: await run(
-        `document.activeElement ? document.activeElement.tagName + ':' + (document.activeElement.getAttribute('aria-label') ?? document.activeElement.getAttribute('data-slot') ?? '') : null`,
+        `document.activeElement ? document.activeElement.tagName + ':' + (${NAME_OF}(document.activeElement) || document.activeElement.getAttribute('data-slot') || '') : null`,
       ),
       rect: await run(
         `JSON.stringify(document.querySelector('[data-slot="composer"] [data-slot="composer-input"]').getBoundingClientRect())`,
@@ -247,7 +252,7 @@ const main = async () => {
     await waitFor("the answer", has(hello), 60_000);
     await waitFor(
       "the turn to end",
-      `!!document.querySelector('[data-slot="composer"]') && [...document.querySelectorAll('[data-slot="composer"] button')].some((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === "Send")`,
+      `!!document.querySelector('[data-slot="composer"]') && [...document.querySelectorAll('[data-slot="composer"] button')].some((b) => ${NAME_OF}(b) === "Send")`,
       60_000,
     );
     out({ step: "answer", text: await run(conversationText()) });
@@ -274,7 +279,7 @@ const main = async () => {
     await waitFor("the card to go", `!document.querySelector('[data-slot="permission"]')`);
     await waitFor(
       "the turn to end",
-      `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === "Send")`,
+      `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => ${NAME_OF}(b) === "Send")`,
       60_000,
     );
     out({ step: "allowed", text: await run(conversationText()) });
@@ -288,11 +293,11 @@ const main = async () => {
       await press("Enter");
       await waitFor(
         "the turn to start",
-        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === "Stop")`,
+        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => ${NAME_OF}(b) === "Stop")`,
       );
       await waitFor(
         "the turn to end",
-        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === "Send")`,
+        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => ${NAME_OF}(b) === "Send")`,
         90_000,
       );
       out({
@@ -323,11 +328,11 @@ const main = async () => {
       await press("Enter");
       await waitFor(
         "the turn to start",
-        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === "Stop")`,
+        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => ${NAME_OF}(b) === "Stop")`,
       );
       await waitFor(
         "the turn to end",
-        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === "Send")`,
+        `[...document.querySelectorAll('[data-slot="composer"] button')].some((b) => ${NAME_OF}(b) === "Send")`,
         90_000,
       );
       out({
@@ -344,7 +349,7 @@ const main = async () => {
     await run("location.reload()").catch(() => undefined);
     await waitFor(
       "the app again",
-      `[...document.querySelectorAll('button')].some((b) => b.getAttribute('aria-label') === 'New session' && !b.disabled)`,
+      `[...document.querySelectorAll('button')].some((b) => ${NAME_OF}(b) === 'New session' && !b.disabled)`,
     );
     await click(`document.querySelector('[role="option"]')`);
     await waitFor("the conversation back", `${has(hello)} && ${has(finished)}`);

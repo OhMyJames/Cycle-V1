@@ -16,7 +16,7 @@ iconmcp 已装为 MCP(`claude mcp add --transport http iconmcp https://iconmcp.c
 
 - 集中放在 `packages/ui/src/react/icons.tsx`,一个图标一个组件,统一的 props:`size`、`className` 以外不开放;
   `aria-hidden="true"`,`focusable="false"`。不在各组件里粘贴 SVG。
-- 只有图标的按钮:`aria-label` 写动作("Archive session"),并有悬停和聚焦时的提示,提示里写快捷键(如果有)。
+- 只有图标的按钮:包在 `Tip`(`packages/ui/src/react/tip.tsx`)里,`label` 写动作("Archive session"),有快捷键时给 `shortcut`。`Tip` 既是悬停和聚焦时的提示,也是读屏的名字,按钮自己不再写 `aria-label` 或 `title`。
 - 图标旁边有文字时,图标是装饰,不重复说明。
 - 同一个意思永远同一个图标;同一个图标不表示两个意思。
 - 状态不只靠颜色:断线、出错、等待各有不同的形状或文字。
