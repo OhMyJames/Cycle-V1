@@ -13,11 +13,12 @@ Cycle 里的动效只做一件事:让一个变化被看见。没有理由的动�
 | "Working" 的状态点 | 缓慢脉动 | 循环 1.6s linear / ease-in-out |
 | 新消息和流式文字 | 文字直接追加,不做逐字动画;仅在用户在底部时跟随滚动 | 无 |
 | 列表增删 | 不做动画 | 无 |
+| 侧栏收起/展开(按钮、⌘B) | 侧栏宽度滑动;拖动与窗口缩放时不动。唯一允许动宽度的地方:只动 transform 时对话区会一下跳宽,看不出侧栏去了哪 | `--cycle-motion-disclosure` (160ms) |
 
 ## 不可以
 
 - 弹跳、回弹、过冲、闪光、发光、装饰性微动画。
-- 动 `width`、`height`、`top`、`left`、`margin`、`padding`。只动 `transform`、`opacity` 和悬停 `background-color` / `color`。
+- 动 `width`、`height`、`top`、`left`、`margin`、`padding`(侧栏收起是唯一例外,见上表)。只动 `transform`、`opacity` 和悬停 `background-color` / `color`。
 - 滚动触发的出现动画、视差、滚动劫持。
 - 流式输出时让页面跳动:代码块、表格、图片占位在出现时保持稳定结构,只往下长。
 - 超过 200ms 的界面过渡(循环的状态点与等待旋转线除外)。

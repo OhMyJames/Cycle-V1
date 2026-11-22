@@ -185,7 +185,7 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
   - **顶段（固定）**：`New`（`⌘N`）与 `Search`（`⌘K`）`ghost` 行（可访问名称仍是 New session / Search sessions）、`Connectors` 入口、紧贴列表的 `WorkspaceSwitcher` + 环境 `"…"` 菜单；如有断线/重连环境，在此展示两行状态块（状态点+名称+`Retry` / 最多三行原因）。
   - **中段（独立滚动，保底 `10rem`）**：当前选中 workspace 的会话列表，分组顺序固定为 **`Needs you` → `Running` → `Today` → `Yesterday` → `Earlier`**（本地日界线，按 `updatedAt` 排序）；每项目默认展示 20 条（有状态标记或当前打开的永远展示），底部附 `Show N more sessions`（切换 workspace/环境时重置）与 `Show archived`。窗口极矮时改为整栏滚动，确保底部不裁切。
   - **底段（固定）**：当前版本号、更新状态、与进入设置页的图标按钮（`Settings`，`⌘,`）。
-- **折叠恢复**：主区头部必须提供 `SidebarIcon` 开关按钮（或对应入口），确保折叠后无需快捷键也能用鼠标打开侧栏。
+- **折叠恢复**：展开时 `SidebarIcon` 开关在侧栏顶行右端（与主区头部同高，Mac 上与红绿灯同行），不放进主区；折叠后它出现在主区头部，确保无需快捷键也能用鼠标打开侧栏。按钮与 `⌘B` 折叠/展开时侧栏宽度以 `--cycle-motion-disclosure` 滑动（拖动、窗口缩放时不动）。
 
 ### 4.2 会话切换与工作区范式
 
