@@ -40,6 +40,10 @@ export const serve = async (paths: Paths, options: ServeOptions = {}) => {
   const log = loggerFor(paths, config, options.echo);
   log.info("daemon_starting", { version: VERSION, pid: process.pid, level: config.log.level });
   let daemon: Daemon;
+  const agentIdleMs = minutes(config.idle.agentMinutes);
+  // Set once the daemon starts to stop: a client that connects after that is let go at once, and reconnects to the
+  // next daemon.
+  let refusing = false;
   let server: Awaited<ReturnType<typeof listenUnix>>;
   try {
     daemon = await Daemon.start({
@@ -48,12 +52,16 @@ export const serve = async (paths: Paths, options: ServeOptions = {}) => {
       version: VERSION,
       log,
       ...(config.claude.warmStart ? { maxAheadAgents: config.claude.maxWarm } : {}),
-      ...(config.idle.agentMinutes > 0 ? { agentIdleMs: config.idle.agentMinutes * 60_000 } : {}),
+      ...(agentIdleMs !== undefined ? { agentIdleMs } : {}),
     });
     let clients = 0;
     server = await listenUnix({
       path: paths.socket,
-      onConnection: ({ stream }) => {
+      onConnection: ({ stream, close }) => {
+        if (refusing) {
+          close();
+          return;
+        }
         const id = ++clients;
         log.info("client_connected", { client: id });
         void daemon.accept(stream).closed.then(() => log.info("client_left", { client: id }));
@@ -71,15 +79,19 @@ export const serve = async (paths: Paths, options: ServeOptions = {}) => {
   // One stop, whoever asks for it (a signal, the idle exit): a second caller waits for the first.
   const close = (): Promise<void> => {
     closing ??= (async () => {
+      // Before anything is awaited: from here no client gets in to start something that would be cut short.
+      refusing = true;
       clearInterval(sweep);
       const working = daemon.activity();
       log.info("daemon_stopping", {
         working: working.length,
         turns: working.filter((w) => w.turn).length,
       });
+      // Everything is written while the socket is still held, so no second daemon can start on this data directory
+      // (a client reconnecting through `cycle proxy`) until this one has finished with it.
+      await daemon.close();
       await rm(pidFile, { force: true });
       server.close();
-      await daemon.close();
       log.info("daemon_stopped");
       log.close();
     })();

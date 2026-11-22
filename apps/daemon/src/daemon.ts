@@ -360,7 +360,8 @@ export class Daemon {
 
   /**
    * Whether a session's agent can be let go without anything noticing: nobody is attached, and nothing is running,
-   * waiting, queued or in the background. What it held is on disk; the next prompt starts and resumes the agent.
+   * waiting or in the background. What it held is on disk; the next prompt starts and resumes the agent. A queue already
+   * held for a client to take back (docs/daemon.md "排队") needs no agent: it does not hold one, and keeps its reason.
    */
   #reclaimable(session: Session): boolean {
     return (
@@ -368,9 +369,9 @@ export class Daemon {
       session.link !== undefined &&
       session.starting === undefined &&
       session.attachments.size === 0 &&
+      // A request waiting for an answer counts as a turn in progress.
       !this.#turnInProgress(session) &&
-      session.pending.size === 0 &&
-      session.queue.length === 0 &&
+      (session.queue.length === 0 || session.heldReason !== undefined) &&
       // A task the agent's list no longer has, its end unknown, does not hold it on its own (docs/protocol.md §8).
       session.backgroundCount() === 0
     );
@@ -392,7 +393,11 @@ export class Daemon {
         session: session.id,
         idleSeconds: Math.round((now - session.lastActive) / 1000),
       });
-      session.link?.kill();
+      const link = session.link;
+      link?.kill();
+      // Gone from now, not when its connection is seen to close: a prompt that comes in between starts a new agent
+      // instead of being handed to the one going away. The close, when it comes, finds it already done.
+      this.#onAgentClosed(session, link);
       reclaimed.push(session.id);
     }
     return reclaimed;
@@ -769,6 +774,8 @@ export class Daemon {
 
   /** The agent for a session, started if it is not running. */
   async #ensureAgent(session: Session): Promise<AgentLink> {
+    // Whatever asks for the agent is about to use it (a prompt, a setting): not idle, so not let go under it.
+    session.lastActive = this.#now();
     if (session.link !== undefined) return session.link;
     session.starting ??= this.#startAgent(session, "resume")
       .then(({ link }) => {
@@ -1706,7 +1713,6 @@ export class Daemon {
       };
       const log = await this.#store.open(id);
       const session = new Session(id, entry, log);
-      session.lastActive = this.#now();
       this.#watch(session);
       try {
         await log.append({

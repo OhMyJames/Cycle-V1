@@ -191,3 +191,21 @@ test("a background task whose end is unknown does not hold the agent on its own"
   clock += LIMIT;
   expect(daemon.reclaimIdleAgents()).toEqual([sessionId]);
 });
+
+test("a prompt right after an agent is let go starts a new one, not the one going away", async () => {
+  const { daemon, fake } = await start();
+  const { c, sessionId } = await finishedTurn(daemon);
+  c.close();
+  await c.closed;
+  clock += LIMIT;
+  const again = await connectClient(daemon);
+  expect(daemon.reclaimIdleAgents()).toEqual([sessionId]);
+  // Asked again at once: nothing more to let go, the agent is already gone as far as the daemon is concerned.
+  expect(daemon.reclaimIdleAgents()).toEqual([]);
+  await again.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await again.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("again") });
+  await until(() => again.ended() >= 1, "the turn after the reclaim to end");
+  expect(fake.log.launches).toBe(2);
+  const stops = again.seen.map((s) => (s.update as { stopReason?: string }).stopReason);
+  expect(stops.filter((reason) => reason !== undefined)).toEqual(["end_turn"]);
+});

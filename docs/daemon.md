@@ -84,12 +84,14 @@ CYCL-104。目标机器是 2 核 4 GB,长期挂着的 daemon 不能让进程越�
 **空闲回收**(`Daemon.reclaimIdleAgents()`,`serve` 每 30 秒调一次):一个 session 的 agent 进程在下面这些都成立、并持续 `idle.agentMinutes`(默认 10 分钟)后被结束：
 
 - 没有客户端附着(附着就是在看它;客户端离开时开始计时，而不是从最后一条记录算起);
-- 没有进行中的 turn、没有待回答的请求、队列为空;
+- 没有进行中的 turn、没有待回答的请求;队列为空，或者是已经扣着等客户端取回的队列(见"排队",它不需要 agent,原因不变);
 - 没有在跑的后台子 agent(`cycle/background` 为 0)。只剩"结束原因未知"的记录不算(protocol.md §8)。
 
-计时从最后一件事算起：写进日志的记录(daemon 自己的 `meta` 不算)、附着或离开、agent 启动完成。结束的方式和预热上限、信任变化时一样(`link.kill()`):session 留在内存和列表里，状态是 `stopped`,下一个 prompt 按已有路径启动并 `session/resume` 它。日志记 `agent_reclaimed`(session id 和空闲秒数)。和预热上限(`claude.maxWarm`,CYCL-24)是两回事：上限管"同时有几个",回收管"空闲多久";预热起来、没人发 prompt 的进程，没人附着时同样按时间回收。
+计时从最后一件事算起：写进日志的记录(daemon 自己的 `meta` 不算)、附着或离开、有请求要用 agent(prompt、改设置)、agent 启动完成。结束的方式和预热上限、信任变化时一样(`link.kill()`),并且当场按 agent 已退出处理，不等连接关闭的通知，这样紧接着来的 prompt 会起一个新的，不会交给正在退出的那个。session 留在内存和列表里，状态是 `stopped`,下一个 prompt 按已有路径启动并 `session/resume` 它。日志记 `agent_reclaimed`(session id 和空闲秒数)。和预热上限(`claude.maxWarm`,CYCL-24)是两回事：上限管"同时有几个",回收管"空闲多久";预热起来、没人发 prompt 的进程，没人附着时同样按时间回收。
 
 **空闲退出**(`serve` 里同一个定时器):`Daemon.idleSince()` 在下面都成立时给出从何时起空闲：没有任何客户端连着、没有 session 在加载或启动 agent、`activity()` 为空。持续 `idle.exitMinutes`(默认 30 分钟)后，daemon 按收到 `SIGTERM` 的同一条路径停下(日志 `idle_exit`,然后 `daemon_stopping`),退出码 0。
+
+停下的顺序(两种停法一样):先不再接新连接(这之后连上来的立刻被断开，客户端重连);再结束 agent、写完索引和缓存;最后才删 pid 文件、关 socket。socket 一直占着，新的 daemon 在旧的写完之前起不来，两个进程不会同时写一个数据目录。
 
 - 不丢状态:`activity()` 为空就没有被打断的东西;索引、日志、排队的 prompt 都在磁盘上(排队的照"排队"的规则，等下一次有客户端附着)。
 - 自动拉起：桌面端本地和 ssh 都通过 `cycle proxy` 连接，连接断了就重连;`proxy` 发现没有 daemon 在听就先启动一个。所以有客户端连着时 daemon 不会退出，没有客户端时退出了，下一次连接把它拉起来。
