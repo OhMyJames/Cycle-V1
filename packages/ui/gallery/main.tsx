@@ -4,7 +4,7 @@ import { App, StoreProvider } from "@cycle/ui/react";
 import { AppStore, BLANK_KEY, viewKey } from "@cycle/ui/store";
 import { createRoot } from "react-dom/client";
 import { fakeBridge } from "../test/fake-bridge.ts";
-import { LOCAL, type Scenario, scenarios, snapshotOf, UP } from "./scenarios.ts";
+import { LOCAL, type Scenario, scenarios, sessionSnapshotOf, UP } from "./scenarios.ts";
 
 const params = new URLSearchParams(location.search);
 const name = params.get("s");
@@ -51,7 +51,8 @@ const bridgeFor = (scenario: Scenario) => {
   script.bridge.planUsage = async () => planUsage;
   script.bridge.environments = async () => ({ environments, status, sessions });
   script.bridge.sessions = async (environmentId) => sessions[environmentId] ?? [];
-  script.bridge.openSession = async () => snapshotOf(scenario);
+  script.bridge.openSession = async (_environmentId, sessionId) =>
+    sessionSnapshotOf(scenario, sessionId);
   script.bridge.agents = async () =>
     scenario.noAgents
       ? []

@@ -50,6 +50,8 @@ export type Scenario = {
    * never answered, so that the page stays as it is while a session is being made.
    */
   blank?: { cwd?: string; starting?: string };
+  /** Each session's own conversation, by its id, when the sessions differ; others open `history`. */
+  histories?: Record<string, SessionUpdate[]>;
   /** The first session's right panel is open beside the conversation (CYCL-90): the columns at this window's width. */
   sidePanel?: boolean;
   /** Runs once the page has drawn: open a dialog, press a key, or send an event as the app's main process would. */
@@ -185,6 +187,25 @@ const LONG: SessionUpdate[] = Array.from({ length: 240 }, (_, n) => [
   idle({ stopReason: "end_turn" }),
 ]).flat();
 
+const tryoutGoal = {
+  condition: "The remote session reconnects after the laptop sleeps, and every test passes",
+  iterations: 0,
+  setAt: Date.UTC(2026, 10, 22, 9, 30),
+};
+const hello: SessionUpdate[] = [
+  u({
+    sessionUpdate: "user_message",
+    messageId: "h1",
+    content: [{ type: "text", text: "Say hello" }],
+  }),
+  u({
+    sessionUpdate: "agent_message_chunk",
+    messageId: "h2",
+    content: { type: "text", text: "Hello." },
+  }),
+  u({ sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" }),
+];
+
 export const conversation: SessionUpdate[] = [
   you("u1", "Why does the remote session fail, and fix it."),
   u({
@@ -210,6 +231,28 @@ export const conversation: SessionUpdate[] = [
   say("a1", MARKDOWN),
   u({ sessionUpdate: "usage_update", used: 41_200, size: 200_000 }),
   idle({ stopReason: "end_turn" }),
+];
+
+/** The session to try the panel on: the conversation, a goal, a command running on in the background, a watcher lost. */
+const tryout: SessionUpdate[] = [
+  ...conversation,
+  u({ sessionUpdate: "_cycle/goal_update", goal: tryoutGoal }),
+  u({
+    sessionUpdate: "_cycle/task_update",
+    taskId: "b1",
+    kind: "shell",
+    title: "bun test packages/daemon",
+    toolCallId: "c3",
+    state: "running",
+  }),
+  u({
+    sessionUpdate: "_cycle/task_update",
+    taskId: "m1",
+    kind: "monitor",
+    title: "Watch the daemon log for reconnects",
+    toolCallId: "c1",
+    state: "unknown",
+  }),
 ];
 
 const permission = (title: string, command: string): PermissionRequest => ({
@@ -1466,6 +1509,50 @@ export const scenarios: Record<string, Scenario> = {
     ],
     sidePanel: true,
   },
+  // To try the right panel by hand (CYCL-90, CYCL-88): two sessions with their own panels, and an Overview that changes
+  // while it is watched. Nothing is opened for you; the news below arrives over the first half minute.
+  "panel-tryout": {
+    title: "Try the right panel: two sessions, an Overview whose goal and background change live",
+    sessions: [
+      session("s1", { title: "Fix the remote session" }),
+      session("s2", { title: "Say hello" }),
+    ],
+    history: tryout,
+    histories: { s1: tryout, s2: hello },
+    after: async (_root, emit) => {
+      let version = tryout.length;
+      const news = (update: SessionUpdate) =>
+        emit({
+          type: "update",
+          environmentId: "local",
+          sessionId: "s1",
+          update,
+          version: ++version,
+        });
+      const at = (seconds: number, update: SessionUpdate) =>
+        setTimeout(() => news(update), seconds * 1000);
+      at(
+        5,
+        u({
+          sessionUpdate: "_cycle/goal_update",
+          goal: { ...tryoutGoal, iterations: 1, lastReason: "Two reconnect tests still fail" },
+        }),
+      );
+      at(
+        10,
+        u({
+          sessionUpdate: "_cycle/task_update",
+          taskId: "w1",
+          kind: "workflow",
+          title: "Review the daemon changes",
+          state: "running",
+        }),
+      );
+      at(15, u({ sessionUpdate: "_cycle/task_update", taskId: "b1", state: "completed" }));
+      at(20, u({ sessionUpdate: "_cycle/task_update", taskId: "w1", state: "failed" }));
+      at(25, u({ sessionUpdate: "_cycle/goal_update", goal: null }));
+    },
+  },
   "panel-empty": {
     title: "The Overview of a session that has nothing besides its messages",
     sessions: [session("s1", { title: "Say hello" })],
@@ -1868,6 +1955,10 @@ export const scenarios: Record<string, Scenario> = {
     history: [you("u1", "Refactor the composer into three bands."), running(), measured],
   },
 };
+
+/** The snapshot a session of a scenario opens on: its own history, if it has one. */
+export const sessionSnapshotOf = (s: Scenario, sessionId: string): SessionSnapshot =>
+  snapshotOf({ ...s, history: s.histories?.[sessionId] ?? s.history });
 
 export const snapshotOf = (s: Scenario): SessionSnapshot => ({
   conversation: (s.history ?? []).reduce(applyUpdate, emptyConversation()),
