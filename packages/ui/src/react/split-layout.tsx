@@ -9,7 +9,7 @@ import {
   ResizableHandle,
   ResizablePanel,
 } from "@ui-sdk/react/resizable";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useRef } from "react";
 import { useI18n } from "./i18n.tsx";
 
 export const SIDEBAR = { default: 256, min: 200, max: 360 } as const;
@@ -169,7 +169,11 @@ export function SplitLayout({
   }, [controller, open]);
 
   return (
-    <div data-slot="split" ref={groupRef}>
+    <div
+      data-slot="split"
+      ref={groupRef}
+      style={{ "--cycle-sidebar-min": `${SIDEBAR.min}px` } as CSSProperties}
+    >
       <Resizable
         controller={controller}
         autoSaveId="cycle-layout"

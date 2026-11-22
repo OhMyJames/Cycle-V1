@@ -1662,15 +1662,23 @@ svg[data-slot="dot"] {
 /* The sidebar's top row, level with the conversation's header: the button that folds it at its right end. On a Mac
    it is also the strip the window is dragged by, beside the traffic lights. */
 [data-slot="titlebar"] {
+  display: none;
+}
+
+html[data-platform="darwin"] [data-slot="titlebar"] {
+  display: block;
+  height: 1.25rem;
+  -webkit-app-region: drag;
+}
+
+/* The session sidebar's top row (every platform): as tall as the session header (2.625rem), from the sidebar's top
+   edge (its padding is --cycle-gap, the gap below it 0.5rem), so the fold button sits level with the header's. */
+html [data-slot="sidebar"] > [data-slot="titlebar"] {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   height: 2.625rem;
   margin: calc(-1 * var(--cycle-gap)) 0 -0.5rem;
-}
-
-html[data-platform="darwin"] [data-slot="titlebar"] {
-  -webkit-app-region: drag;
 }
 
 html[data-platform="darwin"] [data-slot="titlebar"] button {
@@ -1690,8 +1698,14 @@ html[data-platform="darwin"] [data-slot="titlebar"] button {
   overflow: hidden;
 }
 
+/* Its least width (SIDEBAR.min, set on the split by split-layout.tsx). */
 [data-slot="resizable-panel"]#sidebar > [data-slot="sidebar"] {
-  min-width: 200px;
+  min-width: var(--cycle-sidebar-min, 200px);
+}
+
+/* The room kept for the traffic lights comes and goes with the slide, not before it. */
+html[data-platform="darwin"] [data-slot="split"][data-animate] [data-slot="main"] > :first-child {
+  transition: padding-left var(--cycle-motion-disclosure) var(--cycle-ease);
 }
 
 html[data-platform="darwin"]

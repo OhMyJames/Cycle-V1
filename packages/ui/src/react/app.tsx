@@ -453,20 +453,42 @@ function AppWindow() {
   const plan = view !== undefined ? currentPlan(view.conversation) : undefined;
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
 
-  const slideTimer = useRef<number | undefined>(undefined);
+  // The sidebar slides only when it is folded or opened on purpose (`data-animate` on the split, for that one slide): a
+  // drag, or a window being resized, moves it at once. Taken off when the slide ends, or at once if nothing moved.
+  const endSlide = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => endSlide.current?.(), []);
   const toggleSidebar = useCallback(
     (via: "click" | "shortcut") => {
       const wasCollapsed = layout.isCollapsed("sidebar") || sidebarCollapsed;
-      // The sidebar slides only when it is folded or opened on purpose: a drag, or a window being resized, moves it at once.
       const split = appRef.current?.querySelector<HTMLElement>('[data-slot="split"]');
+      endSlide.current?.();
+      split?.setAttribute("data-animate", "");
+      const moved = wasCollapsed ? layout.expand("sidebar") : layout.collapse("sidebar");
       if (split != null) {
-        split.setAttribute("data-animate", "");
-        window.clearTimeout(slideTimer.current);
-        slideTimer.current = window.setTimeout(() => split.removeAttribute("data-animate"), 250);
+        const done = () => {
+          split.removeAttribute("data-animate");
+          split.removeEventListener("transitionend", onEnd);
+          window.clearTimeout(fallback);
+          endSlide.current = undefined;
+        };
+        const onEnd = (event: TransitionEvent) => {
+          if ((event.target as HTMLElement).id === "sidebar" && event.propertyName === "flex-basis")
+            done();
+        };
+        // No transitionend when nothing moved, or with reduced motion: the attribute goes anyway.
+        const fallback = window.setTimeout(done, moved ? 400 : 0);
+        split.addEventListener("transitionend", onEnd);
+        endSlide.current = done;
       }
-      if (wasCollapsed) layout.expand("sidebar");
-      else layout.collapse("sidebar");
       setSidebarCollapsed(!wasCollapsed);
+      // The button moves (into the sidebar's corner, or the conversation's header): focus follows it, so a keyboard
+      // user is not left on the page.
+      if (document.activeElement?.closest('[data-kind="sidebar-toggle"]') != null)
+        requestAnimationFrame(() =>
+          appRef.current
+            ?.querySelector<HTMLElement>('[data-kind="sidebar-toggle"]:not([inert] *)')
+            ?.focus(),
+        );
       store.track("sidebar_toggled", { open: wasCollapsed, via });
     },
     [layout, sidebarCollapsed, store],
