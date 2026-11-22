@@ -510,3 +510,56 @@ test("a live model list keeps each model's effort levels, and drops a shape that
     ["odd", undefined],
   ]);
 });
+
+// ---- background tasks and the goal (CYCL-87) ----
+
+const taskUpdate = (fields: object) => u({ sessionUpdate: "_cycle/task_update", ...fields });
+
+test("a background task's news is merged by its id: later news keeps what earlier news said", () => {
+  const c = reduce([
+    taskUpdate({ taskId: "b1", kind: "shell", title: "Run the server", state: "running" }),
+    taskUpdate({ taskId: "m1", kind: "monitor", state: "running", toolCallId: "call-m" }),
+    taskUpdate({ taskId: "b1", toolCallId: "call-b", state: "running" }),
+    taskUpdate({ taskId: "b1", state: "failed" }),
+    taskUpdate({ taskId: "m1", state: "unknown" }),
+  ]);
+  expect(c.tasks).toEqual([
+    { id: "b1", kind: "shell", title: "Run the server", toolCallId: "call-b", state: "failed" },
+    { id: "m1", kind: "monitor", title: undefined, toolCallId: "call-m", state: "unknown" },
+  ]);
+});
+
+test("news of a task that does not read as one is counted as not drawn, and changes nothing", () => {
+  const c = reduce([
+    taskUpdate({ taskId: "b1", state: "sleeping" }),
+    taskUpdate({ state: "running" }),
+    taskUpdate({ taskId: "x", kind: "teleport", state: "running" }),
+  ]);
+  expect(c.ignored).toBe(2);
+  expect(c.tasks).toEqual([
+    { id: "x", kind: "other", title: undefined, toolCallId: undefined, state: "running" },
+  ]);
+});
+
+test("the goal is the last one told: unknown until told, null once cleared", () => {
+  const goal = (value: unknown) => u({ sessionUpdate: "_cycle/goal_update", goal: value });
+  expect(emptyConversation().goal).toBeUndefined();
+  const set = reduce([
+    goal({ condition: "tests pass", iterations: 0, setAt: 10 }),
+    goal({ condition: "tests pass", iterations: 2, setAt: 10, lastReason: "one fails" }),
+  ]);
+  expect(set.goal).toEqual({
+    condition: "tests pass",
+    iterations: 2,
+    setAt: 10,
+    lastReason: "one fails",
+  });
+  expect(applyUpdate(set, goal(null)).goal).toBeNull();
+  expect(applyUpdate(set, goal({ iterations: 1 })).goal).toBe(set.goal);
+});
+
+test("a history from before these updates replays with no tasks and a goal nobody told", () => {
+  const c = reduce([chunk("agent_message_chunk", "a", "old"), idle({ stopReason: "end_turn" })]);
+  expect(c.tasks).toEqual([]);
+  expect(c.goal).toBeUndefined();
+});

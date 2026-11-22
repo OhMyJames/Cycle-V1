@@ -1913,3 +1913,161 @@ test("a rate limit event without the windows says the one it is about; one that 
   // A limit with no name is no limit: the daemon would refuse the whole usage for it.
   expect(planWindowsOf({ unifiedWindows: { "": { utilization: 0.1, resetsAt: 1 } } })).toEqual([]);
 });
+
+// ---- background tasks that are not sub-agents, and the goal (CYCL-87) ----
+
+const tasksOf = (updates: SessionUpdate[]) =>
+  updates.filter(
+    (u) => (u as { sessionUpdate: string }).sessionUpdate === "_cycle/task_update",
+  ) as unknown as Record<string, unknown>[];
+
+test("a background command is told as a task, from start to end, and never as a sub-agent", async () => {
+  const shell = {
+    task_id: "b1",
+    run_id: "1",
+    task_type: "local_bash",
+    tool_use_id: "call-b",
+    description: "Run the dev server",
+  };
+  const quiet = { task_id: "w", task_type: "monitor", ambient: true, description: "watch" };
+  const fake = fakeQuery(({ prompt }) => [
+    ...(prompt === "start"
+      ? [
+          // The list names it before its start does, and without the tool call (SDK: the level comes first).
+          task("background_tasks_changed", {
+            tasks: [{ ...shell, tool_use_id: undefined }, quiet],
+          }),
+          task("task_started", shell),
+          task("task_started", quiet),
+        ]
+      : [task("task_notification", { ...shell, status: "failed", summary: "exit 1" })]),
+    ...textTurn(ID, "m", "ok"),
+  ]);
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "start" }]);
+    await prompt(agent, idle, [{ type: "text", text: "end" }]);
+    expect(subs(updates)).toHaveLength(0);
+    expect(tasksOf(updates)).toEqual([
+      {
+        sessionUpdate: "_cycle/task_update",
+        taskId: "b1",
+        kind: "shell",
+        title: "Run the dev server",
+        state: "running",
+      },
+      {
+        sessionUpdate: "_cycle/task_update",
+        taskId: "b1",
+        kind: "shell",
+        title: "Run the dev server",
+        toolCallId: "call-b",
+        state: "running",
+      },
+      { sessionUpdate: "_cycle/task_update", taskId: "b1", state: "failed" },
+    ]);
+  });
+});
+
+test("a task gone from the background list with no end is unknown, and one left running ends with its process", async () => {
+  const watcher = { task_id: "m1", task_type: "monitor_mcp", description: "Watch the logs" };
+  const workflow = { task_id: "f1", task_type: "local_workflow", description: "spec" };
+  const fake = fakeQuery(({ prompt }) =>
+    prompt === "start"
+      ? [task("task_started", watcher), task("task_started", workflow), ...textTurn(ID, "m", "ok")]
+      : [task("background_tasks_changed", { tasks: [workflow] }), ...textTurn(ID, "m2", "ok")],
+  );
+  await connect(
+    fake.run,
+    async ({ agent, idle, updates }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "start" }]);
+      await prompt(agent, idle, [{ type: "text", text: "again" }]);
+      expect(tasksOf(updates).map((u) => [u.taskId, u.kind, u.state])).toEqual([
+        ["m1", "monitor", "running"],
+        ["f1", "workflow", "running"],
+        ["m1", undefined, "unknown"],
+      ]);
+      await agent.request(methods.agent.session.close, { sessionId: ID }).catch(() => undefined);
+      const start = Date.now();
+      while (!tasksOf(updates).some((u) => u.taskId === "f1" && u.state === "stopped")) {
+        if (Date.now() - start > 2_000) throw new Error("the workflow never ended");
+        await Bun.sleep(5);
+      }
+      expect(tasksOf(updates).some((u) => u.taskId === "m1" && u.state === "stopped")).toBe(false);
+    },
+    {},
+    { idleMs: 20 },
+  );
+});
+
+test("the goal set with /goal is told whole each time it is checked, and cleared as null", async () => {
+  const goal = (value: unknown) =>
+    ({ type: "active_goal", value, uuid: "g", session_id: ID }) as unknown as SDKMessage;
+  const fake = fakeQuery(() => [
+    goal({ condition: "all tests pass", iterations: 0, set_at: 1700, tokens_at_start: 5 }),
+    goal({
+      condition: "all tests pass",
+      iterations: 1,
+      set_at: 1700,
+      tokens_at_start: 5,
+      last_reason: "two still fail",
+    }),
+    goal(null),
+    ...textTurn(ID, "m", "ok"),
+  ]);
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "go" }]);
+    const goals = updates.filter(
+      (u) => (u as { sessionUpdate: string }).sessionUpdate === "_cycle/goal_update",
+    );
+    expect(goals).toEqual([
+      {
+        sessionUpdate: "_cycle/goal_update",
+        goal: { condition: "all tests pass", iterations: 0, setAt: 1700 },
+      },
+      {
+        sessionUpdate: "_cycle/goal_update",
+        goal: {
+          condition: "all tests pass",
+          iterations: 1,
+          setAt: 1700,
+          lastReason: "two still fail",
+        },
+      },
+      { sessionUpdate: "_cycle/goal_update", goal: null },
+    ] as unknown as SessionUpdate[]);
+  });
+});
+
+test("an ended task a late background list still names is not brought back, and a running one keeps the process", async () => {
+  const shell = { task_id: "b1", run_id: "1", task_type: "local_bash", description: "dev server" };
+  const fake = fakeQuery(({ prompt }) =>
+    prompt === "start"
+      ? [task("task_started", shell), ...textTurn(ID, "m", "ok")]
+      : [
+          task("task_notification", { ...shell, status: "completed", summary: "" }),
+          // The list lags behind the end (SDK: their order is not promised).
+          task("background_tasks_changed", { tasks: [shell, { task_id: "x", description: "?" }] }),
+          ...textTurn(ID, "m2", "ok"),
+        ],
+  );
+  await connect(
+    fake.run,
+    async ({ agent, idle, updates }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "start" }]);
+      // Well past the idle time: the command is running, so the process is kept and the task not ended.
+      await Bun.sleep(80);
+      expect(tasksOf(updates).map((u) => u.state)).toEqual(["running"]);
+      await prompt(agent, idle, [{ type: "text", text: "end" }]);
+      expect(tasksOf(updates).map((u) => [u.taskId, u.state])).toEqual([
+        ["b1", "running"],
+        ["b1", "completed"],
+      ]);
+    },
+    {},
+    { idleMs: 20 },
+  );
+});

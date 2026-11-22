@@ -17,7 +17,7 @@ type Choice = {
   _meta?: Record<string, unknown>;
 };
 
-type Property = {
+export type Property = {
   type?: string;
   title?: string;
   description?: string;

@@ -415,6 +415,28 @@ agent 发来的 `session/request_permission` 和 `elicitation/create` 是**需�
 
 `subagent_update`(决策 0014)原样转给客户端:`sessionId` 是子的 id(不是可以打开的 session),`title`、`description`、`state`,以及 `_meta["cycle/subagent"]`:`toolCallId`、`background`、`parentId`、`summary`、`lastTool`、`usage`。只是通告:子 agent 的对话不转发,也不能对它发 `session/*` 请求。
 
+### 后台任务(`_cycle/task_update`,CYCL-87)
+
+agent 在后台跑的、不是子 agent 的任务:后台命令、Monitor 之类的监视、workflow、MCP 的后台任务。子 agent 仍是上面的 `subagent_update`,不重复发。agent 发 `session/update`,`sessionUpdate: "_cycle/task_update"`,daemon 照常写日志、转发、回放(§12 的凭证过滤按工具调用的规则作用于它):
+
+- `taskId`:任务的 id,同一个任务的各条相同。客户端按它合并:没带的字段沿用上一条。
+- `kind`:`shell`、`monitor`、`workflow`、`mcp`、`other`。第一条必带。
+- `title`:给人看的一句话(agent 给的任务描述),可能被改写。
+- `toolCallId`:启动它的工具调用,知道时带,客户端可以据此跳回对话里的那一行。`parentId`:由某个子 agent 启动时,那个子 agent 的 id。
+- `state`:`running`;结束时 `completed`、`failed`、`stopped`;`unknown` 表示它离开了 agent 的后台清单却没有结束的消息(和子 agent 的 `status: "unknown"` 一样,不当作成功)。结束是最后一条,之后同一个 `taskId` 再来 `running` 是它又跑了一次。
+- agent 进程退出时,还在跑的任务各发一条 `stopped`。
+- 只是通告:没有停止或打开一个任务的方法。不影响 `cycle/background` 的计数(§6),它只数子 agent。
+
+Claude 的取法:SDK 的 `task_started`、`task_progress`、`task_updated`、`task_notification` 和 `background_tasks_changed`,`task_type` 不是 `local_agent` 的那些;`ambient`、`skip_transcript` 的(内部的整理任务、自动的监视)不发。`kind` 按 `task_type` 归类,认不出的是 `other`。cron 和 `ScheduleWakeup` 没有这样的生命周期,不发,客户端只能看到它们的工具调用。
+
+### 会话的 goal(`_cycle/goal_update`,CYCL-87)
+
+用户给会话设的目标(Claude Code 的 `/goal`):agent 每轮结束时判断是否达成,没达成就继续。agent 发 `session/update`,`sessionUpdate: "_cycle/goal_update"`,`goal` 为 `{condition, iterations, setAt, lastReason?}` 或 `null`(清掉或已达成):
+
+- `condition`:目标的原文;`iterations`:已经检查了几次没达成;`setAt`:设定的时间,毫秒时间戳;`lastReason`:上一次判断没达成的理由。
+- 每次变化发一整条,客户端取最后一条为准;daemon 照常写日志,回放即还原。没有这条更新的会话(旧日志、别的 agent)是"不知道",不是"没有 goal"。
+- Claude 的取法:SDK 的 `active_goal` 消息,`value` 原样换成上面的字段名。
+
 ### 工具调用的结果
 
 工具调用结束时,agent 尽量用 ACP 自己的字段说它做了什么:编辑是 `diff` 内容(`changes` 加 git 格式的 `patch`,只是这一次调用的改动;太大时 `patch` 为 `null`),

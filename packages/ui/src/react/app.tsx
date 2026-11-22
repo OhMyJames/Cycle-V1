@@ -25,6 +25,7 @@ import {
   sessionList,
   workspacesOf,
 } from "../sessions.ts";
+import type { PanelTabKind } from "../side-panel.ts";
 import { BLANK_KEY, viewKey } from "../store/index.ts";
 import { thinking } from "../thinking.ts";
 import { AnalyticsNotice } from "./analytics.tsx";
@@ -42,14 +43,22 @@ import {
 } from "./dialogs.tsx";
 import { FormCard } from "./form.tsx";
 import { useI18n } from "./i18n.tsx";
-import { ErrorCircleIcon, MoreIcon, SidebarIcon, WarningIcon } from "./icons.tsx";
+import {
+  ErrorCircleIcon,
+  MoreIcon,
+  OverviewIcon,
+  PanelIcon,
+  SidebarIcon,
+  WarningIcon,
+} from "./icons.tsx";
 import { useDay, useInFront } from "./in-front.ts";
 import { PermissionCard } from "./permission.tsx";
 import { currentPlan } from "./plan.tsx";
 import { SearchDialog } from "./search.tsx";
 import type { Away } from "./session-list.tsx";
+import { SidePanel } from "./side-panel.tsx";
 import { MOD, Sidebar, sessionTitle } from "./sidebar.tsx";
-import { SplitLayout, type SplitPanel } from "./split-layout.tsx";
+import { SplitLayout } from "./split-layout.tsx";
 import { StateBlock } from "./state-block.tsx";
 import { ENVIRONMENT_STATE } from "./status.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
@@ -133,8 +142,7 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** `sidePanel`: the right panel, open, when there is one (CYCL-90 brings it; the gallery passes one to try the columns). */
-export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
+export function App() {
   const store = useAppStore();
   const { t } = useI18n();
   const showThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
@@ -225,6 +233,34 @@ export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
     store.track("panel_opened", { panel: PANEL_EVENT[next], via });
   };
   const [layout] = useState(createResizableController);
+  // The right panel is the open session's (CYCL-90): a blank conversation or no session has none.
+  const sidePanels = store.sidePanels;
+  const panelKey =
+    blank === undefined && session !== undefined
+      ? viewKey(session.environmentId, session.sessionId)
+      : undefined;
+  const readPanel = () => (panelKey !== undefined ? sidePanels.get(panelKey) : undefined);
+  const sidePanel = useSyncExternalStore(sidePanels.subscribe, readPanel, readPanel);
+  const toggleSidePanel = (via: "click" | "shortcut" | "handle") => {
+    if (panelKey === undefined || sidePanel === undefined) return;
+    sidePanels.setOpen(panelKey, !sidePanel.open);
+    store.track("side_panel_toggled", { open: !sidePanel.open, via, tab: sidePanel.active });
+  };
+  // A tab's own button in the header: opens the panel on that tab; on it already, closes the panel.
+  const toggleTab = (tab: PanelTabKind) => {
+    if (panelKey === undefined || sidePanel === undefined) return;
+    if (sidePanel.open && sidePanel.active === tab) {
+      sidePanels.setOpen(panelKey, false);
+      store.track("side_panel_toggled", { open: false, via: "tab_button", tab });
+    } else if (sidePanel.open) {
+      sidePanels.show(panelKey, tab);
+      store.track("side_panel_tab_shown", { tab });
+    } else {
+      sidePanels.show(panelKey, tab);
+      store.track("side_panel_toggled", { open: true, via: "tab_button", tab });
+    }
+  };
+  const overviewShown = sidePanel?.open === true && sidePanel.active === "overview";
   // The workspaces, and the one the sidebar shows; the list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
   const environmentLabels = useMemo(
     () => environments.map((h) => ({ id: h.id, name: h.name, local: h.kind === "local" })),
@@ -400,6 +436,7 @@ export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
     if (key === "k") run(() => open("search", "shortcut"));
     else if (key === "n" && connectedEnvironments.length > 0) run(() => newSession("shortcut"));
     else if (key === "b") run(() => toggleSidebar("shortcut"));
+    else if (key === "\\" && panelKey !== undefined) run(() => toggleSidePanel("shortcut"));
     else if (key === "l")
       run(() =>
         document
@@ -461,7 +498,22 @@ export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
     <div data-slot="app" ref={appRef}>
       <SplitLayout
         controller={layout}
-        panel={sidePanel}
+        panel={
+          panelKey !== undefined && sidePanel?.open === true
+            ? {
+                content: (
+                  <SidePanel
+                    state={sidePanel}
+                    onShow={(tab) => {
+                      sidePanels.show(panelKey, tab);
+                      store.track("side_panel_tab_shown", { tab });
+                    }}
+                  />
+                ),
+                onClose: () => toggleSidePanel("handle"),
+              }
+            : undefined
+        }
         sidebar={
           <Sidebar
             environments={environments}
@@ -615,6 +667,29 @@ export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
                       </MenuItem>
                     </MenuContent>
                   </Menu>
+                  <Tip label={t(overviewShown ? "overview.hide" : "overview.show")} side="bottom">
+                    <Button
+                      data-variant="ghost"
+                      data-kind="panel-toggle"
+                      data-active={overviewShown || undefined}
+                      onClick={() => toggleTab("overview")}
+                    >
+                      <OverviewIcon />
+                    </Button>
+                  </Tip>
+                  <Tip
+                    label={t(sidePanel?.open === true ? "panel.hide" : "panel.show")}
+                    shortcut="mod+\\"
+                    side="bottom"
+                  >
+                    <Button
+                      data-variant="ghost"
+                      data-kind="panel-toggle"
+                      onClick={() => toggleSidePanel("click")}
+                    >
+                      <PanelIcon />
+                    </Button>
+                  </Tip>
                 </div>
               </header>
             ) : null}

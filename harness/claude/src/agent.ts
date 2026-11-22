@@ -23,6 +23,7 @@ import { askContext, CONTEXT_META, type ContextBreakdown } from "./context.ts";
 import { PLAN_USAGE_UPDATE, planWindowsOf } from "./plan-usage.ts";
 import { NO_SETUP, type SessionSetup, setupOf } from "./setup.ts";
 import { Subagents } from "./subagents.ts";
+import { BackgroundTasks, goalUpdateOf } from "./tasks.ts";
 import { PlanState, type StopReason, stopReasonOf, TurnTranslator, toolKind } from "./translate.ts";
 import { claudeJsonPath, recordTrust } from "./trust.ts";
 
@@ -248,6 +249,8 @@ type SessionState = {
   started: boolean;
   /** The sub-agents the model has started, as far as clients were told. */
   subagents: Subagents;
+  /** The background tasks that are not sub-agents (commands, watchers, workflows), as far as clients were told. */
+  tasks: BackgroundTasks;
   /** The command list clients were last told, to say it again only when it changes. */
   commandsKey: string | undefined;
   /** The configOptions snapshot clients were last told via `config_option_update`, to avoid duplicate broadcasts. */
@@ -470,7 +473,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
 
   /** Sub-agents that were running when their process went are over, and clients are told. */
   const endSubagents = (session: SessionState) => {
-    const ended = session.subagents.endAll();
+    const ended = [...session.subagents.endAll(), ...session.tasks.endAll()];
     if (session.client === undefined) return;
     const client = session.client;
     for (const update of ended) void notify(client, session.id, update).catch(() => undefined);
@@ -494,7 +497,8 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     const live = session.live;
     if (!live || session.turn) return;
     clearTimeout(live.idle);
-    if (session.subagents.hasBackground) return;
+    // Background work keeps the process: a sub-agent, or a command or watcher it runs (killed with it otherwise).
+    if (session.subagents.hasBackground || session.tasks.hasRunning) return;
     live.idle = setTimeout(() => release(session, false), idleMs);
     live.idle.unref?.();
   };
@@ -655,10 +659,19 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       );
       return;
     }
+    // The goal the user set with /goal: told whole after each check (docs/protocol.md §9).
+    if ((message as { type: string }).type === "active_goal") {
+      const update = goalUpdateOf(message);
+      if (update !== undefined) await notify(client, session.id, update);
+      return;
+    }
     if (message.type !== "system") return;
     const m = message as unknown as Record<string, unknown> & { subtype: string };
     if (message.subtype === "background_tasks_changed") {
-      const updates = session.subagents.reconcile(message.tasks);
+      const updates = [
+        ...session.subagents.reconcile(message.tasks),
+        ...session.tasks.reconcile(message.tasks),
+      ];
       scheduleIdle(session);
       for (const update of updates) await notify(client, session.id, update);
     } else if (m.subtype.startsWith("task_")) {
@@ -666,6 +679,11 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       if (update !== undefined) {
         scheduleIdle(session);
         await notify(client, session.id, update);
+      }
+      const task = session.tasks.update(m);
+      if (task !== undefined) {
+        scheduleIdle(session);
+        await notify(client, session.id, task);
       }
     } else if (m.subtype === "commands_changed") {
       await announceCommands(client, session, m.commands as SlashCommand[]);
@@ -1258,6 +1276,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         cwd: params.cwd,
         started: false,
         subagents: new Subagents(),
+        tasks: new BackgroundTasks(),
         commandsKey: undefined,
         configKey: undefined,
         mode: DEFAULT_PERMISSION_MODE,
@@ -1313,6 +1332,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           // Whether Claude has this session on disk (see `recordOf`): it is resumed if so, and made if not.
           started,
           subagents: new Subagents(),
+          tasks: new BackgroundTasks(),
           commandsKey: undefined,
           configKey: undefined,
           // Not the default for new sessions: a session with no mode on record was made before
