@@ -986,13 +986,16 @@ export class AppStore {
       throw error;
     });
 
+  /** Whether they were saved: what went wrong is shown as any other error. */
   setAgentDefaults = async (
     environmentId: string,
     agent: string,
     config: Record<string, string>,
-  ) => {
-    await this.#attempt(() => this.#bridge.setAgentDefaults(environmentId, agent, config));
-  };
+  ): Promise<boolean> =>
+    (await this.#attempt(async () => {
+      await this.#bridge.setAgentDefaults(environmentId, agent, config);
+      return true;
+    })) === true;
 
   // ---- connectors: the panel shows what went wrong itself, next to what it was about ----
 

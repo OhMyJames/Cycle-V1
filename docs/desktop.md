@@ -72,8 +72,8 @@ type Environment = {
 - 打开的会话有 `cycle/unread` 时,窗口在前台,就告诉 daemon 已读(`markRead`;main 用它自己最近读到的那一行的 `lastSeq`,不会超出日志;不支持的 daemon 不会被问,失败也不弹错误条)。
 - 断线的 host:会话灰显、tooltip 说明原因,不算在标记里,侧栏里有它的状态、原因和"Retry"。
 - 新建 session 打开一个**空白对话**(`blank.tsx`,store 的 `blank`),不是弹窗,也不请求 daemon:标题下面一行选环境(只列已连接的,多于一个才有)、文件夹(默认是当前 workspace 的;"Browse…"在本机用系统的选择器,在远程用 daemon 列文件夹)和 agent(多于一个才有);设置从 agent defaults 读来,显示在输入框下面,可以改。**首条消息发出时**才依次 `session/new` 和 `session/prompt`(决定笔记 `2026-11-19-session-starts-at-first-message`):这期间消息先显示在空白对话里、上面的选择锁住;建不成,消息回到输入框并显示原因;建成了而消息发不出去,打开那个 session,消息在它的输入框里。daemon 的列表只列有过用户消息的 session,所以没发过消息的不会出现在侧栏。空白对话里 @ 搜它选的文件夹(daemon 要有 `filesInFolder`);斜杠命令要等 agent 启动后才有。Agent defaults 按 host 分别设置。
-- 新建 session:默认在当前 workspace 的 host 和目录;可以选 host(只列已连接的);"Browse…"只对本机有。Agent defaults 按 host 分别设置。
-- **文件夹信任**(protocol.md §8 "信任文件夹"):空白对话发出第一条消息时、新建 session 之前,目录还没有决定(它和它的上级都没有),先弹出 "Trust this folder?":说明信任之后项目自己的设置能在这个环境里运行命令(hooks、`.mcp.json` 里的服务器和 helper),下面是目录的真实路径;按钮是 Back(回到空白对话,消息还在输入框里)、Start without trusting、Trust and start。两个 Start 都先记下决定,再新建、发出消息;记不下就说明原因,什么都不建。已经有决定的目录不问。daemon 不支持(没有 `trust` 能力)时不问。侧栏 switcher 旁的 "…" 菜单第一项是当前 workspace 的 "Trust this folder"(先确认,说明同上)或 "Stop trusting this folder"(直接生效);环境未连接或 daemon 不支持时没有这一项。
+- 新建 session:默认在当前 workspace 的 host 和目录;可以选 host(只列已连接的);"Browse…"只对本机有。Agent defaults 按 host 分别设置(设置页的 Session defaults)。
+- **文件夹信任**(protocol.md §8 "信任文件夹"):空白对话发出第一条消息时、新建 session 之前,目录还没有决定(它和它的上级都没有),先弹出 "Trust this folder?":说明信任之后项目自己的设置能在这个环境里运行命令(hooks、`.mcp.json` 里的服务器和 helper),下面是目录的真实路径;按钮是 Back(回到空白对话,消息还在输入框里)、Start without trusting、Trust and start。两个 Start 都先记下决定,再新建、发出消息;记不下就说明原因,什么都不建。已经有决定的目录不问。daemon 不支持(没有 `trust` 能力)时不问。侧栏 switcher 旁的 "…" 菜单(Workspace actions)只有这一项:当前 workspace 的 "Trust this folder"(先确认,说明同上)或 "Stop trusting this folder"(直接生效);环境未连接或 daemon 不支持时没有这个菜单。环境的增改删和 agent 默认设置在设置页。
 
 设置文件 `settings.json` 是 `{ "environments": [{ id, name, kind: "local" | "remote", transport?: { type: "ssh", host, command? } }] }`。旧格式 `{ "hosts": [{ id, name, kind: "ssh", host, command? }] }` 读作 remote 加 ssh transport,id 不变(会话和草稿都按 id 认);只有保存时才写新格式;这个版本读不懂的条目(更新的版本写的)不显示,但保存时原样写回。
 
@@ -92,7 +92,7 @@ type Environment = {
 - **Switcher** 是一个菜单,列出所有 workspace,按环境分组(本地在前;多于一个环境时才显示分组标题,标题带连接状态),组内按 `updatedAt` 倒序。只有一个环境时,没有按环境分组的标题(没有可选的东西)。
 - Switcher 上有一个方块数字徽章,数**其他 workspace**(所有环境)里最紧急的那一类;完整的计数写进 aria-label。
 - 搜索跨所有 workspace 和环境,结果按 workspace 分组。
-- 版式(DESIGN.md §4.1):顶部是 New session、Search,其下是 switcher(它是下面会话列表的标题);只有中间的会话列表滚动;底部一行是版本和 App settings 菜单(代码配色、检查更新)。
+- 版式(DESIGN.md §4.1):顶部是 New session、Search,其下是 switcher(它是下面会话列表的标题);只有中间的会话列表滚动;底部一行是版本、更新状态和进入设置页的按钮(见下面"设置页")。
 
 当前 workspace 里的会话分组:**Needs you**(`requires_action`)、**Running**(`running`,以及有后台子 agent 的)、然后 Today / Yesterday / Earlier,按本地日界线分,用 `updatedAt`。每个 workspace 默认显示 20 条,"Show N more";有状态的和当前打开的永远显示。
 
@@ -145,7 +145,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 
 只在安装好的 macOS 应用里启用;`bun run start` 的开发运行里显示"Updates are for the installed app",不检查。实现在 `src/main/updater.ts`,所有外部依赖(网络、解压、进程、定时器)都注入,门禁里用假的 GitHub 测试;`test/integration/update.integration.ts` 在 macOS 上用真实的包走完整个流程(release 工作流里跑)。
 
-- **检查**:启动时一次,之后每 60 秒一次;侧栏底部 App settings 菜单里的 "Check for updates" 立即检查。后台检查失败(断网、被限流)不提示,用户自己点的检查会显示原因。
+- **检查**:启动时一次,之后每 60 秒一次;设置页 General 里的 "Check for updates" 立即检查,有新版本时同一行也有 "Update and restart"(与顶部横幅同一个确认框)。后台检查失败(断网、被限流)不提示,用户自己点的检查会显示原因。
 - **发现**:读 GitHub 的发布列表(带 `If-None-Match`:内容没变时 GitHub 回 304,据 GitHub 文档不计入未登录的每小时 60 次限额),取比当前版本新、不是草稿、带本平台清单文件(`latest-darwin-arm64.json`)的最高版本。不能用 `/releases/latest`,因为它跳过 pre-release,而没签名的发布都是 pre-release。
 - **安装**要用户确认:顶部横幅 "Update and restart" → 确认框(会说明本机上正在工作的会话会被中断)。然后在应用旁边的隐藏目录(同一个卷,最后的替换是 rename)里得到新包:**按差分**(见下)或整包下载,校验大小和 SHA-256,`ditto` 解压;检查得到的包的版本、平台和清单一致;当前应用有 Developer ID 签名时,还要新包签名有效且是同一个团队。
 - **差分**(`src/main/delta.ts`,决定笔记 `2026-11-18-update-by-the-difference`):清单除了整包的 `file`/`sha256`/`size`,还有 `tree`,即包内每个文件(路径、模式、大小、SHA-256)、链接和目录的表,发布时由 `release-assets` 对最终签名的 `.app` 扫出。客户端拿它和已安装的包比较:没变的文件从已安装的包复制(APFS 上是克隆,不占空间),缺的或变了的,用 HTTP Range 从同一个 zip 里取(先读末尾的中央目录,相邻的小文件合并成一次请求,大文件单独流式解压),不另发补丁。信任的是文件表(来自清单,与整包的 SHA-256 同一条信任链;差分时**不**再检查整包的 SHA-256 和大小,因为整包没有下载):拼出的包里每个文件都要等于它的 SHA-256,包的形状(文件、链接、目录、模式)要与它完全一致,然后照常过版本、平台和签名检查。文件表的路径必须在包内(相对、无 `..`、不重复、父目录先列、链接不出包、模式只有 rwx),不合格的表整张不用。服务器不支持 Range(必须是 206 且 `content-range` 与请求一致)、哈希不符、检查不过、或要取的超过整包的 80%,都**回退整包下载**一次(请求被限流或磁盘写满除外:整包会遇到同样的事,直接报错;并行取文件时一个失败,其余请求立刻中止),原因写进日志(`[update] …`),进度条的总量随之换成整包。没有文件表的发布(0.2.1 及以前)和没有这段代码的客户端都是整包。顶部横幅在差分时写 "Downloading the changes for 0.2.2"。
@@ -157,7 +157,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 
 ## 代码配色、图片、搜索
 
-- **代码配色**:Streamdown 2.x 自己不带语法高亮,它是单独的插件 `@streamdown/code`(Shiki,JavaScript 正则引擎,不需要 WebAssembly,CSP 不变)。侧栏底部的 App settings 菜单里可以在五套配色里选(见 DESIGN.md 附录 B,含各套的对比度)。打包开了分包:语言和主题按需加载,启动约 0.9 MB,全部约 12 MB。
+- **代码配色**:Streamdown 2.x 自己不带语法高亮,它是单独的插件 `@streamdown/code`(Shiki,JavaScript 正则引擎,不需要 WebAssembly,CSP 不变)。设置页的 Appearance 里可以在五套配色里选(见 DESIGN.md 附录 B,含各套的对比度),下面有一段示例代码,按对话里代码块的样子画,选了立即看到。打包开了分包:语言和主题按需加载,启动约 0.9 MB,全部约 12 MB。
 - **图片**:agent 和用户消息里的图片(png、jpeg、gif、webp;svg 不是)用 data URL 画,不请求网络;超过大小上限的显示成一行字。Markdown 里的远程图片仍然不加载。
 - **搜索**:⌘K(Windows、Linux 是 Ctrl+K)。
 
@@ -175,6 +175,19 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - **组合期间的 ⌘V（CYCL-116）**：macOS 在 Electron 的 `before-input-event` 之前便把按键交给了输入法。桌面主进程通过 AppKit 在本应用内处理按键：当前编辑器有组合文字且按下 ⌘V 时，先让应用菜单执行快捷键。用上述系统简体拼音复测，普通和组合中的 ⌘V 均只触发一次 paste。在 `@nihao` 的候选未确认时粘贴 `PASTE_MARK`，再用 ↓ 和 Enter 确认，草稿为 `@你好PASTE_MARK`。单独验证提及时，第一次 Enter 确认“你好”，第二次选择 `你好.md`，均保留在草稿中。
 - **没做**:@ 提及没有 chip 节点(是普通文字加一个记在草稿里的链接),所以从存储恢复的草稿里文字还在、结构化的链接没有;提及里没有别的 session;输入历史只读当前对话里的消息;Lexical 对撤销/重做、拖选等的行为没有逐项验证。
 
+## 设置页(CYCL-56)
+
+应用级的设置在一个**整窗页面**里,不再分散在菜单和对话框中。侧栏底部的按钮或 `⌘,`(非 Mac 为 `Ctrl+,`)打开;页面打开时,侧栏的位置换成"Back to sessions"和分区导航,右边是选中的分区。`Esc`、Back 或再按一次 `⌘,` 回到会话;`⌘N`、`⌘K` 在页面上仍然可用,新建或选中会话就离开页面,系统通知点开的会话也一样。会话那一侧在页面下面保持挂载、只是不显示(`hidden` 加 `inert`),所以回来时对话的位置、展开的工具、没写完的消息都在。
+
+- **框架**(`page-layout.tsx`):`PageLayout`(返回、分区导航、分区内容)、`PageGroup`、`PageRows`、`PageRow`。分区导航是 SDK 的 Tabs 竖排:方向键切换,只挂载当前分区。Connectors 升级为页面(CYCL-57)时复用它。
+- **General**:版本、更新状态、"Check for updates"(开发运行不能更新时不显示按钮,只说明原因)、有新版本或安装失败时的 "Update and restart";统计开关(Usage statistics)。没有上报目标,或用环境变量 `DO_NOT_TRACK` / `CYCLE_ANALYTICS=off` 关掉时,不显示开关,规则与以前的菜单项相同(docs/analytics.md);首次启动的说明仍在会话页顶部,文字改为指向 Settings。
+- **Appearance**:代码配色和示例。
+- **Environments**:每个环境一行:状态(点、词)、名字、远程的 ssh 地址,断开时下面是 ssh 的原话和 "Connect again";远程环境行尾的菜单里是 Edit、Remove(先确认)。"Add environment" 在分区右上。增、改仍是原来的表单对话框,开在设置页上面。
+- **Session defaults**:原来的 Agent defaults 对话框。连着多于一个环境时先选环境(默认是当前打开的那个),agent 多于一个时再选 agent;读不出来时不显示空表单、不能保存,给 "Read settings again";保存成功后按钮旁写 "Saved",保存失败不写(原因在页面顶部的错误条里)。一个环境都没连上时说明原因,并给去 Environments 的按钮。
+- **旧入口**已去掉:侧栏底部的 App settings 菜单、switcher 旁菜单里的 Add environment、Agent defaults、Edit、Remove。会话自己的设置(Session settings)仍在会话标题的菜单里,它属于会话。
+- **埋点**:打开页面是 `panel_opened` 的 `settings`(带 `via`),换分区是 `settings_section_shown`;分区里的动作沿用原有事件(`analytics_toggled`、`update_checked`、`environment_saved`、`agent_defaults_saved`、`code_theme_changed` 等)。
+- **没验证**:安装版真实窗口里的拖动区域和红绿灯位置(画廊里看过版式,深浅色、1200×800 和 720×480)。
+
 ## Connector
 
 侧栏顶部的 **Connectors** 打开一个面板,管理某个环境的 daemon 替所有 agent 保管的 MCP 服务器(protocol.md §14)。只列已连接、并且声明了能力 `connectors` 的环境;一个都没有时就这样说。
@@ -188,7 +201,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 
 ## 公共组件(CYCL-52)
 
-后面的界面(设置页、右侧面板、空 session 页)都从这些部件搭,不再各写一套。清单来自 CYCL-64 的盘点(2026-11-21),只看首批消费者:输入区(权限、模型、Effort 芯片和 context 详情)、设置(Agent defaults、Session settings 两个对话框和侧栏底部的 App settings 菜单)、右侧面板(还没有,按[右侧面板笔记](../.agents/notes/2026-11-19-right-panel-scope.md)预留)。规格在 DESIGN.md 第 3 层。
+后面的界面(设置页、右侧面板、空 session 页)都从这些部件搭,不再各写一套。清单来自 CYCL-64 的盘点(2026-11-21),只看首批消费者:输入区(权限、模型、Effort 芯片和 context 详情)、设置(盘点时是 Agent defaults、Session settings 两个对话框和侧栏底部的 App settings 菜单;CYCL-78 起应用级的都在设置页)、右侧面板(还没有,按[右侧面板笔记](../.agents/notes/2026-11-19-right-panel-scope.md)预留)。规格在 DESIGN.md 第 3 层。
 
 | 部件                  | 盘点时的样子                                                                                                                                                                                                                                                              | 缺口                                                                      | 处理                                                                                                                                                                                                                                       |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

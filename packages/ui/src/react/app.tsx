@@ -35,7 +35,6 @@ import { ConfigForm, mergeConfigSchema, propertiesOf } from "./config-form.tsx";
 import { ConnectorsDialog } from "./connectors.tsx";
 import { ConversationView } from "./conversation.tsx";
 import {
-  AgentDefaultsDialog,
   ConfirmDialog,
   EnvironmentDialog,
   type RemoteEnvironment,
@@ -56,6 +55,7 @@ import { PermissionCard } from "./permission.tsx";
 import { currentPlan } from "./plan.tsx";
 import { SearchDialog } from "./search.tsx";
 import type { Away } from "./session-list.tsx";
+import { SettingsPage, type SettingsSection } from "./settings.tsx";
 import { SidePanel } from "./side-panel.tsx";
 import { MOD, Sidebar, sessionTitle } from "./sidebar.tsx";
 import { SplitLayout } from "./split-layout.tsx";
@@ -70,7 +70,6 @@ type Panel =
   | "add-environment"
   | "edit-environment"
   | "remove-environment"
-  | "defaults"
   | "rename"
   | "delete"
   | "settings"
@@ -84,7 +83,6 @@ const PANEL_EVENT = {
   "add-environment": "add_environment",
   "edit-environment": "edit_environment",
   "remove-environment": "remove_environment",
-  defaults: "defaults",
   settings: "session_settings",
   rename: "rename",
   delete: "delete",
@@ -176,7 +174,9 @@ export function App() {
     (s) => s.environmentId === selectedEnvironment && s.sessionId === selectedSession,
   );
   const agent = agents.find((a) => a.id === session?.agent);
-  const [defaultsEnvironment, setDefaultsEnvironment] = useState<string | undefined>(undefined);
+  // The settings page, when it is what the window shows (CYCL-78): the sessions stay as they are under it.
+  const [settings, setSettings] = useState<SettingsSection | undefined>(undefined);
+  const lastSection = useRef<SettingsSection>("general");
   const [targetEnvironment, setTargetEnvironment] = useState<string | undefined>(undefined);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const appRef = useRef<HTMLDivElement>(null);
@@ -231,6 +231,17 @@ export function App() {
   const open = (next: Exclude<Panel, "none">, via: "click" | "shortcut" = "click") => {
     setPanel(next);
     store.track("panel_opened", { panel: PANEL_EVENT[next], via });
+  };
+  const openSettings = (via: "click" | "shortcut" = "click") => {
+    setSettings(lastSection.current);
+    store.track("panel_opened", { panel: "settings", via });
+  };
+  const closeSettings = () => setSettings(undefined);
+  const showSection = (section: SettingsSection) => {
+    if (section === settings) return;
+    lastSection.current = section;
+    setSettings(section);
+    store.track("settings_section_shown", { section });
   };
   const [layout] = useState(createResizableController);
   // The right panel is the open session's (CYCL-90): a blank conversation or no session has none.
@@ -310,6 +321,7 @@ export function App() {
    * shown, else on the environment that is open, else on the first that is connected.
    */
   const newSession = (via: "click" | "shortcut" = "click") => {
+    closeSettings();
     // One is open already: it stays as it is, with what was chosen and written on it.
     if (blank !== undefined) return store.openBlank({ environmentId: blank.environmentId });
     const environmentId =
@@ -433,7 +445,11 @@ export function App() {
       event.preventDefault();
       action();
     };
-    if (key === "k") run(() => open("search", "shortcut"));
+    if (key === ",")
+      run(() => (settings === undefined ? openSettings("shortcut") : closeSettings()));
+    // The settings page is over the sessions: only what leaves it (a search, a new session) is taken.
+    else if (settings !== undefined && key !== "k" && key !== "n") return;
+    else if (key === "k") run(() => open("search", "shortcut"));
     else if (key === "n" && connectedEnvironments.length > 0) run(() => newSession("shortcut"));
     else if (key === "b") run(() => toggleSidebar("shortcut"));
     else if (key === "\\" && panelKey !== undefined) run(() => toggleSidePanel("shortcut"));
@@ -471,6 +487,21 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Something else was opened (from the search, a notification, a new session): the settings page gives way to it.
+  const [shownOpen, setShownOpen] = useState(openKey);
+  if (shownOpen !== openKey) {
+    setShownOpen(openKey);
+    if (settings !== undefined) setSettings(undefined);
+  }
+  // Back from the page, the keyboard is where it left: on the button that opened it.
+  const settingsOpen = settings !== undefined;
+  const wasSettingsOpen = useRef(false);
+  useEffect(() => {
+    if (wasSettingsOpen.current && !settingsOpen)
+      appRef.current?.querySelector<HTMLElement>('[data-kind="settings-open"]')?.focus();
+    wasSettingsOpen.current = settingsOpen;
+  }, [settingsOpen]);
+
   if (!ready)
     return (
       <div data-slot="starting">
@@ -494,297 +525,312 @@ export function App() {
     </Tip>
   );
 
+  const errorBanner =
+    error !== undefined ? (
+      <div data-slot="banner" data-severity="error" role="alert">
+        <ErrorCircleIcon />
+        <span>{typeof error === "string" ? error : t(error.key, error.params)}</span>
+        <Button data-variant="ghost" onClick={store.dismissError}>
+          {t("banner.dismiss")}
+        </Button>
+      </div>
+    ) : null;
+
   return (
     <div data-slot="app" ref={appRef}>
-      <SplitLayout
-        controller={layout}
-        panel={
-          panelKey !== undefined && sidePanel?.open === true
-            ? {
-                content: (
-                  <SidePanel
-                    state={sidePanel}
-                    onShow={(tab) => {
-                      sidePanels.show(panelKey, tab);
-                      store.track("side_panel_tab_shown", { tab });
-                    }}
-                  />
-                ),
-                onClose: () => toggleSidePanel("handle"),
+      {settings !== undefined ? (
+        <SettingsPage
+          section={settings}
+          onSection={showSection}
+          onClose={closeSettings}
+          banner={errorBanner}
+          environments={environments}
+          status={status}
+          agents={agentsByEnvironment}
+          environmentId={selectedEnvironment}
+          onAddEnvironment={() => {
+            setTargetEnvironment(undefined);
+            open("add-environment");
+          }}
+          onEditEnvironment={(id) => {
+            setTargetEnvironment(id);
+            open("edit-environment");
+          }}
+          onRemoveEnvironment={(id) => {
+            setTargetEnvironment(id);
+            open("remove-environment");
+          }}
+        />
+      ) : null}
+      {/* Under the settings page the sessions are kept as they are, not drawn again: what was open and half-written is there on the way back. */}
+      <div data-slot="app-body" hidden={settingsOpen} inert={settingsOpen}>
+        <SplitLayout
+          controller={layout}
+          panel={
+            panelKey !== undefined && sidePanel?.open === true
+              ? {
+                  content: (
+                    <SidePanel
+                      state={sidePanel}
+                      onShow={(tab) => {
+                        sidePanels.show(panelKey, tab);
+                        store.track("side_panel_tab_shown", { tab });
+                      }}
+                    />
+                  ),
+                  onClose: () => toggleSidePanel("handle"),
+                }
+              : undefined
+          }
+          sidebar={
+            <Sidebar
+              environments={environments}
+              status={status}
+              workspaces={workspaces}
+              current={current}
+              elsewhere={elsewhere}
+              onChooseWorkspace={(workspace) => setChosen({ workspace, on: openKey })}
+              list={list}
+              selected={openKey}
+              away={away}
+              showArchived={showArchived}
+              onSelectSession={(chosen) =>
+                void store.selectSession(chosen.environmentId, chosen.sessionId)
               }
-            : undefined
-        }
-        sidebar={
-          <Sidebar
-            environments={environments}
-            status={status}
-            workspaces={workspaces}
-            current={current}
-            elsewhere={elsewhere}
-            onChooseWorkspace={(workspace) => setChosen({ workspace, on: openKey })}
-            list={list}
-            selected={openKey}
-            away={away}
-            showArchived={showArchived}
-            onSelectSession={(chosen) =>
-              void store.selectSession(chosen.environmentId, chosen.sessionId)
-            }
-            onNewSession={() => newSession()}
-            onSearch={() => open("search")}
-            onConnectors={() => open("connectors")}
-            onAddEnvironment={() => {
-              setTargetEnvironment(undefined);
-              open("add-environment");
-            }}
-            onEditEnvironment={(id) => {
-              setTargetEnvironment(id);
-              open("edit-environment");
-            }}
-            onRemoveEnvironment={(id) => {
-              setTargetEnvironment(id);
-              open("remove-environment");
-            }}
-            onConnectEnvironment={(id) => void store.connectEnvironment(id)}
-            onToggleArchived={() => setShowArchived((v) => !v)}
-            onShowAll={() => setShowAll(true)}
-            onAgentDefaults={(id) => {
-              setDefaultsEnvironment(id);
-              open("defaults");
-            }}
-            trust={shownTrust}
-            onTrust={(trusted) => {
-              if (trusted) open("trust");
-              else if (trustEnvironment !== undefined && trustCwd !== undefined)
-                void store
-                  .changeTrust(trustEnvironment, trustCwd, false)
-                  .then(() => setTrustRevision((n) => n + 1));
-            }}
-          >
-            <UpdateFooter />
-          </Sidebar>
-        }
-        main={
-          <main data-slot="main">
-            <UpdateBanner />
-            <AnalyticsNotice />
-            {error !== undefined ? (
-              <div data-slot="banner" data-severity="error" role="alert">
-                <ErrorCircleIcon />
-                <span>{typeof error === "string" ? error : t(error.key, error.params)}</span>
-                <Button data-variant="ghost" onClick={store.dismissError}>
-                  {t("banner.dismiss")}
-                </Button>
-              </div>
-            ) : null}
-            {environmentState === "reconnecting" && environmentIncompatible === undefined ? (
-              <div data-slot="banner" data-severity="warning" role="status">
-                <WarningIcon />
-                <span>{t("environment.reconnectingBanner")}</span>
-              </div>
-            ) : null}
-            {view !== undefined &&
-            environmentState !== undefined &&
-            environmentState !== "connected" &&
-            environmentState !== "reconnecting" ? (
-              <div data-slot="banner" data-severity="warning" role="status">
-                <WarningIcon />
-                <span>
-                  {t("session.awayBanner", {
-                    environment:
-                      environments.find((h) => h.id === selectedEnvironment)?.name ??
-                      selectedEnvironment ??
-                      "",
-                  })}
-                </span>
-              </div>
-            ) : null}
-            {(blank !== undefined || session === undefined) && selectedEnvironment !== undefined ? (
-              <DaemonBanner environmentId={selectedEnvironment} />
-            ) : null}
-            {blank !== undefined ? (
-              <BlankConversationView
-                blank={blank}
-                environments={connectedEnvironments}
-                connected={connected}
-                follow={sent}
-                sidebarToggle={sidebarToggle}
-                onSent={() => setSent((n) => n + 1)}
-              />
-            ) : null}
-            {blank === undefined && session !== undefined ? (
-              <header data-slot="session-header">
-                {sidebarToggle}
-                <div data-slot="session-heading">
-                  <h1>{sessionTitle(session)}</h1>
-                  <span data-slot="session-where" title={session.cwd}>
-                    {session.cwd}
+              onNewSession={() => newSession()}
+              onSearch={() => open("search")}
+              onConnectors={() => open("connectors")}
+              onConnectEnvironment={(id) => void store.connectEnvironment(id)}
+              onToggleArchived={() => setShowArchived((v) => !v)}
+              onShowAll={() => setShowAll(true)}
+              trust={shownTrust}
+              onTrust={(trusted) => {
+                if (trusted) open("trust");
+                else if (trustEnvironment !== undefined && trustCwd !== undefined)
+                  void store
+                    .changeTrust(trustEnvironment, trustCwd, false)
+                    .then(() => setTrustRevision((n) => n + 1));
+              }}
+            >
+              <UpdateFooter onSettings={() => openSettings()} />
+            </Sidebar>
+          }
+          main={
+            <main data-slot="main">
+              <UpdateBanner />
+              <AnalyticsNotice />
+              {settingsOpen ? null : errorBanner}
+              {environmentState === "reconnecting" && environmentIncompatible === undefined ? (
+                <div data-slot="banner" data-severity="warning" role="status">
+                  <WarningIcon />
+                  <span>{t("environment.reconnectingBanner")}</span>
+                </div>
+              ) : null}
+              {view !== undefined &&
+              environmentState !== undefined &&
+              environmentState !== "connected" &&
+              environmentState !== "reconnecting" ? (
+                <div data-slot="banner" data-severity="warning" role="status">
+                  <WarningIcon />
+                  <span>
+                    {t("session.awayBanner", {
+                      environment:
+                        environments.find((h) => h.id === selectedEnvironment)?.name ??
+                        selectedEnvironment ??
+                        "",
+                    })}
                   </span>
                 </div>
-                <div data-slot="row">
-                  <Menu
-                    onAction={(value) => {
-                      if (value === "rename") open("rename");
-                      else if (value === "dismiss-background")
-                        void store.dismissBackground(session);
-                      else if (value === "settings") open("settings");
-                      else if (value === "archive")
-                        void store.archiveSession(session.sessionId, !session.archived);
-                      else if (value === "delete") open("delete");
-                    }}
-                  >
-                    <Tip label={t("session.actions")} side="bottom">
-                      <MenuTrigger data-variant="ghost">
-                        <MoreIcon />
-                      </MenuTrigger>
-                    </Tip>
-                    <MenuContent>
-                      {session.unknownBackground?.length ? (
-                        <MenuItem value="dismiss-background">
-                          {t("session.dismissBackground", {
-                            count: session.unknownBackground.length,
-                          })}
+              ) : null}
+              {(blank !== undefined || session === undefined) &&
+              selectedEnvironment !== undefined ? (
+                <DaemonBanner environmentId={selectedEnvironment} />
+              ) : null}
+              {blank !== undefined ? (
+                <BlankConversationView
+                  blank={blank}
+                  environments={connectedEnvironments}
+                  connected={connected}
+                  follow={sent}
+                  sidebarToggle={sidebarToggle}
+                  onSent={() => setSent((n) => n + 1)}
+                />
+              ) : null}
+              {blank === undefined && session !== undefined ? (
+                <header data-slot="session-header">
+                  {sidebarToggle}
+                  <div data-slot="session-heading">
+                    <h1>{sessionTitle(session)}</h1>
+                    <span data-slot="session-where" title={session.cwd}>
+                      {session.cwd}
+                    </span>
+                  </div>
+                  <div data-slot="row">
+                    <Menu
+                      onAction={(value) => {
+                        if (value === "rename") open("rename");
+                        else if (value === "dismiss-background")
+                          void store.dismissBackground(session);
+                        else if (value === "settings") open("settings");
+                        else if (value === "archive")
+                          void store.archiveSession(session.sessionId, !session.archived);
+                        else if (value === "delete") open("delete");
+                      }}
+                    >
+                      <Tip label={t("session.actions")} side="bottom">
+                        <MenuTrigger data-variant="ghost">
+                          <MoreIcon />
+                        </MenuTrigger>
+                      </Tip>
+                      <MenuContent>
+                        {session.unknownBackground?.length ? (
+                          <MenuItem value="dismiss-background">
+                            {t("session.dismissBackground", {
+                              count: session.unknownBackground.length,
+                            })}
+                          </MenuItem>
+                        ) : null}
+                        <MenuItem value="rename">{t("session.rename")}</MenuItem>
+                        {sessionSchema !== undefined && propertiesOf(sessionSchema).length > 0 ? (
+                          <MenuItem value="settings" disabled={!connected}>
+                            {t("session.settings")}
+                          </MenuItem>
+                        ) : null}
+                        <MenuCheckboxItem
+                          value="thinking"
+                          checked={showThinking}
+                          onCheckedChange={(checked) => thinking.set(checked)}
+                        >
+                          {t("thinking.show")}
+                        </MenuCheckboxItem>
+                        <MenuItem value="archive">
+                          {t(session.archived ? "session.restore" : "session.archive")}
                         </MenuItem>
-                      ) : null}
-                      <MenuItem value="rename">{t("session.rename")}</MenuItem>
-                      {sessionSchema !== undefined && propertiesOf(sessionSchema).length > 0 ? (
-                        <MenuItem value="settings" disabled={!connected}>
-                          {t("session.settings")}
+                        <MenuSeparator />
+                        <MenuItem value="delete" data-destructive>
+                          {t("session.delete")}
                         </MenuItem>
-                      ) : null}
-                      <MenuCheckboxItem
-                        value="thinking"
-                        checked={showThinking}
-                        onCheckedChange={(checked) => thinking.set(checked)}
+                      </MenuContent>
+                    </Menu>
+                    <Tip label={t(overviewShown ? "overview.hide" : "overview.show")} side="bottom">
+                      <Button
+                        data-variant="ghost"
+                        data-kind="panel-toggle"
+                        data-active={overviewShown || undefined}
+                        onClick={() => toggleTab("overview")}
                       >
-                        {t("thinking.show")}
-                      </MenuCheckboxItem>
-                      <MenuItem value="archive">
-                        {t(session.archived ? "session.restore" : "session.archive")}
-                      </MenuItem>
-                      <MenuSeparator />
-                      <MenuItem value="delete" data-destructive>
-                        {t("session.delete")}
-                      </MenuItem>
-                    </MenuContent>
-                  </Menu>
-                  <Tip label={t(overviewShown ? "overview.hide" : "overview.show")} side="bottom">
-                    <Button
-                      data-variant="ghost"
-                      data-kind="panel-toggle"
-                      data-active={overviewShown || undefined}
-                      onClick={() => toggleTab("overview")}
+                        <OverviewIcon />
+                      </Button>
+                    </Tip>
+                    <Tip
+                      label={t(sidePanel?.open === true ? "panel.hide" : "panel.show")}
+                      shortcut="mod+\\"
+                      side="bottom"
                     >
-                      <OverviewIcon />
-                    </Button>
-                  </Tip>
-                  <Tip
-                    label={t(sidePanel?.open === true ? "panel.hide" : "panel.show")}
-                    shortcut="mod+\\"
-                    side="bottom"
-                  >
-                    <Button
-                      data-variant="ghost"
-                      data-kind="panel-toggle"
-                      onClick={() => toggleSidePanel("click")}
-                    >
-                      <PanelIcon />
-                    </Button>
-                  </Tip>
+                      <Button
+                        data-variant="ghost"
+                        data-kind="panel-toggle"
+                        onClick={() => toggleSidePanel("click")}
+                      >
+                        <PanelIcon />
+                      </Button>
+                    </Tip>
+                  </div>
+                </header>
+              ) : null}
+              {blank === undefined && session !== undefined ? (
+                <DaemonBanner environmentId={session.environmentId} />
+              ) : null}
+              {blank === undefined && session === undefined && sidebarCollapsed ? (
+                <header data-slot="session-header" data-empty-header="">
+                  {sidebarToggle}
+                </header>
+              ) : null}
+              {blank !== undefined ? null : view !== undefined ? (
+                <ConversationView
+                  key={viewKey(view.environmentId, view.sessionId)}
+                  sessionKey={viewKey(view.environmentId, view.sessionId)}
+                  follow={sent}
+                  conversation={view.conversation}
+                  loading={view.loading}
+                  awaitingApproval={activity === "requires_action"}
+                />
+              ) : (
+                <div data-slot="empty">
+                  {environmentState === "connected" ? (
+                    <StateBlock
+                      tone="empty"
+                      title={t("empty.chooseOrStart")}
+                      action={
+                        connectedEnvironments.length > 0
+                          ? { label: t("empty.startSession"), onAction: () => newSession() }
+                          : undefined
+                      }
+                    />
+                  ) : environmentState === "connecting" || environmentState === "reconnecting" ? (
+                    <StateBlock tone="loading" title={t("environment.connecting")} />
+                  ) : (
+                    <StateBlock
+                      tone="error"
+                      title={t("environment.notConnected")}
+                      reason={environmentError}
+                      action={
+                        selectedEnvironment !== undefined
+                          ? {
+                              label: t("environment.connectAgain"),
+                              onAction: () => void store.connectEnvironment(selectedEnvironment),
+                            }
+                          : undefined
+                      }
+                    />
+                  )}
                 </div>
-              </header>
-            ) : null}
-            {blank === undefined && session !== undefined ? (
-              <DaemonBanner environmentId={session.environmentId} />
-            ) : null}
-            {blank === undefined && session === undefined && sidebarCollapsed ? (
-              <header data-slot="session-header" data-empty-header="">
-                {sidebarToggle}
-              </header>
-            ) : null}
-            {blank !== undefined ? null : view !== undefined ? (
-              <ConversationView
-                key={viewKey(view.environmentId, view.sessionId)}
-                sessionKey={viewKey(view.environmentId, view.sessionId)}
-                follow={sent}
-                conversation={view.conversation}
-                loading={view.loading}
-                awaitingApproval={activity === "requires_action"}
-              />
-            ) : (
-              <div data-slot="empty">
-                {environmentState === "connected" ? (
-                  <StateBlock
-                    tone="empty"
-                    title={t("empty.chooseOrStart")}
-                    action={
-                      connectedEnvironments.length > 0
-                        ? { label: t("empty.startSession"), onAction: () => newSession() }
-                        : undefined
-                    }
-                  />
-                ) : environmentState === "connecting" || environmentState === "reconnecting" ? (
-                  <StateBlock tone="loading" title={t("environment.connecting")} />
-                ) : (
-                  <StateBlock
-                    tone="error"
-                    title={t("environment.notConnected")}
-                    reason={environmentError}
-                    action={
-                      selectedEnvironment !== undefined
-                        ? {
-                            label: t("environment.connectAgain"),
-                            onAction: () => void store.connectEnvironment(selectedEnvironment),
-                          }
-                        : undefined
-                    }
-                  />
+              )}
+              <div data-slot="permissions">
+                {(view?.permissions ?? []).map((request) =>
+                  request.form !== undefined ? (
+                    <FormCard
+                      key={request.key}
+                      request={{ ...request, form: request.form }}
+                      disabled={!connected}
+                      onAnswer={store.answerForm}
+                    />
+                  ) : (
+                    <PermissionCard
+                      key={request.key}
+                      request={request}
+                      disabled={!connected}
+                      onAnswer={store.answerPermission}
+                    />
+                  ),
                 )}
               </div>
-            )}
-            <div data-slot="permissions">
-              {(view?.permissions ?? []).map((request) =>
-                request.form !== undefined ? (
-                  <FormCard
-                    key={request.key}
-                    request={{ ...request, form: request.form }}
-                    disabled={!connected}
-                    onAnswer={store.answerForm}
-                  />
-                ) : (
-                  <PermissionCard
-                    key={request.key}
-                    request={request}
-                    disabled={!connected}
-                    onAnswer={store.answerPermission}
-                  />
-                ),
-              )}
-            </div>
-            {view !== undefined ? (
-              <Composer
-                key={`composer:${viewKey(view.environmentId, view.sessionId)}`}
-                environmentId={view.environmentId}
-                sessionKey={viewKey(view.environmentId, view.sessionId)}
-                canAttach={agent?.promptCapabilities?.image != null}
-                settings={
-                  sessionSchema !== undefined && session !== undefined
-                    ? { schema: sessionSchema, value: session.config ?? {} }
-                    : undefined
-                }
-                onSetting={(key, value) => store.setSessionConfig(key, value)}
-                canSteer={agent?.steer === true}
-                enabled={!view.loading}
-                connected={connected}
-                activity={activity}
-                plan={plan}
-                context={context}
-                planUsage={planUsage}
-                onSent={() => setSent((n) => n + 1)}
-              />
-            ) : null}
-          </main>
-        }
-      />
+              {view !== undefined ? (
+                <Composer
+                  key={`composer:${viewKey(view.environmentId, view.sessionId)}`}
+                  environmentId={view.environmentId}
+                  sessionKey={viewKey(view.environmentId, view.sessionId)}
+                  canAttach={agent?.promptCapabilities?.image != null}
+                  settings={
+                    sessionSchema !== undefined && session !== undefined
+                      ? { schema: sessionSchema, value: session.config ?? {} }
+                      : undefined
+                  }
+                  onSetting={(key, value) => store.setSessionConfig(key, value)}
+                  canSteer={agent?.steer === true}
+                  enabled={!view.loading}
+                  connected={connected}
+                  activity={activity}
+                  plan={plan}
+                  context={context}
+                  planUsage={planUsage}
+                  onSent={() => setSent((n) => n + 1)}
+                />
+              ) : null}
+            </main>
+          }
+        />
+      </div>
 
       <SearchDialog
         open={panel === "search"}
@@ -800,6 +846,7 @@ export function App() {
             setShowArchived(true);
           // What was found is shown with its workspace, also when it is the session that is open.
           setChosen(undefined);
+          closeSettings();
           await store.selectSession(environmentId, sessionId);
         }}
         onNewSession={() => {
@@ -849,14 +896,6 @@ export function App() {
           onConfirm={() => store.removeEnvironment(removingEnvironment.id)}
         />
       ) : null}
-      {defaultsEnvironment !== undefined ? (
-        <DefaultsPanel
-          open={panel === "defaults"}
-          onOpenChange={(open) => !open && close()}
-          environmentId={defaultsEnvironment}
-          agents={agentsByEnvironment[defaultsEnvironment] ?? []}
-        />
-      ) : null}
       {session !== undefined ? (
         <>
           <RenameDialog
@@ -878,30 +917,5 @@ export function App() {
         </>
       ) : null}
     </div>
-  );
-}
-
-/** Keyed by revision: when the defaults change somewhere, the form starts again from the new ones. */
-function DefaultsPanel(props: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  environmentId: string;
-  agents: Parameters<typeof AgentDefaultsDialog>[0]["agents"];
-}) {
-  const store = useAppStore();
-  const revision = useAppState((s) => s.defaultsRevision[props.environmentId] ?? 0);
-  const read = useCallback(
-    (agent: string) => store.readAgentDefaults(props.environmentId, agent),
-    [store, props.environmentId],
-  );
-  return (
-    <AgentDefaultsDialog
-      key={revision}
-      open={props.open}
-      onOpenChange={props.onOpenChange}
-      agents={props.agents}
-      read={read}
-      onSave={(agent, config) => store.setAgentDefaults(props.environmentId, agent, config)}
-    />
   );
 }

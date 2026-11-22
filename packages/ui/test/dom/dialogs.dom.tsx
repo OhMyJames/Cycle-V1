@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AgentInfo } from "../../src/api.ts";
 import { ConfirmDialog } from "../../src/react/dialogs.tsx";
-import { AgentDefaultsDialog, EnvironmentDialog } from "../../src/react/index.ts";
+import { AgentDefaultsForm, EnvironmentDialog } from "../../src/react/index.ts";
 
 afterEach(cleanup);
 
@@ -59,12 +59,14 @@ test("agent defaults are saved only once they are the ones of the agent shown", 
     });
   const saved: string[] = [];
   render(
-    <AgentDefaultsDialog
-      open
-      onOpenChange={() => {}}
+    <AgentDefaultsForm
+      environmentName="This computer"
       agents={agents}
       read={read}
-      onSave={(agent) => void saved.push(agent)}
+      onSave={async (agent) => {
+        saved.push(agent);
+        return saved.length > 1;
+      }}
     />,
   );
   const save = await screen.findByRole("button", { name: "Save" });
@@ -72,22 +74,31 @@ test("agent defaults are saved only once they are the ones of the agent shown", 
   expect(save.hasAttribute("disabled")).toBe(true);
   await act(async () => release({}));
   expect(save.hasAttribute("disabled")).toBe(false);
+  // A save that did not go through is not said to be saved.
   await user.click(save);
   expect(saved).toEqual(["a"]);
+  expect(screen.queryByText("Saved")).toBeNull();
+  await user.click(save);
+  expect(await screen.findByText("Saved")).toBeTruthy();
 });
 
 test("agent defaults that cannot be read are not replaced by an empty form: they cannot be saved over", async () => {
+  let reads = 0;
   render(
-    <AgentDefaultsDialog
-      open
-      onOpenChange={() => {}}
+    <AgentDefaultsForm
+      environmentName="This computer"
       agents={agents}
-      read={() => Promise.reject(new Error("no"))}
-      onSave={() => {}}
+      read={() => (reads++ === 0 ? Promise.reject(new Error("no")) : Promise.resolve({}))}
+      onSave={async () => true}
     />,
   );
   expect(await screen.findByText(/could not be read/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+  // The way on: reading them again.
+  await userEvent.setup().click(screen.getByRole("button", { name: "Read settings again" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(false),
+  );
 });
 
 test("environment dialog keeps user input on failure, avoids id collisions, and supports editing", async () => {

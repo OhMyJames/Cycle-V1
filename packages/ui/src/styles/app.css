@@ -459,6 +459,7 @@ summary:focus-visible {
     [data-slot="picker-description"],
     [data-slot="composer-placeholder"],
     [data-slot="connector-name"],
+    [data-slot="page-row-label"],
     [data-slot="tool-verb"],
     [data-slot="tool-summary"],
     [data-slot="step-detail"],
@@ -493,6 +494,7 @@ summary:focus-visible {
   [data-slot="picker-description"],
   [data-slot="composer-placeholder"],
   [data-slot="connector-name"],
+  [data-slot="page-row-label"],
   [data-slot="tool-verb"],
   [data-slot="tool-summary"],
   [data-slot="step-detail"],
@@ -548,6 +550,265 @@ body {
 
 [data-slot="split"] [data-slot="resizable-handle"]:is(:hover, [data-dragging]) {
   background: var(--cycle-accent);
+}
+
+/* Under a page that takes the whole window, the sessions stay in the document, not drawn. */
+[data-slot="app-body"] {
+  height: 100%;
+}
+
+[data-slot="app-body"][hidden] {
+  display: none;
+}
+
+/* A page in place of the sessions (CYCL-78, `page-layout.tsx`): Settings, later Connectors. Where the sidebar was, on
+   its surface, the way back and the page's sections; beside it the section, in the conversation's column. */
+[data-slot="page"],
+[data-kind="page"] {
+  height: 100%;
+}
+
+[data-kind="page"] {
+  display: flex;
+  min-width: 0;
+  background: var(--cycle-surface-workspace);
+}
+
+[data-slot="page-nav"] {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 16rem;
+  padding: var(--cycle-gap) var(--cycle-gap) 0.5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--cycle-surface-sidebar);
+}
+
+[data-slot="page-nav"] > * {
+  flex: none;
+}
+
+[data-slot="page-title"] {
+  margin: 0.5rem 0 0;
+  padding-inline: 0.5rem;
+  font-family: var(--cycle-font-display);
+  font-size: var(--cycle-text-meta);
+  font-weight: 500;
+  line-height: var(--cycle-leading-meta);
+  color: var(--ui-muted-foreground);
+}
+
+[data-kind="page"] [data-slot="tabs-list"] {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+/* A section is a row of the sidebar: the same height, the same selected surface as an open session. */
+[data-kind="page"] [data-slot="tabs-tab"] {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--cycle-ink-secondary);
+  font-family: var(--cycle-font-display);
+  font-size: var(--cycle-text-ui);
+  font-weight: var(--cycle-weight);
+  text-align: start;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--cycle-motion-state) var(--cycle-ease);
+}
+
+[data-kind="page"] [data-slot="tabs-tab"]:hover {
+  background: var(--cycle-surface-hover);
+}
+
+[data-kind="page"] [data-slot="tabs-tab"][data-selected] {
+  background: var(--cycle-surface-selected);
+  color: var(--cycle-ink);
+  font-weight: 500;
+}
+
+[data-kind="page"] [data-slot="tabs-tab"]:focus-visible {
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: -1.5px;
+}
+
+[data-slot="page-main"] {
+  --cycle-column-pad: max(1.5rem, calc((100% - var(--cycle-measure)) / 2));
+
+  flex: 1;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+[data-slot="page-main"] > [data-slot="tabs-panel"] {
+  padding: 0;
+  outline: none;
+}
+
+[data-slot="page-column"] {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 0 var(--cycle-column-pad) 2rem;
+}
+
+/* Level with the first row of the sections beside it, and what the window is dragged by on a Mac. */
+[data-slot="page-heading"] {
+  display: flex;
+  align-items: center;
+  height: 2.625rem;
+  margin: 0;
+  padding-block-start: 0.5rem;
+  font-family: var(--cycle-font-display);
+  font-size: var(--cycle-text-title);
+  font-weight: 600;
+  letter-spacing: var(--cycle-tracking-display);
+  line-height: var(--cycle-leading-title);
+}
+
+html[data-platform="darwin"] [data-slot="page-heading"] {
+  -webkit-app-region: drag;
+}
+
+[data-slot="page-group"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+[data-slot="page-group-head"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.75rem;
+}
+
+[data-slot="page-group-title"] {
+  margin: 0;
+  font-family: var(--cycle-font-display);
+  font-size: var(--cycle-text-ui);
+  font-weight: 600;
+  line-height: var(--cycle-leading-ui);
+}
+
+[data-slot="page-group-lead"] {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--ui-muted-foreground);
+}
+
+/* A group's rows: one card, a rule between rows (Surface/Card, as the connectors' list). */
+[data-slot="page-rows"] {
+  border: 1px solid var(--cycle-border-default);
+  border-radius: var(--cycle-radius-card);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware);
+}
+
+[data-slot="page-row"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem var(--cycle-gap);
+}
+
+[data-slot="page-row"] + [data-slot="page-row"] {
+  border-top: 1px solid var(--cycle-border-subtle);
+}
+
+[data-slot="page-row-line"] {
+  display: flex;
+  align-items: center;
+  gap: var(--cycle-gap);
+  min-height: 1.75rem;
+}
+
+[data-slot="page-row-text"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+[data-slot="page-row-label"] {
+  font-weight: 500;
+}
+
+[data-slot="page-row-description"] {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.5rem;
+  font-size: var(--cycle-text-meta);
+  line-height: var(--cycle-leading-meta);
+  color: var(--ui-muted-foreground);
+}
+
+[data-slot="page-row-description"] [data-update="error"] {
+  color: var(--ui-destructive);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* Where a remote environment is: the end of an address says the most, so it is the start that is cut. */
+[data-slot="environment-where"] {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
+  text-overflow: ellipsis;
+  font-family: var(--ui-font-mono);
+  font-size: var(--cycle-text-meta);
+}
+
+[data-slot="page-row-control"] {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+[data-slot="page-row-control"] [data-slot="select-trigger"] {
+  min-width: 12rem;
+}
+
+[data-slot="page-row"] > [data-slot="reason"] {
+  align-self: stretch;
+}
+
+/* A form in a page: as wide as a choice reads well, not the whole column. */
+[data-slot="page-form"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cycle-gap);
+  max-width: 24rem;
+}
+
+[data-slot="row"][data-page-actions] {
+  margin-top: 0.25rem;
+}
+
+/* The sample under the choice of code colours: the code block is the card, so the figure adds nothing around it. */
+[data-slot="code-preview"] {
+  margin: 0;
+  min-width: 0;
 }
 
 /* The right panel: the sidebar's quiet surface, its tabs level with the conversation's header. */
@@ -1595,6 +1856,7 @@ html[data-platform="darwin"]
 }
 
 [data-kind="sidebar-toggle"],
+[data-kind="settings-open"],
 [data-kind="panel-toggle"] {
   flex: none;
   width: 1.75rem;

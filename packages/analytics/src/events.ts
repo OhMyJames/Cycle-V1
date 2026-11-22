@@ -17,13 +17,15 @@ const panel = z.enum([
   "add_environment",
   "edit_environment",
   "remove_environment",
-  "defaults",
+  "settings",
   "session_settings",
   "rename",
   "delete",
   "trust",
   "connectors",
 ]);
+/** The sections of the settings page (CYCL-78): fixed words, as `SETTINGS_SECTIONS` of @cycle/ui lists them. */
+const settingsSection = z.enum(["general", "appearance", "environments", "defaults"]);
 /** The kinds of tab in the right panel (CYCL-90): a fixed word, never a tab's title or what it shows. */
 const panelTab = z.enum(["overview", "files", "diff", "terminal", "browser"]);
 const connectorTransport = z.enum(["http", "stdio"]);
@@ -111,6 +113,8 @@ export const EVENTS = {
   // ---- the interface (the only ones the page may send) ----
   panel_opened: o({ panel, via: z.enum(["click", "shortcut"]) }),
   sidebar_toggled: o({ open: z.boolean(), via: z.enum(["click", "shortcut"]) }),
+  /** Another section of the settings page was chosen (opening the page is `panel_opened` with `settings`). */
+  settings_section_shown: o({ section: settingsSection }),
   /**
    * The right panel opened or closed (CYCL-90). `via`: its button, ⌘\, its handle (folded by a key, a double-click
    * or a drag), or a tab's own button in the header (Overview). `tab`: the kind of tab it shows, or showed when it closed.
@@ -163,6 +167,7 @@ export type EventProps<N extends EventName> = z.infer<(typeof EVENTS)[N]>;
 export const UI_EVENTS = [
   "panel_opened",
   "sidebar_toggled",
+  "settings_section_shown",
   "side_panel_toggled",
   "side_panel_tab_shown",
   "overview_item_revealed",

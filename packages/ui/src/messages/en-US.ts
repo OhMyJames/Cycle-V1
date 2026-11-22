@@ -20,7 +20,7 @@ export const enUS = {
     "{environment} is not connected. This is what the session had when it went away.",
   "defaults.reading": "Reading the defaults…",
   "defaults.unreadable":
-    "The saved settings of this agent could not be read, so they are not shown. Close this and open it again.",
+    "The saved settings of this agent could not be read, so they are not shown.",
   "newSession.environment": "Environment",
   "environment.edit": "Edit {name}",
   "environment.editTitle": "Edit {name}",
@@ -334,7 +334,7 @@ export const enUS = {
   "thinking.show": "Show thinking",
   "session.settings": "Session settings",
   "session.actions": "Session actions",
-  "environment.actions": "Environment actions",
+  "workspace.actions": "Workspace actions",
 
   // The session list
   "sessions.label": "Sessions",
@@ -552,7 +552,6 @@ export const enUS = {
   "session.awayCannotOpen": "{environment} is not connected, so this session cannot be opened.",
   "trust.changeFailed": "The folder's trust could not be changed: {reason}",
   "defaults.title": "Agent defaults",
-  "defaults.menuFor": "Agent defaults · {environment}",
   "defaults.description": "New sessions of the agent start with these settings.",
   "defaults.agent": "Agent",
   "defaults.save": "Save",
@@ -577,8 +576,35 @@ export const enUS = {
   // The code colours choice
   "codeTheme.label": "Code colours",
 
-  // The menu at the foot of the sidebar: what belongs to the app, not to a session or an environment
-  "app.settings": "App settings",
+  // The settings page: what belongs to the app, not to one session (CYCL-78)
+  "settings.open": "Settings",
+  "settings.title": "Settings",
+  "settings.back": "Back to sessions",
+  "settings.sections": "Settings sections",
+  "settings.section.general": "General",
+  "settings.section.appearance": "Appearance",
+  "settings.section.environments": "Environments",
+  "settings.section.defaults": "Session defaults",
+  "settings.updates": "Updates",
+  "settings.privacy": "Privacy",
+  "settings.analytics": "Usage statistics",
+  "settings.analytics.description":
+    "Cycle counts which features are used, to improve them. It never sends what you write, your files, or their names.",
+  "settings.codeTheme.description": "Used for code in the conversation, in light and in dark.",
+  "settings.codeTheme.preview": "Preview",
+  "settings.environments.lead":
+    "Where sessions run: this computer, and other machines reached over ssh.",
+  "settings.environments.actions": "Actions for {name}",
+  "settings.environments.edit": "Edit",
+  "settings.environments.remove": "Remove",
+  "settings.defaults.lead":
+    "New sessions of the agent start with these settings. They are kept on each environment.",
+  "settings.defaults.environment": "Environment",
+  "settings.defaults.none": "No environment is connected.",
+  "settings.defaults.noneBody":
+    "Session defaults are kept on each environment. Connect one to see and change them.",
+  "settings.defaults.showEnvironments": "Show environments",
+  "settings.defaults.saved": "Saved",
   "app.checkForUpdates": "Check for updates",
   // A remote environment whose Cycle is too old for this app
   "daemon.tooOld": "Cycle on {environment} is {version}, too old for this app.",
@@ -608,12 +634,10 @@ export const enUS = {
   "daemon.waiting":
     "Cycle {to} is installed on {environment}. It restarts as the new version when its sessions finish.",
   "daemon.updateNow": "Update now",
-  "app.analyticsOff": "Turn off usage statistics",
-  "app.analyticsOn": "Turn on usage statistics",
 
   // Said once, the first time: what is counted, and that it can be turned off (docs/analytics.md)
   "analytics.notice":
-    "Cycle counts which features are used, to improve them. It never sends what you write, your files, or their names. You can turn this off at any time in the settings menu at the bottom of the sidebar.",
+    "Cycle counts which features are used, to improve them. It never sends what you write, your files, or their names. You can turn this off at any time in Settings.",
   "analytics.turnOff": "Turn off",
   "analytics.keepOn": "Keep on",
 } as const satisfies Messages;
