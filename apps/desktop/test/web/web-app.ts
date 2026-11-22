@@ -14,6 +14,7 @@ import { type Browser, chromium, type Page } from "playwright";
 import { serveDir } from "../../../../scripts/serve-dir.ts";
 import { dispatch, type Handlers } from "../../src/main/dispatch.ts";
 import { ConnectionManager } from "../../src/main/manager.ts";
+import { memoryPreferencesStore, startPreferences } from "../../src/main/preferences.ts";
 import { fileSettings } from "../../src/main/settings.ts";
 
 const appDir = new URL("../..", import.meta.url).pathname;
@@ -109,7 +110,18 @@ export const startWebApp = async (options: WebAppOptions): Promise<WebApp> => {
   await manager.init();
 
   const copied: string[] = [];
+  // The look and the language, kept for this run. What main does with a theme (nativeTheme) the browser is told to
+  // do in its place: the page's own media query then says light or dark, as it does in the app's window.
+  const preferences = await startPreferences({
+    store: memoryPreferencesStore(),
+    systemLanguage: () => "en-US",
+    applyTheme: (theme) => {
+      void page?.emulateMedia({ colorScheme: theme === "system" ? null : theme }).catch(() => {});
+    },
+  });
   const own: Handlers = {
+    preferences: () => preferences.state(),
+    setPreferences: (change) => preferences.set(change),
     updateState: () => DISABLED,
     checkForUpdate: () => DISABLED,
     installUpdate: () => undefined,

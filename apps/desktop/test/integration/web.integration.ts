@@ -80,7 +80,7 @@ test.skipIf(!built)(
         (v) => v === true,
         30_000,
       );
-      // The mode that asks first, set the way the "Agent defaults" dialog sets it: what follows answers a permission.
+      // The mode that asks first, set the way Settings' session defaults set it: what follows answers a permission.
       await page.evaluate(() =>
         (
           window as unknown as {
@@ -167,6 +167,23 @@ test.skipIf(!built)(
       await page.getByRole("option").first().click();
       await until(agentSaid, (v) => String(v).includes("Hello from the mock"));
       await until(agentSaid, (v) => String(v).includes("All done"));
+
+      // The look, chosen in Settings as a person does: the page's own media query says light, then dark. The language,
+      // kept outside the page: after a reload the page's words are in it, without a restart.
+      const dark = () => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches);
+      await page.locator('[data-kind="settings-open"]').click();
+      await page.getByRole("tab", { name: "Appearance" }).click();
+      await page.getByRole("radio", { name: "Light" }).click();
+      await until(dark, (v) => v === false);
+      await page.getByRole("radio", { name: "Dark" }).click();
+      await until(dark, (v) => v === true);
+      await page.getByRole("tab", { name: "General" }).click();
+      await page.getByRole("combobox", { name: "Language" }).click();
+      await page.getByRole("option", { name: "简体中文" }).click();
+      await page.getByRole("heading", { name: "通用", level: 2 }).waitFor();
+      await page.reload();
+      await page.getByRole("button", { name: "搜索会话" }).waitFor();
+      expect(await page.evaluate(() => document.documentElement.lang)).toBe("zh-CN");
 
       // The folder was trusted in the dialog: on record in the daemon, and where Claude looks for it.
       const trusted = JSON.parse(await readFile(join(data, "trust.json"), "utf8"));

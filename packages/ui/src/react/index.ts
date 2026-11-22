@@ -1,6 +1,5 @@
 export * from "./analytics.tsx";
 export * from "./app.tsx";
-export * from "./code-theme-picker.tsx";
 export * from "./composer.tsx";
 export * from "./config-form.tsx";
 export * from "./conversation.tsx";
@@ -9,7 +8,9 @@ export * from "./i18n.tsx";
 export * from "./icons.tsx";
 export * from "./image.tsx";
 export * from "./markdown.tsx";
+export * from "./page-layout.tsx";
 export * from "./permission.tsx";
 export * from "./search.tsx";
+export * from "./settings.tsx";
 export * from "./sidebar.tsx";
 export * from "./store-context.tsx";

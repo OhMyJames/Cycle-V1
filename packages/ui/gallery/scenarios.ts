@@ -35,6 +35,10 @@ export type Scenario = {
   history?: SessionUpdate[];
   permissions?: PermissionRequest[];
   update?: UpdateState;
+  /** Usage statistics have somewhere to report to, and are on: Settings shows their switch. */
+  analytics?: boolean;
+  /** The language the person chose for the interface. Without it: the system's, which here is en-US. */
+  language?: "zh-CN";
   /** The agent takes images: the composer shows how to attach them. */
   attach?: boolean;
   /** The environment has no available agent: the blank view explains why and offers a re-check. */
@@ -316,11 +320,30 @@ const clickByLabel = async (root: HTMLElement, label: string) => {
   throw new Error(`nothing labelled "${label}"`);
 };
 
-/** An item of the environment's menu, opened as a click would. */
-const hostAction = async (root: HTMLElement, item: string) => {
-  await clickByLabel(root, "Environment actions");
+/** The settings page, opened as its button does, on one of its sections. */
+const openSettings = async (root: HTMLElement, section?: string) => {
+  await until(
+    () => root.querySelector('[data-kind="settings-open"]') !== null,
+    "the settings button",
+  );
+  root.querySelector<HTMLElement>('[data-kind="settings-open"]')?.click();
+  await until(() => root.querySelector('[data-kind="page"]') !== null, "the settings page");
+  if (section !== undefined) {
+    const tab = Array.from(root.querySelectorAll<HTMLElement>('[role="tab"]')).find(
+      (t) => t.textContent === section,
+    );
+    if (tab === undefined) throw new Error(`no section "${section}"`);
+    tab.click();
+  }
+  await new Promise((r) => setTimeout(r, 250));
+};
+
+/** An item of a remote environment's menu in Settings, opened as a click would. */
+const environmentAction = async (root: HTMLElement, name: string, item: string) => {
+  await openSettings(root, "Environments");
+  await clickByLabel(root, `Actions for ${name}`);
   await new Promise((r) => setTimeout(r, 200));
-  await click(root, item);
+  await click(root.ownerDocument.body, item);
 };
 
 // The context ring opened into its details, in each of the states it has something to say about.
@@ -1589,12 +1612,13 @@ export const scenarios: Record<string, Scenario> = {
     ]),
   ),
   "menu-host": {
-    title: "The host's menu is open (a remote host)",
+    title: "A remote environment's menu is open, in Settings",
     environments: [BUILD, LOCAL],
     status: [UP("build"), UP("local")],
     sessions: [],
     after: async (root) => {
-      await clickByLabel(root, "Environment actions");
+      await openSettings(root, "Environments");
+      await clickByLabel(root, "Actions for build-1");
       await new Promise((r) => setTimeout(r, 200));
     },
   },
@@ -1778,19 +1802,94 @@ export const scenarios: Record<string, Scenario> = {
     sessions: [session("s1", { title: "Fix the remote session" })],
     trust: null,
     after: async (root) => {
-      await clickByLabel(root, "Environment actions");
+      await clickByLabel(root, "Workspace actions");
       await new Promise((r) => setTimeout(r, 200));
     },
   },
   "dialog-add-host": {
-    title: "Add environment dialog",
+    title: "Add environment dialog, over Settings",
     sessions: [],
-    after: (root) => hostAction(root, "Add environment"),
+    after: async (root) => {
+      await openSettings(root, "Environments");
+      await click(root, "Add environment");
+    },
   },
-  "dialog-agent-defaults": {
-    title: "Agent defaults dialog",
+  "settings-general": {
+    title: "Settings, General: an update is ready, usage statistics are on",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    update: { current: "0.3.11", kind: "available", version: "0.3.12" },
+    analytics: true,
+    after: (root) => openSettings(root),
+  },
+  "settings-general-dev": {
+    title: "Settings, General: a run from source (no updates, nowhere to report to)",
     sessions: [],
-    after: (root) => hostAction(root, "Agent defaults"),
+    update: { current: "0.0.0", kind: "disabled", reason: "Updates are for the installed app." },
+    after: (root) => openSettings(root),
+  },
+  "settings-general-zh": {
+    title: "Settings, General, in Chinese: the language is chosen, an update is ready",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    update: { current: "0.3.11", kind: "available", version: "0.3.12" },
+    analytics: true,
+    language: "zh-CN",
+    after: (root) => openSettings(root),
+  },
+  "settings-shortcuts": {
+    title: "Settings, Keyboard shortcuts: every shortcut and its keys",
+    sessions: [],
+    after: (root) => openSettings(root, "Keyboard shortcuts"),
+  },
+  "conversation-zh": {
+    title: "A conversation with the interface in Chinese (what the agent wrote stays as it came)",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    history: conversation,
+    language: "zh-CN",
+  },
+  "settings-appearance": {
+    title: "Settings, Appearance: the colours of code, with a sample",
+    sessions: [],
+    after: (root) => openSettings(root, "Appearance"),
+  },
+  "settings-environments": {
+    title:
+      "Settings, Environments: one connected, one away with its own words, one with a long name",
+    environments: [
+      LOCAL,
+      BUILD,
+      {
+        id: "long",
+        name: "staging-europe-west-3-gpu-worker-pool-with-a-name-that-goes-on-and-on-and-on",
+        kind: "remote",
+        transport: {
+          type: "ssh",
+          host: "deploy@staging-europe-west-3-gpu-worker-pool-17.internal.example.com",
+        },
+      },
+    ],
+    status: [
+      UP("local"),
+      {
+        environmentId: "build",
+        state: "closed",
+        error: "ssh: connect to host build-1 port 22: Connection refused",
+      },
+      { environmentId: "long", state: "reconnecting" },
+    ],
+    sessions: [],
+    after: (root) => openSettings(root, "Environments"),
+  },
+  "settings-defaults": {
+    title: "Settings, Session defaults: an agent's settings on one of two environments",
+    environments: [LOCAL, BUILD],
+    sessions: [],
+    after: (root) => openSettings(root, "Session defaults"),
+  },
+  "settings-defaults-away": {
+    title: "Settings, Session defaults: no environment is connected",
+    status: [{ environmentId: "local", state: "closed", error: "spawn cycle ENOENT" }],
+    sessions: [],
+    after: (root) => openSettings(root, "Session defaults"),
   },
   "new-session-no-agent": {
     title: "New session with no available agent: explains why and offers to check again",
@@ -1802,7 +1901,7 @@ export const scenarios: Record<string, Scenario> = {
     title: "Edit environment dialog",
     environments: [BUILD, LOCAL],
     sessions: [],
-    after: (root) => hostAction(root, "Edit build-1"),
+    after: (root) => environmentAction(root, "build-1", "Edit"),
   },
   "dialog-delete-session": {
     title: "Destructive confirmation dialog for deleting a session",

@@ -21,6 +21,8 @@ const bridgeFor = (scenario: Scenario) => {
   const script = fakeBridge({
     connected: true,
     ...(scenario.update ? { update: scenario.update } : {}),
+    ...(scenario.analytics ? { analytics: { available: true, enabled: true, noticed: true } } : {}),
+    ...(scenario.language ? { preferences: { language: scenario.language } } : {}),
   });
   const environments = scenario.environments ?? [LOCAL];
   const status =

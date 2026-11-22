@@ -17,6 +17,7 @@ import {
 import { startApp, stayInBackground } from "./app.ts";
 import { localHome } from "./home.ts";
 import { BUILD_FILE, daemonCommand, loginShellPath } from "./layout.ts";
+import { filePreferencesStore } from "./preferences.ts";
 import { SWAP_SCRIPT, verifySameTeam } from "./updater.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -83,6 +84,7 @@ const main = async () => {
   });
   await startApp({
     analytics,
+    preferences: filePreferencesStore(join(app.getPath("userData"), "preferences.json")),
     rendererDir: join(here, "renderer"),
     preloadPath: join(here, "preload.cjs"),
     localCommand: [...daemon, "proxy"],

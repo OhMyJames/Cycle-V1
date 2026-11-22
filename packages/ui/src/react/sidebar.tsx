@@ -1,5 +1,5 @@
 import { Button } from "@ui-sdk/react/button";
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
 import type { ReactNode } from "react";
 import type { EnvironmentConfig, EnvironmentStatus, SessionSummary } from "../api.ts";
 import type { Elsewhere, SessionList, Workspace } from "../sessions.ts";
@@ -31,16 +31,12 @@ export type SidebarProps = {
   onSearch: () => void;
   /** Opens the connectors: the MCP servers a daemon keeps for every agent. */
   onConnectors?: () => void;
-  onAddEnvironment: () => void;
-  onEditEnvironment?: (environmentId: string) => void;
-  onRemoveEnvironment: (environmentId: string) => void;
   onConnectEnvironment: (environmentId: string) => void;
   onToggleArchived: () => void;
   onShowAll: () => void;
-  onAgentDefaults: (environmentId: string) => void;
   /**
    * Whether the shown workspace's folder is trusted (docs/protocol.md §8 "信任文件夹"): absent when its daemon cannot say,
-   * or has not yet. With it, the menu offers to change it.
+   * or has not yet. With it, a menu beside the switcher offers to change it.
    */
   trust?: boolean | null | undefined;
   onTrust?: (trusted: boolean) => void;
@@ -54,7 +50,6 @@ export const MOD = /Mac/.test(globalThis.navigator?.userAgent ?? "") ? "⌘" : "
 export function Sidebar(props: SidebarProps) {
   const { t } = useI18n();
   const connected = props.environments.filter((h) => props.status[h.id]?.state === "connected");
-  const several = props.environments.length > 1;
   const apart = props.environments.filter((h) => props.away.has(h.id));
   return (
     <nav data-slot="sidebar" aria-label={t("sessions.label")}>
@@ -100,60 +95,26 @@ export function Sidebar(props: SidebarProps) {
           status={props.status}
           onChoose={props.onChooseWorkspace}
         />
-        <Menu
-          onAction={(value) => {
-            const raw = String(value);
-            const sep = raw.indexOf(":");
-            const action = sep === -1 ? raw : raw.slice(0, sep);
-            const environmentId = sep === -1 ? undefined : raw.slice(sep + 1);
-            if (raw === "add-environment") props.onAddEnvironment();
-            else if (action === "edit-environment" && environmentId !== undefined)
-              props.onEditEnvironment?.(environmentId);
-            else if (action === "remove-environment" && environmentId !== undefined)
-              props.onRemoveEnvironment(environmentId);
-            else if (action === "agent-defaults" && environmentId !== undefined)
-              props.onAgentDefaults(environmentId);
-            else if (raw === "trust") props.onTrust?.(true);
-            else if (raw === "untrust") props.onTrust?.(false);
-          }}
-        >
-          <Tip label={t("environment.actions")}>
-            <MenuTrigger data-variant="ghost">
-              <MoreIcon />
-            </MenuTrigger>
-          </Tip>
-          <MenuContent>
-            {props.trust !== undefined && props.onTrust !== undefined ? (
-              <>
-                <MenuItem value={props.trust === true ? "untrust" : "trust"}>
-                  {t(props.trust === true ? "trust.untrust" : "trust.trust")}
-                </MenuItem>
-                <MenuSeparator />
-              </>
-            ) : null}
-            <MenuItem value="add-environment">{t("environment.add")}</MenuItem>
-            {connected.map((h) => (
-              <MenuItem key={h.id} value={`agent-defaults:${h.id}`}>
-                {several ? t("defaults.menuFor", { environment: h.name }) : t("defaults.title")}
+        {/* What can be done with the folder that is shown. The environments themselves are in Settings. */}
+        {props.trust !== undefined && props.onTrust !== undefined ? (
+          <Menu
+            onAction={(value) => {
+              if (value === "trust") props.onTrust?.(true);
+              else if (value === "untrust") props.onTrust?.(false);
+            }}
+          >
+            <Tip label={t("workspace.actions")}>
+              <MenuTrigger data-variant="ghost">
+                <MoreIcon />
+              </MenuTrigger>
+            </Tip>
+            <MenuContent>
+              <MenuItem value={props.trust === true ? "untrust" : "trust"}>
+                {t(props.trust === true ? "trust.untrust" : "trust.trust")}
               </MenuItem>
-            ))}
-            {props.environments.some((h) => h.kind !== "local") ? <MenuSeparator /> : null}
-            {props.environments
-              .filter((h) => h.kind !== "local")
-              .flatMap((h) => [
-                <MenuItem key={`edit:${h.id}`} value={`edit-environment:${h.id}`}>
-                  {t("environment.edit", { name: h.name })}
-                </MenuItem>,
-                <MenuItem
-                  key={`remove:${h.id}`}
-                  value={`remove-environment:${h.id}`}
-                  data-destructive
-                >
-                  {t("environment.remove", { name: h.name })}
-                </MenuItem>,
-              ])}
-          </MenuContent>
-        </Menu>
+            </MenuContent>
+          </Menu>
+        ) : null}
       </div>
       {apart.map((h) => {
         const state = props.status[h.id];

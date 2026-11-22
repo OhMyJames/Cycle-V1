@@ -828,8 +828,10 @@ test("the colours of code can be chosen, and the choice is kept", async () => {
   const { user } = await mount();
   try {
     expect(codeTheme.get()).toBe("github");
-    await user.click(await screen.findByRole("button", { name: "App settings" }));
-    await user.click(await screen.findByRole("menuitemradio", { name: "Catppuccin" }));
+    await user.click(await screen.findByRole("button", { name: /^Settings/ }));
+    await user.click(await screen.findByRole("tab", { name: "Appearance" }));
+    await user.click(await screen.findByRole("combobox", { name: "Code colours" }));
+    await user.click(await screen.findByRole("option", { name: "Catppuccin" }));
     await waitFor(() => expect(codeTheme.get()).toBe("catppuccin"));
     expect(localStorage.getItem("cycle-code-theme")).toBe("catppuccin");
   } finally {
@@ -1014,12 +1016,10 @@ test("an update that is found is offered, asks before it restarts, and the foote
   await waitFor(() =>
     expect(screen.queryByRole("button", { name: "Update and restart" })).toBeNull(),
   );
-  await user.click(screen.getByRole("button", { name: "App settings" }));
+  await user.click(screen.getByRole("button", { name: /^Settings/ }));
   expect(
-    (await screen.findByRole("menuitem", { name: "Check for updates" })).getAttribute(
-      "aria-disabled",
-    ),
-  ).toBe("true");
+    (await screen.findByRole("button", { name: "Check for updates" })).hasAttribute("disabled"),
+  ).toBe(true);
   await user.keyboard("{Escape}");
 
   await emit({
@@ -1030,8 +1030,8 @@ test("an update that is found is offered, asks before it restarts, and the foote
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 
   await emit({ type: "app-update", state: { current: "0.1.0", kind: "up-to-date", checkedAt: 0 } });
-  await user.click(screen.getByRole("button", { name: "App settings" }));
-  await user.click(await screen.findByRole("menuitem", { name: "Check for updates" }));
+  await user.click(screen.getByRole("button", { name: /^Settings/ }));
+  await user.click(await screen.findByRole("button", { name: "Check for updates" }));
   expect(named("checkForUpdate")).toHaveLength(1);
 });
 
@@ -1181,9 +1181,11 @@ test("a development run says updates are for the installed app and offers no che
     state: { current: "0.0.0", kind: "disabled", reason: "Updates are for the installed app." },
   });
   expect(screen.getByText("Updates are for the installed app.")).toBeTruthy();
-  await user.click(screen.getByRole("button", { name: "App settings" }));
-  await screen.findByRole("menuitemradio", { name: "GitHub" });
-  expect(screen.queryByRole("menuitem", { name: "Check for updates" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: /^Settings/ }));
+  await screen.findByRole("tab", { name: "General" });
+  // Said again where the check would be, in place of it.
+  expect(screen.getAllByText("Updates are for the installed app.").length).toBeGreaterThan(0);
+  expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull();
 });
 
 const queueUpdate = (version: number, entries: object[], extra: object = {}) => ({

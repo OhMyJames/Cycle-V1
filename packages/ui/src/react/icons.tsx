@@ -112,6 +112,15 @@ export const ChevronRightIcon = ({ size = 16, ...rest }: IconProps) => (
   </Svg>
 );
 
+/** iconmcp: chevron-right, mirrored: the way back out of a page. */
+export const ChevronLeftIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <path d="M10.125 3.75 L5.875 8 L10.125 12.25" />
+    </g>
+  </Svg>
+);
+
 /** iconmcp: check */
 export const CheckIcon = ({ size = 16, ...rest }: IconProps) => (
   <Svg size={size} {...rest}>

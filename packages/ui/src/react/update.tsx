@@ -1,9 +1,7 @@
 import { Button } from "@ui-sdk/react/button";
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
 import { useState } from "react";
 import type { SessionSummary, UpdateState } from "../api.ts";
 import type { Translator } from "../i18n.ts";
-import { CodeThemeItems } from "./code-theme-picker.tsx";
 import { ConfirmDialog } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
 import { DownloadIcon, ErrorCircleIcon, SettingsIcon, WarningIcon } from "./icons.tsx";
@@ -214,14 +212,12 @@ export function DaemonBanner({ environmentId }: { environmentId: string }) {
 }
 
 /**
- * The foot of the sidebar: which version this is, what the update is doing, and a menu of what belongs to the app (the
- * colours of code, a check for updates). One quiet row: these are used rarely and must not take room from the list.
+ * The foot of the sidebar: which version this is, what the update is doing, and the way into Settings. One quiet row:
+ * these are used rarely and must not take room from the list.
  */
-export function UpdateFooter() {
-  const store = useAppStore();
+export function UpdateFooter({ onSettings }: { onSettings: () => void }) {
   const { t } = useI18n();
   const update = useAppState((s) => s.update);
-  const analytics = useAppState((s) => s.analytics);
   // What the banner already says is not said twice.
   const inBanner =
     update !== undefined &&
@@ -230,8 +226,6 @@ export function UpdateFooter() {
       update.kind === "installing" ||
       (update.kind === "error" && update.version !== undefined));
   const line = update === undefined || inBanner ? "" : updateLine(update, t);
-  const asking =
-    update?.kind === "checking" || update?.kind === "downloading" || update?.kind === "installing";
   return (
     <div data-slot="update-footer">
       <div data-slot="update-text">
@@ -244,38 +238,11 @@ export function UpdateFooter() {
           </span>
         ) : null}
       </div>
-      <Menu
-        onAction={(value) => {
-          if (value === "check-for-updates") void store.checkForUpdate();
-          else if (value === "toggle-analytics" && analytics !== undefined)
-            void store.setAnalytics(!analytics.enabled);
-        }}
-      >
-        <Tip label={t("app.settings")}>
-          <MenuTrigger data-variant="ghost">
-            <SettingsIcon />
-          </MenuTrigger>
-        </Tip>
-        <MenuContent side="top" align="end">
-          <CodeThemeItems />
-          {analytics?.available ? (
-            <>
-              <MenuSeparator />
-              <MenuItem value="toggle-analytics">
-                {t(analytics.enabled ? "app.analyticsOff" : "app.analyticsOn")}
-              </MenuItem>
-            </>
-          ) : null}
-          {update !== undefined && update.kind !== "disabled" ? (
-            <>
-              <MenuSeparator />
-              <MenuItem value="check-for-updates" disabled={asking}>
-                {t("app.checkForUpdates")}
-              </MenuItem>
-            </>
-          ) : null}
-        </MenuContent>
-      </Menu>
+      <Tip label={t("settings.open")} shortcut="mod+,">
+        <Button data-variant="ghost" data-kind="settings-open" onClick={onSettings}>
+          <SettingsIcon />
+        </Button>
+      </Tip>
     </div>
   );
 }

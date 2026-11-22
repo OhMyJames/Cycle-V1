@@ -31,28 +31,38 @@ test("the first time, it says what is counted and what is not, and either button
   await user.click(screen.getByRole("button", { name: "Turn off" }));
   await waitFor(() => expect(screen.queryByText(/never sends what you write/)).toBeNull());
   expect(calls.filter(([name]) => name === "setAnalytics")).toEqual([["setAnalytics", false]]);
-  // The settings menu offers the way back, so it shows what was answered.
-  await user.click(await screen.findByRole("button", { name: "App settings" }));
-  await screen.findByRole("menuitem", { name: "Turn on usage statistics" });
+  // Settings offers the way back, so it shows what was answered.
+  await user.click(await screen.findByRole("button", { name: /^Settings/ }));
+  const toggle = await screen.findByRole("switch", { name: "Usage statistics" });
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
 });
 
-test("a person who was told is not told again, and can turn it off and on from the settings menu", async () => {
+test("a person who was told is not told again, and can turn it off and on in Settings", async () => {
   const { user, calls } = await mount({ available: true, enabled: true, noticed: true });
   expect(screen.queryByText(/never sends what you write/)).toBeNull();
-  await user.click(await screen.findByRole("button", { name: "App settings" }));
-  await user.click(await screen.findByRole("menuitem", { name: "Turn off usage statistics" }));
+  await user.click(await screen.findByRole("button", { name: /^Settings/ }));
+  const toggle = await screen.findByRole("switch", { name: "Usage statistics" });
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  await user.click(toggle);
   await waitFor(() =>
     expect(calls.filter(([n]) => n === "setAnalytics")).toEqual([["setAnalytics", false]]),
   );
-  await user.click(await screen.findByRole("button", { name: "App settings" }));
-  await screen.findByRole("menuitem", { name: "Turn on usage statistics" });
+  await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
+  await user.click(toggle);
+  await waitFor(() =>
+    expect(calls.filter(([n]) => n === "setAnalytics")).toEqual([
+      ["setAnalytics", false],
+      ["setAnalytics", true],
+    ]),
+  );
 });
 
 test("with nowhere to report to, neither the notice nor the switch is shown", async () => {
   await mount({ available: false, enabled: false, noticed: false });
   expect(screen.queryByText(/never sends what you write/)).toBeNull();
-  await userEvent.setup().click(await screen.findByRole("button", { name: "App settings" }));
-  expect(screen.queryByRole("menuitem", { name: /usage statistics/ })).toBeNull();
+  await userEvent.setup().click(await screen.findByRole("button", { name: /^Settings/ }));
+  await screen.findByRole("tab", { name: "General" });
+  expect(screen.queryByRole("switch", { name: /usage statistics/i })).toBeNull();
 });
 
 test("opening the search from the sidebar is counted, with how it was opened", async () => {
@@ -84,15 +94,19 @@ test("toggling the sidebar and opening remote environment panels report only fix
   const mod = /Mac/.test(navigator.userAgent) ? "Meta" : "Control";
   await user.keyboard(`{${mod}>}b{/${mod}}`);
   await user.click(await screen.findByRole("button", { name: "Show sidebar" }));
-  await user.click(await screen.findByRole("button", { name: "Environment actions" }));
-  await user.click(await screen.findByRole("menuitem", { name: "Edit secret-prod-host" }));
+  await user.click(await screen.findByRole("button", { name: /^Settings/ }));
+  await user.click(await screen.findByRole("tab", { name: "Environments" }));
+  await user.click(await screen.findByRole("button", { name: "Actions for secret-prod-host" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Edit" }));
   await user.keyboard("{Escape}");
-  await user.click(await screen.findByRole("button", { name: "Environment actions" }));
-  await user.click(await screen.findByRole("menuitem", { name: "Remove secret-prod-host" }));
+  await user.click(await screen.findByRole("button", { name: "Actions for secret-prod-host" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Remove" }));
   const events = tracked(script.calls);
   expect(events).toEqual([
     ["sidebar_toggled", { open: false, via: "shortcut" }],
     ["sidebar_toggled", { open: true, via: "click" }],
+    ["panel_opened", { panel: "settings", via: "click" }],
+    ["settings_section_shown", { section: "environments" }],
     ["panel_opened", { panel: "edit_environment", via: "click" }],
     ["panel_opened", { panel: "remove_environment", via: "click" }],
   ]);

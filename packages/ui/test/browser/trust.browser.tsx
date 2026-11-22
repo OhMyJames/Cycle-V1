@@ -96,7 +96,7 @@ test("a folder already decided on is not asked about", async () => {
 
 test("the workspace menu trusts the shown folder after saying what that allows, and stops trusting it at once", async () => {
   const { user, named } = await mount(null);
-  await user.click(screen.getByRole("button", { name: "Environment actions" }));
+  await user.click(screen.getByRole("button", { name: "Workspace actions" }));
   await user.click(await screen.findByRole("menuitem", { name: "Trust this folder" }));
   const confirm = await screen.findByRole("alertdialog");
   expect(within(confirm).getByText("Trust this folder?")).toBeTruthy();
@@ -104,7 +104,7 @@ test("the workspace menu trusts the shown folder after saying what that allows, 
   await waitFor(() => expect(named("setTrust")).toHaveLength(1));
   expect(named("setTrust")[0]?.[3]).toBe(true);
 
-  await user.click(screen.getByRole("button", { name: "Environment actions" }));
+  await user.click(screen.getByRole("button", { name: "Workspace actions" }));
   await user.click(await screen.findByRole("menuitem", { name: "Stop trusting this folder" }));
   await waitFor(() => expect(named("setTrust")).toHaveLength(2));
   expect(named("setTrust")[1]?.[3]).toBe(false);

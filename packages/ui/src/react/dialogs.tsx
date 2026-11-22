@@ -17,18 +17,9 @@ import {
 } from "@ui-sdk/react/dialog";
 import { Field, FieldLabel } from "@ui-sdk/react/field";
 import { Input } from "@ui-sdk/react/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@ui-sdk/react/select";
 import { useEffect, useState } from "react";
-import type { AgentInfo, EnvironmentConfig } from "../api.ts";
-import { ConfigForm } from "./config-form.tsx";
+import type { EnvironmentConfig } from "../api.ts";
 import { useI18n } from "./i18n.tsx";
-import { StateBlock } from "./state-block.tsx";
 
 type OpenProps = { open: boolean; onOpenChange: (open: boolean) => void };
 
@@ -262,124 +253,6 @@ export function EnvironmentDialog({
             <DialogClose disabled={busy}>{t("dialog.cancel")}</DialogClose>
             <Button type="submit" data-variant="solid" disabled={host.trim() === "" || busy}>
               {editing !== undefined ? t("environment.save") : t("environment.addSubmit")}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-export type AgentDefaultsProps = OpenProps & {
-  agents: AgentInfo[];
-  read: (agent: string) => Promise<Record<string, string> | undefined>;
-  onSave: (agent: string, config: Record<string, string>) => void | Promise<void>;
-};
-
-/** What every new session of an agent starts with. */
-export function AgentDefaultsDialog({
-  open,
-  onOpenChange,
-  agents,
-  read,
-  onSave,
-}: AgentDefaultsProps) {
-  const [agentId, setAgentId] = useState<string | null>(null);
-  const [config, setConfig] = useState<Record<string, string>>({});
-  const agent = agents.find((a) => a.id === agentId) ?? agents[0];
-  const agentKey = agent?.id;
-  // Saved only as what was read for the agent shown: the settings of the one before are not this one's.
-  const [loaded, setLoaded] = useState<string | null>(null);
-  const [unread, setUnread] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const { t } = useI18n();
-  useEffect(() => {
-    if (!open || agentKey === undefined) return;
-    let current = true;
-    setLoaded(null);
-    setUnread(false);
-    setConfig({});
-    read(agentKey).then(
-      (defaults) => {
-        if (!current) return;
-        setConfig(defaults ?? {});
-        setLoaded(agentKey);
-      },
-      () => {
-        // Not "nothing saved": saving over it would replace what is saved with the near-empty form.
-        if (current) setUnread(true);
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [open, agentKey, read]);
-  useEffect(() => {
-    if (open) return;
-    setLoaded(null);
-    setUnread(false);
-    setConfig({});
-  }, [open]);
-  // A form, so Enter in a field saves, as every form dialog does (DESIGN.md §4.5).
-  const save = async () => {
-    if (agent === undefined || loaded !== agentKey || busy) return;
-    setBusy(true);
-    try {
-      await onSave(agent.id, config);
-      onOpenChange(false);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogBackdrop />
-      <DialogContent>
-        <DialogTitle>{t("defaults.title")}</DialogTitle>
-        <DialogDescription>{t("defaults.description")}</DialogDescription>
-        <form
-          data-slot="stack"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void save();
-          }}
-        >
-          {agents.length > 1 ? (
-            <Field name="agent">
-              <FieldLabel>{t("defaults.agent")}</FieldLabel>
-              <Select
-                items={agents.map((a) => ({ value: a.id, label: a.name }))}
-                value={agent?.id ?? null}
-                onValueChange={(next) => setAgentId(next as string | null)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {agents.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          ) : null}
-          {agent !== undefined && loaded === agentKey ? (
-            <ConfigForm schema={agent.configSchema} value={config} onChange={setConfig} />
-          ) : unread ? (
-            <StateBlock size="inline" tone="error" title={t("defaults.unreadable")} />
-          ) : agent !== undefined ? (
-            <StateBlock size="inline" tone="loading" title={t("defaults.reading")} />
-          ) : null}
-          <div data-slot="row" data-dialog-footer="">
-            <DialogClose disabled={busy}>{t("dialog.close")}</DialogClose>
-            <Button
-              type="submit"
-              data-variant="solid"
-              disabled={agent === undefined || loaded !== agentKey || busy}
-            >
-              {t("defaults.save")}
             </Button>
           </div>
         </form>

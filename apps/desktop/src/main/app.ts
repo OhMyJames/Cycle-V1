@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isUiEvent } from "@cycle/analytics/events";
 import { commandChannel, sshChannel, sshCommand } from "@cycle/client";
-import { createTranslator, enUS, SOURCE_LOCALE, type UpdateState } from "@cycle/ui";
+import { resolveLanguage, type Translator, translatorFor, type UpdateState } from "@cycle/ui";
 import {
   API_METHODS,
   type AppEvent,
@@ -19,6 +19,7 @@ import {
   dialog,
   ipcMain,
   Notification,
+  nativeTheme,
   session,
   shell,
 } from "electron";
@@ -27,6 +28,7 @@ import { type AnalyticsControl, offAnalytics } from "./analytics.ts";
 import { notifyAttention } from "./attention.ts";
 import { dispatch, type Handlers } from "./dispatch.ts";
 import { ConnectionManager } from "./manager.ts";
+import { memoryPreferencesStore, type PreferencesStore, startPreferences } from "./preferences.ts";
 import { fileSettings } from "./settings.ts";
 import { cleanStale, Updater, type UpdaterDeps } from "./updater.ts";
 
@@ -45,6 +47,8 @@ export type AppOptions = {
   show?: boolean;
   /** What the app reports about how it is used (docs/analytics.md). Without it, nothing is. */
   analytics?: AnalyticsControl;
+  /** Where the look and the language the person chose are kept. Without it, they last for this run. */
+  preferences?: PreferencesStore;
   /** How the app updates itself. Without it, updating is off. */
   update?: Omit<UpdaterDeps, "emit" | "quit">;
 };
@@ -154,6 +158,21 @@ export const startApp = async (options: AppOptions) => {
   const usage = options.analytics ?? offAnalytics;
   const { analytics } = usage;
 
+  // Before the window is made: the first thing drawn is already in the theme the person chose.
+  const preferences = await startPreferences({
+    store: options.preferences ?? memoryPreferencesStore(),
+    systemLanguage: () => app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
+    applyTheme: (theme) => {
+      nativeTheme.themeSource = theme;
+    },
+    track: (name, props) => analytics.track(name, props),
+  });
+  // What main says itself (a notification) is in the language chosen now, not the one at the start.
+  const translator = (): Translator => {
+    const { language, systemLanguage } = preferences.state();
+    return translatorFor(resolveLanguage(language, systemLanguage));
+  };
+
   const emit = (event: AppEvent) => {
     if (window !== undefined && !window.isDestroyed())
       window.webContents.send(EVENT_CHANNEL, event);
@@ -175,7 +194,7 @@ export const startApp = async (options: AppOptions) => {
       supported: () => !hidden && Notification.isSupported(),
       create: (notification) => new Notification(notification),
       activate: () => app.focus({ steal: true }),
-      translator: createTranslator(SOURCE_LOCALE, enUS),
+      translator,
       emit,
     }),
     chooseDirectory: async () => {
@@ -235,6 +254,8 @@ export const startApp = async (options: AppOptions) => {
       if (typeof event === "string" && isUiEvent(event))
         analytics.trackUnchecked(event, props ?? {});
     },
+    preferences: () => preferences.state(),
+    setPreferences: (change: unknown) => preferences.set(change),
     analytics: () => usage.status(),
     setAnalytics: (enabled: unknown) => usage.set(enabled === true),
     // Through main, not the page's navigator.clipboard: the page is given no permissions. Text only, of a sane size.

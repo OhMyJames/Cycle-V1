@@ -58,7 +58,7 @@ const rig = (
       };
     },
     activate: () => calls.push("activate"),
-    translator: createTranslator("en-US", enUS),
+    translator: () => createTranslator("en-US", enUS),
     emit: (event) => emitted.push(event),
   });
   const fire = (event: string) => listeners.get(event)?.();

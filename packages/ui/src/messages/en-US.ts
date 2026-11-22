@@ -20,9 +20,8 @@ export const enUS = {
     "{environment} is not connected. This is what the session had when it went away.",
   "defaults.reading": "Reading the defaults…",
   "defaults.unreadable":
-    "The saved settings of this agent could not be read, so they are not shown. Close this and open it again.",
+    "The saved settings of this agent could not be read, so they are not shown.",
   "newSession.environment": "Environment",
-  "environment.edit": "Edit {name}",
   "environment.editTitle": "Edit {name}",
   "environment.save": "Save",
   "environment.removeTitle": "Remove {name}?",
@@ -342,7 +341,7 @@ export const enUS = {
   "thinking.show": "Show thinking",
   "session.settings": "Session settings",
   "session.actions": "Session actions",
-  "environment.actions": "Environment actions",
+  "workspace.actions": "Workspace actions",
 
   // The session list
   "sessions.label": "Sessions",
@@ -543,7 +542,6 @@ export const enUS = {
   "environment.name": "Name",
   "environment.nameHint": "Shown in the list",
   "environment.command": "Command on the environment",
-  "environment.remove": "Remove {name}",
   "environment.status": "{environment} · {state}",
   "environment.state.connected": "Connected",
   "environment.state.connecting": "Connecting…",
@@ -559,9 +557,6 @@ export const enUS = {
   "session.deleteConfirm": "Delete session",
   "session.awayCannotOpen": "{environment} is not connected, so this session cannot be opened.",
   "trust.changeFailed": "The folder's trust could not be changed: {reason}",
-  "defaults.title": "Agent defaults",
-  "defaults.menuFor": "Agent defaults · {environment}",
-  "defaults.description": "New sessions of the agent start with these settings.",
   "defaults.agent": "Agent",
   "defaults.save": "Save",
   "rename.title": "Rename",
@@ -585,8 +580,62 @@ export const enUS = {
   // The code colours choice
   "codeTheme.label": "Code colours",
 
-  // The menu at the foot of the sidebar: what belongs to the app, not to a session or an environment
-  "app.settings": "App settings",
+  // The settings page: what belongs to the app, not to one session (CYCL-78)
+  "settings.open": "Settings",
+  "settings.title": "Settings",
+  "settings.back": "Back to sessions",
+  "settings.sections": "Settings sections",
+  "settings.section.general": "General",
+  "settings.section.appearance": "Appearance",
+  "settings.section.environments": "Environments",
+  "settings.section.defaults": "Session defaults",
+  "settings.section.shortcuts": "Keyboard shortcuts",
+  "settings.language": "Language",
+  "settings.language.description":
+    "The language of the interface. What agents write stays in their own words.",
+  "settings.language.system": "Match system ({language})",
+  "settings.theme": "Theme",
+  "settings.theme.description": "Light, dark, or the same as the system.",
+  "settings.theme.system": "Match system",
+  "settings.theme.light": "Light",
+  "settings.theme.dark": "Dark",
+  "settings.shortcuts.app": "The app",
+  "settings.shortcuts.session": "In a session",
+  "settings.shortcuts.newSession": "Start a new session",
+  "settings.shortcuts.folder": "Choose the folder of a new session",
+  "settings.shortcuts.search": "Search sessions",
+  "settings.shortcuts.settings": "Open or close Settings",
+  "settings.shortcuts.sidebar": "Show or hide the sidebar",
+  "settings.shortcuts.panel": "Show or hide the panel",
+  "settings.shortcuts.previous": "Go to the previous session",
+  "settings.shortcuts.next": "Go to the next session",
+  "settings.shortcuts.focus": "Go to the message box",
+  "settings.shortcuts.send": "Send the message, or send it now while the agent works",
+  "settings.shortcuts.newline": "Add a line to the message",
+  "settings.shortcuts.queue": "Queue the message while the agent works",
+  "settings.shortcuts.allow": "Allow once, when the agent asks for permission",
+  "settings.shortcuts.stop": "Stop the turn that is running",
+  "settings.shortcuts.recall": "Bring back the last message, in an empty message box",
+  "settings.updates": "Updates",
+  "settings.privacy": "Privacy",
+  "settings.analytics": "Usage statistics",
+  "settings.analytics.description":
+    "Cycle counts which features are used, to improve them. It never sends what you write, your files, or their names.",
+  "settings.codeTheme.description": "Used for code in the conversation, in light and in dark.",
+  "settings.codeTheme.preview": "Preview",
+  "settings.environments.lead":
+    "Where sessions run: this computer, and other machines reached over ssh.",
+  "settings.environments.actions": "Actions for {name}",
+  "settings.environments.edit": "Edit",
+  "settings.environments.remove": "Remove",
+  "settings.defaults.lead":
+    "New sessions of the agent start with these settings. They are kept on each environment.",
+  "settings.defaults.environment": "Environment",
+  "settings.defaults.none": "No environment is connected.",
+  "settings.defaults.noneBody":
+    "Session defaults are kept on each environment. Connect one to see and change them.",
+  "settings.defaults.showEnvironments": "Show environments",
+  "settings.defaults.saved": "Saved",
   "app.checkForUpdates": "Check for updates",
   // A remote environment whose Cycle is too old for this app
   "daemon.tooOld": "Cycle on {environment} is {version}, too old for this app.",
@@ -616,12 +665,10 @@ export const enUS = {
   "daemon.waiting":
     "Cycle {to} is installed on {environment}. It restarts as the new version when its sessions finish.",
   "daemon.updateNow": "Update now",
-  "app.analyticsOff": "Turn off usage statistics",
-  "app.analyticsOn": "Turn on usage statistics",
 
   // Said once, the first time: what is counted, and that it can be turned off (docs/analytics.md)
   "analytics.notice":
-    "Cycle counts which features are used, to improve them. It never sends what you write, your files, or their names. You can turn this off at any time in the settings menu at the bottom of the sidebar.",
+    "Cycle counts which features are used, to improve them. It never sends what you write, your files, or their names. You can turn this off at any time in Settings.",
   "analytics.turnOff": "Turn off",
   "analytics.keepOn": "Keep on",
 } as const satisfies Messages;

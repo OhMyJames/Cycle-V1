@@ -22,6 +22,8 @@
 
 ## 不在这一步决定的
 
+> 2026-11-22 补:前两条(支持哪些语言、运行时怎么选)已在 [`2026-11-22-appearance-and-language-preferences`](../../.agents/notes/2026-11-22-appearance-and-language-preferences.md) 里决定;main 自己的文字里只有系统通知跟随所选语言。下面保留当时的原文。
+
 - 支持哪些语言,谁来翻译,放在哪个文件夹。
 - 运行时怎么选语言(跟随系统,还是应用里的设置)。`Intl` 的 locale 来自哪里:渲染进程能读 `navigator.language`,main 的 `app.getLocale()` 更准。
 - 从右到左的语言(阿拉伯语、希伯来语)。样式里的 `padding-left`、`margin-left` 要改成逻辑属性(`padding-inline-start`),图标里有方向的(箭头)要翻转。现在没做。

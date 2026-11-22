@@ -319,8 +319,10 @@ test("a host that is not connected cannot have a session started on it", async (
 
 test("a remote environment can be edited, and removing one asks for confirmation first", async () => {
   const { user, named } = await mount();
-  await user.click(screen.getByRole("button", { name: "Environment actions" }));
-  await user.click(await screen.findByRole("menuitem", { name: "Edit Build box" }));
+  await user.click(screen.getByRole("button", { name: /^Settings/ }));
+  await user.click(await screen.findByRole("tab", { name: "Environments" }));
+  await user.click(await screen.findByRole("button", { name: "Actions for Build box" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Edit" }));
   const edit = await screen.findByRole("dialog", { name: "Edit Build box" });
   const name = within(edit).getByRole("textbox", { name: "Name" });
   await user.clear(name);
@@ -329,8 +331,8 @@ test("a remote environment can be edited, and removing one asks for confirmation
   await waitFor(() => expect(named("saveEnvironment")).toHaveLength(1));
   expect(named("saveEnvironment")[0]?.[1]).toMatchObject({ id: "far", name: "Build 2" });
 
-  await user.click(screen.getByRole("button", { name: "Environment actions" }));
-  await user.click(await screen.findByRole("menuitem", { name: "Remove Build box" }));
+  await user.click(await screen.findByRole("button", { name: "Actions for Build box" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Remove" }));
   const confirm = await screen.findByRole("alertdialog", { name: "Remove Build box?" });
   expect(named("removeEnvironment")).toHaveLength(0);
   await user.click(within(confirm).getByRole("button", { name: "Remove environment" }));
