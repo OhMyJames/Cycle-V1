@@ -64,7 +64,7 @@ export function Sidebar(props: SidebarProps) {
           onClick={props.onNewSession}
         >
           <PlusIcon />
-          {t("sidebar.newSession")}
+          {t("sidebar.newShort")}
           <kbd>{MOD}N</kbd>
         </Button>
         <Button
@@ -75,7 +75,7 @@ export function Sidebar(props: SidebarProps) {
           onClick={props.onSearch}
         >
           <SearchIcon />
-          {t("search.open")}
+          {t("sidebar.searchShort")}
           <kbd>{MOD}K</kbd>
         </Button>
         {props.onConnectors !== undefined ? (

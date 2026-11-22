@@ -506,7 +506,7 @@ session 里 ACP 的 `configOptions` 用 ACP 自己的字段表达同样的东西
 
 **思考强度(`effort`,CYCL-72)**:Claude 的 `configSchema` 里有 `effort`,`oneOf` 为 `default`、`low`、`medium`、`high`、`xhigh`、`max`,不设时是 `default`。
 
-- `default` 不是一个档位,意思是"Cycle 不覆盖":Claude Code 用用户自己设置里的档位,没有设置时用模型自己的默认。SDK 不告诉我们这时实际是哪一档,所以客户端显示为"模型默认",不得写成某个具体档位。其余各值原样交给 SDK(新进程用 `options.effort`,运行中的进程用 `applyFlagSettings({effortLevel})`,`default` 清掉覆盖)。`max` 只在这个 session 里生效;模型不支持 `max` 时 SDK 按 `high` 跑。
+- `default` 不是一个档位,意思是"Cycle 不覆盖":Claude Code 用用户自己设置里的档位,没有设置时用模型自己的默认。SDK 不告诉我们这时实际是哪一档,所以客户端不得把它当成一个档位的名字;唯一的例外是 Cycle 桌面端按实测把它写作 `medium (default)`(见 docs/desktop.md),选它仍发 `default`。其余各值原样交给 SDK(新进程用 `options.effort`,运行中的进程用 `applyFlagSettings({effortLevel})`,`default` 清掉覆盖)。`max` 只在这个 session 里生效;模型不支持 `max` 时 SDK 按 `high` 跑。
 - **哪些模型支持**:来自 SDK 的 `ModelInfo.supportsEffort` 与 `supportedEffortLevels`,不在 Cycle 里写死。session 里 `config_option_update` 的 `model` 选项,每一项在 `_meta["cycle/efforts"]` 里带该模型可选的档位(字符串数组,不含 `default`);空数组表示该模型不支持 effort;没有这个键表示不知道。`effort` 选项的 `options` 是当前模型可选的档位加上 `default`;当前模型不支持时只有 `default`,客户端这时不显示 effort。
 - **不知道时**:进程还没报模型清单(新 session 第一个进程起来之前)、或当前模型不在清单里时,`effort` 列出全部档位,值照常交给 SDK,由它决定;清单到了之后,当前值不在当前模型的档位里,adapter 把它改回 `default` 并发 `config_option_update`。换模型时同样:旧档位新模型不支持,改回 `default`(一个值,不按模型分别记)。
 - daemon 缓存它见过的模型清单(含各模型的 `cycle/efforts`),叠加到 `_cycle/agents` 返回的 `configSchema` 的 `model.oneOf` 上(同样放在每项的 `_meta["cycle/efforts"]`),新 session 页据此在选模型时决定是否显示 effort、显示哪些档位。缓存只是提示,不做校验:真正可选的档位以 session 里 agent 报的为准。

@@ -552,8 +552,26 @@ describe("SettingChips picker", () => {
     expect(screen.queryByRole("button", { name: /^Effort:/ })).toBeNull();
 
     // A model that does not say keeps every level.
+    // "default" is the medium one, written after it, not a row of its own.
+    rerender(render({ model: "odd", effort: "default" }));
+    expect(screen.getByRole("button", { name: /^Effort: medium/ }).textContent).toBe(
+      "medium (default)",
+    );
+    const odd = await levels();
+    expect(odd).toHaveLength(4);
+    expect(odd).toContain("medium (default)");
+    expect(odd).not.toContain("Model default");
+    await user.click(screen.getByRole("button", { name: /^Effort:/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "high" }));
+    // The agent answers: the session is on high now, and going back to the default asks it to clear the override.
+    rerender(render({ model: "odd", effort: "high" }));
+    await user.click(screen.getByRole("button", { name: /^Effort:/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "medium (default)" }));
+    expect(calls.slice(-2)).toEqual([
+      ["effort", "high"],
+      ["effort", "default"],
+    ]);
     rerender(render({ model: "odd", effort: "medium" }));
-    expect(await levels()).toHaveLength(5);
 
     // A level the model does not list, still in force until the agent answers, is shown as it is, not as "Not set".
     rerender(render({ model: "opus", effort: "medium" }));
