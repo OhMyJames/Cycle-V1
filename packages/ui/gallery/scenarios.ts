@@ -224,11 +224,22 @@ const permission = (title: string, command: string): PermissionRequest => ({
   ],
 });
 
+/** An element's accessible name: its label, what names it (an icon-only button's tip), else its text. */
+const nameOf = (e: Element): string =>
+  e.getAttribute("aria-label") ??
+  (e
+    .getAttribute("aria-labelledby")
+    ?.split(" ")
+    .map((id) => e.ownerDocument.getElementById(id)?.textContent ?? "")
+    .join(" ")
+    .trim() ||
+    (e.textContent?.trim() ?? ""));
+
 const click = async (root: HTMLElement, text: string) => {
   for (let i = 0; i < 50; i++) {
     const found = Array.from(root.querySelectorAll('button, [role="menuitem"]')).find(
       // By its name: a button's label when it has one (the sidebar's actions also show their shortcut), else its text.
-      (b) => (b.getAttribute("aria-label") ?? b.textContent?.trim()) === text,
+      (b) => nameOf(b) === text,
     );
     if (found) return void (found as HTMLElement).click();
     await new Promise((r) => setTimeout(r, 50));
@@ -252,7 +263,9 @@ const openSearch = async (root: HTMLElement) => {
 
 const clickByLabel = async (root: HTMLElement, label: string) => {
   for (let i = 0; i < 50; i++) {
-    const found = root.querySelector(`[aria-label="${label}"]`) as HTMLElement | null;
+    const found = Array.from(root.querySelectorAll("[aria-label], [aria-labelledby]")).find(
+      (e) => nameOf(e) === label,
+    ) as HTMLElement | undefined;
     if (found) return void found.click();
     await new Promise((r) => setTimeout(r, 50));
   }

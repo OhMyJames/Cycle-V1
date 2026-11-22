@@ -126,7 +126,8 @@ app
             const s = getComputedStyle(
               el.matches('[data-slot="composer-input"]') ? el.closest('[data-slot="composer-box"]') ?? el : el,
             );
-            const label = el.getAttribute("aria-label") || (el.textContent || "").trim().slice(0, 30);
+            const named = (el.getAttribute("aria-labelledby") || "").split(" ").map((id) => document.getElementById(id)?.textContent || "").join(" ").trim();
+            const label = el.getAttribute("aria-label") || named || (el.textContent || "").trim().slice(0, 30);
             return {
               on: el.tagName.toLowerCase() + (el.getAttribute("role") ? "[" + el.getAttribute("role") + "]" : "") + " " + label,
               visible: el.matches(":focus-visible"),

@@ -3158,6 +3158,11 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   background: var(--cycle-surface-hover);
 }
 
+/* Removing or deleting reads as such: red, as the destructive button is (DESIGN.md §4.5). */
+[data-slot="menu-item"][data-destructive] {
+  color: var(--ui-destructive);
+}
+
 :is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"]) {
   padding-inline-start: 0.5rem;
 }
