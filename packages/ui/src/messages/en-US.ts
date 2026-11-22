@@ -478,6 +478,7 @@ export const enUS = {
   "environment.nameHint": "Shown in the list",
   "environment.command": "Command on the environment",
   "environment.remove": "Remove {name}",
+  "environment.status": "{environment} · {state}",
   "environment.state.connected": "Connected",
   "environment.state.connecting": "Connecting…",
   "environment.state.reconnecting": "Reconnecting…",

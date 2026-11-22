@@ -158,6 +158,7 @@ export function Sidebar(props: SidebarProps) {
       {apart.map((h) => {
         const state = props.status[h.id];
         const how = ENVIRONMENT_STATE[state?.state ?? "closed"];
+        const line = t("environment.status", { environment: h.name, state: t(how.word) });
         return (
           <span
             key={h.id}
@@ -166,11 +167,8 @@ export function Sidebar(props: SidebarProps) {
             role="status"
           >
             <StatusDot tone={how.tone} shape={how.shape} />
-            <span
-              data-slot="environment-name"
-              title={t("session.away", { environment: h.name, state: t(how.word) })}
-            >
-              {t("session.away", { environment: h.name, state: t(how.word) })}
+            <span data-slot="environment-name" title={line}>
+              {line}
             </span>
             {state?.error !== undefined && (state?.state ?? "closed") === "closed" ? (
               <span data-slot="hint" title={state.error}>

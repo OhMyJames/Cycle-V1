@@ -9,6 +9,7 @@ import { PanelTabs } from "../../src/react/panel-tabs.tsx";
 import {
   fitColumns,
   foldedByWindow,
+  MAIN_KEEP,
   MAIN_MIN,
   PANEL,
   SIDEBAR,
@@ -20,40 +21,45 @@ const translator = createTranslator(SOURCE_LOCALE, enUS);
 const wrap = (ui: React.ReactNode) =>
   render(<I18nProvider translator={translator}>{ui}</I18nProvider>);
 
-// The order is .agents/notes/2026-11-21-right-panel-layout.md's: the conversation gives way first, down to its
-// minimum; then the panel, down to its own; then the sidebar folds. The panel never covers the conversation.
+// The order is .agents/notes/2026-11-21-right-panel-layout.md's: beside an open panel the conversation keeps MAIN_KEEP
+// while the panel gives way, down to its minimum; then the sidebar folds; only then does the conversation narrow. The
+// panel never covers the conversation.
 describe("fitColumns", () => {
   const want = { sidebar: SIDEBAR.default, panel: PANEL.default };
 
   test("a wide window keeps what the user chose", () => {
     expect(fitColumns(1600, want)).toEqual({ ...want, sidebarFolded: false });
+    expect(fitColumns(256 + 400 + MAIN_KEEP, want)).toEqual({ ...want, sidebarFolded: false });
   });
 
-  test("the conversation narrows first, then the panel, then the sidebar folds", () => {
-    // 256 + 400 + 400 = 1056: the conversation is at its minimum, nothing else moves.
-    expect(fitColumns(1056, want)).toEqual({ ...want, sidebarFolded: false });
-    // Narrower: the panel gives the difference, down to its minimum.
-    expect(fitColumns(1000, want)).toEqual({ sidebar: 256, panel: 344, sidebarFolded: false });
-    expect(fitColumns(256 + MAIN_MIN + PANEL.min, want)).toEqual({
+  test("the panel gives way first, then the sidebar folds, and the conversation keeps its width", () => {
+    // Narrower: the panel gives the difference; the conversation stays at MAIN_KEEP.
+    expect(fitColumns(1076, want)).toEqual({ sidebar: 256, panel: 340, sidebarFolded: false });
+    expect(fitColumns(256 + PANEL.min + MAIN_KEEP, want)).toEqual({
       sidebar: 256,
       panel: PANEL.min,
       sidebarFolded: false,
     });
     // Narrower still: the sidebar folds, and the panel gets back what it can.
-    expect(fitColumns(900, want)).toEqual({ sidebar: 0, panel: 400, sidebarFolded: true });
+    expect(fitColumns(1000, want)).toEqual({ sidebar: 0, panel: 400, sidebarFolded: true });
   });
 
-  test("the smallest window holds the conversation and the panel side by side", () => {
+  test("the smallest window: the sidebar folded, the panel at its minimum, the conversation above its own", () => {
     const fit = fitColumns(720, want);
-    expect(fit).toEqual({ sidebar: 0, panel: 320, sidebarFolded: true });
+    expect(fit).toEqual({ sidebar: 0, panel: PANEL.min, sidebarFolded: true });
     expect(720 - fit.panel).toBeGreaterThanOrEqual(MAIN_MIN);
   });
 
-  test("without the panel, a sidebar the user folded stays folded and is not counted as the window's", () => {
+  test("without the panel the sidebar folds only below the conversation's minimum; a fold the user made stays", () => {
     expect(fitColumns(720, { sidebar: SIDEBAR.default, panel: 0 })).toEqual({
       sidebar: SIDEBAR.default,
       panel: 0,
       sidebarFolded: false,
+    });
+    expect(fitColumns(600, { sidebar: SIDEBAR.default, panel: 0 })).toEqual({
+      sidebar: 0,
+      panel: 0,
+      sidebarFolded: true,
     });
     expect(fitColumns(500, { sidebar: 0, panel: PANEL.default })).toEqual({
       sidebar: 0,

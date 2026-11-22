@@ -313,7 +313,7 @@ export function ConversationView({
         </div>
       ) : null}
       {!loading && conversation.items.length === 0 ? (
-        <div data-slot="loading">
+        <div data-slot="conversation-empty">
           <StateBlock tone="empty" title={t("conversation.empty")} />
         </div>
       ) : null}

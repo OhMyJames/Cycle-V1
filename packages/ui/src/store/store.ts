@@ -27,6 +27,7 @@ import type {
 } from "../api.ts";
 import { DraftStore, promptBlocks, returnedId } from "../draft.ts";
 import type { Params } from "../i18n.ts";
+import type { MessageKey } from "../messages/en-US.ts";
 import {
   applyUpdate,
   type Conversation,
@@ -101,7 +102,7 @@ export type AppState = {
   views: Record<string, SessionView>;
   /** The last thing that went wrong, for the user to read and dismiss. */
   /** What failed: the system's words as they came, or a message of the catalog with its parameters. */
-  error: string | { key: string; params?: Params } | undefined;
+  error: string | { key: MessageKey; params?: Params } | undefined;
   /** The app's own updating. Undefined until main has said. */
   update: UpdateState | undefined;
   /** Whether the app reports how it is used (docs/analytics.md). Undefined until main has said. */
