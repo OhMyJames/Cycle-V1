@@ -18,9 +18,9 @@
 
 2026-11-21 从 happy-dom 换过来时,真实浏览器发现了 happy-dom 掩盖的几件事,都是测试写得不对,不是应用的错:ui-sdk 的快捷键提示在挂载后才换成本平台的按键;对话框关闭有退出动画,要等它离开;双击一个第一下就禁用的按钮只能真的双击;选项的输入框被 label 盖着,人点的是 label。
 
-集成测试会启动真实进程(Claude、daemon、Electron),所以不在门禁里。6 个套件**串行**,每个有自己的时限:
+集成测试会启动真实进程(Claude、daemon、Electron、无界面的 Chromium),所以不在门禁里。6 个套件**串行**,每个有自己的时限:
 
-**桌面测试不抢焦点。** Linux 上 Electron 在 xvfb 里跑;macOS 上不需要 xvfb:窗口不显示,应用设成 `prohibited` 激活策略(不进 Dock、不能到前台),页面照常渲染、照常被真实的鼠标键盘事件驱动。冒烟用 `startApp({ show: false })` 做到这一点;打包后的应用读环境变量 `CYCLE_TEST_HIDDEN_WINDOW=1`,只有 macOS 上的测试会设它(Linux 的 xvfb 里没有谁的焦点可抢,窗口照常显示)。隐藏时应用也不发系统通知,页面不被后台节流。在开发机上跑 `bun run test:integration` 时,前台的应用一直是你自己的(2026-11-21 在 macOS 上按 0.1 秒采样验证过)。
+**桌面测试不抢焦点。** 用户的流程(连接、建会话、打字和粘贴、聊天、权限、重载)在 `web` 套件里跑:构建出的页面在无界面的 Chromium 里,后面是真的 `ConnectionManager` 和 daemon(`apps/desktop/test/web/web-app.ts`),任何系统上都不开窗口。Electron 只剩打包测试,它证明的是只有 Electron 能证明的事:打包后的应用找到自带的 daemon,页面被锁住(CSP、没有 Node、桥接只有约定的方法)。Linux 上它在 xvfb 里跑;macOS 上窗口不显示,应用设成 `prohibited` 激活策略(不进 Dock、不能到前台)。打包后的应用读环境变量 `CYCLE_TEST_HIDDEN_WINDOW=1`,只有 macOS 上的测试会设它(Linux 的 xvfb 里没有谁的焦点可抢,窗口照常显示)。隐藏时应用也不发系统通知,页面不被后台节流。在开发机上跑 `bun run test:integration` 时,前台的应用一直是你自己的(2026-11-21 在 macOS 上按 0.1 秒采样验证过)。
 
 | 套件    | 证明什么                                                                                                                                                                                                 | 时限   |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
@@ -28,8 +28,8 @@
 | adapter | 真实 SDK 上:不带 replayFrom 恢复后上下文完整;权限的允许和拒绝真的决定工具是否运行;模型输出到一半时取消                                                                                                   | 90 秒  |
 | ssh     | **真实的 ssh**:一个私有的 sshd(非特权、回环端口、测试自己生成的主机密钥和用户密钥,不读不改 `~/.ssh`)加系统的 `ssh` 客户端;一个回合,断开,新连接拿到历史。设了 `CYCLE_DAEMON_BIN` 就用构建出的可执行文件跑 | 60 秒  |
 | backend | `proxy` 自动启动 daemon、daemon 脱离、断线后新客户端拿到历史并继续、daemon 的环境变量不会到 Claude                                                                                                       | 120 秒 |
-| package | 打包后的应用在干净的环境里(没有 bun、node、仓库)找到自带的 daemon 和 Claude,启动 daemon,窗口显示已连接                                                                                                   | 90 秒  |
-| smoke   | 真实窗口、真实鼠标键盘:连接、建会话、聊天、回答权限、重载                                                                                                                                                | 150 秒 |
+| package | 打包后的应用在干净的环境里(没有 bun、node、仓库)找到自带的 daemon 和 Claude,启动 daemon,窗口显示已连接;页面被锁住(CSP、没有 Node、桥接只有约定的方法)                                                    | 90 秒  |
+| web     | 构建出的页面在无界面的 Chromium 里,浏览器自己的鼠标键盘:连接、建会话、打字和粘贴 Markdown、聊天、回答权限(工具真的运行)、重载;后面是真的 daemon、Claude 适配、SDK 和模拟 API                             | 150 秒 |
 
 ## macOS 签名包更新验收
 
@@ -65,7 +65,7 @@ mac-mini 上用同一 Developer ID 团队 `AGKXLGRXJ7` 对发布提交 0.3.6、0
 
 ## 每次全跑
 
-六个套件每次都全跑,不按改动挑选,也不记录历史耗时:全跑一遍约 35 秒,挑选省下的比维护挑选规则的代价小。理由和被否掉的做法见 [决定笔记](../.agents/notes/2026-11-21-integration-runs-every-suite.md)。`bun run test:integration smoke` 只跑名字里有 smoke 的。
+六个套件每次都全跑,不按改动挑选,也不记录历史耗时:全跑一遍约 35 秒,挑选省下的比维护挑选规则的代价小。理由和被否掉的做法见 [决定笔记](../.agents/notes/2026-11-21-integration-runs-every-suite.md)。`bun run test:integration web` 只跑名字里有 web 的。
 
 ## 固定等待
 

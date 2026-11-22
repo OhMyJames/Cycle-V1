@@ -1,9 +1,10 @@
 // Screenshots of the gallery: `bun packages/ui/gallery/shoot.ts [--out dir] [--themes light,dark] [--sizes 1200x800,720x480] [names...]`.
-// Builds the gallery and runs Electron on macOS or under xvfb on Linux. With no names, captures every scenario.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+// Builds the gallery and opens it in headless Chromium (Playwright): no window, on any system, so it takes nobody's focus.
+// With no names, captures every scenario.
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { electronBinary } from "../../../scripts/electron-binary.ts";
+import { chromium } from "playwright";
+import { serveDir } from "../../../scripts/serve-dir.ts";
 import { type Scenario, scenarios } from "./scenarios.ts";
 
 const here = new URL(".", import.meta.url).pathname;
@@ -14,6 +15,11 @@ const flag = (name: string, fallback: string): string => {
 };
 const out = flag("out", join(here, "shots"));
 const themes = flag("themes", "light,dark").split(",");
+for (const theme of themes)
+  if (theme !== "light" && theme !== "dark") {
+    console.error(`--themes takes light and dark, not ${theme}`);
+    process.exit(2);
+  }
 const sizes = flag("sizes", "1200x800,720x480").split(",");
 const platform = flag("platform", "");
 const VALUE_FLAGS = new Set(["--out", "--themes", "--sizes", "--platform"]);
@@ -23,14 +29,6 @@ const flagged = new Set(
 const named = argv.filter((_, i) => !flagged.has(i));
 const names = named.length > 0 ? named : ["tokens", ...Object.keys(scenarios)];
 
-const mac = process.platform === "darwin";
-const bunModules = join(here, "../../../node_modules/.bun");
-const electron = electronBinary(bunModules);
-const xvfb = mac ? null : Bun.which("xvfb-run");
-if (electron === undefined || (!mac && xvfb === null)) {
-  console.error(mac ? "needs the Electron binary" : "needs the Electron binary and xvfb-run");
-  process.exit(1);
-}
 const build = Bun.spawn(["bun", join(here, "build.ts")], { stdout: "ignore", stderr: "inherit" });
 if ((await build.exited) !== 0) process.exit(1);
 
@@ -38,11 +36,10 @@ mkdirSync(out, { recursive: true });
 const jobs = names.flatMap((name) =>
   themes.flatMap((theme) =>
     sizes.map((size) => {
-      const [width, height] = size.split("x").map(Number);
+      const [width = 1200, height = 800] = size.split("x").map(Number);
       return {
         name,
-        theme,
-        platform,
+        theme: theme as "light" | "dark",
         tabs: (scenarios as Record<string, Scenario | undefined>)[name]?.tabs ?? 0,
         width,
         height,
@@ -51,45 +48,131 @@ const jobs = names.flatMap((name) =>
     }),
   ),
 );
-const jobFile = join(out, "jobs.json");
-writeFileSync(jobFile, JSON.stringify(jobs));
-const profile = mkdtempSync(join(tmpdir(), "cycle-ui-gallery-"));
-let results: string;
-try {
-  const command = [electron];
-  if (xvfb !== null) command.unshift(xvfb, "-a", "-s", "-screen 0 1600x1200x24");
-  if (!mac) command.push("--no-sandbox");
-  // Screen captures do not need the GPU. macOS can drop the compositor between capturePage calls.
-  command.push("--disable-gpu");
-  command.push(`--user-data-dir=${profile}`, join(here, "shoot-main.cjs"), profile, jobFile);
-  const run = Bun.spawn(command, { stdout: "pipe", stderr: "pipe" });
-  const [text, errors, exitCode] = await Promise.all([
-    new Response(run.stdout).text(),
-    new Response(run.stderr).text(),
-    run.exited,
-  ]);
-  const line = text.split("\n").find((l) => l.startsWith("REPORT "));
-  if (exitCode !== 0 || line === undefined) throw new Error(`Electron: ${text}\n${errors}`);
-  results = line.slice(7);
-} finally {
-  rmSync(profile, { recursive: true, force: true });
+
+/** In the page: what the eye can miss. Overflow, a clipped first session, the message box's edge against its ground. */
+function measureLayout() {
+  const root = document.scrollingElement;
+  const sidebar = document.querySelector('[data-slot="sidebar"]');
+  const list = sidebar?.querySelector('[role="listbox"]');
+  const row = list?.querySelector('[role="option"]');
+  let firstSessionVisible = false;
+  if (row) {
+    const visible = row.getBoundingClientRect();
+    const outer = sidebar.getBoundingClientRect();
+    const inner = list.getBoundingClientRect();
+    firstSessionVisible =
+      visible.top >= Math.max(inner.top, outer.top) &&
+      visible.bottom <= Math.min(inner.bottom, outer.bottom);
+  }
+
+  // The edge of the message is the box round the text, the images and the controls.
+  const input = document
+    .querySelector('[data-slot="composer-input"][contenteditable="true"]')
+    ?.closest('[data-slot="composer-box"]');
+  let composerContrast = null;
+  if (input) {
+    // Canvas resolves CSS colors to sRGB. Sample the outline against the same background it is drawn over.
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d");
+    const surface = getComputedStyle(document.body).backgroundColor;
+    const luminance = (color) => {
+      context.fillStyle = surface;
+      context.fillRect(0, 0, 1, 1);
+      context.fillStyle = color;
+      context.fillRect(0, 0, 1, 1);
+      const [r, g, b] = Array.from(context.getImageData(0, 0, 1, 1).data).map((n) => {
+        const v = n / 255;
+        return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const style = getComputedStyle(input);
+    const edge = luminance(
+      style.borderTopWidth === "0px" ? style.backgroundColor : style.borderTopColor,
+    );
+    const background = luminance(surface);
+    composerContrast = (Math.max(edge, background) + 0.05) / (Math.min(edge, background) + 0.05);
+  }
+  return {
+    overflowX: root.scrollWidth - root.clientWidth,
+    overflowY: root.scrollHeight - root.clientHeight,
+    firstSessionVisible,
+    composerContrast,
+  };
 }
+
+// The built gallery, from loopback only: its module scripts do not load from a file.
+const dist = join(here, "dist");
+const server = serveDir(dist);
+const browser = await chromium.launch();
+const report = [];
+try {
+  for (const job of jobs) {
+    // Each shot starts from nothing: the sidebar's width and fold are saved in localStorage, and would leak into the next.
+    const context = await browser.newContext({
+      viewport: { width: job.width, height: job.height },
+      // At twice the pixels, as a Mac's screen shows it: a hairline and an edge's colour are what a review looks at.
+      deviceScaleFactor: 2,
+      colorScheme: job.theme,
+    });
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    page.on("pageerror", (error) => errors.push(String(error)));
+    let ready = false;
+    try {
+      await page.goto(
+        `http://127.0.0.1:${server.port}/?s=${job.name}&theme=${job.theme}${platform ? `&platform=${platform}` : ""}`,
+      );
+      await page.waitForFunction(() => document.title === "ready", undefined, { timeout: 10_000 });
+      ready = true;
+    } catch (error) {
+      errors.push(String(error));
+    }
+    // Tab with the browser's own keys: a script's focus() does not count as the keyboard, and :focus-visible would not show.
+    for (let i = 0; i < job.tabs; i++) await page.keyboard.press("Tab");
+    const focus =
+      job.tabs > 0
+        ? await page.evaluate(() => {
+            const el = document.activeElement as HTMLElement | null;
+            if (!el || el === document.body) return { on: "nothing" };
+            // The message box draws its ring round the whole box, not on the text inside it.
+            const s = getComputedStyle(
+              el.matches('[data-slot="composer-input"]')
+                ? (el.closest('[data-slot="composer-box"]') ?? el)
+                : el,
+            );
+            const named = (el.getAttribute("aria-labelledby") || "")
+              .split(" ")
+              .map((id) => document.getElementById(id)?.textContent || "")
+              .join(" ")
+              .trim();
+            const label =
+              el.getAttribute("aria-label") || named || (el.textContent || "").trim().slice(0, 30);
+            return {
+              on: `${el.tagName.toLowerCase()}${el.getAttribute("role") ? `[${el.getAttribute("role")}]` : ""} ${label}`,
+              visible: el.matches(":focus-visible"),
+              outline: `${s.outlineStyle} ${s.outlineWidth} ${s.outlineColor}`,
+            };
+          })
+        : undefined;
+    // Animations at their end, not halfway: a dialog that is fading in, a ring that is still growing.
+    await page.screenshot({ path: job.out, animations: "disabled" });
+    const layout = await page.evaluate(measureLayout);
+    report.push({ ...job, focus, ready, ...layout, errors });
+    await context.close();
+  }
+} finally {
+  await browser.close();
+  server.stop(true);
+}
+
 let bad = 0;
 let total = 0;
-for (const r of JSON.parse(results) as {
-  name: string;
-  theme: string;
-  width: number;
-  height: number;
-  ready: boolean;
-  overflowX: number;
-  overflowY: number;
-  firstSessionVisible: boolean;
-  composerContrast: number | null;
-  errors: string[];
-  focus?: { on: string; visible?: boolean; outline?: string };
-  out: string;
-}[]) {
+for (const r of report) {
   const problems = [
     !r.ready && "not ready",
     r.overflowX > 0 && `root overflows horizontally by ${r.overflowX}px`,

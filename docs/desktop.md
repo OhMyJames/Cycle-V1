@@ -129,11 +129,11 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - 门禁里(`bun run check`):会话模型、store(假桥接)、`ConnectionManager`(真 daemon)。
 - 界面(`bun run test:browser`,CI 的 `browser` 作业):页面组件和 Markdown 安全,在无界面的 Chromium 里,用真实的布局和输入事件(`packages/ui/test/browser/*.browser.tsx`,见 [testing.md](testing.md))。
 - `packages/client`:`bun run test:integration` 把客户端打成包,用 Electron 自带的 Node 跑,证明它在 Node 下能用(Bun 通过自己的测试说明不了这一点)。
-- `apps/desktop`:`bun run test:integration smoke`(会先 `build`)。启动真实 Electron(Linux 在 xvfb 下,macOS 上窗口隐藏、不抢焦点),用真实的鼠标和键盘事件操作真实窗口,后面是真 daemon、Claude 适配、真 SDK 和模拟 API:连上环境、点击和打字创建 session、发消息、看到流式回答、出现权限卡片并点击 Allow(工具真的运行了)、重载页面后会话回来。
+- `apps/desktop`:`bun run test:integration web`(会先 `build`)。构建出的页面在无界面的 Chromium 里,用浏览器自己的鼠标和键盘事件操作,后面是真的 `ConnectionManager`(和主进程里的同一个)、真 daemon、Claude 适配、真 SDK 和模拟 API:连上环境、点击和打字创建 session、打字和粘贴 Markdown、发消息、看到流式回答、出现权限卡片并点击 Allow(工具真的运行了)、重载页面后会话回来。页面的桥接由测试按 preload 的样子造出来(`test/web/web-app.ts`);preload 本身和页面的锁定由 `bun run test:integration package` 在打包后的应用里检查。
 
 ## 真实模型下的窗口
 
-`CYCLE_REAL_MODEL_TOKEN=… bun run test:real`(在 `apps/desktop` 下,先在根目录 `bun run build`):真实 Electron 窗口(Linux 在 xvfb 下,macOS 上隐藏),真实鼠标键盘,daemon 是构建出的可执行文件,token 只写在它的 `config.json` 里,模型 haiku。约 16 秒。依次:连接、新建 session、问一个词、让它用 Bash `touch` 一个文件、点 Allow、让它写一段带标题、列表、表格和代码块的 markdown,让它用任务工具建两个任务,最后重载页面看历史是否回来。通过(头部显示用量,对话里有计划)。截图(`SHOT_TO=路径`)里:标题、列表、表格、带语言标签和行号的代码块都正确渲染;工具卡显示命令和"completed"。
+`CYCLE_REAL_MODEL_TOKEN=… bun run test:real`(在 `apps/desktop` 下,先在根目录 `bun run build`):构建出的页面在无界面的 Chromium 里(2026-11-21 前是 Electron 窗口;下面的记录是那时的),浏览器自己的鼠标键盘,daemon 是构建出的可执行文件,token 只写在它的 `config.json` 里,模型 haiku。约 16 秒。依次:连接、新建 session、问一个词、让它用 Bash `touch` 一个文件、点 Allow、让它写一段带标题、列表、表格和代码块的 markdown,让它用任务工具建两个任务,最后重载页面看历史是否回来。通过(头部显示用量,对话里有计划)。截图(`SHOT_TO=路径`)里:标题、列表、表格、带语言标签和行号的代码块都正确渲染;工具卡显示命令和"completed"。
 
 这次发现并改掉的是**测试自己的问题**:先是等待条件会被用户输入的 prompt 本身满足(prompt 里就含"pong"和"finished"),现在只看 agent 消息;再是重载发生在回合收尾之前,界面显示"working",现在等回合结束。
 
@@ -172,7 +172,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - **上下文用量（CYCL-74）**：输入框工具条右端是用量环，显示 agent 报的已用占窗口的比例（不到 1% 写 “<1%”）。它是按钮，点开是和模型、权限同一种弹层，按 Claude Code 的 `/context` 的样子直接列数字，不写说明：第一行是 “Context window” 和 “已用 / 窗口（百分比）”；下面一条按部分分段的条；再下面每个部分一行（色块、名字、token、占窗口的比例），用到的按大小排，然后是给压缩留的、剩下的，没加载进窗口的工具定义（`deferred`）不列；最后是自动压缩点、本会话费用、完成的压缩次数。各部分来自 `usage_update` 的 `_meta["cycle/context"]`（protocol.md §8），按 `id` 用 Cycle 自己的文字，不认得的用 agent 给的名字；agent 没给就只有总数和条。只列 agent 报过的。只有三种没有数字的状态写一行字：还没有用量（环是空的）、正在压缩、压缩完成后还没有新的用量（环的底圈改成虚线、弧线变淡，条变淡，不列各部分，因为它们是压缩前的）。下面是订阅账号的 “Plan usage”：每个限额一行（5-hour limit、Weekly limit，以及按模型的周限额），写用掉的比例和多久后重置（一小时内写分钟，一天内写小时分钟，再远写星期和时间），下面一条细条；快到时（70% 或 agent 说 warning）用注意色，到了（90% 或 rejected）用危险色。数据来自 daemon 记住的该 agent 账号的最新一份（protocol.md §8 “套餐用量”），所以同一环境的会话看到的是同一份；过了重置时间的那一行不再显示；API key 登录没有这一段。点开发 `context_details_opened`，只带是哪种状态、有没有列出各部分、有没有显示套餐用量。
 - **回看**:空输入框里按 ↑ 取回上一条发过的消息(从对话里读),↓ 回来;只有光标在首块、末块时才生效。
 - **命令**:消息最开头的 `/` 列出 agent 的命令(`available_commands_update`),空格之前有效;**提及**:`@` 之后列出 session 目录里的文件和文件夹(`_cycle/files/search`),文字里写 `@路径`,发送时另附 `resource_link` 块(决策笔记 `2026-11-18-mentions-are-resource-links`)。两种菜单都以整个输入框为宽,单行时输入格很窄也不受影响(窄窗口下实测 320px 宽的主区);长文件名末尾省略,目录提示最多占一行的 40%;`@` 之后文件夹里什么都没有时写 "This folder has no files or folders."(CYCL-75)。
-- **测试**:界面测试在真实浏览器里对输入框真的敲字和按键(`test/browser/box.ts`);粘贴还只在 Electron 冒烟测试里走(`smoke-main.ts` 敲 `**bold**` 并检查渲染,再粘贴一段带星号的文字,检查它按原样放入)。
+- **测试**:界面测试在真实浏览器里对输入框真的敲字和按键(`test/browser/box.ts`);粘贴在 `web` 套件里走(`web.integration.ts` 敲 `**bold**` 并检查渲染,再粘贴一段带星号的文字,检查它按原样放入)。
 - **系统输入法验证（CYCL-110，2026-11-20）**：macOS 26.5.2、Electron 45.3.4，使用独立应用数据目录、真实 composer、系统输入源和原生键盘事件。简体拼音在 `@` 后输入 `nihao`，↓ 选择候选，第一次 Enter 确认“你好”并保留草稿，第二次 Enter 选中 `你好.md`。日文罗马字输入也观察到 Enter 结束组合并保留草稿。两种输入法的候选窗均出现在输入行下方。在组合中触发 Electron 的粘贴命令，中文确认后留下 `@你好PASTE_MARK`，日文确认后也保留了组合文字和剪贴板标记。
 - **组合期间的 ⌘V（CYCL-116）**：macOS 在 Electron 的 `before-input-event` 之前便把按键交给了输入法。桌面主进程通过 AppKit 在本应用内处理按键：当前编辑器有组合文字且按下 ⌘V 时，先让应用菜单执行快捷键。用上述系统简体拼音复测，普通和组合中的 ⌘V 均只触发一次 paste。在 `@nihao` 的候选未确认时粘贴 `PASTE_MARK`，再用 ↓ 和 Enter 确认，草稿为 `@你好PASTE_MARK`。单独验证提及时，第一次 Enter 确认“你好”，第二次选择 `你好.md`，均保留在草稿中。
 - **没做**:@ 提及没有 chip 节点(是普通文字加一个记在草稿里的链接),所以从存储恢复的草稿里文字还在、结构化的链接没有;提及里没有别的 session;输入历史只读当前对话里的消息;Lexical 对撤销/重做、拖选等的行为没有逐项验证。

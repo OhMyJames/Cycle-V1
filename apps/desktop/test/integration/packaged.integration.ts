@@ -4,7 +4,8 @@
 // itself, start the daemon, and show a window that is connected to it.
 //
 // The window is read over the DevTools protocol, which Electron serves when asked
-// (--remote-debugging-port): the page's own environment indicator has to say "connected".
+// (--remote-debugging-port): the page's own environment indicator has to say "connected", and the page has to be locked
+// down (its CSP, no Node, only the bridge's methods).
 // Linux (under xvfb) and macOS run the same test; what differs is only where the executable is.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
@@ -82,6 +83,77 @@ test.skipIf(!ready)(
         }
         await Bun.sleep(250);
       }
+      // The page is locked down, as the preload and the main process leave it: what Electron alone decides, and so what
+      // the tests in a browser (web.integration.ts) cannot show.
+      const page = (await evaluate(
+        port,
+        `({
+          csp: document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content ?? null,
+          nodeRequire: typeof require,
+          nodeProcess: typeof process,
+          ipcRenderer: typeof window.ipcRenderer,
+          bridgeKeys: Object.keys(window.cycle).sort(),
+        })`,
+      )) as Record<string, unknown>;
+      expect(page.csp).toContain("default-src 'none'");
+      expect(page.csp).toContain("connect-src 'none'");
+      expect(page.nodeRequire).toBe("undefined");
+      expect(page.nodeProcess).toBe("undefined");
+      expect(page.ipcRenderer).toBe("undefined");
+      // The bridge has these methods and nothing else. Written out on purpose: a method added to the bridge is something
+      // more the page can do, and has to be added here, where a review sees it.
+      expect(page.bridgeKeys).toEqual(
+        [
+          "ackReturn",
+          "addConnector",
+          "agentDefaults",
+          "agents",
+          "analytics",
+          "answerForm",
+          "answerPermission",
+          "archiveSession",
+          "authorizeConnector",
+          "cancel",
+          "cancelConnectorAuth",
+          "checkForUpdate",
+          "chooseDirectory",
+          "connect",
+          "copyText",
+          "createSession",
+          "deleteSession",
+          "dequeue",
+          "disconnect",
+          "dismissBackground",
+          "environments",
+          "installUpdate",
+          "listConnectors",
+          "listFolders",
+          "markRead",
+          "onEvent",
+          "openSession",
+          "planUsage",
+          "preferences",
+          "prompt",
+          "readTrust",
+          "removeConnector",
+          "removeEnvironment",
+          "renameSession",
+          "saveEnvironment",
+          "searchFiles",
+          "sessions",
+          "setAgentDefaults",
+          "setAnalytics",
+          "setPreferences",
+          "setSessionConfig",
+          "setTrust",
+          "signOutConnector",
+          "track",
+          "updateConnector",
+          "updateState",
+          "upgradeDaemon",
+        ].sort(),
+      );
+
       // And the daemon that serves it is the one inside the app.
       const pid = Number((await Bun.file(join(data, "daemon.pid")).text()).trim());
       if (linux)
