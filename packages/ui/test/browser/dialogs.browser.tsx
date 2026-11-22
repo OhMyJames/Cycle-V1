@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
 import { act, cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { afterEach, expect, test } from "vitest";
+import { userEvent } from "vitest/browser";
 import type { AgentInfo } from "../../src/api.ts";
 import { ConfirmDialog } from "../../src/react/dialogs.tsx";
 import { AgentDefaultsDialog, EnvironmentDialog } from "../../src/react/index.ts";
@@ -44,8 +44,8 @@ test("an environment is not added twice by a double click", async () => {
   );
   await user.type(await screen.findByLabelText("Address"), "me@box");
   const add = screen.getByRole("button", { name: "Add" });
-  await user.click(add);
-  await user.click(add);
+  // Two presses in a row, as a double click lands: the second must not save again.
+  await user.dblClick(add);
   expect(calls).toBe(1);
   await act(async () => finish());
 });

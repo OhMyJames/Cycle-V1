@@ -1,11 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { afterEach, expect, test } from "vitest";
+import { userEvent } from "vitest/browser";
 import type { EnvironmentConfig } from "../../src/api.ts";
 import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
 import { fakeBridge } from "../fake-bridge.ts";
-import { press, ready, write } from "./box.ts";
+import { press, ready, sleep, write } from "./box.ts";
 
 afterEach(cleanup);
 
@@ -39,7 +39,7 @@ const mount = async (
   const emit = (event: Parameters<typeof script.emit>[0]) =>
     act(async () => {
       script.emit(event);
-      await Bun.sleep(5);
+      await sleep(5);
     });
   return { store, user, ...script, emit };
 };

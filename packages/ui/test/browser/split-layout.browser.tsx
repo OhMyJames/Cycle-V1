@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { createResizableController } from "@ui-sdk/react/resizable";
+import { afterEach, describe, expect, test } from "vitest";
+import { userEvent } from "vitest/browser";
 import { createTranslator, SOURCE_LOCALE } from "../../src/i18n.ts";
 import { enUS } from "../../src/messages/en-US.ts";
 import { I18nProvider } from "../../src/react/i18n.tsx";
@@ -107,8 +107,7 @@ describe("SplitLayout", () => {
     const panel = screen.getByRole("complementary", { name: "Panel" });
     expect(within(panel).getByText("Overview here")).toBeTruthy();
   });
-  // The handles' keys and drags are the SDK's and tested there; happy-dom has no layout to move. The gallery's
-  // `panel-*` scenarios show the columns in a real window.
+  // The handles' keys and drags are the SDK's and tested there. The gallery's `panel-*` scenarios show the columns.
 });
 
 describe("PanelTabs", () => {
