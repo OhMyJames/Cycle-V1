@@ -21,6 +21,7 @@ import {
   textOf,
   windowStart,
 } from "../model/index.ts";
+import { blockHolds, reveal } from "../reveal.ts";
 import { thinking } from "../thinking.ts";
 import { useI18n } from "./i18n.tsx";
 import { ThoughtIcon } from "./icons.tsx";
@@ -225,6 +226,45 @@ export function ConversationView({
   const prepending = useRef<{ node: Element; top: number } | null>(null);
   const refocus = useRef(false);
   const seenFollow = useRef(follow);
+
+  // Asked to show an item (from the Overview): the window moves to its block if it is above it, and once it is drawn
+  // (its card opened) it is scrolled to the middle and marked for a moment.
+  const revealing = useRef<string | undefined>(undefined);
+  useEffect(
+    () =>
+      reveal.subscribe(() => {
+        const asked = reveal.get();
+        if (asked === undefined || asked.sessionKey !== sessionKey) return;
+        const at = blocks.findIndex((block) => blockHolds(block as never, asked.itemId));
+        if (at === -1) return;
+        if (at < start) anchor.current = blocks[at]?.key;
+        stuck.current = false;
+        revealing.current = asked.itemId;
+        redraw();
+      }),
+    [sessionKey, blocks, start],
+  );
+  useEffect(() => {
+    const id = revealing.current;
+    const el = ref.current;
+    if (id === undefined || el === null) return;
+    revealing.current = undefined;
+    let frames = 0;
+    // Not undone by the next render: a streamed chunk must not stop the search, nor leave the mark on.
+    const find = () => {
+      if (!el.isConnected) return;
+      const node = el.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"]`);
+      // The card that holds it opens on the next frame or two.
+      if (node === null) {
+        if (++frames < 10) requestAnimationFrame(find);
+        return;
+      }
+      node.scrollIntoView?.({ block: "center" });
+      node.setAttribute("data-revealed", "");
+      setTimeout(() => node.removeAttribute("data-revealed"), 1200);
+    };
+    find();
+  });
 
   const showEarlier = () => {
     const el = ref.current;

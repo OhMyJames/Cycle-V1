@@ -167,3 +167,19 @@ test("a large string with nothing to find is cleaned in linear time", () => {
     redactText(text);
   expect(performance.now() - started).toBeLessThan(1_000);
 });
+
+test("a background task's title, made from its command, is cleaned like a tool call's (CYCL-87)", () => {
+  const task = {
+    sessionUpdate: "_cycle/task_update",
+    taskId: "b1",
+    kind: "shell",
+    title: `curl -H "Authorization: Bearer abcdefghijklmnop1234" api`,
+    state: "running",
+  };
+  const kept = redactRecord("update", task);
+  expect(JSON.stringify(kept)).not.toContain("abcdefghijklmnop1234");
+  expect(kept).toMatchObject({ taskId: "b1", kind: "shell", state: "running" });
+  // The goal is the person's own words, as a message is.
+  const goal = { sessionUpdate: "_cycle/goal_update", goal: { condition: github } };
+  expect(redactRecord("update", goal)).toBe(goal);
+});

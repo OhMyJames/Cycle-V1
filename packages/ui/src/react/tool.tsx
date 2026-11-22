@@ -228,7 +228,13 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
   const summaryTip = summary || undefined;
   return (
     // A failure is what the person came to read: it starts open.
-    <Collapsible data-kind="tool" data-status={status} open={open} onOpenChange={setOpen}>
+    <Collapsible
+      data-kind="tool"
+      data-status={status}
+      data-item-id={tool.id}
+      open={open}
+      onOpenChange={setOpen}
+    >
       <CollapsibleTrigger>
         <Lead mark={working ? "going" : failed ? "failed" : "other"} />{" "}
         {/* Which tool it was is for a screen reader and the tooltip of the line; the words say what it did. With a

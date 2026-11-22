@@ -171,6 +171,52 @@ export type DynamicConfigOption = {
   options: DynamicConfigChoice[];
 };
 
+// The two updates of docs/protocol.md §9 (CYCL-87), read here by hand: the model imports nothing of the daemon's.
+const TASK_UPDATE = "_cycle/task_update";
+const GOAL_UPDATE = "_cycle/goal_update";
+const TASK_KINDS = ["shell", "monitor", "workflow", "mcp", "other"] as const;
+const TASK_STATES = ["running", "completed", "failed", "stopped", "unknown"] as const;
+export type TaskKind = (typeof TASK_KINDS)[number];
+export type TaskState = (typeof TASK_STATES)[number];
+
+/** The goal the user set the session (Claude Code's /goal). */
+export type Goal = {
+  condition: string;
+  /** How many times it was checked and found not met. */
+  iterations: number;
+  /** When it was set, in milliseconds. */
+  setAt: number;
+  lastReason?: string;
+};
+
+const oneOf = <T extends string>(words: readonly T[], value: unknown): T | undefined =>
+  words.find((w) => w === value);
+const textOr = (value: unknown): string | undefined =>
+  typeof value === "string" && value !== "" ? value : undefined;
+
+const goalOf = (value: unknown): Goal | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const v = value as Record<string, unknown>;
+  if (typeof v.condition !== "string") return undefined;
+  const lastReason = textOr(v.lastReason);
+  return {
+    condition: v.condition,
+    iterations: typeof v.iterations === "number" && v.iterations >= 0 ? v.iterations : 0,
+    setAt: typeof v.setAt === "number" ? v.setAt : 0,
+    ...(lastReason !== undefined ? { lastReason } : {}),
+  };
+};
+
+/** A task the agent runs in the background that is not a sub-agent (docs/protocol.md §9): a command, a watcher. */
+export type BackgroundTask = {
+  id: string;
+  kind: TaskKind;
+  title: string | undefined;
+  /** The tool call that started it, to go back to in the conversation. */
+  toolCallId: string | undefined;
+  state: TaskState;
+};
+
 export type Conversation = {
   items: Item[];
   status: Status;
@@ -192,6 +238,10 @@ export type Conversation = {
   ignored: number;
   /** Sub-agents announced before the call that started them was seen, by that call's id. */
   waiting: Record<string, Subagent>;
+  /** The background tasks that are not sub-agents, in the order they were first told. */
+  tasks: BackgroundTask[];
+  /** The goal the user set; `null` when there is none, `undefined` when the agent never said (it may not tell). */
+  goal: Goal | null | undefined;
 };
 
 export const emptyConversation = (): Conversation => ({
@@ -207,6 +257,8 @@ export const emptyConversation = (): Conversation => ({
   configOptions: [],
   ignored: 0,
   waiting: {},
+  tasks: [],
+  goal: undefined,
 });
 
 const PART_KINDS: readonly string[] = ["used", "free", "buffer", "deferred"];
@@ -621,6 +673,30 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
     }
     case "replay_complete":
       return { ...c, replaying: false };
+    case TASK_UPDATE: {
+      const state = oneOf(TASK_STATES, u.state);
+      if (typeof u.taskId !== "string" || state === undefined)
+        return { ...c, ignored: c.ignored + 1 };
+      const at = c.tasks.findIndex((t) => t.id === u.taskId);
+      const old = c.tasks[at];
+      // The first news of a task names its kind; a task first heard of without one (a cut history) is "other".
+      const task: BackgroundTask = {
+        id: u.taskId,
+        kind: oneOf(TASK_KINDS, u.kind) ?? old?.kind ?? "other",
+        title: textOr(u.title) ?? old?.title,
+        toolCallId: textOr(u.toolCallId) ?? old?.toolCallId,
+        state,
+      };
+      return {
+        ...c,
+        tasks: at === -1 ? [...c.tasks, task] : c.tasks.with(at, task),
+      };
+    }
+    case GOAL_UPDATE: {
+      if (u.goal === null) return { ...c, goal: null };
+      const goal = goalOf(u.goal);
+      return goal !== undefined ? { ...c, goal } : { ...c, ignored: c.ignored + 1 };
+    }
     case "_cycle/queue_update": {
       const returned = queuedPrompts(u.returned);
       return {

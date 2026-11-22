@@ -50,7 +50,7 @@ export type Scenario = {
    * never answered, so that the page stays as it is while a session is being made.
    */
   blank?: { cwd?: string; starting?: string };
-  /** The right panel is open beside the conversation, with sample tabs (CYCL-66): the columns at this window's width. */
+  /** The first session's right panel is open beside the conversation (CYCL-90): the columns at this window's width. */
   sidePanel?: boolean;
   /** Runs once the page has drawn: open a dialog, press a key, or send an event as the app's main process would. */
   after?: (root: HTMLElement, emit: (event: AppEvent) => void) => Promise<void>;
@@ -1428,9 +1428,60 @@ export const scenarios: Record<string, Scenario> = {
   },
   // The right panel beside the conversation (CYCL-66): at 1200 the conversation gives way, at 720 the sidebar folds.
   "panel-open": {
-    title: "The right panel is open beside the conversation",
+    title: "The right panel is open on the Overview beside the conversation",
     sessions: [session("s1", { title: "Fix the remote session" })],
-    history: conversation,
+    history: [
+      ...conversation,
+      // What the Overview shows besides (CYCL-88): a goal, a background command that runs on, one that ended.
+      u({
+        sessionUpdate: "_cycle/goal_update",
+        goal: {
+          condition: "The remote session reconnects after the laptop sleeps, and every test passes",
+          iterations: 2,
+          setAt: Date.UTC(2026, 10, 22, 9, 30),
+          lastReason: "The reconnect test still times out on the second attempt",
+        },
+      }),
+      u({
+        sessionUpdate: "_cycle/task_update",
+        taskId: "b1",
+        kind: "shell",
+        title: "Run the daemon with verbose logging",
+        state: "running",
+      }),
+      u({
+        sessionUpdate: "_cycle/task_update",
+        taskId: "m1",
+        kind: "monitor",
+        title: "Watch the daemon log for reconnects",
+        state: "unknown",
+      }),
+      u({
+        sessionUpdate: "_cycle/task_update",
+        taskId: "b0",
+        kind: "shell",
+        title: "bun test",
+        state: "failed",
+      }),
+    ],
+    sidePanel: true,
+  },
+  "panel-empty": {
+    title: "The Overview of a session that has nothing besides its messages",
+    sessions: [session("s1", { title: "Say hello" })],
+    history: [
+      u({
+        sessionUpdate: "user_message",
+        messageId: "u1",
+        content: [{ type: "text", text: "Say hello" }],
+      }),
+      u({
+        sessionUpdate: "agent_message_chunk",
+        messageId: "a1",
+        content: { type: "text", text: "Hello." },
+      }),
+      u({ sessionUpdate: "state_update", state: "idle", stopReason: "end_turn" }),
+    ],
     sidePanel: true,
   },
   // The composer's pickers are menus like every other (CYCL-65): opened, on the session's choice.

@@ -35,6 +35,7 @@ import {
   type Resend,
   type Returned,
 } from "../model/index.ts";
+import { SidePanelStore } from "../side-panel.ts";
 
 export const viewKey = (environmentId: string, sessionId: string): string =>
   `${environmentId}:${sessionId}`;
@@ -201,6 +202,8 @@ export class AppStore {
   #checkingTrust = false;
   /** What each session's box holds, written and not sent. */
   readonly drafts: DraftStore;
+  /** What each session's right panel shows (CYCL-90). */
+  readonly sidePanels: SidePanelStore;
   readonly #acks = new WeakSet<Returned>();
   /**
    * Sessions whose box holds a message put back to send again, with what the box then held: whether it went as it was
@@ -208,9 +211,14 @@ export class AppStore {
    */
   readonly #resending = new Map<string, { turn: number; sent: string }>();
 
-  constructor(bridge: CycleBridge, drafts: DraftStore = new DraftStore()) {
+  constructor(
+    bridge: CycleBridge,
+    drafts: DraftStore = new DraftStore(),
+    sidePanels: SidePanelStore = new SidePanelStore(),
+  ) {
     this.#bridge = bridge;
     this.drafts = drafts;
+    this.sidePanels = sidePanels;
     // A message put back to send again and then cleared away was not sent again: what is sent next is something else.
     drafts.subscribe(() => {
       for (const key of this.#resending.keys()) {
@@ -900,6 +908,7 @@ export class AppStore {
   #forgetSession(environmentId: string, sessionId: string): void {
     const key = viewKey(environmentId, sessionId);
     this.drafts.forget(key);
+    this.sidePanels.forget(key);
     this.#held.delete(key);
     this.#set((s) => {
       const { [key]: _gone, ...views } = s.views;
@@ -939,6 +948,7 @@ export class AppStore {
       return messageOf(error);
     }
     this.drafts.forgetEnvironment(environmentId);
+    this.sidePanels.forgetEnvironment(environmentId);
     this.#set((s) => {
       const { [environmentId]: _sessions, ...sessions } = s.sessions;
       const { [environmentId]: _agents, ...agents } = s.agents;

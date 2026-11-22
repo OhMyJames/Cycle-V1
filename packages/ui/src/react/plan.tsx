@@ -161,7 +161,7 @@ export function PlanBlock({ item }: { item: PlanItem }) {
   const { t } = useI18n();
   const done = doneOf(item.entries);
   return (
-    <Collapsible data-kind="plan">
+    <Collapsible data-kind="plan" data-item-id={item.id}>
       <CollapsibleTrigger>
         {/* Laid out as a tool's line, so the eye runs down one edge: an empty place where a call's state would be. */}
         <span data-slot="tool-lead" aria-hidden="true" />
