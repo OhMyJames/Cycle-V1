@@ -4,6 +4,7 @@ import { App, StoreProvider } from "@cycle/ui/react";
 import { AppStore, BLANK_KEY } from "@cycle/ui/store";
 import { createRoot } from "react-dom/client";
 import { fakeBridge } from "../test/fake-bridge.ts";
+import { samplePanel } from "./sample-panel.tsx";
 import { LOCAL, type Scenario, scenarios, snapshotOf, UP } from "./scenarios.ts";
 
 const params = new URLSearchParams(location.search);
@@ -191,7 +192,7 @@ const scenario = async (key: string) => {
   const store = new AppStore(script.bridge);
   createRoot(root).render(
     <StoreProvider store={store}>
-      <App />
+      <App {...(s.sidePanel ? { sidePanel: samplePanel } : {})} />
     </StoreProvider>,
   );
   await store.start();

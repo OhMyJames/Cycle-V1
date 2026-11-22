@@ -15,12 +15,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@ui-sdk/react/menu";
-import {
-  createResizableController,
-  Resizable,
-  ResizableHandle,
-  ResizablePanel,
-} from "@ui-sdk/react/resizable";
+import { createResizableController } from "@ui-sdk/react/resizable";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { contextOf } from "../model/conversation.ts";
 import {
@@ -54,6 +49,7 @@ import { currentPlan } from "./plan.tsx";
 import { SearchDialog } from "./search.tsx";
 import type { Away } from "./session-list.tsx";
 import { MOD, Sidebar, sessionTitle } from "./sidebar.tsx";
+import { SplitLayout, type SplitPanel } from "./split-layout.tsx";
 import { ENVIRONMENT_STATE } from "./status.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 import { Tip } from "./tip.tsx";
@@ -136,7 +132,8 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function App() {
+/** `sidePanel`: the right panel, open, when there is one (CYCL-90 brings it; the gallery passes one to try the columns). */
+export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
   const store = useAppStore();
   const { t } = useI18n();
   const showThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
@@ -456,15 +453,10 @@ export function App() {
 
   return (
     <div data-slot="app" ref={appRef}>
-      <Resizable controller={layout} autoSaveId="cycle-layout">
-        <ResizablePanel
-          id="sidebar"
-          defaultSize="256px"
-          minSize="200px"
-          maxSize="360px"
-          collapsible
-          collapsedSize="0px"
-        >
+      <SplitLayout
+        controller={layout}
+        panel={sidePanel}
+        sidebar={
           <Sidebar
             environments={environments}
             status={status}
@@ -512,9 +504,8 @@ export function App() {
           >
             <UpdateFooter />
           </Sidebar>
-        </ResizablePanel>
-        <ResizableHandle aria-label="Resize sidebar" />
-        <ResizablePanel id="main" minSize="480px">
+        }
+        main={
           <main data-slot="main">
             <UpdateBanner />
             <AnalyticsNotice />
@@ -714,8 +705,8 @@ export function App() {
               />
             ) : null}
           </main>
-        </ResizablePanel>
-      </Resizable>
+        }
+      />
 
       <SearchDialog
         open={panel === "search"}

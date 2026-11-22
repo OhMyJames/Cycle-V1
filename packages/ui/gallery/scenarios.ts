@@ -49,6 +49,8 @@ export type Scenario = {
    * never answered, so that the page stays as it is while a session is being made.
    */
   blank?: { cwd?: string; starting?: string };
+  /** The right panel is open beside the conversation, with sample tabs (CYCL-66): the columns at this window's width. */
+  sidePanel?: boolean;
   /** Runs once the page has drawn: open a dialog, press a key, or send an event as the app's main process would. */
   after?: (root: HTMLElement, emit: (event: AppEvent) => void) => Promise<void>;
 };
@@ -1210,6 +1212,13 @@ export const scenarios: Record<string, Scenario> = {
       await clickByLabel(root, "Session actions");
       await new Promise((r) => setTimeout(r, 200));
     },
+  },
+  // The right panel beside the conversation (CYCL-66): at 1200 the conversation gives way, at 720 the sidebar folds.
+  "panel-open": {
+    title: "The right panel is open beside the conversation",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    history: conversation,
+    sidePanel: true,
   },
   // The composer's pickers are menus like every other (CYCL-65): opened, on the session's choice.
   ...Object.fromEntries(

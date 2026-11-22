@@ -530,20 +530,88 @@ body {
   height: 100%;
 }
 
-/* ui-sdk's Resizable is a bordered box with padded panels: here it is the whole window. */
-[data-slot="app"] > [data-slot="resizable"] {
+/* The window's columns (CYCL-66). ui-sdk's Resizable is a bordered box with padded panels: here it is the whole window. */
+[data-slot="split"] {
+  height: 100%;
+}
+
+[data-slot="split"] > [data-slot="resizable"] {
   height: 100%;
   border: 0;
   border-radius: 0;
 }
 
-[data-slot="app"] > [data-slot="resizable"] > [data-slot="resizable-panel"] {
+[data-slot="split"] > [data-slot="resizable"] > [data-slot="resizable-panel"] {
   padding: 0;
   min-width: 0;
 }
 
-[data-slot="app"] [data-slot="resizable-handle"]:is(:hover, [data-dragging]) {
+[data-slot="split"] [data-slot="resizable-handle"]:is(:hover, [data-dragging]) {
   background: var(--cycle-accent);
+}
+
+/* The right panel: the sidebar's quiet surface, its tabs level with the conversation's header. */
+[data-slot="side-panel"] {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  background: var(--cycle-surface-sidebar);
+}
+
+[data-kind="panel-tabs"] {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+[data-kind="panel-tabs"] > [data-slot="tabs-list"] {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.25rem;
+  height: 2.625rem;
+  padding: 0 0.5rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--cycle-border-subtle);
+}
+
+[data-kind="panel-tabs"] [data-slot="tabs-tab"] {
+  flex: none;
+  height: 1.75rem;
+  padding: 0 0.625rem;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--cycle-ink-muted);
+  font-family: var(--cycle-font-display);
+  font-size: var(--cycle-text-ui);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color var(--cycle-motion-state) var(--cycle-ease),
+    color var(--cycle-motion-state) var(--cycle-ease);
+}
+
+[data-kind="panel-tabs"] [data-slot="tabs-tab"]:hover {
+  color: var(--cycle-ink);
+}
+
+[data-kind="panel-tabs"] [data-slot="tabs-tab"][data-selected] {
+  background: var(--cycle-surface-selected);
+  color: var(--cycle-ink);
+}
+
+[data-kind="panel-tabs"] [data-slot="tabs-tab"]:focus-visible {
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: -1.5px;
+}
+
+[data-kind="panel-tabs"] > [data-slot="tabs-panel"] {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 [data-slot="stack"] {
@@ -1116,7 +1184,7 @@ html[data-platform="darwin"] :is([data-slot$="-backdrop"], [data-slot$="-content
 
 /* With the sidebar folded the traffic lights sit in the main area's top-left corner: clear them on whatever is at the top. */
 html[data-platform="darwin"]
-  [data-slot="app"]:has([data-slot="resizable-panel"][data-collapsed])
+  [data-slot="app"]:has([data-slot="resizable-panel"]#sidebar[data-collapsed])
   [data-slot="main"]
   > :first-child {
   padding-left: 5.5rem;

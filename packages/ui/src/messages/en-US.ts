@@ -32,6 +32,9 @@ export const enUS = {
   // Empty state and sidebar toggle
   "sidebar.show": "Show sidebar",
   "sidebar.hide": "Hide sidebar",
+  "layout.resizeSidebar": "Resize sidebar",
+  "layout.resizePanel": "Resize panel",
+  "layout.panel": "Panel",
   "empty.chooseOrStart": "Choose a session, or start a new one.",
   "empty.startSession": "Start a new session",
 
