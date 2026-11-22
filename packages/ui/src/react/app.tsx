@@ -453,9 +453,17 @@ function AppWindow() {
   const plan = view !== undefined ? currentPlan(view.conversation) : undefined;
   const firstAllow = view?.permissions[0]?.options.find((o) => o.kind === "allow_once");
 
+  const slideTimer = useRef<number | undefined>(undefined);
   const toggleSidebar = useCallback(
     (via: "click" | "shortcut") => {
       const wasCollapsed = layout.isCollapsed("sidebar") || sidebarCollapsed;
+      // The sidebar slides only when it is folded or opened on purpose: a drag, or a window being resized, moves it at once.
+      const split = appRef.current?.querySelector<HTMLElement>('[data-slot="split"]');
+      if (split != null) {
+        split.setAttribute("data-animate", "");
+        window.clearTimeout(slideTimer.current);
+        slideTimer.current = window.setTimeout(() => split.removeAttribute("data-animate"), 250);
+      }
       if (wasCollapsed) layout.expand("sidebar");
       else layout.collapse("sidebar");
       setSidebarCollapsed(!wasCollapsed);
@@ -641,6 +649,7 @@ function AppWindow() {
           }
           sidebar={
             <Sidebar
+              toggle={sidebarCollapsed ? undefined : sidebarToggle}
               environments={environments}
               status={status}
               workspaces={workspaces}
@@ -710,13 +719,13 @@ function AppWindow() {
                   recent={blankRecent}
                   connected={connected}
                   follow={sent}
-                  sidebarToggle={sidebarToggle}
+                  sidebarToggle={sidebarCollapsed ? sidebarToggle : undefined}
                   onSent={() => setSent((n) => n + 1)}
                 />
               ) : null}
               {blank === undefined && session !== undefined ? (
                 <header data-slot="session-header">
-                  {sidebarToggle}
+                  {sidebarCollapsed ? sidebarToggle : null}
                   <div data-slot="session-heading">
                     <h1>{sessionTitle(session)}</h1>
                     <span data-slot="session-where" title={session.cwd}>

@@ -11,6 +11,8 @@ import { Tip } from "./tip.tsx";
 import { WorkspaceSwitcher } from "./workspace-switcher.tsx";
 
 export type SidebarProps = {
+  /** The button that folds the sidebar, in its top-right corner (beside the traffic lights on a Mac). */
+  toggle?: ReactNode;
   environments: EnvironmentConfig[];
   status: Record<string, EnvironmentStatus>;
   /** Every workspace, and the one shown (sessions.ts). */
@@ -53,7 +55,7 @@ export function Sidebar(props: SidebarProps) {
   const apart = props.environments.filter((h) => props.away.has(h.id));
   return (
     <nav data-slot="sidebar" aria-label={t("sessions.label")}>
-      <div data-slot="titlebar" aria-hidden="true" />
+      <div data-slot="titlebar">{props.toggle}</div>
       <div data-slot="sidebar-actions">
         <Button
           data-variant="ghost"

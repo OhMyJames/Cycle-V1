@@ -1659,14 +1659,39 @@ svg[data-slot="dot"] {
 
 /* macOS: the title bar is hidden and the traffic lights sit in the sidebar's corner, so the top of the
    window is what you drag (the page sets data-platform from the user agent). */
+/* The sidebar's top row, level with the conversation's header: the button that folds it at its right end. On a Mac
+   it is also the strip the window is dragged by, beside the traffic lights. */
 [data-slot="titlebar"] {
-  display: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 2.625rem;
+  margin: calc(-1 * var(--cycle-gap)) 0 -0.5rem;
 }
 
 html[data-platform="darwin"] [data-slot="titlebar"] {
-  display: block;
-  height: 1.25rem;
   -webkit-app-region: drag;
+}
+
+html[data-platform="darwin"] [data-slot="titlebar"] button {
+  -webkit-app-region: no-drag;
+}
+
+/* Folding the sidebar slides it shut rather than cutting it off, so it is seen where it went (and where ⌘B brings it
+   back from). The one width that moves (motion.md), and only for the button and ⌘B (`data-animate`, set for the
+   slide): a drag or a window being resized moves it at once. Its content keeps its least width and is clipped, so the rows do not reflow as it narrows. */
+[data-slot="split"][data-animate]
+  > [data-slot="resizable"]:not([data-dragging])
+  > [data-slot="resizable-panel"]#sidebar {
+  transition: flex-basis var(--cycle-motion-disclosure) var(--cycle-ease);
+}
+
+[data-slot="resizable-panel"]#sidebar {
+  overflow: hidden;
+}
+
+[data-slot="resizable-panel"]#sidebar > [data-slot="sidebar"] {
+  min-width: 200px;
 }
 
 html[data-platform="darwin"]

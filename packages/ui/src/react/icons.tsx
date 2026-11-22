@@ -32,7 +32,8 @@ function Svg({ size, children, ...rest }: IconProps & { children: ReactNode }) {
 export const StopIcon = ({ size = 16, ...rest }: IconProps) => (
   <Svg size={size} {...rest}>
     <g>
-      <rect x="2.5" y="2.5" width="11" height="11" rx="2" />
+      {/* Filled and small: a solid stop mark reads at the button's size, an outline at full size looked like a box. */}
+      <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" stroke="none" />
     </g>
   </Svg>
 );
