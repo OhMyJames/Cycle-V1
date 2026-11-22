@@ -112,7 +112,7 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
       <DialogBackdrop />
       <DialogContent>
         <DialogTitle>{t("session.settings")}</DialogTitle>
-        <DialogDescription>A change applies to the next thing the agent does.</DialogDescription>
+        <DialogDescription>{t("session.settingsDescription")}</DialogDescription>
         <ConfigForm
           schema={schema}
           value={session.config ?? {}}
@@ -126,7 +126,7 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
           }}
         />
         <div data-slot="row" data-dialog-footer="">
-          <DialogClose>Close</DialogClose>
+          <DialogClose>{t("dialog.close")}</DialogClose>
         </div>
       </DialogContent>
     </Dialog>
@@ -179,10 +179,10 @@ export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
     for (const h of environments) {
       const state = status[h.id]?.state ?? "closed";
       if (state !== "connected")
-        map.set(h.id, { name: h.name, word: ENVIRONMENT_STATE[state].word });
+        map.set(h.id, { name: h.name, word: t(ENVIRONMENT_STATE[state].word) });
     }
     return map;
-  }, [environments, status]);
+  }, [environments, status, t]);
   const view =
     selectedEnvironment !== undefined && selectedSession !== undefined
       ? views[viewKey(selectedEnvironment, selectedSession)]
@@ -518,18 +518,16 @@ export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
             {error !== undefined ? (
               <div data-slot="banner" data-severity="error" role="alert">
                 <ErrorCircleIcon />
-                <span>{error}</span>
+                <span>{typeof error === "string" ? error : t(error.key, error.params)}</span>
                 <Button data-variant="ghost" onClick={store.dismissError}>
-                  Dismiss
+                  {t("banner.dismiss")}
                 </Button>
               </div>
             ) : null}
             {environmentState === "reconnecting" && environmentIncompatible === undefined ? (
               <div data-slot="banner" data-severity="warning" role="status">
                 <WarningIcon />
-                <span>
-                  Connection lost. Reconnecting… what you miss will be shown when it is back.
-                </span>
+                <span>{t("environment.reconnectingBanner")}</span>
               </div>
             ) : null}
             {view !== undefined &&
@@ -595,7 +593,7 @@ export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
                           })}
                         </MenuItem>
                       ) : null}
-                      <MenuItem value="rename">Rename</MenuItem>
+                      <MenuItem value="rename">{t("session.rename")}</MenuItem>
                       {sessionSchema !== undefined && propertiesOf(sessionSchema).length > 0 ? (
                         <MenuItem value="settings" disabled={!connected}>
                           {t("session.settings")}
@@ -609,11 +607,11 @@ export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
                         {t("thinking.show")}
                       </MenuCheckboxItem>
                       <MenuItem value="archive">
-                        {session.archived ? "Restore" : "Archive"}
+                        {t(session.archived ? "session.restore" : "session.archive")}
                       </MenuItem>
                       <MenuSeparator />
                       <MenuItem value="delete" data-destructive>
-                        Delete
+                        {t("session.delete")}
                       </MenuItem>
                     </MenuContent>
                   </Menu>
@@ -795,9 +793,9 @@ export function App({ sidePanel }: { sidePanel?: SplitPanel } = {}) {
           <ConfirmDialog
             open={panel === "delete"}
             onOpenChange={(open) => !open && close()}
-            title="Delete this session?"
-            description="Its whole history is removed for good. This cannot be undone."
-            confirmLabel="Delete"
+            title={t("session.deleteTitle")}
+            description={t("session.deleteDescription")}
+            confirmLabel={t("session.deleteConfirm")}
             destructive
             onConfirm={() => store.deleteSession(session.sessionId)}
           />

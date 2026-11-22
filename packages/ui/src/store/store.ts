@@ -26,6 +26,7 @@ import type {
   UpdateState,
 } from "../api.ts";
 import { DraftStore, promptBlocks, returnedId } from "../draft.ts";
+import type { Params } from "../i18n.ts";
 import {
   applyUpdate,
   type Conversation,
@@ -99,7 +100,8 @@ export type AppState = {
   blank: BlankConversation | undefined;
   views: Record<string, SessionView>;
   /** The last thing that went wrong, for the user to read and dismiss. */
-  error: string | undefined;
+  /** What failed: the system's words as they came, or a message of the catalog with its parameters. */
+  error: string | { key: string; params?: Params } | undefined;
   /** The app's own updating. Undefined until main has said. */
   update: UpdateState | undefined;
   /** Whether the app reports how it is used (docs/analytics.md). Undefined until main has said. */
@@ -713,7 +715,7 @@ export class AppStore {
     ) {
       const name =
         this.#state.environments.find((h) => h.id === environmentId)?.name ?? environmentId;
-      this.#set({ error: `${name} is not connected, so this session cannot be opened.` });
+      this.#set({ error: { key: "session.awayCannotOpen", params: { environment: name } } });
       return;
     }
     this.#set({ selectedEnvironment: environmentId, selectedSession: sessionId, blank: undefined });
@@ -815,7 +817,7 @@ export class AppStore {
     try {
       await this.#bridge.setTrust(environmentId, path, trusted);
     } catch (error) {
-      this.#set({ error: `The folder's trust could not be changed: ${messageOf(error)}` });
+      this.#set({ error: { key: "trust.changeFailed", params: { reason: messageOf(error) } } });
     }
   };
 

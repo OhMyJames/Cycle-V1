@@ -99,7 +99,7 @@ test("a host that is away: its sessions stay, greyed and saying why, and it can 
     .getByText("Build box · Not connected", { selector: '[data-slot="environment-name"]' })
     .closest<HTMLElement>('[data-slot="environment-state"]');
   if (status === null) throw new Error("no state row for the environment");
-  await user.click(within(status).getByRole("button", { name: "Retry" }));
+  await user.click(within(status).getByRole("button", { name: "Connect again" }));
   expect(named("connect")).toEqual([["connect", "far"]]);
 });
 

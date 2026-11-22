@@ -131,10 +131,10 @@ export function Sidebar(props: SidebarProps) {
                 <MenuSeparator />
               </>
             ) : null}
-            <MenuItem value="add-environment">Add environment</MenuItem>
+            <MenuItem value="add-environment">{t("environment.add")}</MenuItem>
             {connected.map((h) => (
               <MenuItem key={h.id} value={`agent-defaults:${h.id}`}>
-                {several ? `Agent defaults · ${h.name}` : "Agent defaults"}
+                {several ? t("defaults.menuFor", { environment: h.name }) : t("defaults.title")}
               </MenuItem>
             ))}
             {props.environments.some((h) => h.kind !== "local") ? <MenuSeparator /> : null}
@@ -149,7 +149,7 @@ export function Sidebar(props: SidebarProps) {
                   value={`remove-environment:${h.id}`}
                   data-destructive
                 >
-                  {`Remove ${h.name}`}
+                  {t("environment.remove", { name: h.name })}
                 </MenuItem>,
               ])}
           </MenuContent>
@@ -166,8 +166,11 @@ export function Sidebar(props: SidebarProps) {
             role="status"
           >
             <StatusDot tone={how.tone} shape={how.shape} />
-            <span data-slot="environment-name" title={`${h.name} · ${how.word}`}>
-              {h.name} · {how.word}
+            <span
+              data-slot="environment-name"
+              title={t("session.away", { environment: h.name, state: t(how.word) })}
+            >
+              {t("session.away", { environment: h.name, state: t(how.word) })}
             </span>
             {state?.error !== undefined && (state?.state ?? "closed") === "closed" ? (
               <span data-slot="hint" title={state.error}>
@@ -176,7 +179,7 @@ export function Sidebar(props: SidebarProps) {
             ) : null}
             {(state?.state ?? "closed") === "closed" ? (
               <Button data-variant="ghost" onClick={() => props.onConnectEnvironment(h.id)}>
-                Retry
+                {t("environment.connectAgain")}
               </Button>
             ) : null}
           </span>

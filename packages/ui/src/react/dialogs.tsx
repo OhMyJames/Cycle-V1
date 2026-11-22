@@ -60,6 +60,7 @@ export function ConfirmDialog({
   /** A second way to go ahead, beside the first (as the first, it may keep the dialog open with an error). */
   alternative?: { label: string; destructive?: boolean; onConfirm: () => unknown } | undefined;
 }) {
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>();
   useEffect(() => {
@@ -100,7 +101,7 @@ export function ConfirmDialog({
           ) : null}
         </div>
         <div data-slot="row" data-dialog-footer="">
-          <AlertDialogClose disabled={busy}>Cancel</AlertDialogClose>
+          <AlertDialogClose disabled={busy}>{t("dialog.cancel")}</AlertDialogClose>
           {alternative !== undefined ? (
             <Button
               type="button"
@@ -221,12 +222,9 @@ export function EnvironmentDialog({
         <DialogTitle>
           {editing !== undefined
             ? t("environment.editTitle", { name: editing.name })
-            : "Add an environment"}
+            : t("environment.addTitle")}
         </DialogTitle>
-        <DialogDescription>
-          Cycle connects with your system's ssh, so your keys and ~/.ssh/config apply. There is no
-          password prompt.
-        </DialogDescription>
+        <DialogDescription>{t("environment.sshNote")}</DialogDescription>
         <form
           data-slot="stack"
           onSubmit={(event) => {
@@ -235,24 +233,24 @@ export function EnvironmentDialog({
           }}
         >
           <Field name="host">
-            <FieldLabel>Address</FieldLabel>
+            <FieldLabel>{t("environment.address")}</FieldLabel>
             <Input
               autoFocus
               value={host}
-              placeholder="user@host, or an alias"
+              placeholder={t("environment.addressHint")}
               onChange={(e) => setHost(e.currentTarget.value)}
             />
           </Field>
           <Field name="name">
-            <FieldLabel>Name</FieldLabel>
+            <FieldLabel>{t("environment.name")}</FieldLabel>
             <Input
               value={name}
-              placeholder={host || "Shown in the list"}
+              placeholder={host || t("environment.nameHint")}
               onChange={(e) => setName(e.currentTarget.value)}
             />
           </Field>
           <Field name="command">
-            <FieldLabel>Command on the environment</FieldLabel>
+            <FieldLabel>{t("environment.command")}</FieldLabel>
             <Input value={command} onChange={(e) => setCommand(e.currentTarget.value)} />
           </Field>
           {problem !== undefined ? (
@@ -261,9 +259,9 @@ export function EnvironmentDialog({
             </p>
           ) : null}
           <div data-slot="row" data-dialog-footer="">
-            <DialogClose disabled={busy}>Cancel</DialogClose>
+            <DialogClose disabled={busy}>{t("dialog.cancel")}</DialogClose>
             <Button type="submit" data-variant="solid" disabled={host.trim() === "" || busy}>
-              {editing !== undefined ? t("environment.save") : "Add"}
+              {editing !== undefined ? t("environment.save") : t("environment.addSubmit")}
             </Button>
           </div>
         </form>
@@ -322,16 +320,33 @@ export function AgentDefaultsDialog({
     setUnread(false);
     setConfig({});
   }, [open]);
+  // A form, so Enter in a field saves, as every form dialog does (DESIGN.md §4.5).
+  const save = async () => {
+    if (agent === undefined || loaded !== agentKey || busy) return;
+    setBusy(true);
+    try {
+      await onSave(agent.id, config);
+      onOpenChange(false);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
       <DialogBackdrop />
       <DialogContent>
-        <DialogTitle>Agent defaults</DialogTitle>
-        <DialogDescription>New sessions of the agent start with these settings.</DialogDescription>
-        <div data-slot="stack">
+        <DialogTitle>{t("defaults.title")}</DialogTitle>
+        <DialogDescription>{t("defaults.description")}</DialogDescription>
+        <form
+          data-slot="stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
           {agents.length > 1 ? (
             <Field name="agent">
-              <FieldLabel>Agent</FieldLabel>
+              <FieldLabel>{t("defaults.agent")}</FieldLabel>
               <Select
                 items={agents.map((a) => ({ value: a.id, label: a.name }))}
                 value={agent?.id ?? null}
@@ -357,26 +372,17 @@ export function AgentDefaultsDialog({
           ) : agent !== undefined ? (
             <StateBlock size="inline" tone="loading" title={t("defaults.reading")} />
           ) : null}
-        </div>
-        <div data-slot="row" data-dialog-footer="">
-          <DialogClose disabled={busy}>Close</DialogClose>
-          <Button
-            data-variant="solid"
-            disabled={agent === undefined || loaded !== agentKey || busy}
-            onClick={async () => {
-              if (agent === undefined || busy) return;
-              setBusy(true);
-              try {
-                await onSave(agent.id, config);
-                onOpenChange(false);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            Save
-          </Button>
-        </div>
+          <div data-slot="row" data-dialog-footer="">
+            <DialogClose disabled={busy}>{t("dialog.close")}</DialogClose>
+            <Button
+              type="submit"
+              data-variant="solid"
+              disabled={agent === undefined || loaded !== agentKey || busy}
+            >
+              {t("defaults.save")}
+            </Button>
+          </div>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -389,6 +395,7 @@ export type RenameProps = OpenProps & {
 };
 
 export function RenameDialog({ open, onOpenChange, current, onRename }: RenameProps) {
+  const { t } = useI18n();
   const [title, setTitle] = useState(current);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>();
@@ -420,7 +427,7 @@ export function RenameDialog({ open, onOpenChange, current, onRename }: RenamePr
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
       <DialogBackdrop />
       <DialogContent>
-        <DialogTitle>Rename</DialogTitle>
+        <DialogTitle>{t("rename.title")}</DialogTitle>
         <form
           data-slot="stack"
           onSubmit={(event) => {
@@ -429,7 +436,7 @@ export function RenameDialog({ open, onOpenChange, current, onRename }: RenamePr
           }}
         >
           <Field name="title">
-            <FieldLabel>Name</FieldLabel>
+            <FieldLabel>{t("rename.name")}</FieldLabel>
             <Input autoFocus value={title} onChange={(e) => setTitle(e.currentTarget.value)} />
           </Field>
           {problem !== undefined ? (
@@ -438,9 +445,9 @@ export function RenameDialog({ open, onOpenChange, current, onRename }: RenamePr
             </p>
           ) : null}
           <div data-slot="row" data-dialog-footer="">
-            <DialogClose disabled={busy}>Cancel</DialogClose>
+            <DialogClose disabled={busy}>{t("dialog.cancel")}</DialogClose>
             <Button type="submit" data-variant="solid" disabled={title.trim() === "" || busy}>
-              Rename
+              {t("rename.submit")}
             </Button>
           </div>
         </form>

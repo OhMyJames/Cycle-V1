@@ -163,7 +163,7 @@ export function ConfigForm({ schema, value, onChange, defaults = true }: ConfigF
     onChange(next === null || next === "" ? rest : { ...rest, [key]: next });
   };
   const properties = propertiesOf(schema);
-  if (properties.length === 0) return <p data-slot="hint">This agent has nothing to set.</p>;
+  if (properties.length === 0) return <p data-slot="hint">{t("config.nothingToSet")}</p>;
   return (
     <div data-slot="config-form">
       {properties.map(([key, property]) => {

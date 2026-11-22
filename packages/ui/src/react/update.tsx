@@ -2,6 +2,7 @@ import { Button } from "@ui-sdk/react/button";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
 import { useState } from "react";
 import type { SessionSummary, UpdateState } from "../api.ts";
+import type { Translator } from "../i18n.ts";
 import { CodeThemeItems } from "./code-theme-picker.tsx";
 import { ConfirmDialog } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
@@ -14,18 +15,22 @@ const megabytes = (bytes: number, total: number): string =>
   (bytes / 1e6).toFixed(total < 10e6 ? 1 : 0);
 
 /** What the update is doing, in a few words, or nothing when there is nothing to say. */
-export const updateLine = (update: UpdateState): string => {
+export const updateLine = (update: UpdateState, t: Translator["t"]): string => {
   switch (update.kind) {
     case "checking":
-      return "Checking for updates…";
+      return t("update.checking");
     case "up-to-date":
-      return "Up to date";
+      return t("update.upToDate");
     case "available":
-      return `Version ${update.version} is available`;
+      return t("update.available", { version: update.version });
     case "downloading":
-      return `Downloading ${update.how === "difference" ? "the changes for " : ""}${update.version}: ${megabytes(update.received, update.total)} of ${megabytes(update.total, update.total)} MB`;
+      return t(update.how === "difference" ? "update.downloadingChanges" : "update.downloading", {
+        version: update.version,
+        received: megabytes(update.received, update.total),
+        total: megabytes(update.total, update.total),
+      });
     case "installing":
-      return `Installing ${update.version}…`;
+      return t("update.installing", { version: update.version });
     case "error":
       return update.message;
     case "disabled":
@@ -54,8 +59,8 @@ export function UpdateBanner() {
       {failedInstall ? <ErrorCircleIcon /> : <DownloadIcon />}
       <span data-slot="update-line">
         {failedInstall
-          ? `Updating to ${version} failed: ${updateLine(update)}`
-          : updateLine(update)}
+          ? t("update.failed", { version: version ?? "", reason: updateLine(update, t) })
+          : updateLine(update, t)}
       </span>
       {update.kind === "available" ? (
         <Button data-variant="ghost" onClick={() => setDismissed(version)}>
@@ -64,15 +69,15 @@ export function UpdateBanner() {
       ) : null}
       {!busy ? (
         <Button data-variant="outline" onClick={() => setConfirming(true)}>
-          {failedInstall ? "Try again" : "Update and restart"}
+          {t(failedInstall ? "update.tryAgain" : "update.install")}
         </Button>
       ) : null}
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title={`Update to ${version}?`}
-        description="Cycle closes and opens again as the new version. A session on This computer that is working is interrupted; sessions on other environments carry on."
-        confirmLabel="Update and restart"
+        title={t("update.confirmTitle", { version: version ?? "" })}
+        description={t("update.confirmDescription")}
+        confirmLabel={t("update.install")}
         onConfirm={() => store.installUpdate()}
       />
     </div>
@@ -224,13 +229,15 @@ export function UpdateFooter() {
       update.kind === "downloading" ||
       update.kind === "installing" ||
       (update.kind === "error" && update.version !== undefined));
-  const line = update === undefined || inBanner ? "" : updateLine(update);
+  const line = update === undefined || inBanner ? "" : updateLine(update, t);
   const asking =
     update?.kind === "checking" || update?.kind === "downloading" || update?.kind === "installing";
   return (
     <div data-slot="update-footer">
       <div data-slot="update-text">
-        {update !== undefined ? <span data-slot="hint">Cycle {update.current}</span> : null}
+        {update !== undefined ? (
+          <span data-slot="hint">{t("update.current", { version: update.current })}</span>
+        ) : null}
         {line !== "" ? (
           <span data-slot="hint" data-update={update?.kind} role="status" title={line}>
             {line}

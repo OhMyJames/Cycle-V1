@@ -13,12 +13,12 @@ export function StatusDot({ tone, shape }: { tone: Tone; shape: Shape }) {
 
 export const ENVIRONMENT_STATE: Record<
   ConnectionState,
-  { word: string; tone: Tone; shape: Shape }
+  { word: `environment.state.${ConnectionState}`; tone: Tone; shape: Shape }
 > = {
-  connected: { word: "Connected", tone: "success", shape: "solid" },
-  connecting: { word: "Connecting…", tone: "accent", shape: "ring" },
-  reconnecting: { word: "Reconnecting…", tone: "attention", shape: "ring" },
-  closed: { word: "Not connected", tone: "danger", shape: "cross" },
+  connected: { word: "environment.state.connected", tone: "success", shape: "solid" },
+  connecting: { word: "environment.state.connecting", tone: "accent", shape: "ring" },
+  reconnecting: { word: "environment.state.reconnecting", tone: "attention", shape: "ring" },
+  closed: { word: "environment.state.closed", tone: "danger", shape: "cross" },
 };
 
 /** How a row's one mark is drawn (sessions.ts `markOf`): the words are `mark.*` in the messages. */

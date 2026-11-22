@@ -777,7 +777,7 @@ test("deleting a session asks first", async () => {
   await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
   const dialog = await screen.findByRole("alertdialog");
   expect(named("deleteSession")).toHaveLength(0);
-  await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+  await user.click(within(dialog).getByRole("button", { name: "Delete session" }));
   await waitFor(() => expect(named("deleteSession")).toEqual([["deleteSession", "local", "s1"]]));
 });
 

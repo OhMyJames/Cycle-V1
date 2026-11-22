@@ -359,7 +359,7 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 - [ ] **对话内高频操作**：消息、代理回复的快捷 Copy（工具的命令、输出、错误已可复制，CYCL-14）；回合失败（`turn-end` error）就地 Retry；长会话向上阅读时显示浮动“回到底部”按钮；思考内容走 `Markdown` 只读渲染；空白会话转正式会话时平滑衔接。
 - [ ] **工具调用与侧栏辨识度**：连续工具从 1 个升格为多个时保留手动展开态；会话行补充次要元信息（相对时间与未发送草稿标）；切换 workspace/环境时重置 `showAll`。
 - [ ] **窄视口与缓存治理**：720×480 下 `composer-toolbar` 折行/紧凑适配；为 `store.views` 增加 LRU 上限，为 `selectSession` 加并发加载保护。
-- [ ] **存量 i18n 迁移**：将剩余约 40 处 JSX 硬编码与 store/dialog 文案迁入 `packages/ui/src/messages/en-US.ts`。
+- [x] **存量 i18n 迁移**：JSX、对话框、更新提示、连接状态词和 store 的报错都已迁入 `packages/ui/src/messages/en-US.ts`（CYCL-68）。
 
 ### P3：跨层能力与真机未验证项
 
