@@ -1,4 +1,3 @@
-import { afterEach, expect, test } from "bun:test";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import {
   $getRoot,
@@ -10,6 +9,7 @@ import {
   PASTE_COMMAND,
 } from "lexical";
 import { type ReactElement, useState } from "react";
+import { afterEach, expect, test } from "vitest";
 import { markdownOf } from "../../src/composer-markdown.ts";
 import { type InputKey, MarkdownInput } from "../../src/react/markdown-input.tsx";
 

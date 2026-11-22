@@ -1,10 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { afterEach, expect, test } from "vitest";
+import { userEvent } from "vitest/browser";
 import type { EnvironmentConfig, SessionSummary } from "../../src/api.ts";
 import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
 import { fakeBridge, summary } from "../fake-bridge.ts";
+import { sleep } from "./box.ts";
 
 afterEach(() => {
   cleanup();
@@ -98,7 +99,7 @@ test("an unread session is not told it has been seen while the app is behind", a
   const { user, named } = await mount([row("a", { unread: true })]);
   await user.click(screen.getByRole("option", { name: /a$/ }));
   await waitFor(() => expect(named("openSession")).toHaveLength(1));
-  await act(() => Bun.sleep(20));
+  await act(() => sleep(20));
   expect(named("markRead")).toEqual([]);
 });
 
@@ -107,7 +108,7 @@ test("a daemon that says nothing of news is never told anything", async () => {
   const { user, named } = await mount([row("a")]);
   await user.click(screen.getByRole("option", { name: /a$/ }));
   await waitFor(() => expect(named("openSession")).toHaveLength(1));
-  await act(() => Bun.sleep(20));
+  await act(() => sleep(20));
   expect(named("markRead")).toEqual([]);
 });
 

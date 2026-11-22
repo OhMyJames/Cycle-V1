@@ -37,7 +37,10 @@ export type AppOptions = {
   localCommand: string[];
   /** The whole environment of that command. Nothing is inherited from the app. */
   localEnv: Record<string, string>;
-  /** Show the window. A test turns it off. */
+  /**
+   * Show the window. A test turns it off, and then, on macOS, the app also stays out of the Dock and can never take the
+   * focus from what the person is doing (the page still runs, and is driven, as it would be shown).
+   */
   show?: boolean;
   /** What the app reports about how it is used (docs/analytics.md). Without it, nothing is. */
   analytics?: AnalyticsControl;
@@ -131,7 +134,17 @@ const runOnHost = (environment: EnvironmentConfig, command: string): Promise<voi
  * with anything it could use against the user: agent output reaches it, and agent output is the
  * agent's word. So it gets no node, no navigation, no new windows, no permissions, and no network.
  */
+/**
+ * For a test on the person's own Mac: the app stays out of the Dock and can never come to the front. Call it before
+ * anything is awaited: macOS brings a regular app to the front as soon as it has started.
+ */
+export const stayInBackground = () => {
+  if (process.platform === "darwin") app.setActivationPolicy("prohibited");
+};
+
 export const startApp = async (options: AppOptions) => {
+  const hidden = options.show === false;
+  if (hidden) stayInBackground();
   await app.whenReady();
   if (process.platform === "darwin") createRequire(options.preloadPath)("./ime-paste.node");
   const indexUrl = pathToFileURL(join(options.rendererDir, "index.html")).href;
@@ -156,7 +169,9 @@ export const startApp = async (options: AppOptions) => {
     openBrowser: (url) => shell.openExternal(url),
     attention: notifyAttention({
       window: () => window,
-      supported: () => Notification.isSupported(),
+      // A hidden window is a test's: a notification would land in the person's own Notification Center, and pressing it
+      // would bring the app to the front.
+      supported: () => !hidden && Notification.isSupported(),
       create: (notification) => new Notification(notification),
       activate: () => app.focus({ steal: true }),
       translator: createTranslator(SOURCE_LOCALE, enUS),
@@ -265,6 +280,8 @@ export const startApp = async (options: AppOptions) => {
       sandbox: true,
       webSecurity: true,
       allowRunningInsecureContent: false,
+      // A window that is never shown counts as hidden, and a hidden page's timers and animation frames are held back.
+      backgroundThrottling: !hidden,
     },
   });
   const contents = window.webContents;

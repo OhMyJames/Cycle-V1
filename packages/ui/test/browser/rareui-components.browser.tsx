@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, test } from "vitest";
+import { userEvent } from "vitest/browser";
 import { createTranslator, SOURCE_LOCALE } from "../../src/i18n.ts";
 import { enUS } from "../../src/messages/en-US.ts";
 import { withEffortFor } from "../../src/react/config-form.tsx";

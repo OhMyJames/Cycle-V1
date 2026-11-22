@@ -1,8 +1,8 @@
 // The blank page of a new session (CYCL-55): where it runs in one line above the box, the folders it already has
 // sessions in, and one state with one way on when something stands between it and its first message.
-import { afterEach, expect, test } from "bun:test";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { afterEach, expect, test } from "vitest";
+import { userEvent } from "vitest/browser";
 import { App, StoreProvider } from "../../src/react/index.ts";
 import { AppStore } from "../../src/store/index.ts";
 import { fakeBridge, summary } from "../fake-bridge.ts";

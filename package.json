@@ -23,7 +23,8 @@
     "format": "biome check --write .",
     "test": "bun test",
     "prepare": "git config core.hooksPath .githooks || true",
-    "test:integration": "bun scripts/integration.ts"
+    "test:integration": "bun scripts/integration.ts",
+    "test:browser": "bun run --cwd packages/ui test:browser"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.8",

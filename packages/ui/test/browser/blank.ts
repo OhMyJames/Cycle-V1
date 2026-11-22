@@ -1,8 +1,8 @@
 // The blank conversation's folder, as a person reaches it: a button named for the folder, whose menu offers the folders
 // with sessions, Browse… and "Enter a path…" (CYCL-55).
-import { expect } from "bun:test";
 import { screen, waitFor, within } from "@testing-library/react";
-import type userEvent from "@testing-library/user-event";
+import { expect } from "vitest";
+import type { userEvent } from "vitest/browser";
 
 type User = ReturnType<typeof userEvent.setup>;
 

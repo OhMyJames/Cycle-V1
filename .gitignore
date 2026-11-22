@@ -13,6 +13,10 @@ build/
 .env.*
 !.env.example
 
+# what a browser test leaves: screenshots of failures
+.vitest/
+__screenshots__/
+
 # runtime data
 *.sqlite
 *.sqlite-*

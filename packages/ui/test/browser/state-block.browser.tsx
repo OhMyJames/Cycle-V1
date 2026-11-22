@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
 import { cleanup, render, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { afterEach, expect, test } from "vitest";
+import { userEvent } from "vitest/browser";
 import { StateBlock } from "../../src/react/state-block.tsx";
 
 afterEach(cleanup);

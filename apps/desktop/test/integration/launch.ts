@@ -1,4 +1,5 @@
-// Starts the real app under xvfb with smoke-main.ts driving its window, and returns what it reported.
+// Starts the real app (under xvfb on Linux; on macOS with its window hidden and out of the Dock, so that it does not take
+// the focus) with smoke-main.ts driving its window, and returns what it reported.
 // What the app and the daemon may see is only what is passed here: nothing of this machine's own.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -8,12 +9,13 @@ const appDir = new URL("../..", import.meta.url).pathname;
 export const dist = join(appDir, "dist");
 
 export const electron = electronBinary(join(appDir, "../../node_modules/.bun"));
+const mac = process.platform === "darwin";
 export const xvfb = Bun.which("xvfb-run");
-/** Electron's binary, xvfb and a built app are all there. */
+/** Electron's binary, a built app, and on Linux xvfb, are all there. */
 export const canLaunch =
   electron !== undefined &&
   existsSync(electron) &&
-  xvfb !== null &&
+  (mac || xvfb !== null) &&
   existsSync(join(dist, "main.mjs"));
 
 export type Launch = {
@@ -41,8 +43,7 @@ export const launch = async (options: Launch) => {
 
   const proc = Bun.spawn(
     [
-      xvfb as string,
-      "-a",
+      ...(mac || xvfb === null ? [] : [xvfb, "-a"]),
       electron as string,
       // The test machine has no setuid chrome-sandbox. The window itself is still sandboxed
       // (sandbox: true); only the process-level helper is skipped. The app never ships this flag.

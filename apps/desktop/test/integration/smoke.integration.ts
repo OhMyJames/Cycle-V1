@@ -1,7 +1,7 @@
-// The app, for real: Electron under xvfb, its real window driven with real mouse and key events,
+// The app, for real: Electron (under xvfb on Linux, its window hidden on macOS), its real window driven with real mouse and key events,
 // the real daemon (started by `proxy`), the Claude adapter, the real Agent SDK, a mock API.
 // Run with `bun run build` and then `bun run test:integration` in apps/desktop. Not in the gate:
-// it needs Electron's binary and xvfb.
+// it needs Electron's binary, and xvfb on Linux.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";

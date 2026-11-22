@@ -8,7 +8,7 @@
 bun run check        # 边界、css、类型、lint、单元测试、DOM 测试,约 10 秒
 ```
 
-注意门禁会校验 `DESIGN.md` 与 `packages/ui/src/styles/app.css` 里的 `--cycle-*` 令牌双向完全一致。新的界面状态要在 DOM 测试里有一条(`packages/ui/test/dom/app.dom.tsx`,假桥接在 `test/fake-bridge.ts`)。
+注意门禁会校验 `DESIGN.md` 与 `packages/ui/src/styles/app.css` 里的 `--cycle-*` 令牌双向完全一致。新的界面状态要在界面测试里有一条(`packages/ui/test/browser/app.browser.tsx`,在无界面的 Chromium 里跑,`bun run test:browser`;假桥接在 `test/fake-bridge.ts`)。
 
 ## 2. 文案和 i18n
 
@@ -35,7 +35,7 @@ bun .claude/skills/cycle-design-taste/scripts/scan-copy.mjs path/a.tsx # 指定�
 
 门禁看不到颜色、间距、溢出、对齐。要看真东西:
 
-- **冒烟**:`bun run test:integration smoke`(在 `apps/desktop` 下;会先 build)在 xvfb 下启动真实 Electron,走一遍连接、新建、发消息、批准。
+- **冒烟**:`bun run test:integration smoke`(在 `apps/desktop` 下;会先 build)启动真实 Electron(Linux 在 xvfb 下,macOS 上窗口隐藏、不抢焦点),走一遍连接、新建、发消息、批准。
 - **真实模型的运行**:`CYCLE_REAL_MODEL_TOKEN=… bun run test:real`(在 `apps/desktop` 下,先在根目录 build);
   `SHOT_TO=/路径.png` 把窗口截图存下来。用法见 `docs/desktop.md`。
 - **在 Mac 上**:打包出来的应用(`bun run build`,或从发布里下载)是用户真正看到的东西,窗口装饰、字体、深色模式以它为准。

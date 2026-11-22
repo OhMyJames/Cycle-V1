@@ -1,4 +1,4 @@
-// Runs inside Electron (under xvfb in the test) in place of main.ts: it starts the real app, then
+// Runs inside Electron (under xvfb on Linux, hidden on macOS) in place of main.ts: it starts the real app, then
 // drives the real window with real mouse and key events, and reports what it saw as JSON lines.
 // The test that starts it sets everything through the environment.
 import { appendFileSync } from "node:fs";
@@ -181,8 +181,16 @@ const main = async () => {
       `document.activeElement?.closest('[role="dialog"]') && document.activeElement.tagName === "INPUT"`,
     );
     contents.selectAll();
+    await press("Backspace");
     await type(env.SMOKE_CWD as string);
-    await press("Return");
+    await waitFor(
+      "the path typed",
+      `document.activeElement?.value === ${JSON.stringify(env.SMOKE_CWD)}`,
+    );
+    // A whole Enter (down, its character, up), as a keyboard sends it: the form is submitted by the character.
+    contents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+    contents.sendInputEvent({ type: "char", keyCode: "\r" });
+    contents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
     await waitFor(
       "the folder chosen",
       `!document.querySelector('[role="dialog"]') && document.querySelector('[data-kind="blank-folder"]:not([data-unset])')`,
