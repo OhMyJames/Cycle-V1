@@ -28,7 +28,13 @@ function PlanMark({ status }: { status: PlanEntry["status"] }) {
   const timing = (transition: Transition) => (reduced ? INSTANT : transition);
   const done = status === "completed";
   return (
-    <svg viewBox="0 0 24 24" data-slot="plan-mark" data-status={status} aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      preserveAspectRatio="xMidYMid meet"
+      data-slot="plan-mark"
+      data-status={status}
+      aria-hidden="true"
+    >
       <motion.circle
         data-slot="plan-ring"
         cx="12"
@@ -105,7 +111,7 @@ export function PlanList({ entries }: { entries: readonly PlanEntry[] }) {
               <motion.span
                 data-slot="plan-label"
                 initial={false}
-                animate={{ backgroundSize: `${done ? 100 : 0}% 1.5px` }}
+                animate={{ backgroundSize: `${done ? 100 : 0}% 1px` }}
                 transition={reduced ? INSTANT : STRIKE}
                 onAnimationComplete={() => {
                   if (!done) {
