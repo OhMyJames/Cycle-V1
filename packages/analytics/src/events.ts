@@ -123,6 +123,10 @@ export const EVENTS = {
     plan: z.boolean(),
   }),
   tool_link_opened: o({}),
+  /** A link in an agent's message was opened, after the person said yes to where it goes. Never which. */
+  message_link_opened: o({}),
+  /** A long code block in a reply, shown in part, was shown whole. */
+  code_block_expanded: o({}),
   code_theme_changed: o({}),
   slash_command_used: o({}),
   /**
@@ -151,6 +155,8 @@ export const UI_EVENTS = [
   "plan_opened",
   "context_details_opened",
   "tool_link_opened",
+  "message_link_opened",
+  "code_block_expanded",
   "turn_resend_opened",
   "turn_resent",
 ] as const satisfies readonly EventName[];

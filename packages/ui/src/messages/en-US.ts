@@ -462,6 +462,17 @@ export const enUS = {
 
   // App update dismiss
   "update.dismiss": "Later",
+  // A link the agent wrote, before it leaves Cycle. The address is shown whole under the words.
+  "link.confirmTitle": "Open this link?",
+  "link.confirmBody": "It opens outside Cycle. The agent wrote it, so check the address first.",
+  "link.open": "Open link",
+  // A long code block in a reply, shown in part.
+  "code.showAll": {
+    one: "Show all {count} line",
+    other: "Show all {count} lines",
+  },
+  "code.showFewer": "Show fewer lines",
+
   "dialog.close": "Close",
   "dialog.cancel": "Cancel",
   "banner.dismiss": "Dismiss",

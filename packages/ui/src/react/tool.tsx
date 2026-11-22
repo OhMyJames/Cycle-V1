@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Translator } from "../i18n.ts";
 import type { Block, DiffLine, ToolFacts, ToolItem } from "../model/index.ts";
 import { activityOf, isLive, streamsOf, toolFacts } from "../model/index.ts";
+import { AgentLink } from "./agent-link.tsx";
 import { useI18n } from "./i18n.tsx";
 import { ChevronRightIcon, CloseIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
@@ -557,16 +558,14 @@ function LinkList({ links }: { links: ToolFacts["links"] }) {
         return (
           <li key={link.key}>
             {safe ? (
-              <a
+              <AgentLink
                 href={link.uri}
-                target="_blank"
-                rel="noopener noreferrer"
                 title={link.uri}
                 // That one was opened, never which.
-                onClick={() => store.track("tool_link_opened", {})}
+                onOpened={() => store.track("tool_link_opened", {})}
               >
                 {link.name}
-              </a>
+              </AgentLink>
             ) : (
               <span data-slot="unsafe-link">{link.name}</span>
             )}

@@ -13,6 +13,9 @@ export const useAppStore = (): AppStore => {
   return store;
 };
 
+/** The store, where there is one: a part also drawn on its own (in a test or the gallery) works without it. */
+export const useOptionalAppStore = (): AppStore | undefined => useContext(StoreContext);
+
 /** Reads part of the state, and draws again when that part changes. */
 export function useAppState<T>(select: (state: AppState) => T): T {
   const store = useAppStore();

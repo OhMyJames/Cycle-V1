@@ -112,7 +112,7 @@ agent 的输出是不可信的:里面可以有原始 HTML、链接、图片。
 - **IPC**:main 只接受来自应用自己页面(`senderFrame.url` 等于 index.html)的调用。
 - **导航**:不能跳转,不能开新窗口;http/https 链接交给用户的浏览器。无权限(`setPermissionRequestHandler` 一律拒绝)。
 - **CSP**:`default-src 'none'`,`connect-src 'none'`,没有 frame、没有内联脚本,`img-src` 只有自己和 data:。
-- **Markdown**(`packages/ui/src/react/markdown.tsx`):丢弃原始 HTML;只有 http、https、mailto 是链接,其余是文字;图片从不加载,显示成文字。Streamdown 自己的默认是允许所有图片和链接前缀,所以这几条不交给它(DOM 测试逐项断言)。
+- **Markdown**(`packages/ui/src/react/markdown.tsx`):丢弃原始 HTML;只有 http、https、mailto 是链接,其余是文字(相对路径不加 "[blocked]");点链接先确认，确认框显示完整地址，确认后才由 main 交给系统浏览器(`AgentLink`,网页搜索结果的链接相同);图片从不加载,显示成文字。Streamdown 自己的默认是允许所有图片和链接前缀,所以这几条不交给它(DOM 测试逐项断言)。
 - **`--no-sandbox`** 只在冒烟测试里用(测试机上没有 setuid 的 chrome-sandbox),窗口本身仍然是 `sandbox: true`。应用不带这个参数。
 
 ## 样式:Streamdown 带来了 Tailwind
