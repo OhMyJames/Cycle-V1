@@ -229,36 +229,43 @@ export function ConversationView({
 
   // Asked to show an item (from the Overview): the window moves to its block if it is above it, and once it is drawn
   // (its card opened) it is scrolled to the middle and marked for a moment.
-  const revealing = useRef<string | undefined>(undefined);
+  const revealing = useRef<{ id: string; serial: number } | undefined>(undefined);
+  // Read through a ref, so that one subscription lasts the session instead of one per streamed chunk.
+  const laid = useRef({ blocks, start });
+  laid.current = { blocks, start };
   useEffect(
     () =>
       reveal.subscribe(() => {
         const asked = reveal.get();
         if (asked === undefined || asked.sessionKey !== sessionKey) return;
+        const { blocks, start } = laid.current;
         const at = blocks.findIndex((block) => blockHolds(block as never, asked.itemId));
-        if (at === -1) return;
+        if (at === -1) return reveal.done(asked.serial);
         if (at < start) anchor.current = blocks[at]?.key;
         stuck.current = false;
-        revealing.current = asked.itemId;
+        revealing.current = { id: asked.itemId, serial: asked.serial };
         redraw();
       }),
-    [sessionKey, blocks, start],
+    [sessionKey],
   );
   useEffect(() => {
-    const id = revealing.current;
+    const asked = revealing.current;
     const el = ref.current;
-    if (id === undefined || el === null) return;
+    if (asked === undefined || el === null) return;
+    const { id, serial } = asked;
     revealing.current = undefined;
     let frames = 0;
     // Not undone by the next render: a streamed chunk must not stop the search, nor leave the mark on.
     const find = () => {
-      if (!el.isConnected) return;
+      if (!el.isConnected) return reveal.done(serial);
       const node = el.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"]`);
       // The card that holds it opens on the next frame or two.
       if (node === null) {
         if (++frames < 10) requestAnimationFrame(find);
+        else reveal.done(serial);
         return;
       }
+      reveal.done(serial);
       node.scrollIntoView?.({ block: "center" });
       node.setAttribute("data-revealed", "");
       setTimeout(() => node.removeAttribute("data-revealed"), 1200);

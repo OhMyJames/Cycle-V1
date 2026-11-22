@@ -49,13 +49,37 @@ const quiet = (task: Task) => task.ambient === true || task.skip_transcript === 
  */
 export class BackgroundTasks {
   readonly #known = new Map<string, { run: string | undefined; unknown: boolean }>();
+  /** Tasks told as ended, with the run that ended: a list that lags behind the end must not bring them back. */
+  readonly #ended = new Map<string, string | undefined>();
+
+  /** A task told as running, not lost: the process must stay up for it (a command, a watcher). */
+  get hasRunning(): boolean {
+    return [...this.#known.values()].some((task) => !task.unknown);
+  }
+
+  #end(id: string, run: string | undefined): void {
+    this.#known.delete(id);
+    this.#ended.set(id, run);
+  }
 
   /** The SDK sends the whole list after each change. A task gone from it with no end is unknown, not finished. */
   reconcile(tasks: readonly Task[]): SessionUpdate[] {
     const updates: SessionUpdate[] = [];
     const live = new Set<string>();
     for (const task of tasks) {
-      if (typeof task.task_id !== "string" || task.task_type === "local_agent" || quiet(task))
+      // Every entry of the list names its type (SDK); one that does not is not known to be ours to tell.
+      if (
+        typeof task.task_id !== "string" ||
+        task.task_type === undefined ||
+        task.task_type === "local_agent" ||
+        quiet(task)
+      )
+        continue;
+      const ended = this.#ended.get(task.task_id);
+      if (
+        this.#ended.has(task.task_id) &&
+        (!task.run_id || ended === undefined || task.run_id <= ended)
+      )
         continue;
       live.add(task.task_id);
       const known = this.#known.get(task.task_id);
@@ -83,6 +107,7 @@ export class BackgroundTasks {
       if (task.task_type === undefined || task.task_type === "local_agent" || quiet(task))
         return undefined;
       this.#known.set(id, { run: task.run_id ?? known?.run, unknown: false });
+      this.#ended.delete(id);
       return this.#make(id, "running", task);
     }
     if (known === undefined || (known.run && task.run_id && known.run !== task.run_id))
@@ -90,13 +115,13 @@ export class BackgroundTasks {
     if (message.subtype === "task_notification") {
       const end = endOf(task.status);
       if (end === undefined) return undefined;
-      this.#known.delete(id);
+      this.#end(id, known.run);
       return this.#make(id, end);
     }
     if (message.subtype === "task_updated") {
       const end = endOf(task.patch?.status);
       if (end !== undefined) {
-        this.#known.delete(id);
+        this.#end(id, known.run);
         return this.#make(id, end);
       }
       if (task.patch?.description === undefined) return undefined;

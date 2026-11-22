@@ -22,7 +22,12 @@ export const reveal = {
     current = { sessionKey, itemId, serial };
     for (const listener of [...listeners]) listener();
   },
+  /** The request still being answered: the item not yet found. A card that mounts meanwhile reads it here. */
   get: (): RevealRequest | undefined => current,
+  /** The conversation found the item, or gave up: a card that mounts later must not open for it. */
+  done(serial: number): void {
+    if (current?.serial === serial) current = undefined;
+  },
   subscribe(listener: () => void): () => void {
     listeners.add(listener);
     return () => listeners.delete(listener);

@@ -222,6 +222,24 @@ export function Overview() {
   const working = running.filter((row) => row.state === "running").length;
   const goal = conversation.goal;
   const away = state !== undefined && state !== "connected";
+  // When the goal was set: the time on the day it was set, with the day on any other; not said when not known.
+  const setAt = goal != null && goal.setAt > 0 ? goal.setAt : undefined;
+  const when =
+    setAt === undefined
+      ? undefined
+      : new Date(setAt).toDateString() === new Date().toDateString()
+        ? date(setAt, { hour: "numeric", minute: "2-digit" })
+        : date(setAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const goalLine =
+    goal == null
+      ? undefined
+      : goal.iterations > 0
+        ? when !== undefined
+          ? t("overview.goal.checked", { count: goal.iterations, when })
+          : t("overview.goal.checkedNoTime", { count: goal.iterations })
+        : when !== undefined
+          ? t("overview.goal.set", { when })
+          : undefined;
 
   const row = (item: BackgroundRow) => {
     const label = (
@@ -293,16 +311,7 @@ export function Overview() {
       {goal != null ? (
         <Section title={t("overview.goal")}>
           <p data-slot="overview-goal">{goal.condition}</p>
-          <p data-slot="overview-quiet">
-            {goal.iterations > 0
-              ? t("overview.goal.checked", {
-                  count: goal.iterations,
-                  when: date(goal.setAt, { hour: "numeric", minute: "2-digit" }),
-                })
-              : t("overview.goal.set", {
-                  when: date(goal.setAt, { hour: "numeric", minute: "2-digit" }),
-                })}
-          </p>
+          {goalLine !== undefined ? <p data-slot="overview-quiet">{goalLine}</p> : null}
           {goal.lastReason !== undefined ? (
             <p data-slot="overview-reason">{goal.lastReason}</p>
           ) : null}

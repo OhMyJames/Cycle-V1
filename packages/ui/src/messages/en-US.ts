@@ -51,6 +51,10 @@ export const enUS = {
     one: "Checked {count} time since {when}, not met yet",
     other: "Checked {count} times since {when}, not met yet",
   },
+  "overview.goal.checkedNoTime": {
+    one: "Checked {count} time, not met yet",
+    other: "Checked {count} times, not met yet",
+  },
   "overview.todo": "Todo",
   "overview.todo.empty": "No todo list in this session yet",
   "overview.showInConversation": "Show in conversation",

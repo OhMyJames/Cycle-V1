@@ -135,3 +135,41 @@ test("a session from before these updates says what it has not got, block by blo
   expect(panel.textContent).toContain("Nothing running in the background");
   expect(panel.textContent).toContain("No usage reported yet");
 });
+
+test("a task started by a call inside a closed card of several calls opens the card to show it", async () => {
+  const call = (id: string, command: string) =>
+    u({
+      sessionUpdate: "tool_call_update",
+      toolCallId: id,
+      title: "Bash",
+      kind: "execute",
+      status: "completed",
+      rawInput: { command },
+    });
+  const { panel, user } = await mount(
+    history(
+      u({
+        sessionUpdate: "user_message",
+        messageId: "u1",
+        content: [{ type: "text", text: "Go" }],
+      }),
+      call("c1", "ls"),
+      call("c2", "bun dev"),
+      u({
+        sessionUpdate: "_cycle/task_update",
+        taskId: "b2",
+        kind: "shell",
+        title: "Serve the app",
+        toolCallId: "c2",
+        state: "running",
+      }),
+      text("Started", "a1"),
+      idle({ stopReason: "end_turn" }),
+    ),
+  );
+  expect(document.querySelector('[data-item-id="c2"]')).toBeNull();
+  await user.click(within(panel).getByRole("button", { name: /Serve the app/ }));
+  await waitFor(() =>
+    expect(document.querySelector('[data-item-id="c2"][data-revealed]')).not.toBeNull(),
+  );
+});

@@ -59,14 +59,15 @@ function WorkCard({ tools, live }: { tools: readonly ToolItem[]; live: boolean }
   const goingTip = goingDetail || undefined;
   const [open, setOpen] = useOpenOnFailure(failed > 0);
   // Asked to show one of its calls (from the Overview): the card opens to it.
-  useEffect(
-    () =>
-      reveal.subscribe(() => {
-        const asked = reveal.get();
-        if (asked !== undefined && tools.some((tool) => tool.id === asked.itemId)) setOpen(true);
-      }),
-    [tools, setOpen],
-  );
+  // Also when it mounts while a request is still being answered: the request may be what moved the window to it.
+  useEffect(() => {
+    const check = () => {
+      const asked = reveal.get();
+      if (asked !== undefined && tools.some((tool) => tool.id === asked.itemId)) setOpen(true);
+    };
+    check();
+    return reveal.subscribe(check);
+  }, [tools, setOpen]);
   // The pieces are written to follow one another ("ran 2 commands"), and the line begins as a sentence does.
   const pieces = list(
     activityCounts(tools).map(({ activity, count }) => t(`work.summary.${activity}`, { count })),

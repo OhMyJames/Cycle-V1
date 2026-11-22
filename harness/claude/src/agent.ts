@@ -497,7 +497,8 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     const live = session.live;
     if (!live || session.turn) return;
     clearTimeout(live.idle);
-    if (session.subagents.hasBackground) return;
+    // Background work keeps the process: a sub-agent, or a command or watcher it runs (killed with it otherwise).
+    if (session.subagents.hasBackground || session.tasks.hasRunning) return;
     live.idle = setTimeout(() => release(session, false), idleMs);
     live.idle.unref?.();
   };
@@ -667,10 +668,12 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
     if (message.type !== "system") return;
     const m = message as unknown as Record<string, unknown> & { subtype: string };
     if (message.subtype === "background_tasks_changed") {
-      const updates = session.subagents.reconcile(message.tasks);
+      const updates = [
+        ...session.subagents.reconcile(message.tasks),
+        ...session.tasks.reconcile(message.tasks),
+      ];
       scheduleIdle(session);
-      for (const update of [...updates, ...session.tasks.reconcile(message.tasks)])
-        await notify(client, session.id, update);
+      for (const update of updates) await notify(client, session.id, update);
     } else if (m.subtype.startsWith("task_")) {
       const update = session.subagents.update(m);
       if (update !== undefined) {
@@ -678,7 +681,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         await notify(client, session.id, update);
       }
       const task = session.tasks.update(m);
-      if (task !== undefined) await notify(client, session.id, task);
+      if (task !== undefined) {
+        scheduleIdle(session);
+        await notify(client, session.id, task);
+      }
     } else if (m.subtype === "commands_changed") {
       await announceCommands(client, session, m.commands as SlashCommand[]);
     } else if (m.subtype === "api_retry") {

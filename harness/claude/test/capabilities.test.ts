@@ -2040,3 +2040,34 @@ test("the goal set with /goal is told whole each time it is checked, and cleared
     ] as unknown as SessionUpdate[]);
   });
 });
+
+test("an ended task a late background list still names is not brought back, and a running one keeps the process", async () => {
+  const shell = { task_id: "b1", run_id: "1", task_type: "local_bash", description: "dev server" };
+  const fake = fakeQuery(({ prompt }) =>
+    prompt === "start"
+      ? [task("task_started", shell), ...textTurn(ID, "m", "ok")]
+      : [
+          task("task_notification", { ...shell, status: "completed", summary: "" }),
+          // The list lags behind the end (SDK: their order is not promised).
+          task("background_tasks_changed", { tasks: [shell, { task_id: "x", description: "?" }] }),
+          ...textTurn(ID, "m2", "ok"),
+        ],
+  );
+  await connect(
+    fake.run,
+    async ({ agent, idle, updates }) => {
+      await newSession(agent);
+      await prompt(agent, idle, [{ type: "text", text: "start" }]);
+      // Well past the idle time: the command is running, so the process is kept and the task not ended.
+      await Bun.sleep(80);
+      expect(tasksOf(updates).map((u) => u.state)).toEqual(["running"]);
+      await prompt(agent, idle, [{ type: "text", text: "end" }]);
+      expect(tasksOf(updates).map((u) => [u.taskId, u.state])).toEqual([
+        ["b1", "running"],
+        ["b1", "completed"],
+      ]);
+    },
+    {},
+    { idleMs: 20 },
+  );
+});
