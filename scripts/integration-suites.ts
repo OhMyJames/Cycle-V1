@@ -53,7 +53,7 @@ export const suites: Suite[] = [
     cwd: "apps/desktop",
     file: "test/integration/smoke.integration.ts",
     seconds: 150,
-    needs: "electron+xvfb",
+    needs: "electron, and xvfb on Linux",
   },
 ];
 

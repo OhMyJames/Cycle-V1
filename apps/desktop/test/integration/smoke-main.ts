@@ -1,4 +1,4 @@
-// Runs inside Electron (under xvfb in the test) in place of main.ts: it starts the real app, then
+// Runs inside Electron (under xvfb on Linux, hidden on macOS) in place of main.ts: it starts the real app, then
 // drives the real window with real mouse and key events, and reports what it saw as JSON lines.
 // The test that starts it sets everything through the environment.
 import { appendFileSync } from "node:fs";
