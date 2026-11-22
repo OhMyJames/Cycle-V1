@@ -2271,6 +2271,9 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 /* In the tray the rows are the size of the line above them. */
 [data-kind="plan-strip"] [data-slot="plan"] {
   padding: 0 0.75rem 0.5rem;
+  /* A long plan scrolls under its line, which stays put, inside the tray's height. */
+  max-height: 9rem;
+  overflow-y: auto;
   font-size: var(--cycle-text-meta);
   line-height: 1.25rem;
 }
@@ -2644,7 +2647,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 [data-slot="composer-extensions"] {
   display: flex;
   flex-direction: column;
-  max-height: 18rem;
+  max-height: 12rem;
   overflow-y: auto;
   margin: 0 1rem;
   /* The input box's own border colour, so the tray and the box read as one piece. */

@@ -1,6 +1,6 @@
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
 import { motion, type Transition, useReducedMotion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Conversation, PlanEntry, PlanItem } from "../model/index.ts";
 import { useI18n } from "./i18n.tsx";
 import { ChevronRightIcon } from "./icons.tsx";
@@ -62,7 +62,7 @@ function PlanMark({ status }: { status: PlanEntry["status"] }) {
       <motion.path
         d="M7.4 12.4 10.6 15.5 16.6 8.9"
         fill="none"
-        stroke="white"
+        stroke="var(--cycle-accent-foreground)"
         strokeWidth="2.2"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -74,9 +74,13 @@ function PlanMark({ status }: { status: PlanEntry["status"] }) {
   );
 }
 
+/** How long a row the agent has just marked done stays where it is: its tick (60ms + 160ms) and strike are drawn. */
+const SETTLE_MS = 240;
+
 /**
  * The plan's entries: what is still open first, in the plan's order, then what is done. An entry the agent marks done
- * ticks and is struck through where it stands, and only then moves down, so the change is seen before the row goes.
+ * while the list is shown ticks and is struck through where it stands, and only then moves down, so the change is seen
+ * before the row goes. One that comes done (in a new plan, or when the list opens) is below at once.
  */
 export function PlanList({ entries }: { entries: readonly PlanEntry[] }) {
   const { t } = useI18n();
@@ -88,12 +92,32 @@ export function PlanList({ entries }: { entries: readonly PlanEntry[] }) {
     seen.set(entry.content, n + 1);
     return { entry, key: `${n}:${entry.content}` };
   });
-  // Rows that are done and have finished ticking, so are drawn below the open ones. Done when first seen: already down.
-  const [parked, setParked] = useState<ReadonlySet<string>>(
-    () => new Set(keyed.filter(({ entry }) => entry.status === "completed").map(({ key }) => key)),
-  );
+  // What each row was at the last render, to see which have just been marked done (set while rendering, as React
+  // allows, so the row is never drawn below for a frame before it is held).
+  const now = keyed.map(({ entry, key }) => `${key}\u0000${entry.status}`).join("\u0001");
+  const [last, setLast] = useState<{ sig: string; status: ReadonlyMap<string, string> }>(() => ({
+    sig: now,
+    status: new Map(keyed.map(({ entry, key }) => [key, entry.status])),
+  }));
+  // Rows just marked done, held in place until their tick and strike are drawn.
+  const [held, setHeld] = useState<ReadonlySet<string>>(() => new Set());
+  if (last.sig !== now) {
+    const justDone = keyed
+      .filter(({ entry, key }) => {
+        const before = last.status.get(key);
+        return entry.status === "completed" && before !== undefined && before !== "completed";
+      })
+      .map(({ key }) => key);
+    setLast({ sig: now, status: new Map(keyed.map(({ entry, key }) => [key, entry.status])) });
+    if (justDone.length > 0 && !reduced) setHeld((h) => new Set([...h, ...justDone]));
+  }
+  useEffect(() => {
+    if (held.size === 0) return;
+    const timer = setTimeout(() => setHeld(new Set()), SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [held]);
   const isDown = ({ entry, key }: (typeof keyed)[number]) =>
-    entry.status === "completed" && parked.has(key);
+    entry.status === "completed" && !held.has(key);
   const ordered = [...keyed.filter((row) => !isDown(row)), ...keyed.filter(isDown)];
   return (
     <ol data-slot="plan" aria-label={t("plan.label")}>
@@ -113,14 +137,6 @@ export function PlanList({ entries }: { entries: readonly PlanEntry[] }) {
                 initial={false}
                 animate={{ backgroundSize: `${done ? 100 : 0}% 1px` }}
                 transition={reduced ? INSTANT : STRIKE}
-                onAnimationComplete={() => {
-                  if (!done) {
-                    if (parked.has(key))
-                      setParked((now) => new Set([...now].filter((k) => k !== key)));
-                    return;
-                  }
-                  if (!parked.has(key)) setParked((now) => new Set(now).add(key));
-                }}
               >
                 {entry.content}
               </motion.span>
