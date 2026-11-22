@@ -52,7 +52,15 @@ test.skipIf(!ready)(
       linux ? ["xvfb-run", "-a", packaged.executable, ...flags] : [packaged.executable, ...flags],
       {
         // The packaged app carries the real project key: a test must say that nothing is to be reported.
-        env: { PATH: "/usr/bin:/bin", HOME: root, CYCLE_HOME: data, CYCLE_ANALYTICS: "off" },
+        // On a Mac the window is hidden, so that it does not take the person's focus: it is read over DevTools, not looked
+        // at. Under xvfb nobody's focus is there to take, and the window is shown as it is for a user.
+        env: {
+          PATH: "/usr/bin:/bin",
+          HOME: root,
+          CYCLE_HOME: data,
+          CYCLE_ANALYTICS: "off",
+          ...(mac ? { CYCLE_TEST_HIDDEN_WINDOW: "1" } : {}),
+        },
         stdout: "ignore",
         stderr: "ignore",
       },

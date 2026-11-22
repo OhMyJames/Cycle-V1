@@ -43,10 +43,10 @@ describe("the result of a suite", () => {
   test("a suite that skipped everything is skipped, with what it needed; where strict, a failure", () => {
     const loose = outcome({ ...base, output: bun(0, 1) });
     expect(loose.status).toBe("skip");
-    expect(loose.reason).toContain("electron+xvfb");
+    expect(loose.reason).toContain("electron, and xvfb on Linux");
     const strict = outcome({ ...base, strict: true, output: bun(0, 1) });
     expect(strict.status).toBe("FAIL");
-    expect(strict.reason).toContain("electron+xvfb");
+    expect(strict.reason).toContain("electron, and xvfb on Linux");
   });
 
   test("some skipped: ok on a person's machine, a failure where strict", () => {

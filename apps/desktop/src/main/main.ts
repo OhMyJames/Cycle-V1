@@ -14,13 +14,17 @@ import {
   projectOf,
   startAnalytics,
 } from "./analytics.ts";
-import { startApp } from "./app.ts";
+import { startApp, stayInBackground } from "./app.ts";
 import { localHome } from "./home.ts";
 import { BUILD_FILE, daemonCommand, loginShellPath } from "./layout.ts";
 import { SWAP_SCRIPT, verifySameTeam } from "./updater.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const env = process.env;
+// Only a test sets it: the packaged app is run on the developer's own Mac, and must not take the focus there. Said at
+// once, before anything is awaited: macOS brings a regular app to the front as soon as it has started.
+const hidden = env.CYCLE_TEST_HIDDEN_WINDOW === "1";
+if (hidden) stayInBackground();
 const packaged = existsSync(join(here, "..", BUILD_FILE));
 
 const run = (
@@ -84,6 +88,7 @@ const main = async () => {
     localCommand: [...daemon, "proxy"],
     localEnv,
     update: updateDeps(daemon, localEnv),
+    ...(hidden ? { show: false } : {}),
   });
 };
 

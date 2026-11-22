@@ -35,7 +35,7 @@ bun .claude/skills/cycle-design-taste/scripts/scan-copy.mjs path/a.tsx # 指定�
 
 门禁看不到颜色、间距、溢出、对齐。要看真东西:
 
-- **冒烟**:`bun run test:integration smoke`(在 `apps/desktop` 下;会先 build)在 xvfb 下启动真实 Electron,走一遍连接、新建、发消息、批准。
+- **冒烟**:`bun run test:integration smoke`(在 `apps/desktop` 下;会先 build)启动真实 Electron(Linux 在 xvfb 下,macOS 上窗口隐藏、不抢焦点),走一遍连接、新建、发消息、批准。
 - **真实模型的运行**:`CYCLE_REAL_MODEL_TOKEN=… bun run test:real`(在 `apps/desktop` 下,先在根目录 build);
   `SHOT_TO=/路径.png` 把窗口截图存下来。用法见 `docs/desktop.md`。
 - **在 Mac 上**:打包出来的应用(`bun run build`,或从发布里下载)是用户真正看到的东西,窗口装饰、字体、深色模式以它为准。

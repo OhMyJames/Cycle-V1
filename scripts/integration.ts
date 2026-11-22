@@ -1,5 +1,5 @@
-// `bun run test:integration`: the tests that start real processes (Claude, a daemon, Electron under
-// xvfb). They are not in the gate: each takes seconds to a minute and the heaviest holds about 1.5 GB.
+// `bun run test:integration`: the tests that start real processes (Claude, a daemon, Electron: under xvfb on
+// Linux, hidden and out of the Dock on macOS). They are not in the gate: each takes seconds to a minute and the heaviest holds about 1.5 GB.
 //
 // Serial on purpose: the target is a 2-core, 4 GB machine, where running two Electron stacks at once
 // would not finish sooner and could be killed for memory. Each suite has a deadline of its own, so a
@@ -7,7 +7,7 @@
 //   bun run test:integration          all of them
 //   bun run test:integration smoke    only those whose name contains "smoke"
 // Options: --strict (a suite that was skipped, or ran no test, fails: for a machine that is meant to have
-// Electron, xvfb and sshd), --summary <file> (a markdown table of the result: CI's step summary).
+// Electron, sshd and, on Linux, xvfb), --summary <file> (a markdown table of the result: CI's step summary).
 // The list of suites, and what a suite's result means, are in integration-suites.ts.
 
 import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
