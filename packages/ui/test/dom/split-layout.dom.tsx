@@ -8,6 +8,7 @@ import { I18nProvider } from "../../src/react/i18n.tsx";
 import { PanelTabs } from "../../src/react/panel-tabs.tsx";
 import {
   fitColumns,
+  foldedByWindow,
   MAIN_MIN,
   PANEL,
   SIDEBAR,
@@ -59,6 +60,16 @@ describe("fitColumns", () => {
       panel: PANEL.min,
       sidebarFolded: false,
     });
+  });
+});
+
+describe("foldedByWindow", () => {
+  test("the user's own change to the sidebar makes its fold the user's; a change elsewhere does not", () => {
+    // The window folded it; the user drags the panel's handle: still the window's, given back when there is room.
+    expect(foldedByWindow(true, true, true)).toBe(true);
+    // The user shows it (⌘B), or hides it again: the user's from then on, and not reopened by a wider window.
+    expect(foldedByWindow(true, true, false)).toBe(false);
+    expect(foldedByWindow(false, false, true)).toBe(false);
   });
 });
 

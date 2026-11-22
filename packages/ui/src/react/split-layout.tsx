@@ -42,6 +42,39 @@ export const fitColumns = (
   };
 };
 
+const FOLDED_KEY = "cycle-layout-folded";
+const readFolded = (): boolean => {
+  try {
+    return globalThis.localStorage?.getItem(FOLDED_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+const writeFolded = (value: boolean) => {
+  try {
+    if (value) globalThis.localStorage?.setItem(FOLDED_KEY, "1");
+    else globalThis.localStorage?.removeItem(FOLDED_KEY);
+  } catch {}
+};
+
+/**
+ * After a change the user made (a drag, a key, the sidebar button, ⌘B): whether the sidebar's fold is still the window's.
+ * Only a change to the sidebar itself makes it the user's; a drag of the panel's handle while the window has the sidebar
+ * folded leaves that fold the window's, to give back when there is room.
+ */
+export const foldedByWindow = (byWindow: boolean, wasFolded: boolean, folded: boolean): boolean =>
+  folded === wasFolded ? byWindow : false;
+
+/** Records who folded the sidebar: `true` the window, `false` the user (or nobody). */
+const foldBy = (folded: { current: boolean }, byWindow: boolean) => {
+  folded.current = byWindow;
+  writeFolded(byWindow);
+};
+
+const widthIn = (group: HTMLElement, id: string) =>
+  group.querySelector<HTMLElement>(`[data-slot="resizable-panel"]#${id}`)?.getBoundingClientRect()
+    .width ?? 0;
+
 export type SplitPanel = {
   /** What the panel holds: its tabs. */
   content: ReactNode;
@@ -61,38 +94,51 @@ export function SplitLayout({
 }) {
   const { t } = useI18n();
   const groupRef = useRef<HTMLDivElement>(null);
-  // What the user left the sidebar and the panel at, and whether the window folded the sidebar (not the user).
+  // What the user left the sidebar and the panel at: read from the page when the columns attach (the SDK has restored
+  // the saved layout by then), and from every change the user makes.
   const want = useRef<{ sidebar: number; panel: number }>({
     sidebar: SIDEBAR.default,
     panel: PANEL.default,
   });
-  const folded = useRef(false);
+  // Whether the window folded the sidebar (not the user). Kept beside the saved layout, which saves the fold too: after
+  // a restart a fold the window made is still the window's, and comes back when there is room.
+  const folded = useRef(readFolded());
+  // The changes this component asked for: their commits are not the user's.
+  const ours = useRef(0);
+  const sidebarWasFolded = useRef(false);
   const open = panel !== undefined;
 
   useEffect(() => {
     const group = groupRef.current;
     if (group === null || typeof ResizeObserver === "undefined") return;
-    const sizeOf = (id: string) =>
-      group
-        .querySelector<HTMLElement>(`[data-slot="resizable-panel"]#${id}`)
-        ?.getBoundingClientRect().width ?? 0;
+    const widthOf = (id: string) => widthIn(group, id);
+    sidebarWasFolded.current = controller.isCollapsed("sidebar");
+    if (!sidebarWasFolded.current && widthOf("sidebar") > 0)
+      want.current.sidebar = widthOf("sidebar");
+    if (open && widthOf("panel") > 0) want.current.panel = widthOf("panel");
     const fit = () => {
       const width = group.getBoundingClientRect().width;
       if (width === 0) return;
-      const userFolded = controller.isCollapsed("sidebar") && !folded.current;
+      const collapsed = controller.isCollapsed("sidebar");
+      const userFolded = collapsed && !folded.current;
       const next = fitColumns(width, {
         sidebar: userFolded ? 0 : want.current.sidebar,
         panel: open ? want.current.panel : 0,
       });
-      if (next.sidebarFolded && !controller.isCollapsed("sidebar")) {
-        folded.current = true;
+      if (next.sidebarFolded && !collapsed) {
+        foldBy(folded, true);
+        ours.current++;
         controller.collapse("sidebar");
-      } else if (!next.sidebarFolded && folded.current) {
-        folded.current = false;
+      } else if (!next.sidebarFolded && folded.current && collapsed) {
+        foldBy(folded, false);
+        ours.current++;
         controller.expand("sidebar");
       }
-      if (open && Math.abs(sizeOf("panel") - next.panel) > 1)
+      sidebarWasFolded.current = controller.isCollapsed("sidebar");
+      if (open && Math.abs(widthOf("panel") - next.panel) > 1) {
+        ours.current++;
         controller.resize("panel", `${next.panel}px`);
+      }
     };
     const observer = new ResizeObserver(fit);
     observer.observe(group);
@@ -106,18 +152,21 @@ export function SplitLayout({
         controller={controller}
         autoSaveId="cycle-layout"
         onLayoutCommit={(_layout, details) => {
-          // A size the user chose is what the window gives back when it widens; one it forced is not.
-          if (details.reason === "imperative" || details.reason === "resize") return;
+          if (ours.current > 0) {
+            ours.current--;
+            return;
+          }
+          // Everything else is the user's: a drag, a key, the sidebar button or ⌘B. The window's own resizing moves
+          // nothing the user chose.
+          const collapsed = controller.isCollapsed("sidebar");
+          const byWindow = foldedByWindow(folded.current, sidebarWasFolded.current, collapsed);
+          if (byWindow !== folded.current) foldBy(folded, byWindow);
+          sidebarWasFolded.current = collapsed;
           const group = groupRef.current;
-          if (group === null) return;
-          const widthOf = (id: string) =>
-            group
-              .querySelector<HTMLElement>(`[data-slot="resizable-panel"]#${id}`)
-              ?.getBoundingClientRect().width ?? 0;
-          const sidebar = widthOf("sidebar");
-          if (sidebar > 0) want.current.sidebar = sidebar;
+          if (details.reason === "resize" || group === null) return;
+          const widthOf = (id: string) => widthIn(group, id);
+          if (!collapsed && widthOf("sidebar") > 0) want.current.sidebar = widthOf("sidebar");
           if (open && widthOf("panel") > 0) want.current.panel = widthOf("panel");
-          folded.current = false;
         }}
       >
         <ResizablePanel
