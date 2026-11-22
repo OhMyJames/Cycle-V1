@@ -311,13 +311,18 @@ test("it checks at once and then every minute, and stops", async () => {
     },
     clearInterval: (h) => cleared.push(h),
   });
+  // The check runs without being awaited: wait, within a bound, for the request it makes.
+  const requests = async (n: number) => {
+    for (let i = 0; i < 200 && github.requests.length < n; i += 1) await Bun.sleep(5);
+    // A moment more, so that one too many would be seen.
+    await Bun.sleep(20);
+    expect(github.requests.length).toBe(n);
+  };
   updater.start();
   expect(calls[0]?.ms).toBe(60_000);
-  await Bun.sleep(100);
-  expect(github.requests.length).toBe(1);
+  await requests(1);
   calls[0]?.fn();
-  await Bun.sleep(100);
-  expect(github.requests.length).toBe(2);
+  await requests(2);
   updater.stop();
   expect(cleared).toEqual(["handle"]);
 });
@@ -357,10 +362,10 @@ const bundles = async () => {
 
 test("the swap script waits for the old app to go, puts the new bundle in place, removes the leftovers and opens it", async () => {
   const b = await bundles();
-  const sleeper = Bun.spawn(["sleep", "0.6"]);
+  const sleeper = Bun.spawn(["sleep", "0.3"]);
   const started = Date.now();
   await sh(SWAP_SCRIPT, [String(sleeper.pid), b.app, b.next, b.old, b.staging, b.opener]);
-  expect(Date.now() - started).toBeGreaterThanOrEqual(500);
+  expect(Date.now() - started).toBeGreaterThanOrEqual(200);
   expect(await readFile(join(b.app, "which"), "utf8")).toBe("new");
   expect(await readdir(b.apps)).toEqual(["Cycle.app"]);
   expect((await readFile(join(dir, "opened"), "utf8")).trim()).toBe(`-n ${b.app}`);

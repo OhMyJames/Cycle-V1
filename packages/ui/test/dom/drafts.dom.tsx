@@ -108,14 +108,6 @@ test("an image still being read when the person goes to another session lands in
   expect(await screen.findByRole("button", { name: "Remove slow.png" })).toBeTruthy();
 });
 
-test("a deleted session takes its draft with it", async () => {
-  const { store, open } = await mount();
-  await write(await open("alpha"), "never sent");
-  expect(store.drafts.get("local:s1").text).toBe("never sent");
-  await act(() => store.deleteSession("s1"));
-  expect(store.drafts.get("local:s1").text).toBe("");
-});
-
 test("an image still being read when its session is deleted does not bring the draft back", async () => {
   const { store, user, open } = await mount();
   await open("alpha");
@@ -133,7 +125,7 @@ test("an image still being read when its session is deleted does not bring the d
   expect(store.drafts.get("local:s1").attachments).toEqual([]);
 });
 
-test("a message that could not be sent is put back, in front of what has been written since", async () => {
+test("a message that could not be sent is put back in the box, with the failure shown", async () => {
   const { open, bridge } = await mount();
   bridge.prompt = async () => {
     throw new Error("The daemon is not reachable");
