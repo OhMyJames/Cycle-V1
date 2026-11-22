@@ -571,6 +571,27 @@ test("the default model is the model it stands for, with its version, not an opt
       ["sonnet", "Sonnet 5.5"],
     ]);
     expect(model?.currentValue).toBe("default");
+
+    // Pinned to the model `default` stands for: the pin keeps its own row, so it is seen and `default` can be chosen.
+    const answer = (await agent.request(methods.agent.session.setConfigOption, {
+      sessionId: ID,
+      configId: "model",
+      type: "id",
+      value: "opus",
+    } as never)) as {
+      configOptions: {
+        configId: string;
+        currentValue: string;
+        options: { value: string; name: string }[];
+      }[];
+    };
+    const pinned = answer.configOptions.find((o) => o.configId === "model");
+    expect(pinned?.currentValue).toBe("opus");
+    expect(pinned?.options.map((o) => [o.value, o.name])).toEqual([
+      ["default", "Opus 5.5 (default)"],
+      ["opus", "Opus 5.5"],
+      ["sonnet", "Sonnet 5.5"],
+    ]);
   });
 });
 

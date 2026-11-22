@@ -304,26 +304,28 @@ const findModelInfo = (
 const versionedName = (m: ModelInfo): string => {
   const name = m.displayName || m.value;
   const lead = m.description?.split(" · ")[0]?.trim();
+  // Only the name and a version ("Opus 5.5"), never a phrase that happens to start with the name.
   return lead !== undefined &&
-    lead.length > name.length &&
-    lead.toLowerCase().startsWith(name.toLowerCase())
+    lead.toLowerCase().startsWith(`${name.toLowerCase()} `) &&
+    /^\d+(\.\d+)*$/.test(lead.slice(name.length + 1))
     ? lead
     : name;
 };
 
-/** The alias row that `default` stands for, when the SDK says it is the same model (`resolvedModel`). */
-const aliasOfDefault = (models: readonly ModelInfo[]): ModelInfo | undefined => {
+/** The rows that are the model `default` stands for, when the SDK says so (`resolvedModel`). */
+const aliasesOfDefault = (models: readonly ModelInfo[]): readonly ModelInfo[] => {
   const fallback = models.find((m) => m.value === "default");
-  if (fallback?.resolvedModel === undefined) return undefined;
-  return models.find((m) => m.value !== "default" && m.resolvedModel === fallback.resolvedModel);
+  if (fallback?.resolvedModel === undefined) return [];
+  return models.filter((m) => m.value !== "default" && m.resolvedModel === fallback.resolvedModel);
 };
 
 /**
  * The list as offered: `default` is not an option of its own but the model it stands for, "Opus 5.5 (default)", with the
- * alias row it duplicates folded into it. When the SDK does not say which model that is, `default` keeps a row of its own.
+ * rows it duplicates folded into it. A session pinned to one of those rows keeps it, so the pin is seen and `default`
+ * can still be chosen. When the SDK does not say which model `default` is, it keeps a row of its own.
  */
-const discoveredModelOptions = (models: readonly ModelInfo[]) => {
-  const alias = aliasOfDefault(models);
+const discoveredModelOptions = (models: readonly ModelInfo[], pinned: string | undefined) => {
+  const aliases = aliasesOfDefault(models);
   const row = (m: ModelInfo) => {
     const efforts = effortLevelsOf(m);
     return {
@@ -334,34 +336,23 @@ const discoveredModelOptions = (models: readonly ModelInfo[]) => {
     };
   };
   const out: ReturnType<typeof row>[] = [];
-  const hasDefault = models.some((m) => m.value === "default");
-  if (!hasDefault) out.push({ ...DEFAULT_MODEL_OPTION });
+  if (!models.some((m) => m.value === "default")) out.push({ ...DEFAULT_MODEL_OPTION });
   for (const m of models) {
-    if (m === alias) continue;
+    if (aliases.includes(m) && m.value !== pinned) continue;
     if (m.value !== "default") {
       out.push(row(m));
       continue;
     }
-    const named = alias ?? m;
+    const named = aliases[0];
     const current = /currently ([^)]+)\)/.exec(m.description ?? "")?.[1]?.trim();
-    const base = alias !== undefined ? versionedName(alias) : current;
+    const base = named !== undefined ? versionedName(named) : current;
     out.push({
       ...row(m),
       name: base === undefined ? DEFAULT_MODEL_OPTION.name : `${base} (default)`,
-      ...(named.description ? { description: named.description } : {}),
+      ...(named?.description ? { description: named.description } : {}),
     });
   }
   return out;
-};
-
-/** The model the session shows: the alias that `default` is folded into is `default`. */
-const shownModel = (
-  session: SessionState,
-  discovered: readonly ModelInfo[] | undefined,
-): string => {
-  const model = session.model ?? "default";
-  const alias = discovered === undefined ? undefined : aliasOfDefault(discovered);
-  return alias !== undefined && alias.value === model ? "default" : model;
 };
 
 const modelOptions = (
@@ -380,11 +371,10 @@ const modelOptions = (
     _meta?: Record<string, unknown>;
   }[] =
     discovered !== undefined && discovered.length > 0
-      ? discoveredModelOptions(discovered)
+      ? discoveredModelOptions(discovered, session.model)
       : CLAUDE_MODELS.map((m) => ({ ...m }));
-  const model = shownModel(session, discovered);
-  if (base.some((m) => m.value === model)) return base;
-  return [...base, { value: model, name: model, _meta: { "cycle/custom": true } }];
+  if (session.model === undefined || base.some((m) => m.value === session.model)) return base;
+  return [...base, { value: session.model, name: session.model, _meta: { "cycle/custom": true } }];
 };
 
 /**
@@ -458,7 +448,7 @@ const configOptions = (
       configId: "model",
       name: "Model",
       type: "select",
-      currentValue: shownModel(session, discovered),
+      currentValue: session.model ?? "default",
       options: modelOptions(session, discovered),
     },
     {

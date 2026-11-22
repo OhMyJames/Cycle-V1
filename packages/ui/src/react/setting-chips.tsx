@@ -35,7 +35,6 @@ function SettingPickerChip({
   align = "start",
   disabled,
   onSet,
-  asValue = (value) => value,
 }: {
   settingKey: string;
   heading: string;
@@ -48,8 +47,6 @@ function SettingPickerChip({
   align?: "start" | "end";
   disabled: boolean;
   onSet: SetSetting;
-  /** What a choice in the list asks the agent for, when not the choice's own value (the effort that is the default). */
-  asValue?: ((value: string) => string) | undefined;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -75,7 +72,7 @@ function SettingPickerChip({
   const choose = (value: string) => {
     setAsked(value);
     // Settled with no change (refused, say): nothing is on its way any more, so the same choice can be made again.
-    void Promise.resolve(onSet(settingKey, asValue(value))).finally(() =>
+    void Promise.resolve(onSet(settingKey, value)).finally(() =>
       setAsked((now) => (now === value ? undefined : now)),
     );
   };
@@ -158,13 +155,13 @@ type ChoiceEntry = {
   current: string | undefined;
 };
 
+/** The effort Claude Code runs at when none is asked for (measured; docs/protocol.md §10). */
+const DEFAULT_EFFORT_LEVEL_AS = "medium";
+
 /**
  * The effort levels a model takes, from its `cycle/efforts` (docs/protocol.md §10): `undefined` when the model does not
  * say, so every level stays; `[]` when it takes none.
  */
-/** The effort Claude Code runs at when none is asked for. */
-const DEFAULT_EFFORT_LEVEL_AS = "medium";
-
 const effortsFor = (models: readonly Option[], model: string | undefined) =>
   model === undefined ? undefined : models.find((m) => m.value === model)?.efforts;
 
@@ -209,8 +206,7 @@ export function SettingChips({
     if (side === "right" && !isRight) return null;
     let options = entry.options;
     let valueLabel: string | undefined;
-    let current = entry.current;
-    let asValue: ((value: string) => string) | undefined;
+    const current = entry.current;
     if (entry.key === "effort" && modelEntry !== undefined) {
       if (levels !== undefined)
         options = options.filter(
@@ -219,21 +215,29 @@ export function SettingChips({
         );
       if (options.length <= 1) return null;
       // `default` is no level of its own: it is the level Claude Code uses unless told otherwise, which is the
-      // medium one (measured; the agent does not name it, docs/protocol.md §10). That level is listed as "(default)",
-      // and choosing it clears the override. A model with no medium keeps a "Model default" row.
+      // medium one (measured; the agent does not name it, docs/protocol.md §10). So the `default` row takes medium's
+      // place, written "medium (default)". A session set to medium itself keeps a medium row too, or that could not be
+      // seen nor cleared. A model with no medium keeps a "Model default" row.
       if (
         options.some((o) => o.value === DEFAULT_EFFORT_LEVEL_AS) &&
         (levels === undefined || levels.includes(DEFAULT_EFFORT_LEVEL_AS))
       ) {
-        options = options
-          .filter((o) => o.value !== "default")
-          .map((o) =>
-            o.value === DEFAULT_EFFORT_LEVEL_AS
-              ? { ...o, label: t("composer.default.suffix", { name: o.label }) }
-              : o,
-          );
-        if (entry.current === "default") current = DEFAULT_EFFORT_LEVEL_AS;
-        asValue = (value) => (value === DEFAULT_EFFORT_LEVEL_AS ? "default" : value);
+        const medium = options.find((o) => o.value === DEFAULT_EFFORT_LEVEL_AS);
+        options = options.flatMap((o) => {
+          if (o.value === "default") return [];
+          if (o.value !== DEFAULT_EFFORT_LEVEL_AS) return [o];
+          const asDefault = options.find((d) => d.value === "default");
+          const row =
+            asDefault === undefined
+              ? []
+              : [
+                  {
+                    ...asDefault,
+                    label: t("composer.default.suffix", { name: medium?.label ?? o.label }),
+                  },
+                ];
+          return entry.current === DEFAULT_EFFORT_LEVEL_AS ? [...row, o] : row;
+        });
       } else {
         options = options.map((o) =>
           o.value === "default" ? { ...o, label: t("composer.effort.modelDefault") } : o,
@@ -248,7 +252,6 @@ export function SettingChips({
         heading={entry.heading}
         options={options}
         current={current}
-        asValue={asValue}
         valueLabel={valueLabel}
         // The model and its effort are read by name; what a level does is in its title.
         compact={isRight}

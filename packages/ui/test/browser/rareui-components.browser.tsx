@@ -571,7 +571,12 @@ describe("SettingChips picker", () => {
       ["effort", "high"],
       ["effort", "default"],
     ]);
+    // Set to medium itself: a row of its own beside the default, so it is seen and can be cleared.
     rerender(render({ model: "odd", effort: "medium" }));
+    expect(await levels()).toEqual(["low", "medium (default)", "medium", "high", "max"]);
+    await user.click(screen.getByRole("button", { name: /^Effort:/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "medium (default)" }));
+    expect(calls.at(-1)).toEqual(["effort", "default"]);
 
     // A level the model does not list, still in force until the agent answers, is shown as it is, not as "Not set".
     rerender(render({ model: "opus", effort: "medium" }));
