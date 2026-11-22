@@ -202,6 +202,8 @@ export class ConnectionManager
       | "track"
       | "analytics"
       | "setAnalytics"
+      | "preferences"
+      | "setPreferences"
     >
 {
   readonly #options: ManagerOptions;

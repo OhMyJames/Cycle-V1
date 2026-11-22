@@ -355,6 +355,29 @@ const main = async () => {
     await waitFor("the conversation back", `${has(hello)} && ${has(finished)}`);
     out({ step: "reloaded", ok: true });
 
+    // The look, chosen in Settings as a person does: main makes the whole window light or dark, which the page's own
+    // media query then says. The language, kept by main: after a reload the page's words are in it, without a restart.
+    const dark = `matchMedia('(prefers-color-scheme: dark)').matches`;
+    const theme = (name: string) =>
+      `[...document.querySelectorAll('[role="radio"]')].find((r) => r.textContent === '${name}')`;
+    await click(`document.querySelector('[data-kind="settings-open"]')`);
+    await waitFor("the settings page", `document.querySelector('[data-kind="page"]') !== null`);
+    await click(
+      `[...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent === 'Appearance')`,
+    );
+    await waitFor("the theme choice", theme("Light"));
+    await click(theme("Light"));
+    await waitFor("the light theme", `!${dark}`);
+    await click(theme("Dark"));
+    await waitFor("the dark theme", dark);
+    await run(`window.cycle.setPreferences({ language: 'zh-CN' })`);
+    await run("location.reload()").catch(() => undefined);
+    await waitFor(
+      "the app in Chinese",
+      `document.documentElement.lang === 'zh-CN' && [...document.querySelectorAll('button')].some((b) => ${NAME_OF}(b) === '搜索会话')`,
+    );
+    out({ step: "preferences", ok: (await run<boolean>(dark)) === true });
+
     const shot = await contents.capturePage();
     await writeFile(join(env.SMOKE_HOME as string, "shot.png"), shot.toPNG());
     out({ step: "done" });

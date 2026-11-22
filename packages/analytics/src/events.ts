@@ -25,7 +25,7 @@ const panel = z.enum([
   "connectors",
 ]);
 /** The sections of the settings page (CYCL-78): fixed words, as `SETTINGS_SECTIONS` of @cycle/ui lists them. */
-const settingsSection = z.enum(["general", "appearance", "environments", "defaults"]);
+const settingsSection = z.enum(["general", "appearance", "environments", "defaults", "shortcuts"]);
 /** The kinds of tab in the right panel (CYCL-90): a fixed word, never a tab's title or what it shows. */
 const panelTab = z.enum(["overview", "files", "diff", "terminal", "browser"]);
 const connectorTransport = z.enum(["http", "stdio"]);
@@ -46,6 +46,10 @@ export const EVENTS = {
   /** The person asked to check for an update. */
   update_checked: o({ result: z.enum(["available", "up_to_date", "error", "disabled"]) }),
   update_install_started: o({}),
+  /** The person chose light, dark, or to follow the system. */
+  theme_changed: o({ theme: z.enum(["system", "light", "dark"]) }),
+  /** The person chose the interface's language: one of those the app has, or the system's. */
+  language_changed: o({ language: z.enum(["system", "en-US", "zh-CN"]) }),
 
   // ---- environments ----
   environment_saved: o({ transport: z.enum(["ssh"]) }),

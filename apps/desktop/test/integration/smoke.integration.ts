@@ -104,6 +104,7 @@ test.skipIf(!ready)(
           "onEvent",
           "openSession",
           "planUsage",
+          "preferences",
           "prompt",
           "readTrust",
           "removeConnector",
@@ -115,6 +116,7 @@ test.skipIf(!ready)(
           "sessions",
           "setAgentDefaults",
           "setAnalytics",
+          "setPreferences",
           "setSessionConfig",
           "setTrust",
           "signOutConnector",
@@ -133,6 +135,7 @@ test.skipIf(!ready)(
       expect(String(step("permission")?.text)).toContain("touch made-by-the-agent.txt");
       expect(String(step("allowed")?.text)).toContain("All done");
       expect(step("reloaded")?.ok).toBe(true);
+      expect(step("preferences")?.ok).toBe(true);
       // Allowing it really ran it.
       expect(existsSync(join(cwd, "made-by-the-agent.txt"))).toBe(true);
       // The folder was trusted in the dialog: on record in the daemon, and where Claude looks for it.

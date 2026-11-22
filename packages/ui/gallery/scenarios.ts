@@ -37,6 +37,8 @@ export type Scenario = {
   update?: UpdateState;
   /** Usage statistics have somewhere to report to, and are on: Settings shows their switch. */
   analytics?: boolean;
+  /** The language the person chose for the interface. Without it: the system's, which here is en-US. */
+  language?: "zh-CN";
   /** The agent takes images: the composer shows how to attach them. */
   attach?: boolean;
   /** The environment has no available agent: the blank view explains why and offers a re-check. */
@@ -1773,6 +1775,25 @@ export const scenarios: Record<string, Scenario> = {
     sessions: [],
     update: { current: "0.0.0", kind: "disabled", reason: "Updates are for the installed app." },
     after: (root) => openSettings(root),
+  },
+  "settings-general-zh": {
+    title: "Settings, General, in Chinese: the language is chosen, an update is ready",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    update: { current: "0.3.11", kind: "available", version: "0.3.12" },
+    analytics: true,
+    language: "zh-CN",
+    after: (root) => openSettings(root),
+  },
+  "settings-shortcuts": {
+    title: "Settings, Keyboard shortcuts: every shortcut and its keys",
+    sessions: [],
+    after: (root) => openSettings(root, "Keyboard shortcuts"),
+  },
+  "conversation-zh": {
+    title: "A conversation with the interface in Chinese (what the agent wrote stays as it came)",
+    sessions: [session("s1", { title: "Fix the remote session" })],
+    history: conversation,
+    language: "zh-CN",
   },
   "settings-appearance": {
     title: "Settings, Appearance: the colours of code, with a sample",

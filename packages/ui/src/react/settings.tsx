@@ -5,6 +5,11 @@ import { Button } from "@ui-sdk/react/button";
 import { Field, FieldLabel } from "@ui-sdk/react/field";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
 import {
+  SegmentedControl,
+  SegmentedControlIndicator,
+  SegmentedControlItem,
+} from "@ui-sdk/react/segmented-control";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -20,14 +25,23 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { AgentInfo, EnvironmentConfig, EnvironmentStatus } from "../api.ts";
+import {
+  type AgentInfo,
+  type EnvironmentConfig,
+  type EnvironmentStatus,
+  type LanguageChoice,
+  THEME_CHOICES,
+  type ThemeChoice,
+} from "../api.ts";
 import { CODE_THEMES, type CodeThemeId, codeTheme } from "../code-theme.ts";
+import { LANGUAGES, resolveLanguage } from "../languages.ts";
 import { ConfigForm } from "./config-form.tsx";
 import { ConfirmDialog } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
 import { MoreIcon } from "./icons.tsx";
 import { Markdown } from "./markdown.tsx";
 import { PageGroup, PageLayout, PageRow, PageRows, type PageSection } from "./page-layout.tsx";
+import { MOD } from "./sidebar.tsx";
 import { StateBlock } from "./state-block.tsx";
 import { ENVIRONMENT_STATE, StatusDot } from "./status.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
@@ -35,7 +49,13 @@ import { Tip } from "./tip.tsx";
 import { updateLine } from "./update.tsx";
 
 /** The sections, in the order they are listed. The words are also what the analytics name them by. */
-export const SETTINGS_SECTIONS = ["general", "appearance", "environments", "defaults"] as const;
+export const SETTINGS_SECTIONS = [
+  "general",
+  "appearance",
+  "environments",
+  "defaults",
+  "shortcuts",
+] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export type SettingsPageProps = {
@@ -69,6 +89,7 @@ export function SettingsPage(props: SettingsPageProps) {
         onShowEnvironments={() => props.onSection("environments")}
       />
     ),
+    shortcuts: <ShortcutsSection />,
   };
   return (
     <PageLayout
@@ -113,6 +134,7 @@ function GeneralSection() {
         : updateLine(update, t);
   return (
     <>
+      <LanguageGroup />
       {update !== undefined ? (
         <PageGroup title={t("settings.updates")}>
           <PageRows>
@@ -176,6 +198,56 @@ function GeneralSection() {
   );
 }
 
+/**
+ * The interface's language: the system's, or one the app has. Each is named in its own words. What an agent writes, and
+ * what a system or a remote machine says in its own words, stays as it came.
+ */
+function LanguageGroup() {
+  const store = useAppStore();
+  const { t } = useI18n();
+  const preferences = useAppState((s) => s.preferences);
+  const label = useId();
+  if (preferences === undefined) return null;
+  const followed = LANGUAGES.find(
+    (l) => l.id === resolveLanguage("system", preferences.systemLanguage),
+  );
+  const items = [
+    { value: "system", label: t("settings.language.system", { language: followed?.name ?? "" }) },
+    ...LANGUAGES.map((l) => ({ value: l.id as string, label: l.name })),
+  ];
+  return (
+    <PageGroup>
+      <PageRows>
+        <PageRow
+          label={t("settings.language")}
+          labelId={label}
+          description={t("settings.language.description")}
+        >
+          <Select
+            items={items}
+            value={preferences.language}
+            onValueChange={(next) => {
+              if (typeof next === "string" && next !== preferences.language)
+                void store.setPreferences({ language: next as LanguageChoice });
+            }}
+          >
+            <SelectTrigger aria-labelledby={label}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {items.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </PageRow>
+      </PageRows>
+    </PageGroup>
+  );
+}
+
 /** Not an agent's words: a few lines of ours, so the choice of colours can be seen where it is made. */
 const CODE_SAMPLE = [
   "```ts",
@@ -191,10 +263,35 @@ function AppearanceSection() {
   const store = useAppStore();
   const { t } = useI18n();
   const current = useSyncExternalStore(codeTheme.subscribe, codeTheme.get, codeTheme.get);
+  const preferences = useAppState((s) => s.preferences);
   const label = useId();
+  const themeLabel = useId();
   return (
     <PageGroup>
       <PageRows>
+        {preferences !== undefined ? (
+          <PageRow
+            label={t("settings.theme")}
+            labelId={themeLabel}
+            description={t("settings.theme.description")}
+          >
+            <SegmentedControl
+              aria-labelledby={themeLabel}
+              value={preferences.theme}
+              onValueChange={(next) => {
+                if (typeof next === "string" && next !== preferences.theme)
+                  void store.setPreferences({ theme: next as ThemeChoice });
+              }}
+            >
+              <SegmentedControlIndicator />
+              {THEME_CHOICES.map((theme) => (
+                <SegmentedControlItem key={theme} value={theme}>
+                  {t(`settings.theme.${theme}`)}
+                </SegmentedControlItem>
+              ))}
+            </SegmentedControl>
+          </PageRow>
+        ) : null}
         <PageRow
           label={t("codeTheme.label")}
           labelId={label}
@@ -550,5 +647,60 @@ function AgentDefaultsFields({
         </span>
       </div>
     </form>
+  );
+}
+
+/** A key as it is written here: the modifier is ⌘ on a Mac and Ctrl elsewhere. Names of keys are not translated. */
+const keysOf = (keys: string): string[] =>
+  keys.split(" ").map((key) => (key === "mod" ? (MOD === "⌘" ? "⌘" : "Ctrl") : key));
+
+/** Every shortcut the app has (DESIGN.md §5.4), by what it is for. They cannot be changed here: this is where to look them up. */
+const SHORTCUTS: readonly { group: string; rows: readonly { action: string; keys: string }[] }[] = [
+  {
+    group: "settings.shortcuts.app",
+    rows: [
+      { action: "settings.shortcuts.newSession", keys: "mod N" },
+      { action: "settings.shortcuts.search", keys: "mod K" },
+      { action: "settings.shortcuts.settings", keys: "mod ," },
+      { action: "settings.shortcuts.sidebar", keys: "mod B" },
+      { action: "settings.shortcuts.panel", keys: "mod \\" },
+      { action: "settings.shortcuts.previous", keys: "mod [" },
+      { action: "settings.shortcuts.next", keys: "mod ]" },
+    ],
+  },
+  {
+    group: "settings.shortcuts.session",
+    rows: [
+      { action: "settings.shortcuts.focus", keys: "mod L" },
+      { action: "settings.shortcuts.send", keys: "Enter" },
+      { action: "settings.shortcuts.newline", keys: "Shift Enter" },
+      { action: "settings.shortcuts.queue", keys: "mod Enter" },
+      { action: "settings.shortcuts.allow", keys: "mod Enter" },
+      { action: "settings.shortcuts.stop", keys: "mod ." },
+      { action: "settings.shortcuts.recall", keys: "↑" },
+    ],
+  },
+];
+
+function ShortcutsSection() {
+  const { t } = useI18n();
+  return (
+    <>
+      {SHORTCUTS.map((group) => (
+        <PageGroup key={group.group} title={t(group.group)}>
+          <PageRows>
+            {group.rows.map((row) => (
+              <PageRow key={row.action} label={t(row.action)}>
+                <span data-slot="keys">
+                  {keysOf(row.keys).map((key) => (
+                    <kbd key={key}>{key}</kbd>
+                  ))}
+                </span>
+              </PageRow>
+            ))}
+          </PageRows>
+        </PageGroup>
+      ))}
+    </>
   );
 }

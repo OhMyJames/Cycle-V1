@@ -16,20 +16,21 @@ bun run start                          # 启动桌面端
 - 本地 host 通过 `cycle proxy` 连接(没有 daemon 在运行就先启动)。用哪个 daemon,取第一个存在的:`CYCLE_DAEMON_BIN`;`apps/daemon/dist` 里构建出的可执行文件;源码(`bun apps/daemon/src/main.ts`,开发时,可用 `CYCLE_BUN`、`CYCLE_DAEMON_MAIN` 覆盖)。数据目录:`CYCLE_HOME` 设了就用它;没设时,安装的应用用 daemon 的默认(`~/.cycle`),从源码运行(`bun run start`)用 `~/.cycle-dev`,所以开发时的 daemon、socket 和会话不会碰到安装版正在跑的那个。开发版因此没有稳定版的凭证配置(`config.json` 在数据目录里):要么在 `~/.cycle-dev` 里另写一份,要么显式设 `CYCLE_HOME` 指向要用的目录。
 - 在 xvfb 下用构建出的 daemon 启动过:Electron 起来,`proxy` 起 `serve`,数据目录里有 socket 和 pid。
 - 远程 host 用系统的 `ssh`(`BatchMode=yes`,没有密码提示),在远端运行 `cycle proxy`;命令可在"Add environment"里改。
-- 设置(host 列表)在 Electron 的 `userData/settings.json`。
+- 设置在 Electron 的 `userData` 里:环境列表在 `settings.json`,外观和语言在 `preferences.json`(`{ "theme": "system" | "light" | "dark", "language": "system" | "en-US" | "zh-CN" }`,见"设置页"),统计的开关和匿名 id 在 `analytics.json`。
 
 ## 结构
 
-| 部分                                  | 作用                                                                                                             |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `apps/desktop/src/main/manager.ts`    | `ConnectionManager`:每个 host 一个 `CycleClient`,以及每个被观看 session 的会话。不依赖 Electron,用真 daemon 测试 |
-| `apps/desktop/src/main/app.ts`        | 窗口、安全设置、IPC;只有它知道怎么连各种 host                                                                    |
-| `apps/desktop/src/main/analytics.ts`  | 埋点的接线:匿名 id、开关、key 从哪来。事件字典和规则见 [analytics.md](analytics.md)                              |
-| `apps/desktop/src/preload/preload.ts` | 给页面一个对象 `window.cycle`(`AppApi` 的方法加 `onEvent`),没有别的                                              |
-| `packages/ui/src/api.ts`              | main 与页面之间的契约(只有类型和方法名)                                                                          |
-| `packages/ui/src/model/`              | 会话模型:把 ACP v2 的 `session/update` 累加成对话。纯 TS,没有 React,main 也用它                                  |
-| `packages/ui/src/store/`              | 页面的状态和动作。没有 React,用假桥接测试                                                                        |
-| `packages/ui/src/react/`              | 组件(ui-sdk,Streamdown)                                                                                          |
+| 部分                                   | 作用                                                                                                             |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `apps/desktop/src/main/manager.ts`     | `ConnectionManager`:每个 host 一个 `CycleClient`,以及每个被观看 session 的会话。不依赖 Electron,用真 daemon 测试 |
+| `apps/desktop/src/main/app.ts`         | 窗口、安全设置、IPC;只有它知道怎么连各种 host                                                                    |
+| `apps/desktop/src/main/preferences.ts` | 外观和语言:读写 `preferences.json`,启动时和改动时应用主题。不依赖 Electron                                       |
+| `apps/desktop/src/main/analytics.ts`   | 埋点的接线:匿名 id、开关、key 从哪来。事件字典和规则见 [analytics.md](analytics.md)                              |
+| `apps/desktop/src/preload/preload.ts`  | 给页面一个对象 `window.cycle`(`AppApi` 的方法加 `onEvent`),没有别的                                              |
+| `packages/ui/src/api.ts`               | main 与页面之间的契约(只有类型和方法名)                                                                          |
+| `packages/ui/src/model/`               | 会话模型:把 ACP v2 的 `session/update` 累加成对话。纯 TS,没有 React,main 也用它                                  |
+| `packages/ui/src/store/`               | 页面的状态和动作。没有 React,用假桥接测试                                                                        |
+| `packages/ui/src/react/`               | 组件(ui-sdk,Streamdown)                                                                                          |
 
 ## 为什么 main 持有会话状态
 
@@ -180,10 +181,18 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 应用级的设置在一个**整窗页面**里,不再分散在菜单和对话框中。侧栏底部的按钮或 `⌘,`(非 Mac 为 `Ctrl+,`)打开;页面打开时,侧栏的位置换成"Back to sessions"和分区导航,右边是选中的分区。`Esc`、Back 或再按一次 `⌘,` 回到会话;`⌘N`、`⌘K` 在页面上仍然可用,新建或选中会话就离开页面,系统通知点开的会话也一样。会话那一侧在页面下面保持挂载、只是不显示(`hidden` 加 `inert`),所以回来时对话的位置、展开的工具、没写完的消息都在。
 
 - **框架**(`page-layout.tsx`):`PageLayout`(返回、分区导航、分区内容)、`PageGroup`、`PageRows`、`PageRow`。分区导航是 SDK 的 Tabs 竖排:方向键切换,只挂载当前分区。Connectors 升级为页面(CYCL-57)时复用它。
-- **General**:版本、更新状态、"Check for updates"(开发运行不能更新时不显示按钮,只说明原因)、有新版本或安装失败时的 "Update and restart";统计开关(Usage statistics)。没有上报目标,或用环境变量 `DO_NOT_TRACK` / `CYCLE_ANALYTICS=off` 关掉时,不显示开关,规则与以前的菜单项相同(docs/analytics.md);首次启动的说明仍在会话页顶部,文字改为指向 Settings。
-- **Appearance**:代码配色和示例。
+- **General**:界面语言(见下);版本、更新状态、"Check for updates"(开发运行不能更新时不显示按钮,只说明原因)、有新版本或安装失败时的 "Update and restart";统计开关(Usage statistics)。没有上报目标,或用环境变量 `DO_NOT_TRACK` / `CYCLE_ANALYTICS=off` 关掉时,不显示开关,规则与以前的菜单项相同(docs/analytics.md);首次启动的说明仍在会话页顶部,文字改为指向 Settings。
+- **Appearance**:主题(Match system、Light、Dark,见下)、代码配色和示例。
 - **Environments**:每个环境一行:状态(点、词)、名字、远程的 ssh 地址,断开时下面是 ssh 的原话和 "Connect again";远程环境行尾的菜单里是 Edit、Remove(先确认)。"Add environment" 在分区右上。增、改仍是原来的表单对话框,开在设置页上面。
 - **Session defaults**:原来的 Agent defaults 对话框。连着多于一个环境时先选环境(默认是当前打开的那个),agent 多于一个时再选 agent;读不出来时不显示空表单、不能保存,给 "Read settings again";保存成功后按钮旁写 "Saved",保存失败不写(原因在页面顶部的错误条里)。一个环境都没连上时说明原因,并给去 Environments 的按钮。
+- **Keyboard shortcuts**:只读的清单,列出全部快捷键和按键(DESIGN.md §5.4 的那一张),按"应用"和"会话中"分两组。不能改键:改键要处理冲突、输入法和原生菜单,没有排进这一轮。
+- **主题和语言(CYCL-79)**,理由见决定笔记 [`2026-11-22-appearance-and-language-preferences`](../.agents/notes/2026-11-22-appearance-and-language-preferences.md):
+  - 由**主进程**保存和应用。页面经桥上的 `preferences()` 读、`setPreferences()` 改;主进程先写 `preferences.json`,写成功才生效,写不成就报错、什么都不变。读不懂的值(手改坏的、更新的版本写的)按"跟随系统"处理,文件里不认识的键原样写回。
+  - **主题**用 Electron 的 `nativeTheme.themeSource`:窗口里的 `light-dark()` 和 `prefers-color-scheme`、代码配色的深浅、原生的菜单和对话框一起变,样式不用改。启动时在建窗口之前就应用,所以第一帧就是选定的主题。
+  - **语言**:English 和简体中文两份目录(`packages/ui/src/messages/`),每种语言用它自己的名字列出。"Match system" 取系统首选语言:简体中文的 locale(`zh`、`zh-CN`、`zh-Hans-*`)用中文,繁体(`zh-TW`、`zh-HK`、`zh-Hant-*`)和其他语言用 English。选了立即整页切换,不用重启;页面在读到偏好之后才画第一屏,所以不会先闪一下英文。`<html lang>` 跟着变。主进程自己说的话里,系统通知跟随所选语言。
+  - **不翻译的**(decision 0012):agent 的输出、ssh 和 daemon 的原话、命令、路径、版本号、agent 给的设置名和选项名;另外主进程自己产生的报错(更新失败的原因、"Updates are for the installed app."、本机环境的名字 "This computer")目前仍是英文。
+  - 埋点:`theme_changed`、`language_changed`(主进程发,只带选了哪一项)。
+  - 中文目录的键和占位符与 en-US 一致由类型和测试保证(`test/languages.test.ts`);译文本身没有经过母语审校之外的检查,真实窗口里各处的中文版式只在画廊里看过设置页和一个对话场景。
 - **旧入口**已去掉:侧栏底部的 App settings 菜单、switcher 旁菜单里的 Add environment、Agent defaults、Edit、Remove。会话自己的设置(Session settings)仍在会话标题的菜单里,它属于会话。
 - **埋点**:打开页面是 `panel_opened` 的 `settings`(带 `via`),换分区是 `settings_section_shown`;分区里的动作沿用原有事件(`analytics_toggled`、`update_checked`、`environment_saved`、`agent_defaults_saved`、`code_theme_changed` 等)。
 - **没验证**:安装版真实窗口里的拖动区域和红绿灯位置(画廊里看过版式,深浅色、1200×800 和 720×480)。
@@ -233,7 +242,7 @@ SDK 的几个坑(beta.6,写在这里免得再踩):
 - **异团队签名包的更新**：同一 Developer ID 团队签名包的替换和 ad hoc 更新的拒绝已实测；两个不同团队签名的 Cycle 包之间的拒绝路径仍待验。详见[签名更新验收记录](testing.md#cycl-105-实测记录)。
 - **会话内容的全文搜索**:⌘K 搜的是标题、文件夹、agent 和主机(跨已连接的主机)。对话内容的全文要在历史所在的 daemon 里做。
 - **图片的发送只对声明了能力的 agent 开放**:附加的控件(按钮、粘贴、拖放)只在 `_cycle/agents/list` 里这个 agent 的 `promptCapabilities.image` 存在时出现。带附件支持的 daemon(decision 0010)上的 Claude 声明了;更早的 daemon 不报告,界面上就没有附加入口,不会发出 daemon 不认的内容。主进程这一段有测试(`apps/desktop/test/manager.test.ts`):能力被报告,图片块原样送达 agent,没有声明的 agent 拒绝图片。
-- **Claude 的 `config.json`**(`configDir`、密钥):没有 UI,因为它会把凭证放上线路。要在 daemon 所在机器上手改。
+- **Claude 的 `config.json`**(`configDir`、密钥):没有 UI,因为它会把凭证放上线路。要在 daemon 所在机器上手改。CYCL-80 研究的结论是界面只显示状态(从不显示值)、修改仍在那台机器上做,见决定笔记 [`2026-11-22-claude-config-status-not-values`](../.agents/notes/2026-11-22-claude-config-status-not-values.md);还没有实现。
 - 多窗口、可访问性审查(ui-sdk 的组件有基础的键盘和 ARIA,我们自己的部分没单独审)。
 - 真实账号的浏览器 OAuth 授权暂缓（CYCL-110）。独立目录和凭证边界的验证见 [Claude 适配](adapters/claude.md#隔离登录验证)。
 

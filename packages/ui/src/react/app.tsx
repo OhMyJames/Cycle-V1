@@ -17,6 +17,8 @@ import {
 } from "@ui-sdk/react/menu";
 import { createResizableController } from "@ui-sdk/react/resizable";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { SOURCE_LOCALE } from "../i18n.ts";
+import { resolveLanguage, translatorFor } from "../languages.ts";
 import { contextOf } from "../model/conversation.ts";
 import {
   currentWorkspace,
@@ -41,7 +43,7 @@ import {
   RenameDialog,
 } from "./dialogs.tsx";
 import { FormCard } from "./form.tsx";
-import { useI18n } from "./i18n.tsx";
+import { I18nProvider, useI18n } from "./i18n.tsx";
 import {
   ErrorCircleIcon,
   MoreIcon,
@@ -140,7 +142,27 @@ function SessionSettings({ onClose }: { onClose: () => void }) {
   );
 }
 
+/**
+ * The app, in the language the person chose (or the system's, when it is one the interface has). The page's `lang`
+ * follows, so that what reads it (a screen reader, the fonts of Chinese) knows which it is.
+ */
 export function App() {
+  const preferences = useAppState((s) => s.preferences);
+  const language = resolveLanguage(
+    preferences?.language ?? "system",
+    preferences?.systemLanguage ?? SOURCE_LOCALE,
+  );
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
+  return (
+    <I18nProvider translator={translatorFor(language)}>
+      <AppWindow />
+    </I18nProvider>
+  );
+}
+
+function AppWindow() {
   const store = useAppStore();
   const { t } = useI18n();
   const showThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);

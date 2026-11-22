@@ -42,7 +42,7 @@ test("Settings is a page over the sessions: its button opens it, Escape goes bac
     within(sections)
       .getAllByRole("tab")
       .map((tab) => tab.textContent),
-  ).toEqual(["General", "Appearance", "Environments", "Session defaults"]);
+  ).toEqual(["General", "Appearance", "Environments", "Session defaults", "Keyboard shortcuts"]);
   expect(screen.getByRole("heading", { name: "General", level: 2 })).toBeTruthy();
   // The keyboard is on the sections, and the sessions under the page are not reachable.
   expect(document.activeElement).toBe(within(sections).getByRole("tab", { name: "General" }));
@@ -189,4 +189,67 @@ test("starting a new session leaves Settings for it", async () => {
     expect(screen.queryByRole("tablist", { name: "Settings sections" })).toBeNull(),
   );
   expect(await screen.findByRole("textbox", { name: "Message" })).toBeTruthy();
+});
+
+test("the language is a choice kept by main: the whole interface changes at once, and back", async () => {
+  const { user, named } = await mount();
+  await user.click(await screen.findByRole("button", { name: /^Settings/ }));
+  const language = await screen.findByRole("combobox", { name: "Language" });
+  // Following the system says which language that comes to.
+  expect(language.textContent).toContain("Match system (English)");
+  await user.click(language);
+  await user.click(await screen.findByRole("option", { name: "简体中文" }));
+  await waitFor(() =>
+    expect(named("setPreferences")).toEqual([["setPreferences", { language: "zh-CN" }]]),
+  );
+  expect(await screen.findByRole("heading", { name: "通用", level: 2 })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "外观" })).toBeTruthy();
+  expect(document.documentElement.lang).toBe("zh-CN");
+  // Each language is named in its own words, so the way back can be read from either.
+  await user.click(screen.getByRole("combobox", { name: "语言" }));
+  await user.click(await screen.findByRole("option", { name: "English" }));
+  expect(await screen.findByRole("heading", { name: "General", level: 2 })).toBeTruthy();
+  expect(document.documentElement.lang).toBe("en-US");
+});
+
+test("a system in simplified Chinese is followed from the first thing drawn", async () => {
+  await mount({ preferences: { systemLanguage: "zh-Hans-CN" } });
+  expect(await screen.findByRole("button", { name: "搜索会话" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
+});
+
+test("the theme is one of three, and choosing one asks main to apply and keep it", async () => {
+  const { user, named } = await mount();
+  await user.click(await screen.findByRole("button", { name: /^Settings/ }));
+  await user.click(await screen.findByRole("tab", { name: "Appearance" }));
+  const theme = await screen.findByRole("radiogroup", { name: "Theme" });
+  expect(
+    within(theme)
+      .getAllByRole("radio")
+      .map((r) => r.textContent),
+  ).toEqual(["Match system", "Light", "Dark"]);
+  const dark = within(theme).getByRole("radio", { name: "Dark" });
+  expect(
+    within(theme).getByRole("radio", { name: "Match system" }).getAttribute("aria-checked"),
+  ).toBe("true");
+  await user.click(dark);
+  await waitFor(() =>
+    expect(named("setPreferences")).toEqual([["setPreferences", { theme: "dark" }]]),
+  );
+  await waitFor(() => expect(dark.getAttribute("aria-checked")).toBe("true"));
+});
+
+test("the shortcuts are listed with their keys, to look up and not to change", async () => {
+  const { user } = await mount();
+  await user.click(await screen.findByRole("button", { name: /^Settings/ }));
+  await user.click(await screen.findByRole("tab", { name: "Keyboard shortcuts" }));
+  const page = (await screen.findByRole("heading", { name: "Keyboard shortcuts", level: 2 }))
+    .parentElement as HTMLElement;
+  const row = within(page).getByText("Open or close Settings").closest('[data-slot="page-row"]');
+  expect(Array.from(row?.querySelectorAll("kbd") ?? []).map((k) => k.textContent)).toEqual([
+    /Mac/.test(navigator.userAgent) ? "⌘" : "Ctrl",
+    ",",
+  ]);
+  expect(within(page).queryByRole("textbox")).toBeNull();
+  expect(within(page).queryByRole("button")).toBeNull();
 });

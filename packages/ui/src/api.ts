@@ -322,6 +322,20 @@ export type AppEvent =
 /** Whether the app reports how it is used (docs/analytics.md). `available` is false when there is nowhere to report to. */
 export type AnalyticsStatus = { available: boolean; enabled: boolean; noticed: boolean };
 
+/** Light or dark, or as the system is. */
+export const THEME_CHOICES = ["system", "light", "dark"] as const;
+export type ThemeChoice = (typeof THEME_CHOICES)[number];
+
+/** The languages the interface has, or the system's when it is one of them (`languages.ts` has their words). */
+export const LANGUAGE_CHOICES = ["system", "en-US", "zh-CN"] as const;
+export type LanguageChoice = (typeof LANGUAGE_CHOICES)[number];
+
+/** What the person chose for how the app looks and reads. Kept by main, in the app's own data (docs/desktop.md). */
+export type Preferences = { theme: ThemeChoice; language: LanguageChoice };
+
+/** The preferences, and the system's language as main reads it (`system` follows it). */
+export type PreferencesState = Preferences & { systemLanguage: string };
+
 /** What the page may say about itself: numbers, booleans and words. Main checks it against its dictionary. */
 export type TrackProps = Record<string, string | number | boolean>;
 
@@ -454,6 +468,11 @@ export type AppApi = {
    */
   upgradeDaemon(environmentId: string, when?: "now" | "later"): Promise<void>;
 
+  /** How the app looks and reads, as the person chose. */
+  preferences(): Promise<PreferencesState>;
+  /** Changes some of them, keeps them, and applies them (the theme at once, to the whole window). */
+  setPreferences(change: Partial<Preferences>): Promise<PreferencesState>;
+
   /** Reports an event the page alone can see (docs/analytics.md). Never fails and says nothing when it is off. */
   track(event: string, props?: TrackProps): Promise<void>;
   analytics(): Promise<AnalyticsStatus>;
@@ -509,6 +528,8 @@ export const API_METHODS = [
   "checkForUpdate",
   "installUpdate",
   "upgradeDaemon",
+  "preferences",
+  "setPreferences",
   "track",
   "analytics",
   "setAnalytics",

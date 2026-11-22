@@ -19,6 +19,8 @@ import type {
   FormAnswer,
   PermissionRequest,
   PlanUsage,
+  Preferences,
+  PreferencesState,
   PromptBlock,
   SendVia,
   SessionSnapshot,
@@ -108,6 +110,8 @@ export type AppState = {
   update: UpdateState | undefined;
   /** Whether the app reports how it is used (docs/analytics.md). Undefined until main has said. */
   analytics: AnalyticsStatus | undefined;
+  /** How the app looks and reads, as the person chose (main keeps it). Undefined until main has said. */
+  preferences: PreferencesState | undefined;
   /** Counts the times something asked for the input box to take the focus (a message put back to send again). */
   composerFocus: number;
 };
@@ -141,6 +145,7 @@ const initial = (): AppState => ({
   error: undefined,
   update: undefined,
   analytics: undefined,
+  preferences: undefined,
   composerFocus: 0,
 });
 
@@ -261,8 +266,14 @@ export class AppStore {
       this.#set((s) => (s.update === undefined ? { update } : {}));
     });
     void this.#attempt(async () => this.#set({ analytics: await this.#bridge.analytics() }));
+    // Read before the page is ready: its first words are already in the language that was chosen.
+    const preferences = this.#bridge.preferences().then(
+      (read) => this.#set({ preferences: read }),
+      () => undefined,
+    );
     await this.#attempt(async () => {
       const { environments, status, sessions } = await this.#bridge.environments();
+      await preferences;
       this.#set({
         ready: true,
         environments,
@@ -1087,6 +1098,13 @@ export class AppStore {
   setAnalytics = async (enabled: boolean): Promise<void> => {
     await this.#attempt(async () =>
       this.#set({ analytics: await this.#bridge.setAnalytics(enabled) }),
+    );
+  };
+
+  /** Changes how the app looks or reads. Main keeps it and applies it; what it answers is what holds. */
+  setPreferences = async (change: Partial<Preferences>): Promise<void> => {
+    await this.#attempt(async () =>
+      this.#set({ preferences: await this.#bridge.setPreferences(change) }),
     );
   };
 

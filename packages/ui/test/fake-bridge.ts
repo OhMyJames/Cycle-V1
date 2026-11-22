@@ -7,6 +7,7 @@ import type {
   CycleBridge,
   EnvironmentConfig,
   PlanUsage,
+  Preferences,
   SessionSnapshot,
   SessionSummary,
   UpdateState,
@@ -61,8 +62,16 @@ export const fakeBridge = (
     /** More environments than the local one, and how each stands (by id; the local one's is `connected`). */
     environments?: EnvironmentConfig[];
     states?: Record<string, ConnectionState>;
+    /** The look and the language chosen, and the system's language. Default: follow the system, which is en-US. */
+    preferences?: Partial<Preferences> & { systemLanguage?: string };
   } = {},
 ) => {
+  const preferences = {
+    theme: "system" as Preferences["theme"],
+    language: "system" as Preferences["language"],
+    systemLanguage: "en-US",
+    ...options.preferences,
+  };
   const calls: [string, ...unknown[]][] = [];
   const connectors = options.connectors ?? [];
   let listener: ((event: AppEvent) => void) | undefined;
@@ -227,6 +236,11 @@ export const fakeBridge = (
     ),
     installUpdate: record("installUpdate", async () => {}),
     upgradeDaemon: record("upgradeDaemon", async () => {}),
+    preferences: record("preferences", async () => ({ ...preferences })),
+    setPreferences: record("setPreferences", async (change: Partial<Preferences>) => {
+      Object.assign(preferences, change);
+      return { ...preferences };
+    }),
     track: record("track", async () => {}),
     analytics: record("analytics", async () => options.analytics ?? off),
     setAnalytics: record("setAnalytics", async (enabled: boolean) => ({

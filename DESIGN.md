@@ -24,7 +24,7 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
 
 ## 第 1 层：色彩体系（Color Tokens）
 
-全部颜色用 `light-dark()` 跟随系统深浅色，不做应用内主题开关（v1）。组件只引用语义名（`--cycle-*` 与重映射后的 `--ui-*`），不写散落十六进制值。
+全部颜色用 `light-dark()`。默认跟随系统深浅色；设置页的 Theme 可以指定浅色或深色（CYCL-79），做法是主进程设 `nativeTheme.themeSource`，样式里仍然只有 `light-dark()` 和 `prefers-color-scheme`，不为主题另写一套选择器。组件只引用语义名（`--cycle-*` 与重映射后的 `--ui-*`），不写散落十六进制值。
 
 ### 1.1 中性表面、边框与文字（纯净中性灰）
 
@@ -249,6 +249,7 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
 - **什么时候用**：属于应用、不属于某个会话的一组设置或管理界面（Settings，之后的 Connectors）。单个对象的增改仍用表单弹窗（§4.5），开在页面上面。
 - **版式**（`PageLayout`）：页面占整个窗口。原侧栏的位置、同一 `surface-sidebar` 底色、固定 `16rem` 宽：顶部一行 `Back to sessions`（行尾写 `Esc`），其下是页名（`meta` 淡色）和分区导航；分区是侧栏行的样子（28px 高，选中为 `surface-selected`）。右侧是分区内容，与对话同一条居中列宽（`--cycle-measure`），列首是分区名（`title` 字阶，42px 高，与会话头部对齐，macOS 上可拖动窗口）。
 - **分区内容**：`PageGroup`（可选的小标题、一行说明、右上至多一个作用于整组的 `outline` 动作）里放 `PageRows`（一张 `Surface/Card`，行间细线）；每行 `PageRow` 左边是名字和一行 `meta` 说明，右边是控件（开关、选择器、按钮、行尾菜单），系统原话单独一块等宽放在行下。需要整块表单时用 `page-form`（最宽 `24rem`）。即时生效的设置用开关或选择器，不放保存按钮；要一起提交的表单才有一个 `solid` 的保存，成功后在按钮旁写一个词。
+- **只读清单**：快捷键分区是行的列表，行尾是按键帽（`Surface/Sunken`，`meta` 字号，一键一帽），没有可操作的控件。
 - **进出**：`⌘,` 或侧栏底部按钮进入，焦点落在当前分区的导航项上；`Esc`、返回行或再按 `⌘,` 离开，焦点回到打开它的按钮。页面上面开着弹窗或菜单时 `Esc` 只关它们。会话在页面下保持原样，不重新加载。再次进入回到上次的分区。
 - **状态**：全局错误条在页面顶部同样显示；分区自己的空、加载、出错、断线用 `StateBlock`（`inline`，靠左）。
 
@@ -336,6 +337,7 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 
 ## 附录 C：语言、文案与 i18n（decision 0012）
 
+- **语言**：界面有 English 和简体中文（CYCL-79），在设置页 General 里选，默认跟随系统；每种语言用它自己的名字列出。中文目录是 `packages/ui/src/messages/zh-CN.ts`，键与 en-US 相同（类型检查缺漏），缺的键回退到 en-US。中文文案同样写事实、不用感叹号和空话；`agent`、`Cycle`、`MCP`、`OAuth`、`ssh` 和按键名不译。
 - **源语言为 `en-US`**（句首大写，其余小写，不用 Title Case、感叹号、emoji、破折号或空话），新界面文字全部写入 `packages/ui/src/messages/en-US.ts`，组件使用 `t("key")`；门禁棘轮 `scan-copy.mjs --i18n` 只减不增。
 - **整句与复数**：变化参数用 `{placeholder}`，数量用复数消息，数字/日期/单位用 `Intl`（`t.number` / `t.date`）。
 - **术语统一**：统一用 `environment`（不用 `host`）、`session`、`agent`、`turn`、`permission`。
