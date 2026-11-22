@@ -137,6 +137,7 @@ export const zhCN: Readonly<Record<MessageKey, Message>> = {
   "composer.steer": "立即发送",
   "composer.stop": "停止",
   "composer.setting": "{setting}：{value}",
+  "composer.default.suffix": "{name}（默认）",
   "composer.effort.modelDefault": "模型默认",
   "composer.effort.chip": "默认 effort",
 
@@ -327,6 +328,8 @@ export const zhCN: Readonly<Record<MessageKey, Message>> = {
   "sessions.showArchived": "显示已归档",
   "sessions.hideArchived": "隐藏已归档",
   "sidebar.newSession": "新建会话",
+  "sidebar.newShort": "新建",
+  "sidebar.searchShort": "搜索",
   "mark.needsYou": "需要你",
   "mark.running": "运行中",
   "mark.background": "有后台任务在运行",
