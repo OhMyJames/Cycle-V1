@@ -27,7 +27,7 @@ bun .claude/skills/cycle-design-taste/scripts/scan-copy.mjs path/a.tsx # 指定�
 
 ## 3. 状态画廊
 
-`bun packages/ui/gallery/shoot.ts` 用真实组件和假数据截图,默认覆盖浅色、深色、1200×800 和 720×480。macOS 直接启动 Electron,Linux 用 xvfb。可传场景名缩小范围,改布局或交互时用两个 `--out` 目录保留同条件的前后图。打开相关截图,按改变的路径实际操作。新增界面状态在 `packages/ui/gallery/scenarios.ts` 里补场景。详见 `DESIGN.md` 附录 A。
+`bun packages/ui/gallery/shoot.ts` 用真实组件和假数据截图,默认覆盖浅色、深色、1200×800 和 720×480。在无界面的 Chromium 里截(Playwright,2 倍像素,不开窗口、不抢焦点;第一次运行前装一次浏览器:`bun run test:browser` 会顺带装上)。可传场景名缩小范围,改布局或交互时用两个 `--out` 目录保留同条件的前后图。打开相关截图,按改变的路径实际操作。新增界面状态在 `packages/ui/gallery/scenarios.ts` 里补场景。详见 `DESIGN.md` 附录 A。
 
 画廊检查根页面的横向和纵向溢出、控制台错误和指定的键盘焦点。项目分组与大量会话场景还检查初始列表能完整显示第一条会话。消息输入框检查未聚焦边界和周围底色的对比度,最低 3:1。代码块和历史区各自的内部滚动是正常的。
 
@@ -35,9 +35,9 @@ bun .claude/skills/cycle-design-taste/scripts/scan-copy.mjs path/a.tsx # 指定�
 
 门禁看不到颜色、间距、溢出、对齐。要看真东西:
 
-- **冒烟**:`bun run test:integration smoke`(在 `apps/desktop` 下;会先 build)启动真实 Electron(Linux 在 xvfb 下,macOS 上窗口隐藏、不抢焦点),走一遍连接、新建、发消息、批准。
+- **端到端**:`bun run test:integration web`(根目录;会先 build)在无界面的 Chromium 里打开构建出的页面,后面是真的 daemon,走一遍连接、新建、发消息、批准、重载。
 - **真实模型的运行**:`CYCLE_REAL_MODEL_TOKEN=… bun run test:real`(在 `apps/desktop` 下,先在根目录 build);
-  `SHOT_TO=/路径.png` 把窗口截图存下来。用法见 `docs/desktop.md`。
+  `SHOT_TO=/路径.png` 把页面截图存下来。用法见 `docs/desktop.md`。
 - **在 Mac 上**:打包出来的应用(`bun run build`,或从发布里下载)是用户真正看到的东西,窗口装饰、字体、深色模式以它为准。
 
 看的时候:

@@ -25,6 +25,7 @@ import {
 import { shellQuote } from "../shared/release.ts";
 import { type AnalyticsControl, offAnalytics } from "./analytics.ts";
 import { notifyAttention } from "./attention.ts";
+import { dispatch, type Handlers } from "./dispatch.ts";
 import { ConnectionManager } from "./manager.ts";
 import { fileSettings } from "./settings.ts";
 import { cleanStale, Updater, type UpdaterDeps } from "./updater.ts";
@@ -217,7 +218,7 @@ export const startApp = async (options: AppOptions) => {
   });
   /** The most the page may put on the clipboard at once: a long output, not a file. */
   const MAX_COPY = 5_000_000;
-  const methods: Record<string, (...a: unknown[]) => unknown> = {
+  const methods: Handlers = {
     updateState: () => updater.state,
     checkForUpdate: async () => {
       const state = await updater.check(true);
@@ -245,15 +246,11 @@ export const startApp = async (options: AppOptions) => {
   };
 
   // Only our own page may ask main for anything.
+  const call = dispatch(manager, methods);
   for (const method of API_METHODS) {
     ipcMain.handle(channel(method), (event, ...args: unknown[]) => {
       if (event.senderFrame?.url !== indexUrl) throw new Error("Refused: not from the app's page");
-      const own = methods[method];
-      // With what the page sent: `track` and `setAnalytics` take it (they were called without, and so did nothing).
-      if (own !== undefined) return own(...args);
-      return (manager as unknown as Record<string, (...a: unknown[]) => unknown>)[method]?.(
-        ...args,
-      );
+      return call(method, args);
     });
   }
 

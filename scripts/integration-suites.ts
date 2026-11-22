@@ -49,11 +49,12 @@ export const suites: Suite[] = [
     needs: "xvfb on Linux",
   },
   {
-    name: "smoke",
+    name: "web",
     cwd: "apps/desktop",
-    file: "test/integration/smoke.integration.ts",
+    file: "test/integration/web.integration.ts",
+    // Above the test's own 120 s: a test that runs long is reported by bun, with where it was, not killed first.
     seconds: 150,
-    needs: "electron, and xvfb on Linux",
+    needs: "a built page and Playwright's Chromium",
   },
 ];
 

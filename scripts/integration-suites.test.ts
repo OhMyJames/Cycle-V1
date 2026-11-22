@@ -7,7 +7,7 @@ const ALL = suites.map((s) => s.name);
 
 describe("the list of suites", () => {
   test("is what integration.ts runs, in order, and every suite's file exists", () => {
-    expect(ALL).toEqual(["node", "adapter", "ssh", "backend", "package", "smoke"]);
+    expect(ALL).toEqual(["node", "adapter", "ssh", "backend", "package", "web"]);
     for (const suite of suites)
       expect(() => readFileSync(`${root}${suite.cwd}/${suite.file}`)).not.toThrow();
   });
@@ -19,8 +19,8 @@ describe("the list of suites", () => {
 });
 
 describe("the result of a suite", () => {
-  const suite = suites.find((s) => s.name === "smoke");
-  if (!suite) throw new Error("no smoke suite");
+  const suite = suites.find((s) => s.name === "web");
+  if (!suite) throw new Error("no web suite");
   const bun = (pass: number, skip: number, fail = 0) =>
     ` ${pass} pass\n ${skip} skip\n ${fail} fail\n 3 expect() calls\nRan ${pass + skip + fail} tests across 1 file.`;
   const base = { suite, code: 0, timedOut: false, strict: false };
@@ -43,10 +43,10 @@ describe("the result of a suite", () => {
   test("a suite that skipped everything is skipped, with what it needed; where strict, a failure", () => {
     const loose = outcome({ ...base, output: bun(0, 1) });
     expect(loose.status).toBe("skip");
-    expect(loose.reason).toContain("electron, and xvfb on Linux");
+    expect(loose.reason).toContain("Playwright's Chromium");
     const strict = outcome({ ...base, strict: true, output: bun(0, 1) });
     expect(strict.status).toBe("FAIL");
-    expect(strict.reason).toContain("electron, and xvfb on Linux");
+    expect(strict.reason).toContain("Playwright's Chromium");
   });
 
   test("some skipped: ok on a person's machine, a failure where strict", () => {
@@ -72,10 +72,10 @@ describe("the result of a suite", () => {
   test("the table has a row per suite with its result and reason", () => {
     const table = markdown([
       { name: "node", status: "ok", seconds: 2.34 },
-      { name: "smoke", status: "skip", reason: "needs electron" },
+      { name: "web", status: "skip", reason: "needs electron" },
     ]);
     expect(table).toContain("| node | ok | 2.3s |  |");
-    expect(table).toContain("| smoke | skip |  | needs electron |");
+    expect(table).toContain("| web | skip |  | needs electron |");
   });
 });
 
@@ -101,7 +101,7 @@ describe("the command line refuses what it cannot run as asked, before any suite
 
   test("a name no suite has; and the file after --summary is not taken for a name", () => {
     expect(cli("nothing-like-it").exitCode).toBe(2);
-    const out = cli("--summary", "smoke", "nothing-like-it");
+    const out = cli("--summary", "web", "nothing-like-it");
     expect(out.exitCode).toBe(2);
     expect(out.stderr.toString()).toContain('no suite matches "nothing-like-it"');
   });
