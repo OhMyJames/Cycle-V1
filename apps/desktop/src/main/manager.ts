@@ -357,7 +357,8 @@ export class ConnectionManager
         : {}),
       ...(this.#options.backoff !== undefined ? { backoff: this.#options.backoff } : {}),
       events: {
-        update: (sessionId, update) => this.#onUpdate(environmentId, connection, sessionId, update),
+        update: (sessionId, update, _seq, at) =>
+          this.#onUpdate(environmentId, connection, sessionId, update, at),
         permission: (sessionId, request, requestId) =>
           this.#onPermission(environmentId, connection, sessionId, request, requestId),
         // Saying this is saying the app can show a form: the daemon then asks it the agent's questions.
@@ -758,16 +759,18 @@ export class ConnectionManager
     connection: Connection,
     sessionId: string,
     update: Parameters<typeof applyUpdate>[1],
+    at: number | undefined,
   ) {
     const watched = connection.watched.get(sessionId);
     if (watched === undefined) return;
-    watched.conversation = applyUpdate(watched.conversation, update);
+    watched.conversation = applyUpdate(watched.conversation, update, { at });
     watched.version += 1;
     this.#options.emit({
       type: "update",
       environmentId,
       sessionId,
       update,
+      ...(at !== undefined ? { at } : {}),
       version: watched.version,
     });
   }

@@ -268,7 +268,16 @@ test("a history written before 0.3.5 is replayed as it was written, and draws in
   const { m } = await app("app");
   const replayed = await snapshot(m, OLD_SESSION_ID);
   // What the daemon sends is the log's updates as they are: the same conversation as reading the file.
-  const direct = OLD_UPDATES_SENT.reduce(applyUpdate, emptyConversation());
+  // Each with its record's time (`cycle/ts` is the log line's `ts`).
+  const times = OLD_JSONL.trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { kind: string; ts: string })
+    .filter((r) => r.kind === "update")
+    .map((r) => Date.parse(r.ts));
+  const direct = OLD_UPDATES_SENT.reduce(
+    (c, u, i) => applyUpdate(c, u, { at: times[i] }),
+    emptyConversation(),
+  );
   expect(shown(replayed)).toEqual(shown(direct));
   expect(replayed.ignored).toBe(0);
   expect(replayed.turns).toBe(2);

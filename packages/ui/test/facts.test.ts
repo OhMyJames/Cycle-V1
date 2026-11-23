@@ -125,7 +125,7 @@ test("facts follow what the agent sent, not the tool's name; the result stays th
     },
     { sessionUpdate: "tool_call_update", toolCallId: "x", title: "later" },
   ] as unknown as SessionUpdate[];
-  const conversation = updates.reduce(applyUpdate, emptyConversation());
+  const conversation = updates.reduce((c, u) => applyUpdate(c, u), emptyConversation());
   const tool = conversation.items.find((item) => item.kind === "tool") as ToolItem;
   expect(toolFacts(tool).search).toEqual({ files: 3, more: true });
 });
@@ -139,7 +139,7 @@ test("new content without counts clears the old ones; counts from the daemon are
   };
   const toolAfter = (...updates: object[]) =>
     (updates as SessionUpdate[])
-      .reduce(applyUpdate, emptyConversation())
+      .reduce((c, u) => applyUpdate(c, u), emptyConversation())
       .items.find((item) => item.kind === "tool") as ToolItem;
   const counted = {
     ...start,

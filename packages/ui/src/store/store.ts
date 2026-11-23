@@ -1226,7 +1226,7 @@ const applyToView = (view: SessionView, event: AppEvent & { version: number }): 
   if (event.type === "update") {
     return {
       ...view,
-      conversation: applyUpdate(view.conversation, event.update),
+      conversation: applyUpdate(view.conversation, event.update, { at: event.at }),
       version: event.version,
     };
   }

@@ -232,8 +232,9 @@ test("a session opened after the fact comes whole, and its version counts the ev
   expect(snapshot.version).toBe(updates.at(-1)?.version as number);
   // Versions go up by one, so a renderer can tell if it missed any.
   expect(updates.map((e) => e.version)).toEqual(updates.map((_, n) => first(updates).version + n));
-  // The conversation main holds is what applying the events one by one gives.
-  const rebuilt = updates.reduce((c, e) => applyUpdate(c, e.update), {
+  // The conversation main holds is what applying the events one by one gives, with the times they carry.
+  expect(updates.some((e) => e.at !== undefined)).toBe(true);
+  const rebuilt = updates.reduce((c, e) => applyUpdate(c, e.update, { at: e.at }), {
     ...emptyConversation(),
     replaying: true,
   });

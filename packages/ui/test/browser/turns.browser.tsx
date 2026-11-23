@@ -28,7 +28,7 @@ const state = (extra: object) => u({ sessionUpdate: "state_update", ...extra });
 
 const open = async (...updates: SessionUpdate[]) => {
   const snapshot = (): SessionSnapshot => ({
-    conversation: updates.reduce(applyUpdate, emptyConversation()),
+    conversation: updates.reduce((c, u) => applyUpdate(c, u), emptyConversation()),
     permissions: [],
     version: updates.length,
   });

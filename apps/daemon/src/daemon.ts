@@ -1579,7 +1579,8 @@ export class Daemon {
             update.sessionUpdate === QUEUE_UPDATE && update.returnId
               ? { sessionUpdate: QUEUE_UPDATE, entries: update.entries }
               : record.data,
-          _meta: { [META.seq]: record.seq },
+          // The record's own time, as the log has it: the same live and in a replay (docs/protocol.md §5).
+          _meta: { [META.seq]: record.seq, [META.ts]: record.ts },
         });
       } else if (record.kind === "request") {
         const id = (record.data as { requestId: string }).requestId;

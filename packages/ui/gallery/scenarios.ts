@@ -2123,7 +2123,7 @@ export const sessionSnapshotOf = (s: Scenario, sessionId: string): SessionSnapsh
   snapshotOf({ ...s, history: s.histories?.[sessionId] ?? s.history });
 
 export const snapshotOf = (s: Scenario): SessionSnapshot => ({
-  conversation: (s.history ?? []).reduce(applyUpdate, emptyConversation()),
+  conversation: (s.history ?? []).reduce((c, u) => applyUpdate(c, u), emptyConversation()),
   permissions: s.permissions ?? [],
   version: (s.history ?? []).length,
 });

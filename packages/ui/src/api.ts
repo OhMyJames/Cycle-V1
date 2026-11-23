@@ -302,6 +302,8 @@ export type AppEvent =
       environmentId: string;
       sessionId: string;
       update: SessionUpdate;
+      /** When the daemon logged it, in milliseconds since the epoch (`cycle/ts`); absent when not known. */
+      at?: number;
       /** The session's version after this update. */
       version: number;
     }

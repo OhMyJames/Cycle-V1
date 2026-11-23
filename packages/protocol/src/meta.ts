@@ -4,6 +4,11 @@ import { z } from "zod";
 export const META = {
   /** The daemon's per-session sequence number of a record, on every forwarded `session/update`. */
   seq: "cycle/seq",
+  /**
+   * When the daemon logged that record: its log line's `ts`, ISO 8601 UTC to the millisecond, on every forwarded
+   * `session/update` that has a record. Absent on synthesized updates and from older daemons (docs/protocol.md §5).
+   */
+  ts: "cycle/ts",
   /** In `initialize`: Cycle's own protocol version, "major.minor". */
   protocolVersion: "cycle/protocolVersion",
   /** In the `initialize` response: what this daemon can do. */
@@ -160,6 +165,18 @@ export const seqOf = (meta: unknown): number | undefined => {
   if (typeof meta !== "object" || meta === null) return undefined;
   const value = (meta as Record<string, unknown>)[META.seq];
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+};
+
+/**
+ * The time on an update's `_meta["cycle/ts"]`, in milliseconds since the epoch, or undefined if it carries none or one
+ * that is not a time. Undefined is "not known": never read it as now or as 0.
+ */
+export const tsOf = (meta: unknown): number | undefined => {
+  if (typeof meta !== "object" || meta === null) return undefined;
+  const value = (meta as Record<string, unknown>)[META.ts];
+  if (typeof value !== "string" || !/^\d{4}-\d\d-\d\dT/.test(value)) return undefined;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) && ms > 0 ? ms : undefined;
 };
 
 /** `_meta["cycle/toolResult"]` of a finished tool call: counts and flags only (docs/protocol.md §9 "工具调用的结果"). */

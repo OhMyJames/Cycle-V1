@@ -110,7 +110,10 @@ test("a host that cannot be connected says so in its status, not in an error to 
 });
 
 test("opening a session shows what main has, and then each event in turn", async () => {
-  const history = [text("Hel"), text("lo")].reduce(applyUpdate, emptyConversation());
+  const history = [text("Hel"), text("lo")].reduce(
+    (c, u) => applyUpdate(c, u),
+    emptyConversation(),
+  );
   const { store, emit } = await opened(
     fakeBridge({ snapshot: () => ({ conversation: history, permissions: [], version: 2 }) }),
   );
@@ -139,7 +142,7 @@ test("a missed event makes it ask main for the session again", async () => {
   let version = 1;
   const script = fakeBridge({
     snapshot: () => ({
-      conversation: [text(`v${version}`)].reduce(applyUpdate, emptyConversation()),
+      conversation: [text(`v${version}`)].reduce((c, u) => applyUpdate(c, u), emptyConversation()),
       permissions: [],
       version,
     }),
@@ -160,7 +163,7 @@ test("a re-read that fails does not take the conversation away", async () => {
     snapshot: () => {
       if (broken) throw new Error("the connection dropped");
       return {
-        conversation: [text("kept")].reduce(applyUpdate, emptyConversation()),
+        conversation: [text("kept")].reduce((c, u) => applyUpdate(c, u), emptyConversation()),
         permissions: [],
         version,
       };
@@ -192,7 +195,7 @@ test("events that come while a session is being read are applied after it, in or
   script.emit(update(1, text("seen")));
   script.emit(update(2, text(" and new")));
   release({
-    conversation: [text("seen")].reduce(applyUpdate, emptyConversation()),
+    conversation: [text("seen")].reduce((c, u) => applyUpdate(c, u), emptyConversation()),
     permissions: [],
     version: 1,
   });

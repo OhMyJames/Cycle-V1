@@ -4,7 +4,7 @@ import type { ToolItem } from "../src/model/index.ts";
 import { applyUpdate, blocksOf, emptyConversation } from "../src/model/index.ts";
 
 const reduce = (...updates: object[]) =>
-  (updates as SessionUpdate[]).reduce(applyUpdate, emptyConversation());
+  (updates as SessionUpdate[]).reduce((c, u) => applyUpdate(c, u), emptyConversation());
 const call = (id: string, name: string, kind: string, status: string) => ({
   sessionUpdate: "tool_call_update",
   toolCallId: id,

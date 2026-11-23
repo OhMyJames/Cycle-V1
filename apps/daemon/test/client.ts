@@ -15,7 +15,7 @@ export const until = async (condition: () => boolean, what: string, ms = 2_000):
   }
 };
 
-export type Seen = { update: SessionUpdate; seq: number | undefined };
+export type Seen = { update: SessionUpdate; seq: number | undefined; ts: string | undefined };
 
 /** A client of the daemon, in this process, that writes down everything it is sent. */
 export const connectClient = async (
@@ -41,8 +41,14 @@ export const connectClient = async (
       agent = connection.agent;
     })
     .onNotification(methods.client.session.update, ({ params }) => {
-      const seq = (params._meta as Record<string, unknown> | null | undefined)?.[META.seq];
-      seen.push({ update: params.update, seq: typeof seq === "number" ? seq : undefined });
+      const meta = params._meta as Record<string, unknown> | null | undefined;
+      const seq = meta?.[META.seq];
+      const ts = meta?.[META.ts];
+      seen.push({
+        update: params.update,
+        seq: typeof seq === "number" ? seq : undefined,
+        ts: typeof ts === "string" ? ts : undefined,
+      });
     })
     .onNotification(
       "_cycle/request_resolved",

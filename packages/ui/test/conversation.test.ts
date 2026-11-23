@@ -32,6 +32,60 @@ test("joins the chunks of one message into one run of text", () => {
   expect(blocksOf(c.items[0])).toHaveLength(1);
 });
 
+test("an item keeps the time it began, and a message the time of its last chunk", () => {
+  const T = Date.UTC(2026, 10, 18, 4);
+  let c = emptyConversation();
+  c = applyUpdate(c, chunk("user_message_chunk", "q", "hi"), { at: T });
+  c = applyUpdate(c, chunk("agent_thought_chunk", "t", "hmm"), { at: T + 1_000 });
+  c = applyUpdate(c, chunk("agent_thought_chunk", "t", "…"), { at: T + 6_000 });
+  c = applyUpdate(c, u({ sessionUpdate: "tool_call_update", toolCallId: "x", status: "pending" }), {
+    at: T + 7_000,
+  });
+  c = applyUpdate(
+    c,
+    u({ sessionUpdate: "tool_call_update", toolCallId: "x", status: "completed" }),
+    {
+      at: T + 9_000,
+    },
+  );
+  c = applyUpdate(c, chunk("agent_message_chunk", "a", "Hel"), { at: T + 10_000 });
+  c = applyUpdate(c, chunk("agent_message_chunk", "a", "lo"), { at: T + 12_000 });
+  c = applyUpdate(c, idle({ stopReason: "end_turn" }), { at: T + 12_500 });
+  expect(c.items.map((i) => [i.kind, i.at, "lastAt" in i ? i.lastAt : "-"])).toEqual([
+    ["user", T, T],
+    ["thought", T + 1_000, T + 6_000],
+    ["tool", T + 7_000, "-"],
+    ["agent", T + 10_000, T + 12_000],
+  ]);
+});
+
+test("an update without a time (an older daemon) leaves the time unknown, never now or 0", () => {
+  const c = reduce([
+    chunk("agent_message_chunk", "a", "Hel"),
+    chunk("agent_message_chunk", "a", "lo"),
+    u({ sessionUpdate: "tool_call_update", toolCallId: "x" }),
+  ]);
+  for (const item of c.items) {
+    expect(item.at).toBeUndefined();
+    expect("at" in item).toBe(false);
+    expect("lastAt" in item).toBe(false);
+  }
+  // A time that is not one is no time.
+  const bad = applyUpdate(emptyConversation(), chunk("agent_message_chunk", "a", "x"), { at: 0 });
+  expect("at" in (bad.items[0] as object)).toBe(false);
+  const nan = applyUpdate(emptyConversation(), chunk("agent_message_chunk", "a", "x"), {
+    at: Number.NaN,
+  });
+  expect("at" in (nan.items[0] as object)).toBe(false);
+  // Begun with no time, it does not take a later chunk's time as its beginning; the last chunk's time is still kept.
+  const later = applyUpdate(c, chunk("agent_message_chunk", "a", "!"), { at: 5_000 });
+  expect(later.items[0]).toMatchObject({ lastAt: 5_000 });
+  expect(later.items[0]?.at).toBeUndefined();
+  // And a chunk with no time keeps the last one known.
+  const kept = applyUpdate(later, chunk("agent_message_chunk", "a", "?"));
+  expect(kept.items[0]).toMatchObject({ lastAt: 5_000 });
+});
+
 test("a message and a thought with the same id are two items", () => {
   const c = reduce([
     chunk("agent_thought_chunk", "m", "hmm"),
@@ -278,7 +332,7 @@ test("a whole history replayed gives the conversation that was built live", () =
     u({ sessionUpdate: "tool_call_update", toolCallId: "t", status: "completed" }),
     idle({ stopReason: "end_turn" }),
   ];
-  const live = updates.reduce(applyUpdate, emptyConversation());
+  const live = updates.reduce((c, u) => applyUpdate(c, u), emptyConversation());
   const replayed = reduce([...updates, u({ sessionUpdate: "replay_complete" })], {
     ...emptyConversation(),
     replaying: true,

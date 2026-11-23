@@ -105,7 +105,7 @@ test.skipIf(!enabled)(
 
       // What the real model sent, read back from the log, reduced as the interface will.
       const replayed = d.seen.map((s) => s.update);
-      const conversation = replayed.reduce(applyUpdate, emptyConversation());
+      const conversation = replayed.reduce((c, u) => applyUpdate(c, u), emptyConversation());
       console.log(
         "REAL history: ",
         JSON.stringify({
