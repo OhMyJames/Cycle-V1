@@ -313,6 +313,62 @@
   }
 }
 
+/* Scrollbars (same as cycle_v2): 6px visible in a 10px slot with 2px clear on each side, no track,
+   round ends, at least 32px long. They show only while the pointer is over the scroller and go a step
+   darker under the pointer. `::-webkit-scrollbar` rather than `scrollbar-width` / `scrollbar-color`:
+   Chromium drops these pseudo-elements on any element that sets either property. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  min-width: 32px;
+  min-height: 32px;
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background-color: transparent;
+  background-clip: padding-box;
+}
+:hover::-webkit-scrollbar-thumb {
+  background-color: light-dark(#d4d4d8, #48484c);
+}
+::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:active {
+  background-color: light-dark(#a5a5ab, #5f5f64);
+}
+
+/* Code, menus and lists show no bar, since one would only cover their last line; a trackpad, or shift and
+   the wheel, still scroll them. The conversation, pages, panels and forms keep the bar above.
+   Below: code, then menus, then lists. A new scroller of these kinds joins the list. */
+:is(
+  [data-slot="message"] [data-streamdown="code-block-body"],
+  [data-slot="message"] [data-streamdown="code-block-body"] pre,
+  [data-slot="message"] [data-streamdown="table-wrapper"] > div,
+  [data-slot="tool-output"],
+  [data-slot="tool-command"],
+  [data-slot="tool-diff"],
+  [data-slot="files-plain"],
+  [data-slot="composer-input"] code:is([data-language], [data-gutter]),
+  [data-slot="permission-detail"],
+  [data-slot="menu-content"],
+  [data-slot="select-content"],
+  [data-slot="combobox-content"],
+  [data-slot="autocomplete-content"],
+  [data-slot="trigger-menu-content"],
+  [data-slot="popover-content"],
+  [data-slot="command-list"],
+  [data-slot="picker"],
+  [data-slot="sidebar-scroll"],
+  [data-kind="panel-tabs"] > [data-slot="tabs-list"],
+  [data-slot="composer-extensions"]
+)::-webkit-scrollbar {
+  display: none;
+}
+
 /* Reset Inter stylistic sets on monospace code so Geist Mono uses its native glyphs. */
 code,
 pre,
