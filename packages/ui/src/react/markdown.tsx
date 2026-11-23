@@ -14,6 +14,7 @@ import { defaultRehypePlugins, Streamdown, useIsCodeFenceIncomplete } from "stre
 import { type CodeThemeId, codeTheme, themesOf } from "../code-theme.ts";
 import { mendStreaming } from "../markdown-mend.ts";
 import { AgentLink } from "./agent-link.tsx";
+import { CopyButton } from "./copy-button.tsx";
 import { Diagram } from "./diagram.tsx";
 import { useI18n } from "./i18n.tsx";
 import { useOptionalAppStore } from "./store-context.tsx";
@@ -84,7 +85,8 @@ const isMermaid = (code: ReactElement): boolean =>
  * A code block, and when it is long, a way to show all of it or part. A block that arrived whole (an answer read again, a
  * session opened) starts in part; one that was written on screen stays whole, so the end of a reply never shrinks under
  * the reader. Copy copies all of it either way. Folding is the block's own: Streamdown's height cap, which scrolled the
- * block inside the conversation's scroll, is off.
+ * block inside the conversation's scroll, is off. Copy is ours too: Streamdown's wrote to the page's own clipboard, which
+ * the app gives the page no permission for, so it went through main like every other copy.
  */
 function CodeFold({ children }: { children?: ReactNode }) {
   const { t } = useI18n();
@@ -115,6 +117,13 @@ function CodeFold({ children }: { children?: ReactNode }) {
       ) : (
         block
       )}
+      {code !== null ? (
+        <CopyButton
+          slot="code-copy"
+          label={t("code.copy")}
+          text={() => textOf(code).replace(/\n$/, "")}
+        />
+      ) : null}
       {foldable ? (
         <button
           ref={button}
@@ -164,12 +173,13 @@ const pluginFor = (id: CodeThemeId) => {
 };
 
 /**
- * Code keeps one control, Copy, shown when the block is hovered or focused. Tables keep none: the full-screen view and the
+ * Code keeps one control, Copy, shown when the block is hovered or focused; it is drawn by `CodeFold`, not by
+ * Streamdown. Tables keep none: the full-screen view and the
  * CSV download were a toolbar over every table, louder than the table. Streamdown's mermaid plugin is not used: a
  * ```mermaid fence is a code block that `CodeFold` hands to our own `Diagram`, which draws it as a picture (diagram.ts).
  */
 const CONTROLS = {
-  code: { copy: true, download: false },
+  code: { copy: false, download: false },
   table: false,
   mermaid: false,
   image: false,

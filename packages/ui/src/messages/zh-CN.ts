@@ -196,6 +196,8 @@ export const zhCN: Readonly<Record<MessageKey, Message>> = {
   "conversation.empty": "这里还没有内容。在下面说点什么。",
   "conversation.earlier": "显示更早的",
   "thought.label": "思考",
+  "message.copy.agent": "复制回复",
+  "message.copy.user": "复制消息",
   "plan.label": "计划",
   "plan.progress": "已完成 {done}/{count}",
   "plan.count": "{done}/{count}",
@@ -477,6 +479,7 @@ export const zhCN: Readonly<Record<MessageKey, Message>> = {
   "diagram.showSource": "显示源码",
   "diagram.showDiagram": "显示图表",
   "diagram.failed": "这张图表画不出来，下面是它的源码。",
+  "code.copy": "复制代码",
 
   "dialog.close": "关闭",
   "dialog.cancel": "取消",

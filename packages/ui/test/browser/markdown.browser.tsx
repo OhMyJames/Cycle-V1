@@ -196,6 +196,27 @@ test("opening a link and showing a long block whole are counted, and nothing of 
   ]);
 });
 
+test("a code block's Copy goes through main, copies all of it, and says it did", async () => {
+  const user = userEvent.setup();
+  const script = fakeBridge({ connected: true });
+  const c = render(
+    <StoreProvider store={new AppStore(script.bridge)}>
+      <Markdown text={READING} />
+    </StoreProvider>,
+  ).container;
+  const buttons = within(c).getAllByRole("button", { name: "Copy the code" });
+  // Ours, not Streamdown's, which wrote to the page's own clipboard.
+  expect(c.querySelector('[data-streamdown="code-block-copy-button"]')).toBeNull();
+  const last = buttons.at(-1);
+  if (last === undefined) throw new Error("no Copy");
+  await user.click(last);
+  const copied = script.calls.filter(([name]) => name === "copyText");
+  expect(copied).toHaveLength(1);
+  // The whole block, though it is shown in part.
+  expect(String(copied[0]?.[1]).split("\n")).toHaveLength(LONG_CODE_LINES);
+  await waitFor(() => expect(c.querySelector('[data-copied="done"]')).not.toBeNull());
+});
+
 test("no height cap of Streamdown's: shown whole, a long block is all there, not scrolled inside itself", () => {
   const c = html(READING);
   for (const body of Array.from(c.querySelectorAll('[data-streamdown="code-block-body"]'))) {

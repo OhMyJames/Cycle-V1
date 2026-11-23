@@ -1,6 +1,7 @@
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
 import {
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -23,12 +24,14 @@ import {
 } from "../model/index.ts";
 import { blockHolds, reveal } from "../reveal.ts";
 import { thinking } from "../thinking.ts";
+import { CopyButton } from "./copy-button.tsx";
 import { useI18n } from "./i18n.tsx";
 import { ThoughtIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
 import { Markdown } from "./markdown.tsx";
 import { PlanBlock } from "./plan.tsx";
 import { StateBlock } from "./state-block.tsx";
+import { useAppStore } from "./store-context.tsx";
 import { ToolCard } from "./tool.tsx";
 import { EndBlock, Notice, StepLine, WorkBlock } from "./turn.tsx";
 
@@ -41,6 +44,9 @@ const isMention = (block: Block, text: string): boolean => {
   // Only when the words still name it: a link the text no longer shows is drawn, so a file sent is never invisible.
   return typeof path === "string" && text.includes(`@${path}`);
 };
+
+const hasWords = (block: Block): boolean =>
+  block.type === "text" && String(block.text).trim() !== "";
 
 const linkName = (block: Block): string =>
   typeof block.name === "string" && block.name !== ""
@@ -103,11 +109,31 @@ function AgentBlocks({ blocks, streaming }: { blocks: Block[]; streaming: boolea
   );
 }
 
+/**
+ * Copy under a message, seen when the pointer is over it or the focus is in it. It takes its room whether seen or not, so
+ * coming and going it moves nothing. Reported as which kind of message, never what it said.
+ */
+function MessageActions({ kind, text }: { kind: "agent" | "user"; text: () => string }) {
+  const { t } = useI18n();
+  const store = useAppStore();
+  return (
+    <div data-slot="message-actions" data-role={kind}>
+      <CopyButton
+        slot="message-copy"
+        label={t(`message.copy.${kind}`)}
+        text={text}
+        onCopied={() => store.track("message_copied", { kind })}
+      />
+    </div>
+  );
+}
+
 const BlockView = memo(function BlockView({
   block,
   streaming,
   live,
   resend,
+  replyOf,
 }: {
   block: LaidBlock;
   /** This is the agent message that is still arriving. */
@@ -116,20 +142,34 @@ const BlockView = memo(function BlockView({
   live: boolean;
   /** The end of a turn that failed, whose message can be sent again. */
   resend?: Resend | undefined;
+  /** On the last message of a turn that is over: what the agent wrote in that turn, to copy. */
+  replyOf?: ((turn: number) => string) | undefined;
 }) {
   const { t } = useI18n();
   switch (block.kind) {
-    case "user":
+    case "user": {
+      const blocks = block.item.blocks;
       return (
-        <div data-slot="message" data-role="user">
-          <Blocks blocks={block.item.blocks} from="user" />
-        </div>
+        <>
+          <div data-slot="message" data-role="user">
+            <Blocks blocks={blocks} from="user" />
+          </div>
+          {blocks.some(hasWords) ? (
+            <MessageActions kind="user" text={() => textOf(blocks)} />
+          ) : null}
+        </>
       );
+    }
     case "agent":
       return (
-        <div data-slot="message" data-role="agent">
-          <AgentBlocks blocks={block.item.blocks} streaming={streaming} />
-        </div>
+        <>
+          <div data-slot="message" data-role="agent">
+            <AgentBlocks blocks={block.item.blocks} streaming={streaming} />
+          </div>
+          {replyOf !== undefined ? (
+            <MessageActions kind="agent" text={() => replyOf(block.turn)} />
+          ) : null}
+        </>
       );
     case "thought":
       return (
@@ -393,6 +433,26 @@ export function ConversationView({
 
   const working = conversation.status !== "idle";
   const lastAgent = blocks.findLastIndex((block) => block.kind === "agent");
+  // The last message of each turn that has words: a turn's reply is copied from under it, all it wrote, as markdown.
+  const replyEnds = useMemo(() => {
+    const ends = new Map<number, string>();
+    for (const block of blocks)
+      if (block.kind === "agent" && block.item.blocks.some(hasWords))
+        ends.set(block.turn, block.key);
+    return new Set(ends.values());
+  }, [blocks]);
+  // Read at the press, from what is laid then: one function for the view's life, so a block that did not change is not
+  // drawn again.
+  const replyOf = useCallback(
+    (turn: number) =>
+      laid.current.blocks
+        .flatMap((block) =>
+          block.kind === "agent" && block.turn === turn ? [textOf(block.item.blocks)] : [],
+        )
+        .filter((text) => text.trim() !== "")
+        .join("\n\n"),
+    [],
+  );
   return (
     <div
       data-slot="conversation"
@@ -425,6 +485,11 @@ export function ConversationView({
             streaming={working && start + at === lastAgent && block.turn === conversation.turns}
             live={working && block.turn === conversation.turns}
             resend={block.kind === "end" && resend?.turn === block.turn ? resend : undefined}
+            replyOf={
+              replyEnds.has(block.key) && !(working && block.turn === conversation.turns)
+                ? replyOf
+                : undefined
+            }
           />
         </div>
       ))}

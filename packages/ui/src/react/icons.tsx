@@ -131,6 +131,16 @@ export const CheckIcon = ({ size = 16, ...rest }: IconProps) => (
   </Svg>
 );
 
+/** iconmcp: copy */
+export const CopyIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <rect x="5.25" y="5.25" width="8.5" height="8.5" rx="2" />
+      <path d="M3.5 10.75 L2.875 10.75 C2.53 10.75 2.25 10.47 2.25 10.125 L2.25 4.25 C2.25 3.145 3.145 2.25 4.25 2.25 L10.125 2.25 C10.47 2.25 10.75 2.53 10.75 2.875 L10.75 3.5" />
+    </g>
+  </Svg>
+);
+
 /** iconmcp: close */
 export const CloseIcon = ({ size = 16, ...rest }: IconProps) => (
   <Svg size={size} {...rest}>

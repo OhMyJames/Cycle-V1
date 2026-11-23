@@ -2184,6 +2184,47 @@ html[data-platform="darwin"]
   overflow-wrap: anywhere;
 }
 
+/* Copy under a message: its room is kept whether it shows or not, so it moves nothing. Seen while the pointer is on the
+   message or the focus is in it, so it can be reached by keyboard. The button's own padding sits outside the text edge. */
+[data-slot="message-actions"] {
+  display: flex;
+  margin-top: 0.25rem;
+  margin-inline: -0.25rem;
+  opacity: 0;
+  transition: opacity var(--cycle-motion-state) var(--cycle-ease);
+}
+
+[data-slot="message-actions"][data-role="user"] {
+  align-self: flex-end;
+}
+
+[data-slot="block"]:hover [data-slot="message-actions"],
+[data-slot="message-actions"]:focus-within {
+  opacity: 1;
+}
+
+:is([data-slot="message-copy"], [data-slot="code-copy"]) {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--ui-muted-foreground);
+  cursor: pointer;
+  transition:
+    opacity var(--cycle-motion-state) var(--cycle-ease),
+    background-color var(--cycle-motion-state) var(--cycle-ease),
+    color var(--cycle-motion-state) var(--cycle-ease);
+}
+
+:is([data-slot="message-copy"], [data-slot="code-copy"]):hover {
+  background: var(--cycle-surface-hover);
+  color: var(--cycle-ink);
+}
+
 /* Markdown from the agent. Streamdown draws a code block as a box holding a box, and a table as a toolbar over a box
    holding a box. Here each is one hardware-rimmed card (16, the default edge): the language and Copy in a quiet head,
    the code under it. Its own data-streamdown names are stable; its Tailwind classes are below ours, so these win. */
@@ -2402,6 +2443,19 @@ html[data-platform="darwin"]
 /* A long code block shown in part: its first lines, fading out, and a button under them in the same card. */
 [data-slot="code-fold"] {
   position: relative;
+}
+
+/* Copy on a code block: in the right of its head (the block's 0.5rem margin, its edge, then 0.25rem down), or over the top
+   corner of a block with no head. Seen while the block is hovered or something in it has the focus. */
+[data-slot="code-fold"] > [data-slot="code-copy"] {
+  position: absolute;
+  top: calc(0.75rem + 1px);
+  right: calc(0.5rem + 1px);
+  opacity: 0;
+}
+
+[data-slot="code-fold"]:is(:hover, :focus-within) > [data-slot="code-copy"] {
+  opacity: 1;
 }
 
 [data-slot="code-fold"]:has(> [data-slot="code-fold-toggle"]) [data-streamdown="code-block"] {

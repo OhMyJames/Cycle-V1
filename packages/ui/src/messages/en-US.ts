@@ -217,6 +217,8 @@ export const enUS = {
   "conversation.empty": "Nothing here yet. Say something below.",
   "conversation.earlier": "Show earlier",
   "thought.label": "Thinking",
+  "message.copy.agent": "Copy the reply",
+  "message.copy.user": "Copy the message",
   "plan.label": "Plan",
   "plan.progress": "{done} of {count} done",
   "plan.count": "{done}/{count}",
@@ -537,6 +539,7 @@ export const enUS = {
   "diagram.showSource": "Show source",
   "diagram.showDiagram": "Show diagram",
   "diagram.failed": "This diagram could not be drawn, so its source is shown.",
+  "code.copy": "Copy the code",
 
   "dialog.close": "Close",
   "dialog.cancel": "Cancel",

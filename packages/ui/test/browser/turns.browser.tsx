@@ -474,6 +474,49 @@ test("a command opens to itself and its output apart from its errors; a long out
   ]);
 });
 
+test("a message and a finished turn's reply copy from under them, by keyboard too, and only which kind is counted", async () => {
+  const said = (id: string, text: string) =>
+    u({ sessionUpdate: "agent_message", messageId: id, content: [{ type: "text", text }] });
+  const { user, log, emit, script } = await open(
+    u({
+      sessionUpdate: "user_message",
+      messageId: "u1",
+      content: [{ type: "text", text: "Fix the **build**" }],
+    }),
+    said("m1", "Looking at `make`."),
+    ...tool("b", "Bash", "completed", { command: "make" }),
+    said("m2", "Fixed:\n\n```sh\nmake all\n```"),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  // One Copy for the reply, under its last message: the turn's words as markdown, not one message's.
+  const reply = within(log).getByRole("button", { name: "Copy the reply" });
+  expect(within(log).getAllByRole("button", { name: "Copy the reply" })).toHaveLength(1);
+  await user.click(reply);
+  const copied = () => script.calls.filter(([name]) => name === "copyText").map(([, text]) => text);
+  expect(copied()).toEqual(["Looking at `make`.\n\nFixed:\n\n```sh\nmake all\n```"]);
+  await waitFor(() => expect(log.textContent).toContain("Copied"));
+  // By keyboard: the focus reaches the message's Copy, and Enter copies what was written, as written.
+  within(log).getByRole("button", { name: "Copy the message" }).focus();
+  await user.keyboard("{Enter}");
+  expect(copied()).toEqual([
+    "Looking at `make`.\n\nFixed:\n\n```sh\nmake all\n```",
+    "Fix the **build**",
+  ]);
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([
+    ["track", "message_copied", { kind: "agent" }],
+    ["track", "message_copied", { kind: "user" }],
+  ]);
+  // A reply still being written has no Copy yet; the one before it keeps its own.
+  await emit(you("u2"));
+  await emit(state({ state: "running" }));
+  await emit(said("m3", "Working on it"));
+  await waitFor(() => expect(log.textContent).toContain("Working on it"));
+  const replies = () => log.querySelectorAll('[data-slot="message-actions"][data-role="agent"]');
+  expect(replies()).toHaveLength(1);
+  await emit(state({ state: "idle", stopReason: "end_turn" }));
+  await waitFor(() => expect(replies()).toHaveLength(2));
+});
+
 test("the plan is followed above the input box and is one line in the conversation; a sub-agent, a compaction, a plan proposed and a question say what they are", async () => {
   const plan = (statuses: string[]) =>
     u({

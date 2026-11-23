@@ -151,6 +151,8 @@ export const EVENTS = {
   tool_link_opened: o({}),
   /** A link in an agent's message was opened, after the person said yes to where it goes. Never which. */
   message_link_opened: o({}),
+  /** A message was copied from under it: the agent's reply in a turn, or what the person wrote. Never the words. */
+  message_copied: o({ kind: z.enum(["agent", "user"]) }),
   /** A long code block in a reply, shown in part, was shown whole. */
   code_block_expanded: o({}),
   /** A diagram drawn from a ```mermaid fence in a reply was opened large. */
@@ -199,6 +201,7 @@ export const UI_EVENTS = [
   "context_details_opened",
   "tool_link_opened",
   "message_link_opened",
+  "message_copied",
   "code_block_expanded",
   "diagram_opened",
   "diagram_source_shown",
