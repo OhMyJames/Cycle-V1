@@ -28,6 +28,8 @@ import {
   connectorsUpdate,
   filesSearch,
   foldersList,
+  fsList,
+  fsRead,
   META,
   NOTIFICATIONS,
   PLAN_USAGE_CHANGED,
@@ -79,6 +81,8 @@ import {
 } from "./errors.ts";
 import { searchFiles } from "./files.ts";
 import { listFolders } from "./folders.ts";
+import { listFolder, readFile } from "./fs.ts";
+import { ignoredNames } from "./git.ts";
 import { type SessionEntry, SessionIndex } from "./index-file.ts";
 import { BlobLogStore } from "./log/blobs.ts";
 import { JsonlLogStore } from "./log/jsonl.ts";
@@ -553,6 +557,15 @@ export class Daemon {
     const real = await realFolder(cwd).catch(() => undefined);
     const trusted = real === undefined ? null : this.#trust.of(real).trusted;
     return trusted === null ? {} : { [META.trusted]: trusted };
+  }
+
+  /** A session's folder, from the index: nothing of the session (its log) needs loading to read in it. */
+  #cwdOf(sessionId: string): string {
+    const entry = this.#index.get(sessionId);
+    // A session being deleted is already gone to everyone who asks.
+    if (entry === undefined || this.#sessions.get(sessionId)?.closed === true)
+      throw sessionNotFound(sessionId);
+    return entry.cwd;
   }
 
   /**
@@ -1702,6 +1715,7 @@ export class Daemon {
             files: true,
             folders: true,
             filesInFolder: true,
+            fs: true,
             trust: true,
             connectors: true,
             planUsage: true,
@@ -2162,6 +2176,14 @@ export class Daemon {
       return { root: cwd, ...found };
     });
     cycle(foldersList, (params) => listFolders(params.path, params.hidden === true));
+    cycle(fsList, (params) =>
+      // Git says what it ignores only for a repository the person trusts, since it reads that repository's
+      // configuration (.agents/notes/2026-11-22-files-and-diff-sources.md).
+      listFolder(this.#cwdOf(params.sessionId), params.path, (dir, names) =>
+        ignoredNames(dir, names, (repository) => this.#trust.of(repository).trusted === true),
+      ),
+    );
+    cycle(fsRead, (params) => readFile(this.#cwdOf(params.sessionId), params.path, params.offset));
     cycle(trustRead, async (params) => this.#trust.of(await realFolder(params.path)));
     cycle(trustSet, async (params) => {
       const real = await realFolder(params.path);

@@ -116,6 +116,8 @@ export const CapabilitiesSchema = z.object({
   folders: z.boolean().optional(),
   /** `_cycle/files/search` also takes a `cwd` in place of a session (docs/protocol.md §8). */
   filesInFolder: z.boolean().optional(),
+  /** `_cycle/fs/list` and `_cycle/fs/read` are there (docs/protocol.md §8 "浏览和预览文件"). */
+  fs: z.boolean().optional(),
   /** `_cycle/trust/read` and `_cycle/trust/set` are there (docs/protocol.md §8). */
   trust: z.boolean().optional(),
   /** `_cycle/plan_usage/read` and `_cycle/plan_usage_changed` are there (docs/protocol.md §8 "套餐用量"). */
