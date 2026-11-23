@@ -80,6 +80,12 @@ export const META = {
    * delayMs, status?}` (docs/protocol.md §8). Shown as a state while it is the last thing in the turn, never as a row.
    */
   retry: "cycle/retry",
+  /**
+   * On a block the daemon put in a prompt in place of a mention of another session (daemon to agent): the
+   * `resource_link` it stands for, which the daemon puts back in the agent's echo before it is written
+   * (docs/protocol.md §8 "提及(@)另一个 session").
+   */
+  expandedFrom: "cycle/expandedFrom",
 } as const;
 
 /** The version of Cycle's protocol, "major.minor". A different major is refused. */
@@ -109,6 +115,8 @@ export const CapabilitiesSchema = z.object({
   trust: z.boolean().optional(),
   /** `_cycle/plan_usage/read` and `_cycle/plan_usage_changed` are there (docs/protocol.md §8 "套餐用量"). */
   planUsage: z.boolean().optional(),
+  /** A `cycle://session/` mention in a prompt reaches the agent as that session's record (docs/protocol.md §8). */
+  sessionMentions: z.boolean().optional(),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 

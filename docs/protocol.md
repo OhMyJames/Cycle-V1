@@ -50,7 +50,8 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
   "folders": true,
   "filesInFolder": true,
   "trust": true,
-  "connectors": true
+  "connectors": true,
+  "sessionMentions": true
 }
 ```
 
@@ -351,6 +352,17 @@ agent 是 daemon 的子进程,daemon 停止(`cycle stop`、升级、崩溃、机
 - **有上限**:最多检查 50,000 个条目、最多走 2 秒;到了上限就带 `truncated: true` 返回已找到的。跳过 `.git` 和 `node_modules`;名字以 `.` 开头的文件,只有 `query` 里含 `.` 时才给。
 - 这是 daemon 读本机文件系统的新入口:不返回文件内容,只返回路径;只在 loopback、unix socket 或 SSH 通道上服务,不放宽。session 不存在以 `-32002` 拒绝。
 - **按 `cwd` 搜**:给空白对话用,那时还没有 session。`cwd` 必须是绝对路径,否则以 `-32602` 拒绝;同时给 `sessionId` 和 `cwd`,或都不给,也是 `-32602`。规则和按 session 搜完全一样,`root` 是给的 `cwd`;不存在时同样返回空列表。它不比按 session 搜多暴露什么:谁能连上 daemon,谁就能用任意 `cwd` 新建 session 再搜。能力 `filesInFolder` 为 `true` 才有;旧 daemon 没有时,客户端在空白对话里不提供 @ 搜索,有了 session 之后照常。
+
+### 提及(@)另一个 session
+
+客户端可以在 prompt 里提及同一个 daemon 上的另一个 session,让 agent 读到那段对话。
+
+- **形式**:一个 `resource_link`,`uri` 为 `cycle://session/<sessionId>`,`name` 是 session 的标题(没有标题时是客户端显示它的名字),`_meta["cycle/mention"]` 是正文里 `@` 后面写的那几个字(和文件提及一样,正文同时写 `@名字` 给人看)。客户端在 daemon 的 `cycle/capabilities` 有 `sessionMentions: true` 时才提供;旧 daemon 没有这一项,客户端不列出 session。
+- **展开**:daemon 在把 prompt 交给 agent 的那一刻(直接发送、排队的发出、插入都一样)把这样的块换成一块 session 的简短记录。agent 的 `promptCapabilities` 有 `embeddedContext` 时是一块嵌入资源 `{type: "resource", resource: {uri, mimeType: "text/plain", text}}`,否则是一块 `text`。块数不变,所以不影响 32 块的上限;内容校验在展开之前,对客户端发来的原样进行。
+- **记录的内容**:只有人说的话(`user_message` 的文字,其中的提及写成 `@名字`,图片写成 `[image]`)和 agent 的回答(`agent_message_chunk` 的文字,按 `messageId` 拼成一条)。不含思考、工具调用及其输出、计划、权限。每条消息最多 4,000 个字符(超出的截去尾部并注明),消息部分合计最多 40,000 个字符(另有开头一句说明):从最新的往前取,放不下的旧消息整条丢掉,开头注明丢了几条。常量在 `@cycle/protocol` 的 `SESSION_MENTION_LIMITS`。
+- **只读本 daemon 的**:`sessionId` 必须在 daemon 的索引里(Cycle 在这个 daemon 上建的 session,归档的也算)。找不到(从没有、已删除、正在删除)、日志读不了,或者提及的就是这个 session 自己时,daemon 不拒绝这条 prompt,而是把那一块换成一句给 agent 的说明(`text` 块),说清是哪个 session、为什么没有内容。
+- **历史里是链接,不是记录**:展开出来的块在 `_meta["cycle/expandedFrom"]` 里带着原来的 `resource_link`。agent 回显的 `user_message` 进日志之前,daemon 把带这个标记的块换回原来的链接,所以日志、补发和其他客户端看到的都是提及,不是那份记录;排队的 prompt 在队列里也保持链接,发出时才展开,所以读到的是发出那一刻的内容。agent 回显时要原样保留块的 `_meta`(Claude 适配是这样);不保留的 agent,记录会进它的历史。
+- 记录给 agent 的是那时候的快照:被提及的 session 之后的变化不会跟过来。这条路径只读 daemon 自己的日志,不经过 agent,也不跨 daemon。
 
 ### 选文件夹
 
