@@ -137,14 +137,17 @@ export const workspaceStatus = async (
   // A repository inside, not tracked, is listed as a folder (`lib/`): it is shown by its name, and has no lines.
   for (const listed of fields(untracked.stdout)) {
     const path = listed.replace(/\/+$/, "");
-    files.set(path, { path, status: "untracked" });
+    files.set(
+      path,
+      path === listed ? { path, status: "untracked" } : { path, status: "untracked", folder: true },
+    );
   }
   const sorted = [...files.values()].sort((a, b) =>
     a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
   );
   const shown = sorted.slice(0, DIFF_LIMITS.files);
   // Lines of the untracked files shown, a few at a time, for as long as that takes no more than a moment.
-  const counting = shown.filter((file) => file.status === "untracked");
+  const counting = shown.filter((file) => file.status === "untracked" && file.folder !== true);
   const until = Date.now() + COUNTING.ms;
   for (let at = 0; at < counting.length && Date.now() < until; at += COUNTING.atOnce) {
     await Promise.all(

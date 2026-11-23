@@ -244,6 +244,8 @@ export class AppStore {
   readonly sidePanels: SidePanelStore;
   /** Where each session's Files tab is: open folders, and the file shown (CYCL-92). */
   readonly filesViews = new FilesViews();
+  /** Which view each session's Diff tab shows: kept while the window is open, so a tab looked away from finds it again. */
+  readonly diffModes = new Map<string, "session" | "workspace">();
   readonly #acks = new WeakSet<Returned>();
   /**
    * Sessions whose box holds a message put back to send again, with what the box then held: whether it went as it was

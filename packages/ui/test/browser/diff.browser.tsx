@@ -187,3 +187,52 @@ test("a failure to compare says why in git's words, and Retry asks again", async
   expect(await tab.findByText("No changes since the last commit")).toBeDefined();
   expect(tab.getByText("No commits yet: everything is new")).toBeDefined();
 });
+
+test("an edit held for review says so; a repository inside opens in Files; trusting and checking again compares", async () => {
+  const states: WorkspaceStatus[] = [
+    { state: "untrusted", repository: "/work" },
+    {
+      state: "ok",
+      head: "0123456789abcdef0123456789abcdef01234567",
+      truncated: false,
+      files: [{ path: "vendor/lib", status: "untracked", folder: true }],
+    },
+  ];
+  const { user } = await mount({
+    diff: true,
+    // The last answer stays: a view shown again asks again.
+    status: async () =>
+      states.length > 1 ? (states.shift() as WorkspaceStatus) : (states[0] as WorkspaceStatus),
+    updates: [
+      ask("m1", "Propose a change"),
+      u({ sessionUpdate: "tool_call_update", toolCallId: "t1", name: "Edit", status: "pending" }),
+      u({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "t1",
+        status: "completed",
+        content: [
+          {
+            type: "diff",
+            changes: [{ operation: "modify", path: "/work/a.ts" }],
+            patch: { format: "git_patch", text: PATCH },
+          },
+        ],
+        _meta: { "cycle/toolResult": { edit: { additions: 2, deletions: 1, staged: true } } },
+      }),
+    ],
+  });
+  await user.click(screen.getByRole("button", { name: "Show changes" }));
+  const tab = within(panel());
+  expect(tab.getByRole("button", { name: /a\.ts/ }).textContent).toContain("held for review");
+  await user.click(tab.getByRole("radio", { name: "Workspace" }));
+  expect(await tab.findByText("This repository is not trusted")).toBeDefined();
+  await user.click(tab.getByRole("button", { name: "Check again" }));
+  const folder = await tab.findByRole("button", { name: /vendor\/lib/ });
+  // The view chosen stays while another tab is looked at.
+  await user.click(tab.getByRole("tab", { name: "Overview" }));
+  await user.click(within(panel()).getByRole("tab", { name: "Diff" }));
+  expect(within(panel()).getByRole("radio", { name: "Workspace", checked: true })).toBeDefined();
+  await user.click(await within(panel()).findByRole("button", { name: /vendor\/lib/ }));
+  expect(await within(panel()).findByRole("tab", { name: "Files", selected: true })).toBeDefined();
+  expect(folder).toBeDefined();
+});

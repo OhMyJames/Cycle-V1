@@ -107,7 +107,8 @@ export function Files() {
   const views = store.filesViews;
   const read = useCallback(() => (key !== undefined ? views.get(key) : undefined), [key, views]);
   const view = useSyncExternalStore(views.subscribe, read, read);
-  const running = session?.state === "running" || session?.state === "requires_action";
+  // Working, as opposed to stopped for a question: what it changed so far is on disk when it asks.
+  const running = session?.state === "running";
 
   if (
     key === undefined ||

@@ -66,6 +66,7 @@ export const zhCN: Readonly<Record<MessageKey, Message>> = {
     "git 会读取仓库自己的设置，所以 Cycle 只在你信任的文件夹里运行它。在工作区菜单里信任 {folder}，就能在这里比较。",
   "diff.workspace.against": "对比提交 {commit}",
   "diff.workspace.noCommit": "还没有提交：所有文件都是新的",
+  "diff.workspace.checkAgain": "重新检查",
   "diff.workspace.clean": "自最近一次提交以来没有改动",
   "diff.workspace.truncated": "只显示前 {count} 个文件",
   "files.show": "显示文件",

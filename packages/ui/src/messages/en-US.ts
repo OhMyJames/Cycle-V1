@@ -72,6 +72,7 @@ export const enUS = {
     "Git reads the repository's own settings, so Cycle runs it only where you trust the folder. Trust {folder} from the workspace menu to compare it here.",
   "diff.workspace.against": "Against commit {commit}",
   "diff.workspace.noCommit": "No commits yet: everything is new",
+  "diff.workspace.checkAgain": "Check again",
   "diff.workspace.clean": "No changes since the last commit",
   "diff.workspace.truncated": {
     one: "Showing the first {count} file",

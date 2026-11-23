@@ -11,14 +11,14 @@ import {
   SegmentedControlIndicator,
   SegmentedControlItem,
 } from "@ui-sdk/react/segmented-control";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { WorkspaceFile, WorkspacePatch, WorkspaceStatus } from "../api.ts";
 import { insideFolder } from "../files-view.ts";
 import { diffLines, type SessionEdit, sessionEdits, type TurnEdits } from "../model/index.ts";
 import { reveal } from "../reveal.ts";
-import { viewKey } from "../store/index.ts";
+import { filesRootOf, viewKey } from "../store/index.ts";
 import { useI18n } from "./i18n.tsx";
-import { ChevronRightIcon, RefreshIcon } from "./icons.tsx";
+import { ChevronRightIcon, FolderIcon, RefreshIcon } from "./icons.tsx";
 import { StateBlock } from "./state-block.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 import { Tip } from "./tip.tsx";
@@ -60,7 +60,9 @@ export function Diff() {
   const canWorkspace = useAppState((s) =>
     environmentId !== undefined ? s.status[environmentId]?.capabilities?.diff === true : false,
   );
-  const [mode, setMode] = useState<DiffMode>("session");
+  // Kept by session in the store: the tab is unmounted while another is shown, and each session has its own.
+  const [, changed] = useReducer((n: number) => n + 1, 0);
+  const mode = (key !== undefined ? store.diffModes.get(key) : undefined) ?? "session";
   const shown: DiffMode = canWorkspace ? mode : "session";
 
   if (key === undefined || environmentId === undefined || sessionId === undefined)
@@ -69,7 +71,8 @@ export function Diff() {
         <StateBlock tone="empty" size="inline" title={t("overview.noSession")} />
       </div>
     );
-  const running = session?.state === "running" || session?.state === "requires_action";
+  // Working, as opposed to stopped for a question: what it changed so far is on disk when it asks.
+  const running = session?.state === "running";
   return (
     <div data-slot="diff">
       {canWorkspace ? (
@@ -79,7 +82,8 @@ export function Diff() {
             aria-label={t("diff.view")}
             onValueChange={(next) => {
               if ((next === "session" || next === "workspace") && next !== shown) {
-                setMode(next);
+                store.diffModes.set(key, next);
+                changed();
                 store.track("diff_view_changed", { view: next });
               }
             }}
@@ -209,6 +213,12 @@ function EditRow({
   const store = useAppStore();
   const [open, setOpen] = useState(false);
   const path = shownPath(edit.path, cwd) ?? t("diff.noPath");
+  // Inside the session's folder, and its daemon shows files: the file can be opened there.
+  const filesRoot = useAppState(filesRootOf);
+  const inFiles =
+    edit.path !== undefined && filesRoot !== undefined && !edit.staged
+      ? insideFolder(edit.path, filesRoot)
+      : undefined;
   return (
     <Collapsible
       data-kind="diff-file"
@@ -223,7 +233,12 @@ function EditRow({
         <span data-slot="diff-path" title={path}>
           <bdi>{path}</bdi>
         </span>
-        {edit.created ? <span data-slot="diff-status">{t("diff.status.created")}</span> : null}
+        {edit.staged ? (
+          // Held for review: shown as it would be, but the file on disk is as it was.
+          <span data-slot="diff-status">{t("tool.facts.staged")}</span>
+        ) : edit.created ? (
+          <span data-slot="diff-status">{t("diff.status.created")}</span>
+        ) : null}
         <Counts additions={edit.additions} deletions={edit.deletions} />
       </CollapsibleTrigger>
       <CollapsiblePanel>
@@ -242,6 +257,11 @@ function EditRow({
         >
           {t("overview.showInConversation")}
         </button>
+        {inFiles !== undefined ? (
+          <button type="button" data-slot="diff-link" onClick={() => store.showInFiles(inFiles)}>
+            {t("files.showInFiles")}
+          </button>
+        ) : null}
       </CollapsiblePanel>
     </Collapsible>
   );
@@ -309,6 +329,7 @@ function WorkspaceView({
         size="inline"
         title={t("diff.workspace.notGit")}
         body={t("diff.workspace.notGitBody")}
+        action={{ label: t("diff.workspace.checkAgain"), onAction: () => setRound((n) => n + 1) }}
       />
     );
   if (value.state === "untrusted")
@@ -318,6 +339,8 @@ function WorkspaceView({
         size="inline"
         title={t("diff.workspace.untrusted")}
         body={t("diff.workspace.untrustedBody", { folder: value.repository })}
+        // Trusted since in the workspace menu: asked again, it compares.
+        action={{ label: t("diff.workspace.checkAgain"), onAction: () => setRound((n) => n + 1) }}
       />
     );
   return (
@@ -377,11 +400,25 @@ function WorkspaceRow({
   const store = useAppStore();
   const [open, setOpen] = useState(false);
   const [patch, setPatch] = useState<Load<WorkspacePatch> | undefined>(undefined);
+  // Which read is current: an answer to an older one (before a new round, a Retry, or after the row went) is dropped.
+  const reading = useRef(0);
+  useEffect(
+    () => () => {
+      reading.current += 1;
+    },
+    [],
+  );
   const load = useCallback(() => {
+    reading.current += 1;
+    const serial = reading.current;
     setPatch({ state: "loading" });
     store.workspaceFile(environmentId, sessionId, file.path).then(
-      (value) => setPatch({ state: "ok", value }),
-      (error: unknown) => setPatch({ state: "error", reason: reasonOf(error) }),
+      (value) => {
+        if (reading.current === serial) setPatch({ state: "ok", value });
+      },
+      (error: unknown) => {
+        if (reading.current === serial) setPatch({ state: "error", reason: reasonOf(error) });
+      },
     );
   }, [store, environmentId, sessionId, file.path]);
   // Read when first opened, and again in a new round while open; a closed one is read when it opens.
@@ -392,6 +429,27 @@ function WorkspaceRow({
     load();
   }, [open, round, load]);
   const lines = useMemo(() => (patch?.state === "ok" ? diffLines(patch.value.patch) : []), [patch]);
+  const status = (
+    <span data-slot="diff-status" data-status={file.status}>
+      {t(STATUS_KEY[file.status])}
+    </span>
+  );
+  if (file.folder === true)
+    // A repository inside, not tracked: no patch of its own. Its files are in the Files tab.
+    return (
+      <button
+        type="button"
+        data-kind="diff-row"
+        title={t("files.showInFiles")}
+        onClick={() => store.showInFiles(file.path, { folder: true })}
+      >
+        <FolderIcon size={12} data-slot="diff-chevron" />
+        <span data-slot="diff-path" title={file.path}>
+          <bdi>{file.path}</bdi>
+        </span>
+        {status}
+      </button>
+    );
   return (
     <Collapsible
       data-kind="diff-file"
@@ -406,9 +464,7 @@ function WorkspaceRow({
         <span data-slot="diff-path" title={file.path}>
           <bdi>{file.path}</bdi>
         </span>
-        <span data-slot="diff-status" data-status={file.status}>
-          {t(STATUS_KEY[file.status])}
-        </span>
+        {status}
         {file.binary === true ? (
           <span data-slot="diff-status">{t("diff.binary")}</span>
         ) : (

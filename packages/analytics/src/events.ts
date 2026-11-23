@@ -139,13 +139,13 @@ export const EVENTS = {
   overview_item_revealed: o({ section: z.enum(["todo", "background"]) }),
   /** The Files tab showed a file: what kind of preview it was, never which file. */
   file_previewed: o({ kind: z.enum(["text", "markdown", "image", "binary", "too_large"]) }),
-  /** A file or folder named in the conversation was shown in the Files tab: what it was and where it was named. */
   /** The Diff tab switched between this session's edits and the workspace against HEAD. */
   diff_view_changed: o({ view: z.enum(["session", "workspace"]) }),
   /** A file in the Diff tab was opened to its changes, in that view. */
   diff_file_opened: o({ view: z.enum(["session", "workspace"]) }),
   /** The Diff tab took the conversation to the call that made an edit. */
   diff_edit_revealed: o({}),
+  /** A file or folder named in the conversation was shown in the Files tab: what it was and where it was named. */
   file_shown_from_conversation: o({
     target: z.enum(["file", "folder"]),
     from: z.enum(["tool", "mention"]),

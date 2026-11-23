@@ -145,7 +145,7 @@ test("a repository inside is listed by its name and has no patch; an empty path 
   // Git lists no pipe: only files and what holds them.
   expect(status.state === "ok" ? status.files : []).toEqual([
     { path: "tail.txt", status: "untracked", additions: 1, deletions: 0 },
-    { path: "vendor/lib", status: "untracked" },
+    { path: "vendor/lib", status: "untracked", folder: true },
   ]);
   await expect(workspaceFile(work, "vendor/lib", trusted)).rejects.toMatchObject({
     data: expect.objectContaining({ reason: "not_a_file" }),

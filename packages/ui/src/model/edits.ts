@@ -3,7 +3,7 @@
 // formatter) is not here, and the view says so (.agents/notes/2026-11-22-files-and-diff-sources.md).
 import type { Conversation, ToolItem } from "./conversation.ts";
 import { textOf } from "./conversation.ts";
-import { type DiffLine, toolFacts } from "./facts.ts";
+import { type DiffLine, type ToolFacts, toolFacts } from "./facts.ts";
 
 export type SessionEdit = {
   /** The call that made it: what "Show in conversation" goes back to. */
@@ -42,6 +42,19 @@ const pathOf = (tool: ToolItem): string | undefined => {
   return typeof where === "string" && where !== "" ? where : undefined;
 };
 
+/**
+ * What each finished call amounts to, kept while the call is: a conversation that grows makes new items only for what
+ * changed, so a patch is read once, not again with every chunk that streams in.
+ */
+const factsOf = new WeakMap<ToolItem, ToolFacts>();
+const factsFor = (tool: ToolItem): ToolFacts => {
+  const known = factsOf.get(tool);
+  if (known !== undefined) return known;
+  const facts = toolFacts(tool);
+  factsOf.set(tool, facts);
+  return facts;
+};
+
 /** The edits of a session, by turn, the latest turn first and each turn's edits in the order they were made. */
 export const sessionEdits = (conversation: Conversation): TurnEdits[] => {
   const turns = new Map<number, TurnEdits>();
@@ -52,7 +65,7 @@ export const sessionEdits = (conversation: Conversation): TurnEdits[] => {
       if (words !== "") prompts.set(item.turn, words);
     }
     if (item.kind !== "tool" || item.status !== "completed") continue;
-    const edit = toolFacts(item).edit;
+    const edit = factsFor(item).edit;
     if (edit === undefined) continue;
     const turn = turns.get(item.turn) ?? {
       turn: item.turn,
