@@ -13,6 +13,8 @@ beforeEach(() => thinking.set(false));
 afterEach(() => {
   cleanup();
   thinking.set(false);
+  // A panel opened here is kept per session, and the files that run beside this one read the same storage.
+  localStorage.clear();
 });
 
 const u = (update: object) => update as SessionUpdate;
