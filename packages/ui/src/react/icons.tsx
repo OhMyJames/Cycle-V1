@@ -326,3 +326,17 @@ export const RefreshIcon = ({ size = 16, ...rest }: IconProps) => (
     </g>
   </Svg>
 );
+
+/** iconmcp: git-compare */
+export const DiffIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <circle cx="4.5" cy="4" r="1.75" />
+      <circle cx="11.5" cy="12" r="1.75" />
+      <path d="M4.5 5.75 V9.5 C4.5 10.605 5.395 11.5 6.5 11.5 H8.5" />
+      <path d="M7 10 L8.5 11.5 L7 13" />
+      <path d="M11.5 10.25 V6.5 C11.5 5.395 10.605 4.5 9.5 4.5 H7.5" />
+      <path d="M9 6 L7.5 4.5 L9 3" />
+    </g>
+  </Svg>
+);

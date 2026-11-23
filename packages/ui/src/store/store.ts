@@ -28,6 +28,8 @@ import type {
   SessionSnapshot,
   SessionSummary,
   UpdateState,
+  WorkspacePatch,
+  WorkspaceStatus,
 } from "../api.ts";
 import { againBlocks, DraftStore, promptBlocks, returnedId } from "../draft.ts";
 import { FilesViews } from "../files-view.ts";
@@ -242,6 +244,8 @@ export class AppStore {
   readonly sidePanels: SidePanelStore;
   /** Where each session's Files tab is: open folders, and the file shown (CYCL-92). */
   readonly filesViews = new FilesViews();
+  /** Which view each session's Diff tab shows: kept while the window is open, so a tab looked away from finds it again. */
+  readonly diffModes = new Map<string, "session" | "workspace">();
   readonly #acks = new WeakSet<Returned>();
   /**
    * Sessions whose box holds a message put back to send again, with what the box then held: whether it went as it was
@@ -925,6 +929,17 @@ export class AppStore {
     path: string,
     offset?: number,
   ): Promise<FileContent> => this.#bridge.readFile(environmentId, sessionId, path, offset);
+
+  /** A session's folder against HEAD, for the Diff tab. The caller says why it failed. */
+  workspaceStatus = (environmentId: string, sessionId: string): Promise<WorkspaceStatus> =>
+    this.#bridge.workspaceStatus(environmentId, sessionId);
+
+  /** One file's patch against HEAD. The caller says why it failed. */
+  workspaceFile = (
+    environmentId: string,
+    sessionId: string,
+    path: string,
+  ): Promise<WorkspacePatch> => this.#bridge.workspaceFile(environmentId, sessionId, path);
 
   /** Shows a file (or, `folder`, a folder in the tree) of the open session in its Files tab, opening the panel. */
   showInFiles = (path: string, options: { folder?: boolean } = {}): void => {

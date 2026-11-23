@@ -18,6 +18,8 @@ export const DiffFileSchema = z.object({
   additions: z.number().int().nonnegative().optional(),
   deletions: z.number().int().nonnegative().optional(),
   binary: z.boolean().optional(),
+  /** A repository inside the folder, not tracked: listed by its name, with no lines and no patch. */
+  folder: z.boolean().optional(),
 });
 export type DiffFile = z.infer<typeof DiffFileSchema>;
 

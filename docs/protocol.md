@@ -409,7 +409,7 @@ agent 是 daemon 的子进程,daemon 停止(`cycle stop`、升级、崩溃、机
 
 `_cycle/diff/status`,参数 `{sessionId}`,响应按 `state` 分:
 
-- `{state: "ok", head, files, truncated}`:`head` 是 `HEAD` 的提交号，没有提交时为 `null`。`files` 是 `[{path, status, additions?, deletions?, binary?}]`,按路径排序;`status` 是 `added`(已暂存的新文件)、`modified`、`deleted`、`untracked`;`additions`、`deletions` 是行数，二进制文件带 `binary: true` 不带行数。未跟踪文件的行数由 daemon 数(经过和 `_cycle/fs/read` 一样的路径检查),超过 1 MiB 的、读不了的、数了 2 秒还没数到的，不带行数。仓库里未被跟踪的另一个仓库按文件夹列出(`path` 是它的路径),没有行数，也没有补丁。最多 1,000 个文件，多了带 `truncated: true`。
+- `{state: "ok", head, files, truncated}`:`head` 是 `HEAD` 的提交号，没有提交时为 `null`。`files` 是 `[{path, status, additions?, deletions?, binary?}]`,按路径排序;`status` 是 `added`(已暂存的新文件)、`modified`、`deleted`、`untracked`;`additions`、`deletions` 是行数，二进制文件带 `binary: true` 不带行数。未跟踪文件的行数由 daemon 数(经过和 `_cycle/fs/read` 一样的路径检查),超过 1 MiB 的、读不了的、数了 2 秒还没数到的，不带行数。仓库里未被跟踪的另一个仓库按文件夹列出(`path` 是它的路径,带 `folder: true`),没有行数，也没有补丁。最多 1,000 个文件，多了带 `truncated: true`。
 - `{state: "not_git"}`:`cwd` 不在 git 仓库里。
 - `{state: "untrusted", repository}`:仓库根目录 `repository` 没有被信任。客户端说明原因，并指向信任的设置。
 - session 不存在、`cwd` 不存在：`-32002`。git 不在、超时或失败:`-32603`,`data.detail` 是 git 的说法。

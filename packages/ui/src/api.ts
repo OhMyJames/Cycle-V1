@@ -172,6 +172,8 @@ export type WorkspaceFile = {
   additions?: number | undefined;
   deletions?: number | undefined;
   binary?: boolean | undefined;
+  /** A repository inside, not tracked: no lines and no patch. */
+  folder?: boolean | undefined;
 };
 
 /** The session's folder against HEAD, or why there is nothing to compare: no repository, or one not trusted. */
