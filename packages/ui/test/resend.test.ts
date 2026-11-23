@@ -47,6 +47,13 @@ test("the last turn that failed can be sent again: what was said in it, the mess
   expect(resend?.prompts[0]?.[1]).toEqual(image);
   expect(resend?.changed).toEqual([]);
   expect(resend?.failure).toBe("agent_error");
+  expect(resend?.busy).toBe(false);
+});
+
+test("while the agent is at work again and nothing is in the new turn yet, it is still offered, as busy", () => {
+  const resend = resendOf(reduce([you("u1"), failed(), running]));
+  expect(resend?.turn).toBe(0);
+  expect(resend?.busy).toBe(true);
 });
 
 test("only a failure, only the last turn, only when nothing has happened since, and only what a person said", () => {

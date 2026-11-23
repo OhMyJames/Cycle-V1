@@ -218,7 +218,7 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
   - **Web、MCP 与其余工具**：WebFetch 写状态码与大小（`404 · 1.5 kB`，4xx/5xx 为红字）；WebSearch 展开为模型的话加结果列表（标题是强调色链接，只放行 http/https/mailto，由主进程交给系统浏览器打开；后跟淡色站点名；长标题换行）。MCP 工具用 agent 给的 `title`（`server · tool`），页面不解析工具名；页面不认识的工具，摘要取输入里第一行短文字（≤ 120 字、单行）。
   - **工具折叠状态保持**：连续工具调用从 1 个变为 2 个以上时保留用户已手动展开的状态；展开态下的长输入/输出与代理消息支持快捷复制。
   - **消息的 Copy**：人发的消息和已结束回合的回复下方各有一个仅图标的 Copy（`Tip` 命名，悬停或焦点在内时显出，`--cycle-motion-state` 淡入；位置始终留着，显隐不挪动内容）。回复的 Copy 只在回合最后一条有文字的 agent 消息下出现一次，复制这一回合 agent 写的全部文字（Markdown 原文，段间空行）；回合进行中不出现。代码块的 Copy 也是我们自己画的、经 main 的 `copyText`（Streamdown 自带的写页面剪贴板，页面没有这个权限）。按下后图标变勾、名字变 `Copied` 约 1.5 秒，读屏同时被告知，不弹 toast。
-  - **失败后重新发送（CYCL-48）**：三种失败三种反馈。**turn 失败**（`stopReason: "error"`：API 报错、额度、认证、agent 退出、daemon 停止）在回合尾的红色原因后给 `Send again`（outline 小按钮），只在最后一个 turn、会话空闲、这一 turn 里有人说过话时出现；点了不直接发，而是把这一 turn 的消息（文字、图片、`@` 提及，插话也在内）放回输入框最前面、输入框取得焦点，由人核对、可改，再像普通消息一样发出，权限照常重新询问，不沿用之前的批准。这一 turn 里已经开始过会改东西的工具（ACP `kind` 为 `execute`/`edit`/`delete`/`move`，没离开 `pending` 的不算）时，先弹确认说明用过哪些、再发可能再做一遍，确认按钮是 `Put the message back`，不是 `Send`。**工具本身失败**留在工具行。**agent 自己重试请求**（`notice` 带 `_meta["cycle/retry"]`）不成行，只在它是进行中 turn 的最后一项时让 StepLine 写 `The request failed, trying again (2 of 10)…`，turn 有了新内容就消失；不给任何按钮。
+  - **失败后重新发送（CYCL-48）**：三种失败三种反馈。**turn 失败**（`stopReason: "error"`：API 报错、额度、认证、agent 退出、daemon 停止）在回合尾的红色原因后给两个小按钮，只在最后一个 turn、这一 turn 里有人说过话、之后没有新内容时出现：`Try again`（outline）把这一 turn 的消息（文字、图片、`@` 提及，插话也在内，合成一条）原样作为新的 `session/prompt` 一键发出；`Edit message`（ghost，次要）不直接发，而是把消息放回输入框最前面、输入框取得焦点，由人核对、可改，再像普通消息一样发出。两条路都照常重新询问权限，不沿用之前的批准。`Try again` 在断线或 agent 正在工作时禁用，并在按钮下方用 meta 字号写明原因（`Connect to the environment to try again.` / `The agent is working. Try again once it stops.`），按钮用 `aria-describedby` 指向它；发不出去时消息退回输入框，不丢。这一 turn 里已经开始过会改东西的工具（ACP `kind` 为 `execute`/`edit`/`delete`/`move`，没离开 `pending` 的不算）时，两个按钮都先弹确认说明用过哪些、再发可能再做一遍，焦点在 `Cancel`，主按钮与触发它的按钮同名（`Try again` / `Put the message back`），用 `solid` 而非 `destructive`（再发不是删除）。**工具本身失败**留在工具行。**agent 自己重试请求**（`notice` 带 `_meta["cycle/retry"]`）不成行，只在它是进行中 turn 的最后一项时让 StepLine 写 `The request failed, trying again (2 of 10)…`，turn 有了新内容就消失；不给任何按钮。
   - **提问是表单**：agent 的提问（`AskUserQuestion`、MCP 的 elicitation）以 `FormCard` 出现在权限区；只发回填了的字段（main 再按 schema 的字段过滤）；什么都没填、`required` 字段未填、数字不合 schema（非整数、超出 `minimum`/`maximum`）时 `Send answers` 不可点；一个字段都画不了或必填字段画不了时写明只能跳过。
   - **StepLine**：turn 进行中且未开始输出文本时，在末尾展示实时步骤行（等待批准 / 思考中 / 运行中的工具摘要），防止“静默卡死感”。
 - **长会话窗口与滚动锚定**：
@@ -374,7 +374,7 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 
 ### P2：对话流与日常工作流质感打磨
 
-- [ ] **对话内高频操作**：回合失败（`turn-end` error）就地 Retry；思考内容走 `Markdown` 只读渲染；空白会话转正式会话时平滑衔接。
+- [ ] **对话内高频操作**：思考内容走 `Markdown` 只读渲染；空白会话转正式会话时平滑衔接。
 - [ ] **工具调用与侧栏辨识度**：连续工具从 1 个升格为多个时保留手动展开态；会话行补充未发送草稿标（相对时间已做，见 §4.1）；切换 workspace/环境时重置 `showAll`。
 - [ ] **窄视口与缓存治理**：720×480 下 `composer-toolbar` 折行/紧凑适配；为 `store.views` 增加 LRU 上限，为 `selectSession` 加并发加载保护。
 - [x] **存量 i18n 迁移**：JSX、对话框、更新提示、连接状态词和 store 的报错都已迁入 `packages/ui/src/messages/en-US.ts`（CYCL-68）。

@@ -3346,11 +3346,28 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   margin-top: 0.1875rem;
 }
 
-/* "Send again": at the end of the line, whole, whatever the length of the reason before it. */
-[data-kind="turn-end"][data-severity="error"] > button {
+/* "Edit message" and "Try again": at the end of the line, whole, whatever the length of the reason before it. Why
+   "Try again" waits (offline, the agent at work) is said under them, quietly, in the page's colour. */
+[data-kind="turn-end"][data-severity="error"] > [data-slot="turn-again"] {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
   margin-inline-start: auto;
   margin-block: -0.25rem;
+}
+
+[data-slot="turn-again"] > [data-slot="row"] {
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+}
+
+[data-slot="turn-again-why"] {
+  max-width: 16rem;
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
+  text-align: end;
 }
 
 [data-kind="turn-end"][data-severity="warning"] {

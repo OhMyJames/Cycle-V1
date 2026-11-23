@@ -163,7 +163,7 @@ export function Composer({
   const root = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
   const input = useRef<InputHandle | null>(null);
-  // Something put a message back to be sent again (a failed turn's "Send again"): the box takes the focus, to read it.
+  // Something put a message back to be sent again (a failed turn's "Edit message"): the box takes the focus, to read it.
   const focusAsked = useAppState((s) => s.composerFocus);
   useEffect(() => {
     if (focusAsked > 0) input.current?.focus();

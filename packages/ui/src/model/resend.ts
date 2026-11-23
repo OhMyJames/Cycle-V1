@@ -35,6 +35,11 @@ export type Resend = {
   /** Calls in it that may have changed something before it failed. */
   changed: ToolItem[];
   failure: Failure;
+  /**
+   * The agent is at work again (a turn it began by itself, or one just asked for whose message has not come back yet):
+   * nothing can be sent now, and the person is told why.
+   */
+  busy: boolean;
 };
 
 /**
@@ -42,7 +47,7 @@ export type Resend = {
  * the person said something in it (a turn the agent began by itself has nothing to send). Otherwise nothing.
  */
 export const resendOf = (c: Conversation): Resend | undefined => {
-  if (c.status !== "idle" || c.turns === 0 || c.replaying) return undefined;
+  if (c.turns === 0 || c.replaying) return undefined;
   const turn = c.turns - 1;
   const stop = c.stops[turn];
   if (stop?.stopReason !== "error") return undefined;
@@ -57,5 +62,11 @@ export const resendOf = (c: Conversation): Resend | undefined => {
       changed.push(item);
   }
   if (prompts.length === 0) return undefined;
-  return { turn, prompts, changed, failure: failureOf(stop.error?.code ?? undefined) };
+  return {
+    turn,
+    prompts,
+    changed,
+    failure: failureOf(stop.error?.code ?? undefined),
+    busy: c.status !== "idle",
+  };
 };

@@ -282,7 +282,7 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 - **客户端**:`_cycle/plan_usage/read`(`{}` → `{agents: {[agentId]: {windows, at}}}`)读 daemon 已知的,连接时读一次,之后跟通知更新。`cycle/capabilities` 有 `planUsage: true` 的 daemon 才有这两样。一个窗口过了 `resetsAt` 就不再显示,因为重置后用了多少不知道。
 - **Claude 的取法**:Claude Code 从每次 API 响应的头里读到限额,以 `rate_limit_event` 告诉 SDK,`rate_limit_info.unifiedWindows` 列出全部窗口(SDK 的类型里还没有这个字段,没有时只取 `rateLimitType` 那一个)。只有用订阅账号登录(`claude setup-token` 的 token 或 `/login`)时才有;API key 登录没有,也就什么都不发。SDK 的实验接口 `usage_EXPERIMENTAL…()` 不用:用 `setup-token` 的 token 时它答不上(缺 profile 权限),而且随时可能改。
 
-**失败后重新发送**是客户端的事,协议不变:客户端把失败那个 turn 的 `user_message` 放回输入框,由人核对后作为新的 `session/prompt` 发出。它和别的 prompt 一样走权限流程,之前的批准不沿用。
+**失败后重新发送**是客户端的事,协议不变:客户端把失败那个 turn 的 `user_message` 原样作为新的 `session/prompt` 再发一次(Try again),或放回输入框,由人核对后再发(Edit message)。它和别的 prompt 一样走权限流程,之前的批准不沿用。
 
 多个客户端同时附着的规则:
 

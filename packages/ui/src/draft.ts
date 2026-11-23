@@ -167,6 +167,24 @@ export const draftOf = (blocks: readonly Block[]): Draft => {
   return { text: texts.join(""), attachments, mentions, kept };
 };
 
+/** Drafts one after the other, as one: the words in order with a blank line between, and what goes with them. */
+const joinDrafts = (drafts: readonly Draft[]): Draft => ({
+  text: drafts
+    .map((d) => d.text)
+    .filter((t) => t !== "")
+    .join("\n\n"),
+  attachments: drafts.flatMap((d) => d.attachments),
+  mentions: drafts.flatMap((d) => d.mentions),
+  kept: drafts.flatMap((d) => d.kept),
+});
+
+/**
+ * What "Try again" sends for a turn that failed: what was said in it, as one message, just as "Edit message" would put
+ * it in the box and Enter would send it unchanged. Undefined when there is nothing to send.
+ */
+export const againBlocks = (prompts: readonly (readonly Block[])[]): PromptBlock[] | undefined =>
+  promptBlocks(joinDrafts(prompts.map(draftOf)));
+
 /** What identifies a hand-back, so one that was put in the box is not put there twice. */
 export const returnedId = (prompts: readonly QueuedPrompt[]): string =>
   prompts.map((p) => p.queueId).join("|");
@@ -322,15 +340,8 @@ export class DraftStore {
    */
   restore(key: string, blocks: readonly (readonly Block[])[], handled?: string): void {
     const old = this.get(key);
-    const back = blocks.map(draftOf);
     if (handled !== undefined) this.#handled.set(key, handled);
-    const text = [...back.map((d) => d.text), old.text].filter((t) => t !== "").join("\n\n");
-    this.#put(key, {
-      text,
-      attachments: [...back.flatMap((d) => d.attachments), ...old.attachments],
-      mentions: [...back.flatMap((d) => d.mentions), ...old.mentions],
-      kept: [...back.flatMap((d) => d.kept), ...old.kept],
-    });
+    this.#put(key, joinDrafts([...blocks.map(draftOf), old]));
   }
 
   /** Whether a hand-back was already put in the session's box. */

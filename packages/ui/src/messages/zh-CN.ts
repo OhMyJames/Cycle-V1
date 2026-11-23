@@ -299,7 +299,12 @@ export const zhCN: Readonly<Record<MessageKey, Message>> = {
   "turn.end.maxTurnRequests": "已停止：agent 的步数太多。",
   "turn.end.refusal": "agent 拒绝继续。",
   "turn.end.other": "已结束：{reason}",
-  "turn.resend": "重新发送",
+  "turn.retry": "重试",
+  "turn.retry.offline": "连接到环境后才能重试。",
+  "turn.retry.busy": "agent 正在工作，停下后才能重试。",
+  "turn.retry.changedBody":
+    "失败之前，它用过 {tools}。重试会原样再发一次消息，agent 可能会再做一遍。",
+  "turn.resend": "编辑消息",
   "turn.resend.changedTitle": "这个回合已经做了一部分",
   "turn.resend.changedBody":
     "失败之前，它用过 {tools}。重新发送可能会再做一遍。消息会先放回输入框，供你检查。",

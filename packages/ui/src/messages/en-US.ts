@@ -326,8 +326,14 @@ export const enUS = {
   "turn.end.maxTurnRequests": "Stopped: the agent took too many steps.",
   "turn.end.refusal": "The agent declined to continue.",
   "turn.end.other": "Ended: {reason}",
+  // On the end of a turn that failed: sends its message again as it was, in one click
+  "turn.retry": "Try again",
+  "turn.retry.offline": "Connect to the environment to try again.",
+  "turn.retry.busy": "The agent is working. Try again once it stops.",
+  "turn.retry.changedBody":
+    "Before it failed, it used {tools}. Trying again sends the same message, and the agent may do that again.",
   // On the end of a turn that failed: puts its message back in the input box, for the person to check and send
-  "turn.resend": "Send again",
+  "turn.resend": "Edit message",
   "turn.resend.changedTitle": "This turn had already done some of its work",
   "turn.resend.changedBody":
     "Before it failed, it used {tools}. Sending the message again may do that again. The message goes back in the input box first, for you to check.",

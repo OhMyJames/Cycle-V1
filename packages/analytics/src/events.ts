@@ -166,15 +166,23 @@ export const EVENTS = {
   /** Something was picked from the @ menu: what kind of thing, never which. */
   mention_picked: o({ kind: z.enum(["file", "folder", "session"]) }),
   /**
-   * "Send again" on a turn that failed: its message went back in the box. `failure` is the kind (from Cycle's error code,
+   * "Edit message" (formerly "Send again") on a turn that failed: its message went back in the box. `failure` is the kind (from Cycle's error code,
    * never the message); `changed`: the turn had run a command or changed a file first, and the person was warned.
    */
   turn_resend_opened: o({
     failure: z.enum(["agent_exited", "daemon_stopped", "history", "resume", "agent_error"]),
     changed: z.boolean(),
   }),
-  /** The message put back by "Send again" was sent; `edited`: not as it was. */
+  /** The message put back by "Edit message" was sent; `edited`: not as it was. */
   turn_resent: o({ edited: z.boolean() }),
+  /**
+   * "Try again" on a turn that failed: its message was sent again as it was, in one click. `failure` as in
+   * `turn_resend_opened`; `changed`: the turn had run a command or changed a file, so the person was asked first and said yes.
+   */
+  turn_retried: o({
+    failure: z.enum(["agent_exited", "daemon_stopped", "history", "resume", "agent_error"]),
+    changed: z.boolean(),
+  }),
   /**
    * A new session's folder was chosen on its blank page (CYCL-55): from the folders it has sessions in, the system's or
    * the daemon's folder browser, or by typing its path. Never which folder.
@@ -213,6 +221,7 @@ export const UI_EVENTS = [
   "diagram_source_shown",
   "turn_resend_opened",
   "turn_resent",
+  "turn_retried",
   "blank_folder_chosen",
   "blank_connect_pressed",
   "blank_sent",
