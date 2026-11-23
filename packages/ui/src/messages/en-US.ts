@@ -91,6 +91,7 @@ export const enUS = {
 
   // A new session before its first message: the blank conversation
   "blank.title": "New session",
+  "blank.hero": "What should we work on?",
   "blank.where": "Where the session runs",
   "blank.folder": "Folder",
   "blank.folder.placeholder": "/path/to/project",

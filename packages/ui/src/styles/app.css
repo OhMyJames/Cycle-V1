@@ -4325,22 +4325,32 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   border: 0;
 }
 
-[data-slot="blank-where"] :is([data-slot="menu-trigger"], [data-slot="select-trigger"]) {
+/* The agent's select, quiet like the chips. */
+[data-slot="blank-where"] [data-slot="select-trigger"] {
   min-width: 0;
   max-width: 20rem;
-  height: 1.75rem;
-  gap: 0.25rem;
+  height: 1.625rem;
   padding-inline: 0.5rem;
   border-radius: var(--cycle-radius-pill);
-  font-size: var(--cycle-text-ui);
+  font-size: var(--cycle-text-meta);
   font-weight: 500;
-}
-
-[data-slot="blank-where"] [data-slot="select-trigger"] {
   color: var(--cycle-ink-muted);
 }
 
+/* One borderless chip for environment and folder, as the permission and model chips are: no border, no arrow. */
 [data-slot="menu-trigger"][data-kind="blank-folder"] {
+  min-width: 0;
+  max-width: 24rem;
+  height: 1.625rem;
+  gap: 0.3125rem;
+  padding-inline: 0.5rem;
+  border-radius: var(--cycle-radius-pill);
+  font-size: var(--cycle-text-meta);
+  font-weight: 500;
+  color: var(--cycle-ink-muted);
+}
+
+[data-slot="menu-trigger"][data-kind="blank-folder"]:is(:hover:not(:disabled), [data-open]) {
   color: var(--cycle-ink);
 }
 
@@ -4348,9 +4358,23 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   color: var(--ui-muted-foreground);
 }
 
-[data-slot="menu-trigger"][data-kind="blank-folder"] svg {
+[data-slot="blank-environment-name"] {
   flex: none;
-  color: var(--ui-muted-foreground);
+  white-space: nowrap;
+}
+
+[data-slot="blank-where-dot"] {
+  flex: none;
+  opacity: 0.5;
+}
+
+[data-slot="blank-hero"] {
+  margin: 0;
+  padding: 0 calc(var(--cycle-column-pad) + 0.75rem) 0.75rem;
+  font-family: var(--cycle-font-display);
+  font-size: var(--cycle-text-title);
+  font-weight: 600;
+  color: var(--cycle-ink);
 }
 
 /* A long name fades at its end (the rule for text too long for its line), rather than pushing the others off the line. */
