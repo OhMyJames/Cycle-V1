@@ -26,6 +26,8 @@ import {
   connectorsList,
   connectorsRemove,
   connectorsUpdate,
+  diffFile,
+  diffStatus,
   filesSearch,
   foldersList,
   fsList,
@@ -68,6 +70,7 @@ import {
   trustPath,
 } from "./data-dir.ts";
 import { AgentDefaults } from "./defaults-file.ts";
+import { workspaceFile, workspaceStatus } from "./diff.ts";
 import {
   INTERNAL_ERROR,
   INVALID_PARAMS,
@@ -1716,6 +1719,7 @@ export class Daemon {
             folders: true,
             filesInFolder: true,
             fs: true,
+            diff: true,
             trust: true,
             connectors: true,
             planUsage: true,
@@ -2184,6 +2188,10 @@ export class Daemon {
       ),
     );
     cycle(fsRead, (params) => readFile(this.#cwdOf(params.sessionId), params.path, params.offset));
+    // Git runs only for a repository the person trusts (.agents/notes/2026-11-22-files-and-diff-sources.md).
+    const trusted = (repository: string) => this.#trust.of(repository).trusted === true;
+    cycle(diffStatus, (params) => workspaceStatus(this.#cwdOf(params.sessionId), trusted));
+    cycle(diffFile, (params) => workspaceFile(this.#cwdOf(params.sessionId), params.path, trusted));
     cycle(trustRead, async (params) => this.#trust.of(await realFolder(params.path)));
     cycle(trustSet, async (params) => {
       const real = await realFolder(params.path);

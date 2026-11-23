@@ -1,4 +1,5 @@
 export * from "./connectors.ts";
+export * from "./diff.ts";
 export * from "./errors.ts";
 export * from "./fs.ts";
 export * from "./mentions.ts";

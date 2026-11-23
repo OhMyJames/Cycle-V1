@@ -11,7 +11,7 @@ import {
   segmentsOf,
 } from "../src/fs.ts";
 import { ignoredNames } from "../src/git.ts";
-import { tempDir } from "./support.ts";
+import { gitIn, tempDir } from "./support.ts";
 
 let work: string;
 let outside: string;
@@ -97,7 +97,7 @@ test("what git ignores is marked for a trusted repository only, its trust taken 
   // Not a repository yet: git says nothing.
   trusted.add(work);
   expect(await ignoredIn("")).toEqual([]);
-  Bun.spawnSync(["git", "init", "-q"], { cwd: work });
+  gitIn(work, "init", "-q");
   expect(await ignoredIn("")).toEqual(["node_modules", ":(top)x", "a.log"]);
   expect(await ignoredIn("sub")).toEqual(["c.log"]);
   // A trusted folder inside a repository that is not trusted: the repository's configuration is what git would read.

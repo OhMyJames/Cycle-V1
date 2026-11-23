@@ -43,6 +43,8 @@ import {
   type PromptBlock,
   type SessionSnapshot,
   type SessionSummary,
+  type WorkspacePatch,
+  type WorkspaceStatus,
 } from "@cycle/ui";
 import { type DaemonStop, daemonTooOld, daemonUpgradeCommand } from "../shared/release.ts";
 import { authorizeInBrowser, type OpenBrowser } from "./connector-auth.ts";
@@ -405,6 +407,7 @@ export class ConnectionManager
                     connectors: connection.client.capabilities.connectors === true,
                     sessionMentions: connection.client.capabilities.sessionMentions === true,
                     fs: connection.client.capabilities.fs === true,
+                    diff: connection.client.capabilities.diff === true,
                   },
                 }
               : state === "reconnecting" && connection.status.capabilities !== undefined
@@ -855,6 +858,18 @@ export class ConnectionManager
     offset?: number,
   ): Promise<FileContent> {
     return this.#connection(environmentId).client.readFile(sessionId, path, offset);
+  }
+
+  async workspaceStatus(environmentId: string, sessionId: string): Promise<WorkspaceStatus> {
+    return this.#connection(environmentId).client.workspaceStatus(sessionId);
+  }
+
+  async workspaceFile(
+    environmentId: string,
+    sessionId: string,
+    path: string,
+  ): Promise<WorkspacePatch> {
+    return this.#connection(environmentId).client.workspaceFile(sessionId, path);
   }
 
   async ackReturn(environmentId: string, sessionId: string, returnId: string): Promise<void> {

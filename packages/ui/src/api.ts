@@ -51,6 +51,8 @@ export type EnvironmentStatus = {
     sessionMentions?: boolean;
     /** The session's folder can be listed and its files read, for the Files tab (docs/protocol.md §8). */
     fs?: boolean;
+    /** The session's folder can be compared with HEAD, for the Diff tab's workspace view (docs/protocol.md §8). */
+    diff?: boolean;
   };
   /**
    * The daemon on the environment speaks another major version of Cycle's protocol, so the app cannot use it
@@ -162,6 +164,24 @@ export type FileContent = { path: string; size: number; mtimeMs: number } & (
   | { kind: "image"; mimeType: string; data?: string | undefined; tooLarge?: boolean | undefined }
   | { kind: "binary" }
 );
+
+/** A file of the session's folder that differs from HEAD (docs/protocol.md §8 "工作区的改动"). */
+export type WorkspaceFile = {
+  path: string;
+  status: "added" | "modified" | "deleted" | "untracked";
+  additions?: number | undefined;
+  deletions?: number | undefined;
+  binary?: boolean | undefined;
+};
+
+/** The session's folder against HEAD, or why there is nothing to compare: no repository, or one not trusted. */
+export type WorkspaceStatus =
+  | { state: "ok"; head: string | null; files: WorkspaceFile[]; truncated: boolean }
+  | { state: "not_git" }
+  | { state: "untrusted"; repository: string };
+
+/** One file's patch against HEAD, in git's format; empty when binary or unchanged. */
+export type WorkspacePatch = { path: string; patch: string; truncated: boolean; binary: boolean };
 
 /** What an environment's machine has in a folder: names of folders only. `path` is the real path (links resolved). */
 export type FolderListing = {
@@ -427,6 +447,10 @@ export type AppApi = {
     path: string,
     offset?: number,
   ): Promise<FileContent>;
+  /** Which files of a session's folder differ from HEAD. Fails with the daemon's reason, or when it is too old. */
+  workspaceStatus(environmentId: string, sessionId: string): Promise<WorkspaceStatus>;
+  /** One file's patch against HEAD. Fails with the daemon's reason, or when it is too old. */
+  workspaceFile(environmentId: string, sessionId: string, path: string): Promise<WorkspacePatch>;
   /**
    * The folders in a folder on that environment's machine, for choosing where a session works. Without a path: its
    * home. Fails with the daemon's reason (not a folder, cannot be read) or when the daemon is too old.
@@ -547,6 +571,8 @@ export const API_METHODS = [
   "searchFiles",
   "listFiles",
   "readFile",
+  "workspaceStatus",
+  "workspaceFile",
   "listFolders",
   "readTrust",
   "planUsage",

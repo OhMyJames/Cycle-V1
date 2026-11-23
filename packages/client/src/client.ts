@@ -24,6 +24,8 @@ import {
   connectorsList,
   connectorsRemove,
   connectorsUpdate,
+  diffFile,
+  diffStatus,
   type FolderList,
   filesSearch,
   foldersList,
@@ -391,6 +393,21 @@ export class CycleClient {
   ): Promise<ResultOf<typeof fsRead>> {
     this.#canShowFiles();
     return this.#call(fsRead, { sessionId, path, ...(offset !== undefined ? { offset } : {}) });
+  }
+
+  /**
+   * Which files of the session's folder differ from HEAD (docs/protocol.md §8 "工作区的改动"), or why that cannot be said
+   * (no repository, or one not trusted). A daemon that does not say it can is older: it is not asked.
+   */
+  async workspaceStatus(sessionId: string): Promise<ResultOf<typeof diffStatus>> {
+    if (this.#capabilities.diff !== true) throw new Error("This daemon is too old to show changes");
+    return this.#call(diffStatus, { sessionId });
+  }
+
+  /** One file's patch against HEAD; a file not tracked is all added. */
+  async workspaceFile(sessionId: string, path: string): Promise<ResultOf<typeof diffFile>> {
+    if (this.#capabilities.diff !== true) throw new Error("This daemon is too old to show changes");
+    return this.#call(diffFile, { sessionId, path });
   }
 
   /**
