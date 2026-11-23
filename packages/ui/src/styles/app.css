@@ -532,8 +532,14 @@ body {
   color: var(--ui-muted-foreground);
 }
 
+/* The window never scrolls: each column scrolls inside itself. Text placed outside its column (a screen reader's label
+   with no positioned box around it) would otherwise lengthen the page, and a wheel run past the conversation's end, or
+   an item brought into view, would scroll the whole window and carry the header off its top. `clip` on a positioned
+   box holds whatever overflows it, and is not a box a script can scroll. */
 [data-slot="app"] {
+  position: relative;
   height: 100%;
+  overflow: clip;
 }
 
 /* The window's columns (CYCL-66). ui-sdk's Resizable is a bordered box with padded panels: here it is the whole window. */
@@ -543,6 +549,8 @@ body {
 
 [data-slot="split"] > [data-slot="resizable"] {
   height: 100%;
+  /* Not ui-sdk's `hidden`: bringing something into view must not scroll every column at once. */
+  overflow: clip;
   border: 0;
   border-radius: 0;
 }
@@ -896,6 +904,8 @@ html[data-platform="darwin"] [data-slot="page-heading"] {
 }
 
 [data-kind="panel-tabs"] > [data-slot="tabs-panel"] {
+  /* What is hidden for a screen reader in a tab stays in this scroller, not below the window. */
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -3290,6 +3300,9 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
 /* The plan's rows (after Rare UI's Task list, drawn at Cycle's density): no card, a line each, the mark one line tall so
    it sits on the first line of a label that wraps. */
 [data-slot="plan"] {
+  /* Each row's status for a screen reader is placed against the list: without it a long plan (the Overview's, the
+     strip's) set its words below the window and made the page scroll. */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
