@@ -237,6 +237,49 @@ test("a long conversation draws its end, and the button brings the earlier block
   expect(document.activeElement).toBe(log);
 });
 
+test("scrolled up, a button takes the reader back to the end, says when something new came, and moves nothing", async () => {
+  const { user, log, emit, script } = await open(...turnsOf(20));
+  await waitFor(() => expect(log.textContent).toContain("answer 19"));
+  // The window's height, as #root has it in the app: the conversation scrolls inside it.
+  const root = log.closest('[data-slot="app"]')?.parentElement;
+  if (root instanceof HTMLElement) root.style.height = "100%";
+  await waitFor(() => expect(log.scrollHeight).toBeGreaterThan(log.clientHeight + 500));
+  log.scrollTop = log.scrollHeight;
+  const fromEnd = () => log.scrollHeight - log.scrollTop - log.clientHeight;
+  await waitFor(() => expect(fromEnd()).toBeLessThan(2));
+  const toEnd = () => log.querySelector<HTMLButtonElement>('[data-slot="to-end-button"]');
+  // At the end there is nothing to go back to; the holder takes no room.
+  expect(toEnd()).toBeNull();
+  const holder = log.querySelector('[data-slot="to-end"]');
+  expect(holder?.getBoundingClientRect().height).toBe(0);
+  log.scrollTop = 0;
+  await waitFor(() => expect(toEnd()).not.toBeNull());
+  expect(toEnd()?.hasAttribute("data-fresh")).toBe(false);
+  // Floats inside the view, at its bottom.
+  const box = toEnd()?.getBoundingClientRect();
+  const view = log.getBoundingClientRect();
+  expect(box && box.bottom <= view.bottom && box.bottom > view.bottom - 64).toBe(true);
+  // A reply arrives below: the reader stays where they are, and the button says there is something new.
+  const top = log.scrollTop;
+  await emit(you("later"));
+  await waitFor(() => expect(toEnd()?.hasAttribute("data-fresh")).toBe(true));
+  expect(log.scrollTop).toBe(top);
+  // By keyboard: it is a button with a name, and Enter goes back to the end.
+  const button = screen.getByRole("button", {
+    name: "Back to bottom, where there is something new",
+  });
+  button.focus();
+  await user.keyboard("{Enter}");
+  await waitFor(() => expect(fromEnd()).toBeLessThan(2));
+  await waitFor(() => expect(toEnd()).toBeNull());
+  // The focus stays in the conversation, not on the page.
+  expect(document.activeElement).toBe(log);
+  // Counted with whether something new was there, nothing else.
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([
+    ["track", "back_to_bottom_used", { fresh: true }],
+  ]);
+});
+
 test("a conversation that grows from a few blocks to many draws about a page, not all of it", async () => {
   const { log, emit } = await open(...turnsOf(1));
   expect(drawn(log)).toBe(2);

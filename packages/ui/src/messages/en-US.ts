@@ -216,6 +216,8 @@ export const enUS = {
   "conversation.loading": "Loading the conversation…",
   "conversation.empty": "Nothing here yet. Say something below.",
   "conversation.earlier": "Show earlier",
+  "conversation.toEnd": "Back to bottom",
+  "conversation.toEndFresh": "Back to bottom, where there is something new",
   "thought.label": "Thinking",
   "message.copy.agent": "Copy the reply",
   "message.copy.user": "Copy the message",

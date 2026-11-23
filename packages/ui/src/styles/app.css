@@ -2852,6 +2852,63 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   color: var(--cycle-ink);
 }
 
+/* Back to bottom: held to the bottom of the view (sticky) while the end is below it, just above the input box. Its holder
+   has no height and gives back the column's gap, so the conversation is laid the same with it or without it. */
+[data-slot="to-end"] {
+  position: sticky;
+  bottom: 0.75rem;
+  z-index: 1;
+  align-self: center;
+  height: 0;
+  margin-top: calc(-1 * var(--cycle-gap));
+}
+
+[data-slot="to-end-button"] {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--cycle-radius-pill);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-popover);
+  color: var(--ui-muted-foreground);
+  cursor: pointer;
+  transform: translateX(-50%);
+  animation: cycle-to-end-in var(--cycle-motion-enter) var(--cycle-ease);
+  transition:
+    background-color var(--cycle-motion-state) var(--cycle-ease),
+    color var(--cycle-motion-state) var(--cycle-ease);
+}
+
+[data-slot="to-end-button"]:hover {
+  background: var(--cycle-surface-hover);
+  color: var(--cycle-ink);
+}
+
+/* Something arrived at the end while the reader was away: a dot on the button's corner. */
+[data-slot="to-end-button"][data-fresh]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--cycle-radius-pill);
+  background: var(--cycle-accent);
+}
+
+/* It fades in, so it does not flash up as the reader scrolls away from the end. */
+@keyframes cycle-to-end-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* Each block is a column of its own, so a message can sit to the end; a turn begins with more space than blocks have. */
 [data-slot="block"] {
   display: flex;

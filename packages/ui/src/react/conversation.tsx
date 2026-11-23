@@ -7,6 +7,7 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
   useSyncExternalStore,
 } from "react";
 import { MENTION_META } from "../draft.ts";
@@ -26,12 +27,13 @@ import { blockHolds, reveal } from "../reveal.ts";
 import { thinking } from "../thinking.ts";
 import { CopyButton } from "./copy-button.tsx";
 import { useI18n } from "./i18n.tsx";
-import { ThoughtIcon } from "./icons.tsx";
+import { ArrowDownIcon, ThoughtIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
 import { Markdown } from "./markdown.tsx";
 import { PlanBlock } from "./plan.tsx";
 import { StateBlock } from "./state-block.tsx";
 import { useAppStore } from "./store-context.tsx";
+import { Tip } from "./tip.tsx";
 import { ToolCard } from "./tool.tsx";
 import { EndBlock, Notice, StepLine, WorkBlock } from "./turn.tsx";
 
@@ -224,6 +226,11 @@ const LEAD_PX = 800;
 const NEAR_END_PX = 48;
 /** Growth this soon after the reader pressed a control in the conversation is theirs, not something arriving. */
 const ACTED_MS = 600;
+/** Further than this from the end, the reader is offered a way back to it. */
+const AWAY_PX = 240;
+
+const reducedMotion = (): boolean =>
+  typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export function ConversationView({
   conversation,
@@ -421,10 +428,53 @@ export function ConversationView({
     };
   }, []);
 
+  // Away from the end, a button takes the reader back to it, and says when something arrived there meanwhile.
+  const store = useAppStore();
+  const [away, setAway] = useState(false);
+  const [fresh, setFresh] = useState(false);
+  const returning = useRef(false);
+  const seen = useRef(conversation.items);
+  useEffect(() => {
+    if (seen.current === conversation.items) return;
+    seen.current = conversation.items;
+    const el = ref.current;
+    if (el === null || loading || stuck.current) return;
+    // Not scrolled, and yet further from the end: what arrived pushed it away.
+    const far = el.scrollHeight - el.scrollTop - el.clientHeight > AWAY_PX;
+    setAway(far);
+    if (far) setFresh(true);
+  }, [conversation.items, loading]);
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    // A smooth scroll aims at where the end was when it began: what arrived on the way is gone to as well, at once.
+    const ended = () => {
+      if (!returning.current) return;
+      returning.current = false;
+      if (el.scrollHeight - el.scrollTop - el.clientHeight >= NEAR_END_PX)
+        el.scrollTop = el.scrollHeight;
+    };
+    el.addEventListener("scrollend", ended);
+    return () => el.removeEventListener("scrollend", ended);
+  }, []);
+  const toEnd = () => {
+    const el = ref.current;
+    if (el === null) return;
+    store.track("back_to_bottom_used", { fresh });
+    // The button goes when the end is reached: the focus stays in the conversation, not on the page.
+    if (el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    const reduced = reducedMotion();
+    returning.current = !reduced;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduced ? "instant" : "smooth" });
+  };
+
   const onScroll = () => {
     const el = ref.current;
     if (el === null) return;
-    stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END_PX;
+    const fromEnd = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setAway(fromEnd > AWAY_PX);
+    if (fromEnd < NEAR_END_PX) setFresh(false);
+    stuck.current = fromEnd < NEAR_END_PX;
     if (stuck.current) anchor.current = undefined;
     else if (anchor.current === undefined) anchor.current = blocks[start]?.key;
     remember(sessionKey, { anchor: anchor.current, top: stuck.current ? "bottom" : el.scrollTop });
@@ -496,6 +546,21 @@ export function ConversationView({
       {!loading ? (
         <StepLine conversation={conversation} awaitingApproval={awaitingApproval} />
       ) : null}
+      {/* Held to the bottom of the view while the end is below it, and taking no room, so it moves nothing it floats over. */}
+      <div data-slot="to-end">
+        {away && !loading ? (
+          <Tip label={fresh ? t("conversation.toEndFresh") : t("conversation.toEnd")}>
+            <button
+              type="button"
+              data-slot="to-end-button"
+              data-fresh={fresh || undefined}
+              onClick={toEnd}
+            >
+              <ArrowDownIcon size={16} />
+            </button>
+          </Tip>
+        ) : null}
+      </div>
     </div>
   );
 }

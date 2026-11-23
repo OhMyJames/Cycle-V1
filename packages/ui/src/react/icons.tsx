@@ -131,6 +131,16 @@ export const CheckIcon = ({ size = 16, ...rest }: IconProps) => (
   </Svg>
 );
 
+/** iconmcp: arrow-down */
+export const ArrowDownIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g transform="rotate(90 8 8)">
+      <line x1="2.75" y1="8" x2="13.25" y2="8" />
+      <path d="M8.5 3.25 L13.25 8 L8.5 12.75" />
+    </g>
+  </Svg>
+);
+
 /** iconmcp: copy */
 export const CopyIcon = ({ size = 16, ...rest }: IconProps) => (
   <Svg size={size} {...rest}>
