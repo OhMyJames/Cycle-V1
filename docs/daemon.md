@@ -39,6 +39,7 @@
 - **用量**:`usage_update` 写进索引的 `usage`,`session/list` 的 `_meta["cycle/usage"]` 给出。
 - **排队**(协议 §8,笔记 `2026-11-18-prompt-queue-in-the-daemon`):忙时发来的 prompt 在 daemon 里排队,每条有 daemon 自己的 `queueId`,队列以 `_cycle/queue_update` 快照写进日志(图片字节照样走 blob),索引的 `queued` 标志让重启后知道要回读。turn 以 `end_turn` 结束才发下一条;其他结束方式、`session/cancel`、`session/close` 把剩下的整体退回(`returned`),不自动发。没有客户端附着,或 daemon 重启过,队列留着,下一次附着时在补发和状态快照之后退回;daemon 自己关闭不算退回的理由。`_cycle/prompt/dequeue` 取回一条。测试:`test/queue.test.ts`。
 - **`_cycle/files/search`**(协议 §8,`src/files.ts`):只返回路径,只在 session 的 `cwd` 里;符号链接不跟随也不列出,不进 `.git` 和 `node_modules`,点开头的名字只给带点的查询,条目数和时间有上限(超了带 `truncated`)。测试:`test/files.test.ts`(含指向外面的链接)。
+- **`_cycle/fs/list`、`_cycle/fs/read`**(协议 §8"浏览和预览文件",`src/fs.ts`):Files 标签用，只读，路径相对 session 的 `cwd`;每次请求重新取真实路径，指向外面的链接只列不开。一次一层；文本每块 1 MiB(在字符边界切),图片有上限，二进制只给大小。被 git 忽略的条目只在仓库根目录被信任时标(`src/git.ts`:加固参数、白名单环境、`GIT_CEILING_DIRECTORIES`、5 秒超时)。测试:`test/fs.test.ts`、`test/fs-method.test.ts`。
 - **`_cycle/agent_defaults/*`**:读写都有实现,存在 `<数据目录>/agent-defaults.json`,新 session 按它开始,session 自己的配置覆盖它(此前这份文档误写成占位)。
 - **`_cycle/connectors/*`**(protocol.md §14):清单在 `<数据目录>/connectors/catalog.json`,密钥和 token 在同目录的 `credentials.json`(目录 0700,文件 0600),两个文件各在一个接口后面(`ConnectorCatalog`、`CredentialVault`),以后可以换成 cloud。任一文件读不了,daemon 拒绝启动,不覆盖它。OAuth 全在 daemon 里做(`connectors/oauth.ts`)。第一个用到 connector 的 agent 启动时,daemon 在 `127.0.0.1` 的随机端口上开 MCP 网关(`connectors/gateway.ts`),agent 只拿到网关地址和本 session 的 key;stdio 的 connector 由 daemon 启动(`connectors/stdio-bridge.ts`),环境变量只有固定白名单和它自己的值。
 

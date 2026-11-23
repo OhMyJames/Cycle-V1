@@ -1,5 +1,6 @@
 export * from "./connectors.ts";
 export * from "./errors.ts";
+export * from "./fs.ts";
 export * from "./mentions.ts";
 export * from "./meta.ts";
 export * from "./method.ts";

@@ -49,6 +49,7 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
   "files": true,
   "folders": true,
   "filesInFolder": true,
+  "fs": true,
   "trust": true,
   "connectors": true,
   "sessionMentions": true
@@ -82,6 +83,8 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 | `_cycle/prompt/dequeue`      | 客户端 → daemon | daemon 处理:把排队的 prompt 撤回,见 §8                |
 | `_cycle/files/search`        | 客户端 → daemon | daemon 处理:在 session 的 `cwd` 里找文件,见 §8        |
 | `_cycle/folders/list`        | 客户端 → daemon | daemon 处理:列出一个目录下的文件夹(选 `cwd` 用),见 §8 |
+| `_cycle/fs/list`             | 客户端 → daemon | daemon 处理:列出 session 的 `cwd` 里一个文件夹,见 §8  |
+| `_cycle/fs/read`             | 客户端 → daemon | daemon 处理:读 session 的 `cwd` 里一个文件,见 §8      |
 | `_cycle/trust/read`          | 客户端 → daemon | daemon 处理:一个文件夹是否信任,见 §8                  |
 | `_cycle/trust/set`           | 客户端 → daemon | daemon 处理:记下对一个文件夹的信任决定,见 §8          |
 | `_cycle/plan_usage/read`     | 客户端 → daemon | daemon 处理:各 agent 账号的套餐用量,见 §8 "套餐用量"  |
@@ -367,6 +370,33 @@ agent 是 daemon 的子进程,daemon 停止(`cycle stop`、升级、崩溃、机
 - **只读本 daemon 的**:`sessionId` 必须在 daemon 的索引里(Cycle 在这个 daemon 上建的 session,归档的也算)。找不到(从没有、已删除、正在删除)、日志读不了,或者提及的就是这个 session 自己时,daemon 不拒绝这条 prompt,而是把那一块换成一句给 agent 的说明(`text` 块),说清是哪个 session、为什么没有内容。
 - **历史里是链接,不是记录**:展开出来的块在 `_meta["cycle/expandedFrom"]` 里带着原来的 `resource_link`。agent 回显的 `user_message` 进日志之前,daemon 把带这个标记的块换回原来的链接,所以日志、补发和其他客户端看到的都是提及,不是那份记录;排队的 prompt 在队列里也保持链接,发出时才展开,所以读到的是发出那一刻的内容。agent 回显时要原样保留块的 `_meta`(Claude 适配是这样);不保留的 agent,记录会进它的历史。
 - 记录给 agent 的是那时候的快照:被提及的 session 之后的变化不会跟过来。这条路径只读 daemon 自己的日志,不经过 agent,也不跨 daemon。
+
+### 浏览和预览文件(`_cycle/fs/*`,CYCL-91)
+
+右侧面板的 Files 标签浏览、预览 session 的 `cwd` 里的文件。文件在 daemon 那台机器上，所以由 daemon 来读，客户端只看，不写。理由和 Diff 的基线见决定笔记 [2026-11-22-files-and-diff-sources](../.agents/notes/2026-11-22-files-and-diff-sources.md)。
+
+**路径**:两个方法的 `path` 都**相对 `cwd`**,用 `/` 分隔,`""` 是 `cwd` 自己。以 `/` 开头、含 `.`、`..` 或空的段(`a//b`)、含 NUL 的，以 `-32602` 拒绝,`data.reason` 为 `invalid_path`。
+
+**只在 `cwd` 内**:每次请求，daemon 都重新取 `cwd` 和目标的 `realpath`,目标不在 `cwd` 的真实路径之内就以 `-32602` 拒绝,`data.reason` 为 `outside`。所以符号链接可以列出、可以走进，但走不出 `cwd`;列出时检查过的，打开时再检查一遍(agent 在这里执行命令，链接随时可能被换掉):文件以不跟随最后一级链接的方式打开，打开后再核对它仍在 `cwd` 之内、且就是真实路径所指的那个文件，所有字节都从这一个句柄读。session 不存在、`cwd` 不存在、目标不存在，都是 `-32002`。读不了的是 `-32602`,`data.reason` 为 `unreadable`。
+
+`_cycle/fs/list`,参数 `{sessionId, path}`,响应 `{root, path, entries: [{name, kind, link?, size?, ignored?}], truncated}`:
+
+- 只列一层(懒加载),不递归。`root` 是 session 的 `cwd`(和 `_cycle/files/search` 的 `root` 一样),`path` 是请求的 `path`。目标不是文件夹以 `-32602` 拒绝,`data.reason` 为 `not_a_folder`。
+- `kind`:`"file"`、`"folder"`,或 `"other"`(指向 `cwd` 外面、或已断开的符号链接，以及设备、管道、socket 这类):`other` 只列出，不能打开。符号链接带 `link: true`,`kind` 是它指向的东西的。`size` 只有文件有，单位字节。
+- `.git` 不列。名字以 `.` 开头的照常列出，显不显示由客户端决定。
+- `ignored: true` 表示按 git 的忽略规则被忽略(客户端画淡，不藏)。只在 `cwd` 位于 git 仓库里、且**仓库的根目录被信任**时给:git 读的是仓库的配置，所以看的是仓库根目录的信任，不是 `cwd` 的(规则见下面"信任文件夹"和决定笔记);其余情况一律不带这个字段，客户端把缺失当作"不知道",不是"没被忽略"。
+- 排序：文件夹在前，其余在后；同类按名字，不分大小写，同序的以字节序为准。
+- **有上限**:最多看一个文件夹的 20,000 个条目，最多给 5,000 个；多了带 `truncated: true` 返回已有的。
+
+`_cycle/fs/read`,参数 `{sessionId, path, offset?}`,响应 `{path, size, mtimeMs, kind, ...}`,`kind` 决定其余字段:
+
+- `"text"`:`{text, offset, next}`。从字节偏移 `offset`(缺省 0)读最多 1 MiB,在 UTF-8 字符边界处截断;`next` 是下一块的偏移，读到末尾为 `null`。客户端按 `next` 一块块要，不要一次读完大文件。`offset` 超过文件大小、或落在一个字符中间，以 `-32602` 拒绝,`data.reason` 为 `invalid_offset`。开头之后不合法的 UTF-8 字节换成 U+FFFD,不拒绝。
+- `"image"`:PNG、JPEG、GIF、WebP(按扩展名),`{mimeType, data}`,`data` 是 base64。大于 10 MiB 的不给 `data`,带 `tooLarge: true`。SVG 是文本，按 `"text"` 给。
+- `"binary"`:只有 `size`,没有内容。文件的前 8 KiB 里有 NUL,或不是合法的 UTF-8(在末尾截断的字符除外),就是二进制；不管 `offset` 是多少，都按开头判断。
+- 目标是文件夹以 `-32602` 拒绝,`data.reason` 为 `not_a_file`。`mtimeMs` 让客户端知道预览是不是旧了：读后续块时它变了，就从头重读。
+- 常量在 `@cycle/protocol` 的 `FS_LIMITS`。
+
+**不比现在多暴露什么**:能连上 daemon 的人本来就能让 agent 在这台机器上执行命令。监听仍只在 loopback、unix socket 或 SSH 通道上，不放宽。daemon 的日志不记路径和内容。能力 `fs` 为 `true` 才有这两个方法；旧 daemon 没有：客户端不显示 Files 标签。
 
 ### 选文件夹
 

@@ -1,5 +1,6 @@
 import { readdir, realpath } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import { within } from "./trust-file.ts";
 
 export type FileEntry = { path: string; kind: "file" | "folder" };
 
@@ -64,7 +65,7 @@ export const searchFiles = async (
         // A directory listed earlier may have been swapped for a link since (the agent runs commands here): it is
         // looked at again, and only a place that is still inside the folder is read.
         const here = await realpath(dir);
-        if (here !== root && !here.startsWith(root + sep)) continue;
+        if (!within(here, root)) continue;
         items = await readdir(here, { withFileTypes: true });
       } catch {
         continue;
