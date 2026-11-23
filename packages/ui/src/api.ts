@@ -49,6 +49,8 @@ export type EnvironmentStatus = {
     connectors?: boolean;
     /** An @ may name another of its sessions, which it gives the agent as a record (docs/protocol.md §8). */
     sessionMentions?: boolean;
+    /** The session's folder can be listed and its files read, for the Files tab (docs/protocol.md §8). */
+    fs?: boolean;
   };
   /**
    * The daemon on the environment speaks another major version of Cycle's protocol, so the app cannot use it
@@ -139,6 +141,27 @@ export type FileHit = { path: string; kind: "file" | "folder" };
 
 /** `root` is the session's folder as the daemon knows it; `path` is relative to it. */
 export type FileSearch = { root: string; entries: FileHit[]; truncated: boolean };
+
+/** An entry of a folder of the session's folder (docs/protocol.md §8 "浏览和预览文件"). */
+export type FileEntry = {
+  name: string;
+  /** `other`: a link out of the folder or to nothing, a device: listed, never opened. */
+  kind: "file" | "folder" | "other";
+  link?: boolean | undefined;
+  size?: number | undefined;
+  /** Ignored by git; absent is "not known". */
+  ignored?: boolean | undefined;
+};
+
+/** One folder of the session's folder: `path` relative to `root`, `""` for `root` itself. */
+export type FileListing = { root: string; path: string; entries: FileEntry[]; truncated: boolean };
+
+/** A file of the session's folder, as the daemon gives it to be shown. */
+export type FileContent = { path: string; size: number; mtimeMs: number } & (
+  | { kind: "text"; text: string; offset: number; next: number | null }
+  | { kind: "image"; mimeType: string; data?: string | undefined; tooLarge?: boolean | undefined }
+  | { kind: "binary" }
+);
 
 /** What an environment's machine has in a folder: names of folders only. `path` is the real path (links resolved). */
 export type FolderListing = {
@@ -395,6 +418,15 @@ export type AppApi = {
     where: { sessionId: string } | { cwd: string },
     query: string,
   ): Promise<FileSearch>;
+  /** One folder of a session's folder, `path` relative to it. Fails with the daemon's reason, or when it is too old. */
+  listFiles(environmentId: string, sessionId: string, path: string): Promise<FileListing>;
+  /** A file of a session's folder, text from `offset`. Fails with the daemon's reason, or when it is too old. */
+  readFile(
+    environmentId: string,
+    sessionId: string,
+    path: string,
+    offset?: number,
+  ): Promise<FileContent>;
   /**
    * The folders in a folder on that environment's machine, for choosing where a session works. Without a path: its
    * home. Fails with the daemon's reason (not a folder, cannot be read) or when the daemon is too old.
@@ -513,6 +545,8 @@ export const API_METHODS = [
   "dequeue",
   "ackReturn",
   "searchFiles",
+  "listFiles",
+  "readFile",
   "listFolders",
   "readTrust",
   "planUsage",

@@ -137,6 +137,13 @@ export const EVENTS = {
   side_panel_tab_shown: o({ tab: panelTab }),
   /** The Overview took the conversation to where something began: the todo list, or a background task. */
   overview_item_revealed: o({ section: z.enum(["todo", "background"]) }),
+  /** The Files tab showed a file: what kind of preview it was, never which file. */
+  file_previewed: o({ kind: z.enum(["text", "markdown", "image", "binary", "too_large"]) }),
+  /** A file or folder named in the conversation was shown in the Files tab: what it was and where it was named. */
+  file_shown_from_conversation: o({
+    target: z.enum(["file", "folder"]),
+    from: z.enum(["tool", "mention"]),
+  }),
   tool_copied: o({ part: z.enum(["command", "output"]) }),
   tool_output_expanded: o({}),
   plan_opened: o({}),
@@ -221,6 +228,8 @@ export const UI_EVENTS = [
   "side_panel_toggled",
   "side_panel_tab_shown",
   "overview_item_revealed",
+  "file_previewed",
+  "file_shown_from_conversation",
   "code_theme_changed",
   "slash_command_used",
   "mention_picked",

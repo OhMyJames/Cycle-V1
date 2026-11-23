@@ -27,6 +27,8 @@ import {
   type FolderList,
   filesSearch,
   foldersList,
+  fsList,
+  fsRead,
   META,
   NOTIFICATIONS,
   type ParamsOf,
@@ -365,6 +367,30 @@ export class CycleClient {
       query,
       ...(limit !== undefined ? { limit } : {}),
     });
+  }
+
+  /** Only a daemon that says it reads a session's folder is asked to: an older one is not. */
+  #canShowFiles(): void {
+    if (this.#capabilities.fs !== true) throw new Error("This daemon is too old to show files");
+  }
+
+  /**
+   * One folder of the session's folder, for the Files tab (docs/protocol.md §8 "浏览和预览文件"): `path` is relative to
+   * the session's `cwd`, `""` for the folder itself. A daemon that does not say it can is older: it is not asked.
+   */
+  async listFiles(sessionId: string, path: string): Promise<ResultOf<typeof fsList>> {
+    this.#canShowFiles();
+    return this.#call(fsList, { sessionId, path });
+  }
+
+  /** A file of the session's folder: text a piece at a time from `offset`, an image whole, anything else by its size. */
+  async readFile(
+    sessionId: string,
+    path: string,
+    offset?: number,
+  ): Promise<ResultOf<typeof fsRead>> {
+    this.#canShowFiles();
+    return this.#call(fsRead, { sessionId, path, ...(offset !== undefined ? { offset } : {}) });
   }
 
   /**

@@ -32,6 +32,8 @@ import {
   type EnvironmentConfig,
   type EnvironmentStatus,
   emptyConversation,
+  type FileContent,
+  type FileListing,
   type FileSearch,
   type FolderListing,
   type FolderTrust,
@@ -402,6 +404,7 @@ export class ConnectionManager
                     trust: connection.client.capabilities.trust === true,
                     connectors: connection.client.capabilities.connectors === true,
                     sessionMentions: connection.client.capabilities.sessionMentions === true,
+                    fs: connection.client.capabilities.fs === true,
                   },
                 }
               : state === "reconnecting" && connection.status.capabilities !== undefined
@@ -839,6 +842,19 @@ export class ConnectionManager
       "sessionId" in where ? where.sessionId : { cwd: where.cwd },
       query,
     );
+  }
+
+  async listFiles(environmentId: string, sessionId: string, path: string): Promise<FileListing> {
+    return this.#connection(environmentId).client.listFiles(sessionId, path);
+  }
+
+  async readFile(
+    environmentId: string,
+    sessionId: string,
+    path: string,
+    offset?: number,
+  ): Promise<FileContent> {
+    return this.#connection(environmentId).client.readFile(sessionId, path, offset);
   }
 
   async ackReturn(environmentId: string, sessionId: string, returnId: string): Promise<void> {

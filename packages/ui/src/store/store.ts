@@ -13,6 +13,8 @@ import type {
   CycleBridge,
   EnvironmentConfig,
   EnvironmentStatus,
+  FileContent,
+  FileListing,
   FileSearch,
   FolderListing,
   FolderTrust,
@@ -28,6 +30,7 @@ import type {
   UpdateState,
 } from "../api.ts";
 import { againBlocks, DraftStore, promptBlocks, returnedId } from "../draft.ts";
+import { FilesViews } from "../files-view.ts";
 import type { Params } from "../i18n.ts";
 import type { MessageKey } from "../messages/en-US.ts";
 import {
@@ -41,6 +44,18 @@ import { SidePanelStore } from "../side-panel.ts";
 
 export const viewKey = (environmentId: string, sessionId: string): string =>
   `${environmentId}:${sessionId}`;
+
+/**
+ * The folder of the open session, when the Files tab can show it (its daemon reads a session's folder): what a place the
+ * conversation names must be inside to be shown there (CYCL-92). Undefined otherwise. For `useAppState`, so that a link
+ * appears once the daemon has said what it can do.
+ */
+export const filesRootOf = (state: AppState): string | undefined => {
+  const { selectedEnvironment: environmentId, selectedSession: sessionId } = state;
+  if (environmentId === undefined || sessionId === undefined) return undefined;
+  if (state.status[environmentId]?.capabilities?.fs !== true) return undefined;
+  return state.sessions[environmentId]?.find((s) => s.sessionId === sessionId)?.cwd;
+};
 
 /**
  * The key of what the blank conversation's box holds. One for every blank conversation, whatever environment it is on:
@@ -225,6 +240,8 @@ export class AppStore {
   readonly drafts: DraftStore;
   /** What each session's right panel shows (CYCL-90). */
   readonly sidePanels: SidePanelStore;
+  /** Where each session's Files tab is: open folders, and the file shown (CYCL-92). */
+  readonly filesViews = new FilesViews();
   readonly #acks = new WeakSet<Returned>();
   /**
    * Sessions whose box holds a message put back to send again, with what the box then held: whether it went as it was
@@ -897,6 +914,28 @@ export class AppStore {
     }
   };
 
+  /** One folder of a session's folder, for the Files tab. The caller says why it failed. */
+  listFiles = (environmentId: string, sessionId: string, path: string): Promise<FileListing> =>
+    this.#bridge.listFiles(environmentId, sessionId, path);
+
+  /** A file of a session's folder, text from `offset`. The caller says why it failed. */
+  readFile = (
+    environmentId: string,
+    sessionId: string,
+    path: string,
+    offset?: number,
+  ): Promise<FileContent> => this.#bridge.readFile(environmentId, sessionId, path, offset);
+
+  /** Shows a file (or, `folder`, a folder in the tree) of the open session in its Files tab, opening the panel. */
+  showInFiles = (path: string, options: { folder?: boolean } = {}): void => {
+    const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
+    if (environmentId === undefined || sessionId === undefined) return;
+    const key = viewKey(environmentId, sessionId);
+    if (options.folder === true) this.filesViews.reveal(key, path);
+    else this.filesViews.show(key, path);
+    this.sidePanels.show(key, "files");
+  };
+
   /** The folders in a folder on an environment's machine. Not a banner when it fails: the one who asked says why. */
   listFolders = (environmentId: string, path?: string, hidden?: boolean): Promise<FolderListing> =>
     this.#bridge.listFolders(environmentId, path, hidden);
@@ -1001,6 +1040,7 @@ export class AppStore {
     const key = viewKey(environmentId, sessionId);
     this.drafts.forget(key);
     this.sidePanels.forget(key);
+    this.filesViews.forget(key);
     this.#held.delete(key);
     this.#set((s) => {
       const { [key]: _gone, ...views } = s.views;

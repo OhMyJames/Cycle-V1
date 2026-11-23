@@ -295,3 +295,34 @@ export const ShieldAlertIcon = ({ size = 16, ...rest }: IconProps) => (
     </g>
   </Svg>
 );
+
+/** iconmcp: folder */
+export const FolderIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <path d="M2.25 4.75 C2.25 3.922 2.922 3.25 3.75 3.25 H6.25 L7.75 4.75 H12.25 C13.078 4.75 13.75 5.422 13.75 6.25 V11.25 C13.75 12.078 13.078 12.75 12.25 12.75 H3.75 C2.922 12.75 2.25 12.078 2.25 11.25 Z" />
+    </g>
+  </Svg>
+);
+
+/** iconmcp: file */
+export const FileIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <path d="M9.25 2.25 H5 C4.172 2.25 3.5 2.922 3.5 3.75 V12.25 C3.5 13.078 4.172 13.75 5 13.75 H11 C11.828 13.75 12.5 13.078 12.5 12.25 V5.5 Z" />
+      <path d="M9.25 2.25 V5.5 H12.5" />
+    </g>
+  </Svg>
+);
+
+/** iconmcp: refresh-cw */
+export const RefreshIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <path d="M13.25 8 A5.25 5.25 0 0 1 3.9 11.25" />
+      <path d="M2.75 8 A5.25 5.25 0 0 1 12.1 4.75" />
+      <path d="M12.5 2.25 V4.75 H10" />
+      <path d="M3.5 13.75 V11.25 H6" />
+    </g>
+  </Svg>
+);

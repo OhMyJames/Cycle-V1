@@ -33,6 +33,7 @@ import { FormCard } from "./form.tsx";
 import { I18nProvider, useI18n } from "./i18n.tsx";
 import {
   ErrorCircleIcon,
+  FolderIcon,
   MoreIcon,
   OverviewIcon,
   PanelIcon,
@@ -295,6 +296,11 @@ function AppWindow() {
     }
   };
   const overviewShown = sidePanel?.open === true && sidePanel.active === "overview";
+  const filesShown = sidePanel?.open === true && sidePanel.active === "files";
+  // Files needs a daemon that reads a session's folder (docs/protocol.md §8): an older one is not offered it.
+  const canShowFiles = useAppState((s) =>
+    session !== undefined ? s.status[session.environmentId]?.capabilities?.fs === true : false,
+  );
   // The workspaces, and the one the sidebar shows; the list on screen and the keys that walk it (Cmd+[ and Cmd+]) are one thing.
   const environmentLabels = useMemo(
     () => environments.map((h) => ({ id: h.id, name: h.name, local: h.kind === "local" })),
@@ -794,6 +800,18 @@ function AppWindow() {
                         <OverviewIcon />
                       </Button>
                     </Tip>
+                    {canShowFiles ? (
+                      <Tip label={t(filesShown ? "files.hide" : "files.show")} side="bottom">
+                        <Button
+                          data-variant="ghost"
+                          data-kind="panel-toggle"
+                          data-active={filesShown || undefined}
+                          onClick={() => toggleTab("files")}
+                        >
+                          <FolderIcon />
+                        </Button>
+                      </Tip>
+                    ) : null}
                     <Tip
                       label={t(sidePanel?.open === true ? "panel.hide" : "panel.show")}
                       shortcut="mod+\\"

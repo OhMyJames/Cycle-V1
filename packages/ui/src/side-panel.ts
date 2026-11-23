@@ -9,7 +9,7 @@ import { browserStorage, type DraftStorage } from "./draft.ts";
  * and Browser come with CYCL-98 and CYCL-99. The id of a tab is its kind while there is one of each. A fixed word: the
  * analytics name it.
  */
-export const PANEL_TABS = ["overview"] as const;
+export const PANEL_TABS = ["overview", "files"] as const;
 export type PanelTabKind = (typeof PANEL_TABS)[number];
 
 export type SidePanelState = {

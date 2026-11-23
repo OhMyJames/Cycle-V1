@@ -11,6 +11,7 @@ import {
 } from "react";
 import { resourceName } from "../attachments.ts";
 import { MENTION_META, wordAt } from "../draft.ts";
+import { insideFolder } from "../files-view.ts";
 import { SESSION_URI_PREFIX } from "../mention.ts";
 import {
   type Block,
@@ -25,15 +26,16 @@ import {
   windowStart,
 } from "../model/index.ts";
 import { blockHolds, reveal } from "../reveal.ts";
+import { filesRootOf } from "../store/index.ts";
 import { CopyButton } from "./copy-button.tsx";
 import { useI18n } from "./i18n.tsx";
-import { ArrowDownIcon, AttachIcon, MessageIcon } from "./icons.tsx";
+import { ArrowDownIcon, AttachIcon, FileIcon, FolderIcon, MessageIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
 import { Markdown } from "./markdown.tsx";
 import { MessageTime } from "./message-time.tsx";
 import { PlanBlock } from "./plan.tsx";
 import { StateBlock } from "./state-block.tsx";
-import { useAppStore } from "./store-context.tsx";
+import { useAppState, useAppStore } from "./store-context.tsx";
 import { ThoughtRow } from "./thought.tsx";
 import { Tip } from "./tip.tsx";
 import { ToolCard } from "./tool.tsx";
@@ -73,11 +75,48 @@ const SessionChip = ({ said, name }: { said: string; name: string }) => (
   </span>
 );
 
-/** The words of a message, each `@title` of a session it names drawn as that session's chip. */
-const withSessionChips = (
-  text: string,
-  mentions: readonly { said: string; name: string }[],
-): ReactNode => {
+/** What a message's words name with @ and draw as a chip: what the words say, and the chip. */
+type Chip = { said: string; chip: (key: string) => ReactNode };
+
+/**
+ * The files and folders a message names with @ that the Files tab can show (inside the open session's folder): each a
+ * chip that shows it there. One it cannot show stays words, as it was.
+ */
+const fileChipsOf = (
+  blocks: readonly Block[],
+  inSession: (where: string) => string | undefined,
+  show: (path: string, folder: boolean) => void,
+  label: string,
+): Chip[] =>
+  blocks.flatMap((block) => {
+    const said = (block._meta as Record<string, unknown> | undefined)?.[MENTION_META];
+    if (block.type !== "resource_link" || typeof block.uri !== "string") return [];
+    if (!block.uri.startsWith("file://") || typeof said !== "string" || said === "") return [];
+    const path = inSession(block.uri);
+    if (path === undefined) return [];
+    const folder = block.uri.endsWith("/");
+    return [
+      {
+        said,
+        chip: (key: string) => (
+          <button
+            type="button"
+            key={key}
+            data-slot="mention-chip"
+            data-kind={folder ? "folder" : "file"}
+            title={label}
+            onClick={() => show(path, folder)}
+          >
+            {folder ? <FolderIcon size={12} /> : <FileIcon size={12} />}
+            {said}
+          </button>
+        ),
+      },
+    ];
+  });
+
+/** The words of a message, each `@name` it names drawn as its chip. */
+const withChips = (text: string, mentions: readonly Chip[]): ReactNode => {
   if (mentions.length === 0) return text;
   // The longest first, so that a title that starts another does not take part of it. Only as a whole word, as the box
   // sent it (`wordAt`): `@Fix` is not in `@Fixtures`.
@@ -86,14 +125,14 @@ const withSessionChips = (
   let from = 0;
   let at = 0;
   while (from < text.length) {
-    let found: { index: number; mention: { said: string; name: string } } | undefined;
+    let found: { index: number; mention: Chip } | undefined;
     for (const mention of words) {
       const index = wordAt(text, `@${mention.said}`, from);
       if (index !== -1 && (found === undefined || index < found.index)) found = { index, mention };
     }
     if (found === undefined) break;
     if (found.index > from) parts.push(text.slice(from, found.index));
-    parts.push(<SessionChip key={`chip-${at}`} {...found.mention} />);
+    parts.push(found.mention.chip(`chip-${at}`));
     from = found.index + found.mention.said.length + 1;
     at += 1;
   }
@@ -109,15 +148,35 @@ const linkName = (block: Block): string =>
       : block.type;
 
 function Blocks({ blocks, from }: { blocks: Block[]; from: "agent" | "user" }) {
+  const { t } = useI18n();
+  const store = useAppStore();
+  const filesRoot = useAppState(filesRootOf);
   const words = blocks.map((b) => (b.type === "text" ? String(b.text) : "")).join("");
-  const sessions = sessionMentionsOf(blocks);
+  const chips: Chip[] = [
+    ...sessionMentionsOf(blocks).map((mention) => ({
+      said: mention.said,
+      chip: (key: string) => <SessionChip key={key} {...mention} />,
+    })),
+    ...fileChipsOf(
+      blocks,
+      (where) => (filesRoot !== undefined ? insideFolder(where, filesRoot) : undefined),
+      (path, folder) => {
+        store.showInFiles(path, { folder });
+        store.track("file_shown_from_conversation", {
+          target: folder ? "folder" : "file",
+          from: "mention",
+        });
+      },
+      t("files.showInFiles"),
+    ),
+  ];
   return (
     <>
       {blocks
         .map((block, index) => ({ block, key: `${block.type}-${index}` }))
         .map(({ block, key }) =>
           block.type === "text" ? (
-            <span key={key}>{withSessionChips(String(block.text), sessions)}</span>
+            <span key={key}>{withChips(String(block.text), chips)}</span>
           ) : block.type === "image" ? (
             <ImageBlockView key={key} block={block} from={from} />
           ) : block.type === "resource" ? (
