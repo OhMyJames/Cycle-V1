@@ -466,7 +466,7 @@ summary:focus-visible {
     [data-slot="plan-now"],
     [data-slot="blank-folder-name"],
     [data-slot="blank-recent-name"],
-    [data-slot="session-header"] h1
+    [data-kind="session-title"]
   ) {
     animation: cycle-fade linear both !important;
     animation-timeline: scroll(self inline) !important;
@@ -503,7 +503,7 @@ summary:focus-visible {
   [data-slot="plan-now"],
   [data-slot="blank-folder-name"],
   [data-slot="blank-recent-name"],
-  [data-slot="session-header"] h1
+  [data-kind="session-title"]
 ) {
   overflow: hidden;
   white-space: nowrap;
@@ -1574,6 +1574,39 @@ svg[data-slot="dot"] {
   font-weight: 600;
 }
 
+/* When the session last changed, at the row's end: quiet, and it never gives way to the title (the title fades). */
+[data-slot="session-time"] {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--cycle-text-meta);
+  line-height: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ui-muted-foreground);
+}
+
+/* A row being renamed: the field takes the title's place, on the title's line. A failed rename says why under it. */
+[data-slot="sidebar"] [role="option"] [data-kind="rename-field"] {
+  flex: 1;
+  min-width: 0;
+  height: 1.25rem;
+  margin-block: -0.0625rem;
+  padding: 0 0.25rem;
+  font: inherit;
+  font-weight: 500;
+}
+
+[data-slot="sidebar"] [role="option"]:has([data-slot="rename-problem"]) {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+
+[data-slot="sidebar"] [role="option"] [data-slot="rename-problem"] {
+  flex-basis: 100%;
+  padding-left: 1rem;
+  white-space: normal;
+}
+
 /* The switcher: the workspace shown, an icon if it is on another host, and a square number for what is elsewhere. */
 /* It names what the sidebar shows, so it reads as the sidebar's title: left-aligned, the chevron after the name. */
 [data-kind="workspace-switcher"] {
@@ -1965,6 +1998,50 @@ html[data-platform="darwin"]
   color: var(--ui-muted-foreground);
 }
 
+/* The title is the button that renames it: it reads as the title, and fades at its end (the fade group above). */
+[data-kind="session-title"] {
+  display: block;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  white-space: nowrap;
+  cursor: text;
+}
+
+[data-kind="session-title"]:focus-visible {
+  outline-offset: -1.5px;
+}
+
+/* Renaming in the header: the field is where the title was, as wide as a long title needs and no wider than the row. */
+[data-slot="session-heading"]:has([data-kind="rename-field"]) {
+  align-items: center;
+}
+
+[data-slot="session-heading"] [data-kind="rename-field"] {
+  flex: 0 1 30rem;
+  min-width: 10rem;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  font-family: var(--cycle-font-display);
+  font-size: var(--cycle-text-ui);
+  font-weight: 600;
+}
+
+[data-slot="rename-problem"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--cycle-text-meta);
+  color: var(--ui-destructive);
+}
+
 [data-slot="session-header"] [data-slot="row"] {
   flex: none;
   flex-wrap: nowrap;
@@ -2103,8 +2180,74 @@ html[data-platform="darwin"]
 }
 
 [data-slot="message"][data-role="agent"] {
+  position: relative;
   max-width: 100%;
   overflow-wrap: anywhere;
+}
+
+/* Copy under a message: its room is kept whether it shows or not, so it moves nothing. Seen while the pointer is on the
+   message or the focus is in it, so it can be reached by keyboard. The button's own padding sits outside the text edge. */
+[data-slot="message-actions"] {
+  display: flex;
+  align-items: center;
+  margin-top: 0.25rem;
+  margin-inline: -0.25rem;
+  opacity: 0;
+  transition: opacity var(--cycle-motion-state) var(--cycle-ease);
+}
+
+[data-slot="message-actions"][data-role="user"] {
+  align-self: flex-end;
+}
+
+[data-slot="block"]:hover [data-slot="message-actions"],
+[data-slot="message-actions"]:focus-within {
+  opacity: 1;
+}
+
+:is([data-slot="message-copy"], [data-slot="code-copy"]) {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--ui-muted-foreground);
+  cursor: pointer;
+  transition:
+    opacity var(--cycle-motion-state) var(--cycle-ease),
+    background-color var(--cycle-motion-state) var(--cycle-ease),
+    color var(--cycle-motion-state) var(--cycle-ease);
+}
+
+:is([data-slot="message-copy"], [data-slot="code-copy"]):hover {
+  background: var(--cycle-surface-hover);
+  color: var(--cycle-ink);
+}
+
+/* When a message was sent, or its turn's reply finished: muted words in the row under it, seen with the row. Its tip
+   gives the full local date and time; it is a button only so the keyboard reaches that tip. */
+[data-slot="message-actions"] [data-kind="message-time"] {
+  height: 1.5rem;
+  padding-inline: 0.25rem;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: none;
+  cursor: default;
+  color: var(--cycle-ink-muted);
+  font-family: var(--ui-font-sans);
+  font-size: var(--cycle-text-meta);
+  line-height: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  user-select: none;
+}
+
+[data-slot="message-actions"] [data-kind="message-time"]:focus-visible {
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: 0;
 }
 
 /* Markdown from the agent. Streamdown draws a code block as a box holding a box, and a table as a toolbar over a box
@@ -2327,6 +2470,19 @@ html[data-platform="darwin"]
   position: relative;
 }
 
+/* Copy on a code block: in the right of its head (the block's 0.5rem margin, its edge, then 0.25rem down), or over the top
+   corner of a block with no head. Seen while the block is hovered or something in it has the focus. */
+[data-slot="code-fold"] > [data-slot="code-copy"] {
+  position: absolute;
+  top: calc(0.75rem + 1px);
+  right: calc(0.5rem + 1px);
+  opacity: 0;
+}
+
+[data-slot="code-fold"]:is(:hover, :focus-within) > [data-slot="code-copy"] {
+  opacity: 1;
+}
+
 [data-slot="code-fold"]:has(> [data-slot="code-fold-toggle"]) [data-streamdown="code-block"] {
   padding-bottom: 2rem;
 }
@@ -2357,6 +2513,58 @@ html[data-platform="darwin"]
 [data-slot="code-fold-toggle"]:focus-visible {
   outline: 1.5px solid var(--cycle-focus-ring);
   outline-offset: 0;
+}
+
+/* A ```mermaid fence drawn as a diagram: the code block's card, holding the picture, with "Show source" where a long
+   block's "Show all" is. The picture is a data URL (diagram.ts); it opens large like an image. */
+[data-slot="diagram"] {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem 0.75rem 2.5rem;
+  overflow-x: auto;
+  border: 1px solid var(--cycle-border-default);
+  border-radius: var(--cycle-radius-card);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware);
+}
+
+[data-slot="code-fold"]:has(> [data-slot="diagram"]) {
+  margin-bottom: 0.5rem;
+}
+
+[data-slot="diagram-open"] {
+  display: block;
+  margin-inline: auto;
+  padding: 0;
+  border-radius: var(--ui-radius);
+  cursor: zoom-in;
+}
+
+[data-slot="diagram-open"]:focus-visible {
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: 2px;
+}
+
+[data-slot="diagram-open"] img,
+[data-kind="diagram"] img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+[data-slot="diagram-open"] img {
+  max-height: 32rem;
+  object-fit: contain;
+}
+
+[data-kind="diagram"] img {
+  min-width: min(100%, 40rem);
+  background: var(--cycle-surface-raised);
+}
+
+[data-slot="diagram-note"] {
+  margin: 0;
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
 }
 
 /* An image of a conversation: a thumbnail that opens large. It is a data URL; nothing is fetched. */
@@ -2395,6 +2603,25 @@ html[data-platform="darwin"]
 [data-slot="blocked-image"],
 [data-slot="unsafe-link"],
 [data-slot="block-note"] {
+  color: var(--ui-muted-foreground);
+}
+
+/* A session named with @ in a sent message: its title in a chip, never the record the agent was given of it. */
+[data-slot="mention-chip"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  padding: 0 0.375rem;
+  border: 1px solid var(--cycle-border-default);
+  border-radius: var(--cycle-radius-sm);
+  background: var(--cycle-surface-raised);
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+[data-slot="mention-chip"] > svg {
+  flex: none;
   color: var(--ui-muted-foreground);
 }
 
@@ -2669,6 +2896,63 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   color: var(--cycle-ink);
 }
 
+/* Back to bottom: held to the bottom of the view (sticky) while the end is below it, just above the input box. Its holder
+   has no height and gives back the column's gap, so the conversation is laid the same with it or without it. */
+[data-slot="to-end"] {
+  position: sticky;
+  bottom: 0.75rem;
+  z-index: 1;
+  align-self: center;
+  height: 0;
+  margin-top: calc(-1 * var(--cycle-gap));
+}
+
+[data-slot="to-end-button"] {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--cycle-radius-pill);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware), var(--cycle-shadow-popover);
+  color: var(--ui-muted-foreground);
+  cursor: pointer;
+  transform: translateX(-50%);
+  animation: cycle-to-end-in var(--cycle-motion-enter) var(--cycle-ease);
+  transition:
+    background-color var(--cycle-motion-state) var(--cycle-ease),
+    color var(--cycle-motion-state) var(--cycle-ease);
+}
+
+[data-slot="to-end-button"]:hover {
+  background: var(--cycle-surface-hover);
+  color: var(--cycle-ink);
+}
+
+/* Something arrived at the end while the reader was away: a dot on the button's corner. */
+[data-slot="to-end-button"][data-fresh]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--cycle-radius-pill);
+  background: var(--cycle-accent);
+}
+
+/* It fades in, so it does not flash up as the reader scrolls away from the end. */
+@keyframes cycle-to-end-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* Each block is a column of its own, so a message can sit to the end; a turn begins with more space than blocks have. */
 [data-slot="block"] {
   display: flex;
@@ -2894,12 +3178,27 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   color: var(--ui-muted-foreground);
 }
 
+[data-kind="thought"] > button:hover {
+  background: var(--cycle-surface-hover);
+  color: var(--cycle-ink);
+}
+
+/* While it streams, the words breathe as the step line's do: only opacity, and still under reduced motion. */
+[data-kind="thought"][data-live] [data-slot="thought-label"] {
+  animation: cycle-step-breathe 2.2s ease-in-out infinite;
+}
+
 [data-kind="thought"] [data-slot="thought-text"] {
   margin: 0.25rem 0 0 0.4rem;
   padding: 0.125rem 0 0.125rem 0.875rem;
   border-left: 2px solid var(--ui-border);
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+[data-slot="message"][data-role="thought"] {
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-ui);
+  line-height: var(--cycle-leading-ui);
 }
 
 /* The plan in the conversation is one quiet line where it was made, styled as a tool's (above), that opens to the list.
@@ -3087,11 +3386,28 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   margin-top: 0.1875rem;
 }
 
-/* "Send again": at the end of the line, whole, whatever the length of the reason before it. */
-[data-kind="turn-end"][data-severity="error"] > button {
+/* "Edit message" and "Try again": at the end of the line, whole, whatever the length of the reason before it. Why
+   "Try again" waits (offline, the agent at work) is said under them, quietly, in the page's colour. */
+[data-kind="turn-end"][data-severity="error"] > [data-slot="turn-again"] {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
   margin-inline-start: auto;
   margin-block: -0.25rem;
+}
+
+[data-slot="turn-again"] > [data-slot="row"] {
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+}
+
+[data-slot="turn-again-why"] {
+  max-width: 16rem;
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
+  text-align: end;
 }
 
 [data-kind="turn-end"][data-severity="warning"] {
@@ -4047,6 +4363,37 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   white-space: nowrap;
 }
 
+/* A file's size beside its name: quieter, and never squeezed out by a long name. */
+[data-slot="attachment-size"] {
+  flex: none;
+  color: var(--ui-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-slot="attachment"]:is([data-kind="text"], [data-kind="pdf"]) > svg {
+  flex: none;
+  color: var(--ui-muted-foreground);
+}
+
+/* A file in a sent message: a chip with its name, on a line of its own; its content is never drawn. */
+[data-slot="file-chip"] {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  width: fit-content;
+  max-width: 100%;
+  margin-block: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--cycle-border-default);
+  border-radius: var(--cycle-radius-control);
+  font-size: var(--cycle-text-meta);
+}
+
+[data-slot="file-chip"] > svg {
+  flex: none;
+  color: var(--ui-muted-foreground);
+}
+
 [data-slot="attachment-remove"] {
   display: grid;
   place-items: center;
@@ -4174,7 +4521,7 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   list-style: none;
 }
 
-[data-slot="picker"] > [role="option"] {
+[data-slot="picker"] [role="option"] {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
@@ -4190,8 +4537,32 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   font-size: var(--cycle-text-ui);
 }
 
-[data-slot="picker"] > [role="option"][data-active] {
+[data-slot="picker"] [role="option"][data-active] {
   background: var(--cycle-surface-hover);
+}
+
+/* The @ menu's groups (files and folders, sessions): a quiet heading over each, when there is more than one kind. */
+[data-slot="picker-group"] {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+[data-slot="picker-group"] + [data-slot="picker-group"] {
+  margin-top: 0.25rem;
+}
+
+[data-slot="picker-group-label"] {
+  padding: 0.25rem 0.5rem;
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
+  font-weight: 500;
+}
+
+/* A session is named by its title, which is words, not a path. */
+[data-slot="picker"] [role="option"][data-kind="session"] [data-slot="picker-name"] {
+  font-family: inherit;
 }
 
 [data-slot="picker-name"] {

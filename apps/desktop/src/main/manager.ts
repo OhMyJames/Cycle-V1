@@ -3,6 +3,7 @@ import {
   agentOf,
   type EventName,
   type EventProps,
+  renameWhereOf,
   settingOf,
   sizeOf,
   viaOf,
@@ -356,7 +357,8 @@ export class ConnectionManager
         : {}),
       ...(this.#options.backoff !== undefined ? { backoff: this.#options.backoff } : {}),
       events: {
-        update: (sessionId, update) => this.#onUpdate(environmentId, connection, sessionId, update),
+        update: (sessionId, update, _seq, at) =>
+          this.#onUpdate(environmentId, connection, sessionId, update, at),
         permission: (sessionId, request, requestId) =>
           this.#onPermission(environmentId, connection, sessionId, request, requestId),
         // Saying this is saying the app can show a form: the daemon then asks it the agent's questions.
@@ -399,6 +401,7 @@ export class ConnectionManager
                     filesInFolder: connection.client.capabilities.filesInFolder === true,
                     trust: connection.client.capabilities.trust === true,
                     connectors: connection.client.capabilities.connectors === true,
+                    sessionMentions: connection.client.capabilities.sessionMentions === true,
                   },
                 }
               : state === "reconnecting" && connection.status.capabilities !== undefined
@@ -756,16 +759,18 @@ export class ConnectionManager
     connection: Connection,
     sessionId: string,
     update: Parameters<typeof applyUpdate>[1],
+    at: number | undefined,
   ) {
     const watched = connection.watched.get(sessionId);
     if (watched === undefined) return;
-    watched.conversation = applyUpdate(watched.conversation, update);
+    watched.conversation = applyUpdate(watched.conversation, update, { at });
     watched.version += 1;
     this.#options.emit({
       type: "update",
       environmentId,
       sessionId,
       update,
+      ...(at !== undefined ? { at } : {}),
       version: watched.version,
     });
   }
@@ -786,12 +791,13 @@ export class ConnectionManager
         ...(options.steer === true ? { steer: true } : {}),
       },
     );
-    // How much, never what: the length in three words and the number of images and mentions.
+    // How much, never what: the length in three words and the number of images, files and mentions.
     this.#track("prompt_sent", {
       agent: this.#agentOf(environmentId, sessionId),
       environment: this.#kindOf(environmentId),
       size: sizeOf(blocks.reduce((n, b) => n + (b.type === "text" ? b.text.length : 0), 0)),
       images: blocks.filter((b) => b.type === "image").length,
+      files: blocks.filter((b) => b.type === "resource").length,
       mentions: blocks.filter((b) => b.type === "resource_link").length,
       steered: options.steer === true,
       // The page says which key or button; only the dictionary's words are counted, anything else is "other".
@@ -857,9 +863,15 @@ export class ConnectionManager
     this.#track("session_config_changed", { setting: settingOf(configId) });
   }
 
-  async renameSession(environmentId: string, sessionId: string, title: string): Promise<void> {
+  /** `where`: what the page says it was edited in; checked here, since the page's word is not trusted. */
+  async renameSession(
+    environmentId: string,
+    sessionId: string,
+    title: string,
+    where?: unknown,
+  ): Promise<void> {
     await this.#connection(environmentId).client.rename(sessionId, title);
-    this.#track("session_renamed", {});
+    this.#track("session_renamed", { where: renameWhereOf(where) });
   }
 
   async dismissBackground(

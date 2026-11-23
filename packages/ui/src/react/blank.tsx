@@ -310,6 +310,7 @@ export function BlankConversationView({
       sessionKey={BLANK_KEY}
       blank
       canAttach={agent?.promptCapabilities?.image != null}
+      canAttachFiles={agent?.promptCapabilities?.embeddedContext != null}
       settings={
         agent !== undefined && blank.config !== undefined
           ? {

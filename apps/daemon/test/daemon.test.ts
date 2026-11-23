@@ -166,6 +166,39 @@ test("a second client replays the whole history, then goes live", async () => {
   expect(late.seen.slice(before).map((s) => s.seq)).toEqual([6, 7, 8, 9]);
 });
 
+test("every logged update carries the time it was logged, the same live and replayed; synthesized ones carry none", async () => {
+  const { daemon } = await start();
+  const live = await connectClient(daemon);
+  const { sessionId } = await live.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await live.agent.request(methods.agent.session.resume, { sessionId, cwd: "/tmp" });
+  await live.agent.request(methods.agent.session.prompt, { sessionId, prompt: text("one") });
+  await until(() => live.idle() >= 2, "the turn");
+  // The snapshot on resume is not a record: no seq, no time.
+  expect(live.seen[0]).toMatchObject({ seq: undefined, ts: undefined });
+  const records = live.seen.filter((s) => s.seq !== undefined);
+  expect(records.length).toBeGreaterThan(0);
+  for (const r of records) expect(r.ts).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+
+  const late = await connectClient(daemon);
+  await late.agent.request(methods.agent.session.resume, {
+    sessionId,
+    cwd: "/tmp",
+    replayFrom: { type: "start" },
+  });
+  const replayed = late.seen.filter(
+    (s) => s.seq !== undefined && s.update.sessionUpdate !== "replay_complete",
+  );
+  expect(replayed.map((s) => [s.seq, s.ts])).toEqual(records.map((s) => [s.seq, s.ts]));
+  // replay_complete marks a place, and the snapshot after it is now: neither has a record's time.
+  for (const s of late.seen.slice(-2)) expect(s.ts).toBeUndefined();
+  // It is the log's own time.
+  const lines = (await readFile(join(dir, "sessions", `${sessionId}.jsonl`), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { seq: number; ts: string });
+  for (const r of records) expect(r.ts).toBe(lines.find((l) => l.seq === r.seq)?.ts);
+});
+
 test("a reconnecting client asks for what it missed and gets only that", async () => {
   const { daemon } = await start();
   const c = await connectClient(daemon);

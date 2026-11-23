@@ -131,12 +131,41 @@ export const CheckIcon = ({ size = 16, ...rest }: IconProps) => (
   </Svg>
 );
 
+/** iconmcp: arrow-down */
+export const ArrowDownIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g transform="rotate(90 8 8)">
+      <line x1="2.75" y1="8" x2="13.25" y2="8" />
+      <path d="M8.5 3.25 L13.25 8 L8.5 12.75" />
+    </g>
+  </Svg>
+);
+
+/** iconmcp: copy */
+export const CopyIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <rect x="5.25" y="5.25" width="8.5" height="8.5" rx="2" />
+      <path d="M3.5 10.75 L2.875 10.75 C2.53 10.75 2.25 10.47 2.25 10.125 L2.25 4.25 C2.25 3.145 3.145 2.25 4.25 2.25 L10.125 2.25 C10.47 2.25 10.75 2.53 10.75 2.875 L10.75 3.5" />
+    </g>
+  </Svg>
+);
+
 /** iconmcp: close */
 export const CloseIcon = ({ size = 16, ...rest }: IconProps) => (
   <Svg size={size} {...rest}>
     <g>
       <line x1="3.75" y1="3.75" x2="12.25" y2="12.25" />
       <line x1="12.25" y1="3.75" x2="3.75" y2="12.25" />
+    </g>
+  </Svg>
+);
+
+/** iconmcp: message */
+export const MessageIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <path d="M4.25 3 L11.75 3 C12.855 3 13.75 3.895 13.75 5 L13.75 9.25 C13.75 10.355 12.855 11.25 11.75 11.25 L7.25 11.25 L4.25 13.75 L4.25 11.25 L3.25 11.25 C2.698 11.25 2.25 10.802 2.25 10.25 L2.25 5 C2.25 3.895 3.145 3 4.25 3 Z" />
     </g>
   </Svg>
 );

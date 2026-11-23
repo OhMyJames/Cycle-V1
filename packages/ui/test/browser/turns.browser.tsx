@@ -18,6 +18,8 @@ afterEach(() => {
 const u = (update: object) => update as SessionUpdate;
 const you = (id: string) =>
   u({ sessionUpdate: "user_message", messageId: id, content: [{ type: "text", text: id }] });
+const say = (id: string) =>
+  u({ sessionUpdate: "agent_message", messageId: id, content: [{ type: "text", text: id }] });
 const think = (id: string, text: string) =>
   u({ sessionUpdate: "agent_thought", messageId: id, content: [{ type: "text", text }] });
 const tool = (id: string, name: string, status: string, rawInput: object) => [
@@ -28,7 +30,7 @@ const state = (extra: object) => u({ sessionUpdate: "state_update", ...extra });
 
 const open = async (...updates: SessionUpdate[]) => {
   const snapshot = (): SessionSnapshot => ({
-    conversation: updates.reduce(applyUpdate, emptyConversation()),
+    conversation: updates.reduce((c, u) => applyUpdate(c, u), emptyConversation()),
     permissions: [],
     version: updates.length,
   });
@@ -122,6 +124,43 @@ test("a call with a description reads as it; what it ran follows, and a mention 
   expect(log.textContent).toContain("@src/a.ts");
 });
 
+test("a session named with @ is a chip in the sent message, and the record the agent was given is not shown", async () => {
+  const { log } = await open(
+    u({
+      sessionUpdate: "user_message",
+      messageId: "u1",
+      content: [
+        { type: "text", text: "Go on from @Fix the login bug, then @Gone" },
+        {
+          type: "resource_link",
+          name: "Fix the login bug",
+          uri: "cycle://session/s2",
+          _meta: { "cycle/mention": "Fix the login bug" },
+        },
+        {
+          type: "resource_link",
+          name: "Unsaid",
+          uri: "cycle://session/s3",
+          _meta: { "cycle/mention": "Unsaid" },
+        },
+      ],
+    }),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const chips = await waitFor(() => {
+    const found = [...log.querySelectorAll('[data-slot="mention-chip"]')];
+    expect(found).toHaveLength(2);
+    return found;
+  });
+  expect(chips.map((c) => [c.textContent, c.getAttribute("title")])).toEqual([
+    ["Fix the login bug", "Fix the login bug"],
+    // One the words no longer say is still shown.
+    ["Unsaid", "Unsaid"],
+  ]);
+  const message = chips[0]?.closest('[data-slot="message"]');
+  expect(message?.textContent).toBe("Go on from Fix the login bug, then @GoneUnsaid");
+});
+
 test("only a purpose sentence is a description: an MCP tool's description field is content, not the line", async () => {
   await open(
     you("u1"),
@@ -184,25 +223,119 @@ test("a turn the person stopped says so, with the word and not only a colour", a
   await screen.findByText("Stopped before it finished.");
 });
 
-test("thinking is hidden until asked for, and the line at the end still says the agent is at it", async () => {
-  const { user, log } = await open(
-    you("u1"),
-    state({ state: "running" }),
-    think("t1", "weighing the options"),
+test("a thought is a closed row: Thinking… while it streams, then how long it took, opening to markdown", async () => {
+  const { user, log, script } = await open(you("u1"), state({ state: "running" }));
+  const T = Date.now() - 60_000;
+  let version = 2;
+  const emit = (update: SessionUpdate, at?: number) =>
+    act(() =>
+      script.emit({
+        type: "update",
+        environmentId: "local",
+        sessionId: "s1",
+        update,
+        ...(at !== undefined ? { at } : {}),
+        version: ++version,
+      }),
+    );
+  const chunk = (text: string) =>
+    u({ sessionUpdate: "agent_thought_chunk", messageId: "t1", content: { type: "text", text } });
+  await emit(chunk("weighing **the options**"), T);
+  const row = await screen.findByRole("button", { name: "Thinking…" });
+  expect(row.getAttribute("aria-expanded")).toBe("false");
+  expect(log.textContent).not.toContain("weighing");
+  // The row says it: the line at the end does not say "Thinking…" a second time.
+  expect(log.textContent?.match(/Thinking…/g)).toHaveLength(1);
+  await emit(chunk(" and more"), T + 5_000);
+  await emit(
+    u({
+      sessionUpdate: "agent_message_chunk",
+      messageId: "a1",
+      content: { type: "text", text: "answer" },
+    }),
+    T + 6_000,
   );
-  await waitFor(() => expect(log.textContent).toContain("Thinking…"));
-  expect(log.textContent).not.toContain("weighing the options");
+  const done = await screen.findByRole("button", { name: "Thought for 5 sec" });
+  await user.click(done);
+  // Markdown, through the same path as a reply: the bold is bold, not asterisks.
+  await waitFor(() =>
+    expect(log.querySelector('[data-role="thought"] [data-streamdown="strong"]')).not.toBeNull(),
+  );
+  expect(log.textContent).toContain("weighing the options and more");
+  expect(log.textContent).not.toContain("**");
+  // Opening it is told, never what it said.
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([
+    ["track", "thought_expanded", { live: false }],
+  ]);
+});
+
+test("a thought without times reads Thought, and Expand thinking opens thoughts by themselves", async () => {
+  const { user, log, script } = await open(
+    you("u1"),
+    think("t1", "weighing the options"),
+    say("a1"),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const row = await screen.findByRole("button", { name: "Thought" });
+  expect(row.getAttribute("aria-expanded")).toBe("false");
   await user.click(screen.getByRole("button", { name: "Session actions" }));
-  const choice = await screen.findByRole("menuitemcheckbox", { name: "Show thinking" });
+  const choice = await screen.findByRole("menuitemcheckbox", { name: "Expand thinking" });
   expect(choice.getAttribute("aria-checked")).toBe("false");
   await user.click(choice);
   // A checkbox item leaves the menu open, so that the change can be seen; close it.
   await user.keyboard("{Escape}");
-  // The thought is a row now: it opens to its text.
-  const row = await screen.findByRole("button", { name: "Thinking" });
-  await user.click(row);
+  await waitFor(() => expect(row.getAttribute("aria-expanded")).toBe("true"));
   await waitFor(() => expect(log.textContent).toContain("weighing the options"));
   expect(thinking.get()).toBe(true);
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([
+    ["track", "thinking_expand_changed", { on: true }],
+  ]);
+});
+
+test("a message says when it was sent and a reply when it finished, with the full time on focus; none when not known", async () => {
+  const { user, log, script } = await open(you("old"));
+  // The history from an older daemon carries no time: nothing is shown for it.
+  await waitFor(() => expect(log.textContent).toContain("old"));
+  expect(log.querySelector('[data-kind="message-time"]')).toBeNull();
+  const now = Date.now();
+  let version = 1;
+  const emit = (update: SessionUpdate, at: number) =>
+    act(() =>
+      script.emit({
+        type: "update",
+        environmentId: "local",
+        sessionId: "s1",
+        update,
+        at,
+        version: ++version,
+      }),
+    );
+  await emit(state({ state: "idle", stopReason: "end_turn" }), now - 4 * 60_000);
+  await emit(you("u2"), now - 3 * 60_000);
+  await emit(
+    u({
+      sessionUpdate: "agent_message_chunk",
+      messageId: "a2",
+      content: { type: "text", text: "done" },
+    }),
+    now - 2 * 60_000,
+  );
+  // While the reply streams it has no finished time yet.
+  await waitFor(() => expect(log.textContent).toContain("done"));
+  expect(log.querySelectorAll('[data-kind="message-time"]')).toHaveLength(1);
+  await emit(state({ state: "idle", stopReason: "end_turn" }), now - 2 * 60_000);
+  await waitFor(() => expect(log.querySelectorAll('[data-kind="message-time"]')).toHaveLength(2));
+  const [sent, finished] = log.querySelectorAll<HTMLElement>('[data-kind="message-time"]');
+  expect(sent?.textContent).toBe("3 minutes ago");
+  expect(finished?.textContent).toBe("2 minutes ago");
+  // Quiet until asked for: its row under the message is hidden, then shown on keyboard focus with the full date and time.
+  const row = (sent as HTMLElement).closest('[data-slot="message-actions"]') as HTMLElement;
+  expect(getComputedStyle(row).opacity).toBe("0");
+  (sent as HTMLElement).focus();
+  await user.keyboard("{Shift>}{Tab}{/Shift}{Tab}");
+  const tip = await screen.findByRole("tooltip");
+  expect(tip.textContent).toContain("Sent");
+  expect(tip.textContent).toContain(String(new Date(now - 3 * 60_000).getFullYear()));
 });
 
 const turnsOf = (n: number, from = 0) =>
@@ -235,6 +368,49 @@ test("a long conversation draws its end, and the button brings the earlier block
   // Everything is drawn: there is nothing earlier, and the focus did not fall out of the page.
   expect(screen.queryByRole("button", { name: "Show earlier" })).toBeNull();
   expect(document.activeElement).toBe(log);
+});
+
+test("scrolled up, a button takes the reader back to the end, says when something new came, and moves nothing", async () => {
+  const { user, log, emit, script } = await open(...turnsOf(20));
+  await waitFor(() => expect(log.textContent).toContain("answer 19"));
+  // The window's height, as #root has it in the app: the conversation scrolls inside it.
+  const root = log.closest('[data-slot="app"]')?.parentElement;
+  if (root instanceof HTMLElement) root.style.height = "100%";
+  await waitFor(() => expect(log.scrollHeight).toBeGreaterThan(log.clientHeight + 500));
+  log.scrollTop = log.scrollHeight;
+  const fromEnd = () => log.scrollHeight - log.scrollTop - log.clientHeight;
+  await waitFor(() => expect(fromEnd()).toBeLessThan(2));
+  const toEnd = () => log.querySelector<HTMLButtonElement>('[data-slot="to-end-button"]');
+  // At the end there is nothing to go back to; the holder takes no room.
+  expect(toEnd()).toBeNull();
+  const holder = log.querySelector('[data-slot="to-end"]');
+  expect(holder?.getBoundingClientRect().height).toBe(0);
+  log.scrollTop = 0;
+  await waitFor(() => expect(toEnd()).not.toBeNull());
+  expect(toEnd()?.hasAttribute("data-fresh")).toBe(false);
+  // Floats inside the view, at its bottom.
+  const box = toEnd()?.getBoundingClientRect();
+  const view = log.getBoundingClientRect();
+  expect(box && box.bottom <= view.bottom && box.bottom > view.bottom - 64).toBe(true);
+  // A reply arrives below: the reader stays where they are, and the button says there is something new.
+  const top = log.scrollTop;
+  await emit(you("later"));
+  await waitFor(() => expect(toEnd()?.hasAttribute("data-fresh")).toBe(true));
+  expect(log.scrollTop).toBe(top);
+  // By keyboard: it is a button with a name, and Enter goes back to the end.
+  const button = screen.getByRole("button", {
+    name: "Back to bottom, where there is something new",
+  });
+  button.focus();
+  await user.keyboard("{Enter}");
+  await waitFor(() => expect(fromEnd()).toBeLessThan(2));
+  await waitFor(() => expect(toEnd()).toBeNull());
+  // The focus stays in the conversation, not on the page.
+  expect(document.activeElement).toBe(log);
+  // Counted with whether something new was there, nothing else.
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([
+    ["track", "back_to_bottom_used", { fresh: true }],
+  ]);
 });
 
 test("a conversation that grows from a few blocks to many draws about a page, not all of it", async () => {
@@ -472,6 +648,49 @@ test("a command opens to itself and its output apart from its errors; a long out
     ["track", "tool_output_expanded", {}],
     ["track", "tool_copied", { part: "output" }],
   ]);
+});
+
+test("a message and a finished turn's reply copy from under them, by keyboard too, and only which kind is counted", async () => {
+  const said = (id: string, text: string) =>
+    u({ sessionUpdate: "agent_message", messageId: id, content: [{ type: "text", text }] });
+  const { user, log, emit, script } = await open(
+    u({
+      sessionUpdate: "user_message",
+      messageId: "u1",
+      content: [{ type: "text", text: "Fix the **build**" }],
+    }),
+    said("m1", "Looking at `make`."),
+    ...tool("b", "Bash", "completed", { command: "make" }),
+    said("m2", "Fixed:\n\n```sh\nmake all\n```"),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  // One Copy for the reply, under its last message: the turn's words as markdown, not one message's.
+  const reply = within(log).getByRole("button", { name: "Copy the reply" });
+  expect(within(log).getAllByRole("button", { name: "Copy the reply" })).toHaveLength(1);
+  await user.click(reply);
+  const copied = () => script.calls.filter(([name]) => name === "copyText").map(([, text]) => text);
+  expect(copied()).toEqual(["Looking at `make`.\n\nFixed:\n\n```sh\nmake all\n```"]);
+  await waitFor(() => expect(log.textContent).toContain("Copied"));
+  // By keyboard: the focus reaches the message's Copy, and Enter copies what was written, as written.
+  within(log).getByRole("button", { name: "Copy the message" }).focus();
+  await user.keyboard("{Enter}");
+  expect(copied()).toEqual([
+    "Looking at `make`.\n\nFixed:\n\n```sh\nmake all\n```",
+    "Fix the **build**",
+  ]);
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([
+    ["track", "message_copied", { kind: "agent" }],
+    ["track", "message_copied", { kind: "user" }],
+  ]);
+  // A reply still being written has no Copy yet; the one before it keeps its own.
+  await emit(you("u2"));
+  await emit(state({ state: "running" }));
+  await emit(said("m3", "Working on it"));
+  await waitFor(() => expect(log.textContent).toContain("Working on it"));
+  const replies = () => log.querySelectorAll('[data-slot="message-actions"][data-role="agent"]');
+  expect(replies()).toHaveLength(1);
+  await emit(state({ state: "idle", stopReason: "end_turn" }));
+  await waitFor(() => expect(replies()).toHaveLength(2));
 });
 
 test("the plan is followed above the input box and is one line in the conversation; a sub-agent, a compaction, a plan proposed and a question say what they are", async () => {

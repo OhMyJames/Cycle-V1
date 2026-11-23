@@ -1,6 +1,6 @@
 import { Button } from "@ui-sdk/react/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
   activityCounts,
   activityOf,
@@ -16,7 +16,7 @@ import { ConfirmDialog } from "./dialogs.tsx";
 import { useI18n } from "./i18n.tsx";
 import { ChevronRightIcon, ErrorCircleIcon, WarningIcon } from "./icons.tsx";
 import { InlineAiStatus } from "./inline-ai-status.tsx";
-import { useAppStore } from "./store-context.tsx";
+import { useAppState, useAppStore } from "./store-context.tsx";
 import {
   Lead,
   ToolCard,
@@ -139,7 +139,7 @@ export function EndBlock({ stop, resend }: { stop: StopReason; resend?: Resend |
       <div data-slot="notice" data-kind="turn-end" data-severity="error" role="alert">
         <ErrorCircleIcon size={14} />
         <span>{message ? t("turn.end.errorWith", { message }) : t("turn.end.error")}</span>
-        {resend !== undefined ? <ResendButton resend={resend} /> : null}
+        {resend !== undefined ? <TurnAgain resend={resend} /> : null}
       </div>
     );
   }
@@ -153,40 +153,82 @@ export function EndBlock({ stop, resend }: { stop: StopReason; resend?: Resend |
 }
 
 /**
- * "Send again" at the end of the turn that failed: its message goes back in the box, for the person to read and send
- * (DESIGN.md 4.4). When the turn had already run a command or changed a file, they are told first: sending it again may
- * do that again.
+ * What can be done at the end of the turn that failed (DESIGN.md 4.4). "Try again" sends what was said in it again, as it
+ * was; "Edit message" puts it back in the box, for the person to read, change and send. When the turn had already run a
+ * command or changed a file, either one asks first: sending it again may do that again. "Try again" waits for the
+ * environment and for the agent to be free, and says which it waits for.
  */
-function ResendButton({ resend }: { resend: Resend }) {
+function TurnAgain({ resend }: { resend: Resend }) {
   const { t, list } = useI18n();
   const store = useAppStore();
-  const [confirming, setConfirming] = useState(false);
+  const connected = useAppState(
+    (s) =>
+      s.selectedEnvironment !== undefined && s.status[s.selectedEnvironment]?.state === "connected",
+  );
+  const [asking, setAsking] = useState<"retry" | "edit" | undefined>();
+  const [sending, setSending] = useState(false);
+  const changed = resend.changed.length > 0;
   const names = [...new Set(resend.changed.map((tool) => toolName(t, tool)))];
   const shown =
     names.length > 4
       ? [...names.slice(0, 3), t("turn.resend.more", { count: names.length - 3 })]
       : names;
+  const why = !connected ? "turn.retry.offline" : resend.busy ? "turn.retry.busy" : undefined;
+  const whyId = useId();
+  const retry = async () => {
+    if (sending) return;
+    setSending(true);
+    // Once it went, the button stays off: the new turn may not have reached the conversation yet, and a second press
+    // then would send the message twice. It goes away when the turn it ends is no longer the last.
+    let sent = false;
+    try {
+      sent = await store.retry(resend);
+    } finally {
+      if (!sent) setSending(false);
+    }
+  };
   return (
-    <>
-      <Button
-        type="button"
-        data-variant="outline"
-        data-size="sm"
-        onClick={() => (resend.changed.length > 0 ? setConfirming(true) : store.resend(resend))}
-      >
-        {t("turn.resend")}
-      </Button>
-      {resend.changed.length > 0 ? (
+    <div data-slot="turn-again">
+      <div data-slot="row">
+        <Button
+          type="button"
+          data-variant="ghost"
+          data-size="sm"
+          onClick={() => (changed ? setAsking("edit") : store.resend(resend))}
+        >
+          {t("turn.resend")}
+        </Button>
+        <Button
+          type="button"
+          data-variant="outline"
+          data-size="sm"
+          disabled={why !== undefined || sending}
+          aria-describedby={why !== undefined ? whyId : undefined}
+          onClick={() => (changed ? setAsking("retry") : void retry())}
+        >
+          {t("turn.retry")}
+        </Button>
+      </div>
+      {why !== undefined ? (
+        <span id={whyId} data-slot="turn-again-why">
+          {t(why)}
+        </span>
+      ) : null}
+      {changed ? (
         <ConfirmDialog
-          open={confirming}
-          onOpenChange={setConfirming}
+          open={asking !== undefined}
+          onOpenChange={(open) => !open && setAsking(undefined)}
           title={t("turn.resend.changedTitle")}
-          description={t("turn.resend.changedBody", { tools: list(shown) })}
-          confirmLabel={t("turn.resend.changedConfirm")}
-          onConfirm={() => store.resend(resend)}
+          description={
+            asking === "retry"
+              ? t("turn.retry.changedBody", { tools: list(shown) })
+              : t("turn.resend.changedBody", { tools: list(shown) })
+          }
+          confirmLabel={asking === "retry" ? t("turn.retry") : t("turn.resend.changedConfirm")}
+          onConfirm={() => (asking === "retry" ? retry() : store.resend(resend))}
         />
       ) : null}
-    </>
+    </div>
   );
 }
 

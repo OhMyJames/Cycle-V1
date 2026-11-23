@@ -68,8 +68,10 @@ export type MarkdownInputProps = {
    * plain editor), never a new paragraph.
    */
   onKey: (key: InputKey, event: KeyboardEvent) => boolean;
-  /** Pictures pasted into the input. Other files are not taken. */
+  /** Files pasted into the input: pictures only, or any file (`pasteFiles`). Files not taken paste as nothing. */
   onPasteFiles: (files: File[]) => void;
+  /** Which pasted files go to `onPasteFiles`: pictures (the default), or any file, when the agent takes files. */
+  pasteFiles?: "images" | "any";
   handle?: RefObject<InputHandle | null>;
   /** The document or the caret changed: the menus look again at what is before the caret. */
   onCaret?: () => void;
@@ -191,7 +193,9 @@ function Behaviour({ props }: { props: MarkdownInputProps }) {
         PASTE_COMMAND,
         (event) => {
           const data = (event as ClipboardEvent).clipboardData;
-          const pictures = Array.from(data?.files ?? []).filter((f) => f.type.startsWith("image/"));
+          const pictures = Array.from(data?.files ?? []).filter(
+            (f) => latest.current.pasteFiles === "any" || f.type.startsWith("image/"),
+          );
           if (pictures.length > 0) {
             event.preventDefault();
             latest.current.onPasteFiles(pictures);

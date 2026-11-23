@@ -1,14 +1,17 @@
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
 import {
   memo,
+  type ReactNode,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
-  useSyncExternalStore,
+  useState,
 } from "react";
-import { MENTION_META } from "../draft.ts";
+import { resourceName } from "../attachments.ts";
+import { MENTION_META, wordAt } from "../draft.ts";
+import { SESSION_URI_PREFIX } from "../mention.ts";
 import {
   type Block,
   type BlockCache,
@@ -22,13 +25,17 @@ import {
   windowStart,
 } from "../model/index.ts";
 import { blockHolds, reveal } from "../reveal.ts";
-import { thinking } from "../thinking.ts";
+import { CopyButton } from "./copy-button.tsx";
 import { useI18n } from "./i18n.tsx";
-import { ThoughtIcon } from "./icons.tsx";
+import { ArrowDownIcon, AttachIcon, MessageIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
 import { Markdown } from "./markdown.tsx";
+import { MessageTime } from "./message-time.tsx";
 import { PlanBlock } from "./plan.tsx";
 import { StateBlock } from "./state-block.tsx";
+import { useAppStore } from "./store-context.tsx";
+import { ThoughtRow } from "./thought.tsx";
+import { Tip } from "./tip.tsx";
 import { ToolCard } from "./tool.tsx";
 import { EndBlock, Notice, StepLine, WorkBlock } from "./turn.tsx";
 
@@ -42,6 +49,58 @@ const isMention = (block: Block, text: string): boolean => {
   return typeof path === "string" && text.includes(`@${path}`);
 };
 
+const hasWords = (block: Block): boolean =>
+  block.type === "text" && String(block.text).trim() !== "";
+
+/** The sessions a message names with @: what its text says of each, and the session's title. */
+const sessionMentionsOf = (blocks: readonly Block[]): { said: string; name: string }[] =>
+  blocks.flatMap((block) => {
+    const said = (block._meta as Record<string, unknown> | undefined)?.[MENTION_META];
+    return block.type === "resource_link" &&
+      typeof block.uri === "string" &&
+      block.uri.startsWith(SESSION_URI_PREFIX) &&
+      typeof said === "string" &&
+      said !== ""
+      ? [{ said, name: typeof block.name === "string" && block.name !== "" ? block.name : said }]
+      : [];
+  });
+
+/** A session named with @, as a sent message shows it: a chip with its name, not what the agent was given of it. */
+const SessionChip = ({ said, name }: { said: string; name: string }) => (
+  <span data-slot="mention-chip" data-kind="session" title={name}>
+    <MessageIcon size={12} />
+    {said}
+  </span>
+);
+
+/** The words of a message, each `@title` of a session it names drawn as that session's chip. */
+const withSessionChips = (
+  text: string,
+  mentions: readonly { said: string; name: string }[],
+): ReactNode => {
+  if (mentions.length === 0) return text;
+  // The longest first, so that a title that starts another does not take part of it. Only as a whole word, as the box
+  // sent it (`wordAt`): `@Fix` is not in `@Fixtures`.
+  const words = [...mentions].sort((a, b) => b.said.length - a.said.length);
+  const parts: ReactNode[] = [];
+  let from = 0;
+  let at = 0;
+  while (from < text.length) {
+    let found: { index: number; mention: { said: string; name: string } } | undefined;
+    for (const mention of words) {
+      const index = wordAt(text, `@${mention.said}`, from);
+      if (index !== -1 && (found === undefined || index < found.index)) found = { index, mention };
+    }
+    if (found === undefined) break;
+    if (found.index > from) parts.push(text.slice(from, found.index));
+    parts.push(<SessionChip key={`chip-${at}`} {...found.mention} />);
+    from = found.index + found.mention.said.length + 1;
+    at += 1;
+  }
+  if (from < text.length) parts.push(text.slice(from));
+  return parts;
+};
+
 const linkName = (block: Block): string =>
   typeof block.name === "string" && block.name !== ""
     ? block.name
@@ -51,16 +110,29 @@ const linkName = (block: Block): string =>
 
 function Blocks({ blocks, from }: { blocks: Block[]; from: "agent" | "user" }) {
   const words = blocks.map((b) => (b.type === "text" ? String(b.text) : "")).join("");
+  const sessions = sessionMentionsOf(blocks);
   return (
     <>
       {blocks
         .map((block, index) => ({ block, key: `${block.type}-${index}` }))
         .map(({ block, key }) =>
           block.type === "text" ? (
-            <span key={key}>{String(block.text)}</span>
+            <span key={key}>{withSessionChips(String(block.text), sessions)}</span>
           ) : block.type === "image" ? (
             <ImageBlockView key={key} block={block} from={from} />
-          ) : isMention(block, words) ? null : block.type === "resource_link" ? (
+          ) : block.type === "resource" ? (
+            // A file in the message: its name on a chip. What is in it is never drawn (it is the person's, and may be HTML).
+            <span data-slot="file-chip" key={key} title={resourceName(block)}>
+              <AttachIcon size={12} />
+              <span data-slot="attachment-name">{resourceName(block) ?? block.type}</span>
+            </span>
+          ) : isMention(block, words) ? null : sessionMentionsOf([block])[0] !== undefined ? (
+            // A session the words no longer name: still its chip, so what the agent was given is never invisible.
+            <SessionChip
+              key={key}
+              {...(sessionMentionsOf([block])[0] as { said: string; name: string })}
+            />
+          ) : block.type === "resource_link" ? (
             // A link that is not a mention in the text: its name, marked off, so it reads as what was attached.
             <span data-slot="block-note" key={key}>
               [{linkName(block)}]
@@ -103,46 +175,95 @@ function AgentBlocks({ blocks, streaming }: { blocks: Block[]; streaming: boolea
   );
 }
 
+/**
+ * The row under a message: Copy, when it has words, and when it was sent or its turn's reply finished, when that is
+ * known; the time sits on the side away from the edge the message keeps to. Seen when the pointer is over the message or
+ * the focus is in it; it takes its room whether seen or not, so coming and going it moves nothing. A copy is reported as
+ * which kind of message, never what it said.
+ */
+function MessageActions({
+  kind,
+  text,
+  at,
+}: {
+  kind: "agent" | "user";
+  text: (() => string) | undefined;
+  at: number | undefined;
+}) {
+  const { t } = useI18n();
+  const store = useAppStore();
+  if (text === undefined && at === undefined) return null;
+  const time = <MessageTime at={at} kind={kind === "user" ? "sent" : "finished"} />;
+  return (
+    <div data-slot="message-actions" data-role={kind}>
+      {kind === "user" ? time : null}
+      {text !== undefined ? (
+        <CopyButton
+          slot="message-copy"
+          label={t(`message.copy.${kind}`)}
+          text={text}
+          onCopied={() => store.track("message_copied", { kind })}
+        />
+      ) : null}
+      {kind === "agent" ? time : null}
+    </div>
+  );
+}
+
 const BlockView = memo(function BlockView({
   block,
   streaming,
   live,
   resend,
+  replyOf,
+  ended,
 }: {
   block: LaidBlock;
-  /** This is the agent message that is still arriving. */
+  /** This is the agent message, or the thought, that is still arriving. */
   streaming: boolean;
   /** This block is in the turn that is going. */
   live: boolean;
   /** The end of a turn that failed, whose message can be sent again. */
   resend?: Resend | undefined;
+  /** On the last message of a turn that is over: what the agent wrote in that turn, to copy. */
+  replyOf?: ((turn: number) => string) | undefined;
+  /** Its turn is over: a reply's row may say when it finished. */
+  ended?: boolean | undefined;
 }) {
   const { t } = useI18n();
   switch (block.kind) {
-    case "user":
+    case "user": {
+      const blocks = block.item.blocks;
       return (
-        <div data-slot="message" data-role="user">
-          <Blocks blocks={block.item.blocks} from="user" />
-        </div>
+        <>
+          <div data-slot="message" data-role="user">
+            <Blocks blocks={blocks} from="user" />
+          </div>
+          <MessageActions
+            kind="user"
+            text={blocks.some(hasWords) ? () => textOf(blocks) : undefined}
+            at={block.item.at}
+          />
+        </>
       );
+    }
     case "agent":
       return (
-        <div data-slot="message" data-role="agent">
-          <AgentBlocks blocks={block.item.blocks} streaming={streaming} />
-        </div>
+        <>
+          <div data-slot="message" data-role="agent">
+            <AgentBlocks blocks={block.item.blocks} streaming={streaming} />
+          </div>
+          {replyOf !== undefined ? (
+            <MessageActions
+              kind="agent"
+              text={() => replyOf(block.turn)}
+              at={ended === true ? (block.item.lastAt ?? block.item.at) : undefined}
+            />
+          ) : null}
+        </>
       );
     case "thought":
-      return (
-        <Collapsible data-kind="thought">
-          <CollapsibleTrigger>
-            <ThoughtIcon size={14} />
-            {t("thought.label")}
-          </CollapsibleTrigger>
-          <CollapsiblePanel>
-            <div data-slot="thought-text">{textOf(block.item.blocks)}</div>
-          </CollapsiblePanel>
-        </Collapsible>
-      );
+      return <ThoughtRow item={block.item} live={streaming} />;
     case "work":
       return <WorkBlock tools={block.tools} live={live} />;
     case "failed":
@@ -184,6 +305,11 @@ const LEAD_PX = 800;
 const NEAR_END_PX = 48;
 /** Growth this soon after the reader pressed a control in the conversation is theirs, not something arriving. */
 const ACTED_MS = 600;
+/** Further than this from the end, the reader is offered a way back to it. */
+const AWAY_PX = 240;
+
+const reducedMotion = (): boolean =>
+  typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export function ConversationView({
   conversation,
@@ -201,13 +327,9 @@ export function ConversationView({
   follow: number;
 }) {
   const { t } = useI18n();
-  const showThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
   // Turns that have not changed give back the same blocks, so only the turn that is going is drawn again.
   const cache = useRef<BlockCache>(new Map());
-  const blocks = useMemo(
-    () => blocksOf(conversation, { showThinking }, cache.current),
-    [conversation, showThinking],
-  );
+  const blocks = useMemo(() => blocksOf(conversation, cache.current), [conversation]);
   // The last turn, when it failed: its end offers to send its message again.
   const resend = useMemo(() => resendOf(conversation), [conversation]);
 
@@ -218,7 +340,7 @@ export function ConversationView({
   const anchor = useRef<string | undefined>(saved?.anchor);
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const start = windowStart(blocks, anchor.current);
-  // An anchor whose block is gone (thinking was hidden, a turn was laid again): back to the last page.
+  // An anchor whose block is gone (a turn was laid again): back to the last page.
   if (anchor.current !== undefined && blocks[start]?.key !== anchor.current)
     anchor.current = undefined;
   const stuck = useRef(saved === undefined || saved.top === "bottom");
@@ -381,10 +503,53 @@ export function ConversationView({
     };
   }, []);
 
+  // Away from the end, a button takes the reader back to it, and says when something arrived there meanwhile.
+  const store = useAppStore();
+  const [away, setAway] = useState(false);
+  const [fresh, setFresh] = useState(false);
+  const returning = useRef(false);
+  const seen = useRef(conversation.items);
+  useEffect(() => {
+    if (seen.current === conversation.items) return;
+    seen.current = conversation.items;
+    const el = ref.current;
+    if (el === null || loading || stuck.current) return;
+    // Not scrolled, and yet further from the end: what arrived pushed it away.
+    const far = el.scrollHeight - el.scrollTop - el.clientHeight > AWAY_PX;
+    setAway(far);
+    if (far) setFresh(true);
+  }, [conversation.items, loading]);
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    // A smooth scroll aims at where the end was when it began: what arrived on the way is gone to as well, at once.
+    const ended = () => {
+      if (!returning.current) return;
+      returning.current = false;
+      if (el.scrollHeight - el.scrollTop - el.clientHeight >= NEAR_END_PX)
+        el.scrollTop = el.scrollHeight;
+    };
+    el.addEventListener("scrollend", ended);
+    return () => el.removeEventListener("scrollend", ended);
+  }, []);
+  const toEnd = () => {
+    const el = ref.current;
+    if (el === null) return;
+    store.track("back_to_bottom_used", { fresh });
+    // The button goes when the end is reached: the focus stays in the conversation, not on the page.
+    if (el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    const reduced = reducedMotion();
+    returning.current = !reduced;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduced ? "instant" : "smooth" });
+  };
+
   const onScroll = () => {
     const el = ref.current;
     if (el === null) return;
-    stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END_PX;
+    const fromEnd = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setAway(fromEnd > AWAY_PX);
+    if (fromEnd < NEAR_END_PX) setFresh(false);
+    stuck.current = fromEnd < NEAR_END_PX;
     if (stuck.current) anchor.current = undefined;
     else if (anchor.current === undefined) anchor.current = blocks[start]?.key;
     remember(sessionKey, { anchor: anchor.current, top: stuck.current ? "bottom" : el.scrollTop });
@@ -393,6 +558,29 @@ export function ConversationView({
 
   const working = conversation.status !== "idle";
   const lastAgent = blocks.findLastIndex((block) => block.kind === "agent");
+  // The last message of each turn that has words: a turn's reply is copied from under it, all it wrote, as markdown.
+  const replyEnds = useMemo(() => {
+    const ends = new Map<number, string>();
+    for (const block of blocks)
+      if (block.kind === "agent" && block.item.blocks.some(hasWords))
+        ends.set(block.turn, block.key);
+    return new Set(ends.values());
+  }, [blocks]);
+  // Read at the press, from what is laid then: one function for the view's life, so a block that did not change is not
+  // drawn again.
+  const replyOf = useCallback(
+    (turn: number) =>
+      laid.current.blocks
+        .flatMap((block) =>
+          block.kind === "agent" && block.turn === turn ? [textOf(block.item.blocks)] : [],
+        )
+        .filter((text) => text.trim() !== "")
+        .join("\n\n"),
+    [],
+  );
+
+  // The thought still arriving: the last thing the turn that is going has said.
+  const lastItem = conversation.items.at(-1);
   return (
     <div
       data-slot="conversation"
@@ -422,15 +610,40 @@ export function ConversationView({
         <div key={block.key} data-slot="block" data-turn-start={block.startsTurn || undefined}>
           <BlockView
             block={block}
-            streaming={working && start + at === lastAgent && block.turn === conversation.turns}
+            streaming={
+              working &&
+              block.turn === conversation.turns &&
+              (block.kind === "thought" ? block.item === lastItem : start + at === lastAgent)
+            }
             live={working && block.turn === conversation.turns}
             resend={block.kind === "end" && resend?.turn === block.turn ? resend : undefined}
+            replyOf={
+              replyEnds.has(block.key) && !(working && block.turn === conversation.turns)
+                ? replyOf
+                : undefined
+            }
+            ended={block.turn < conversation.turns}
           />
         </div>
       ))}
       {!loading ? (
         <StepLine conversation={conversation} awaitingApproval={awaitingApproval} />
       ) : null}
+      {/* Held to the bottom of the view while the end is below it, and taking no room, so it moves nothing it floats over. */}
+      <div data-slot="to-end">
+        {away && !loading ? (
+          <Tip label={fresh ? t("conversation.toEndFresh") : t("conversation.toEnd")}>
+            <button
+              type="button"
+              data-slot="to-end-button"
+              data-fresh={fresh || undefined}
+              onClick={toEnd}
+            >
+              <ArrowDownIcon size={16} />
+            </button>
+          </Tip>
+        ) : null}
+      </div>
     </div>
   );
 }

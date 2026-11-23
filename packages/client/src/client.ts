@@ -47,6 +47,7 @@ import {
   type Trust,
   trustRead,
   trustSet,
+  tsOf,
 } from "@cycle/protocol";
 import type { Channel } from "./transport.ts";
 
@@ -107,8 +108,16 @@ export type ClientEvents = {
     request: Record<string, unknown>,
     requestId: string | undefined,
   ) => Promise<ElicitationAnswer>;
-  /** An update of a session, once each: a replay after a reconnect never repeats one. */
-  update?: (sessionId: string, update: SessionUpdate, seq: number | undefined) => void;
+  /**
+   * An update of a session, once each: a replay after a reconnect never repeats one. `at` is when the daemon logged it
+   * (`cycle/ts`, milliseconds since the epoch); undefined when not known (a synthesized update, an older daemon).
+   */
+  update?: (
+    sessionId: string,
+    update: SessionUpdate,
+    seq: number | undefined,
+    at: number | undefined,
+  ) => void;
   /** The agent wants permission. If this is missing, the request is answered "cancelled". */
   permission?: (
     sessionId: string,
@@ -573,7 +582,7 @@ export class CycleClient {
     }
     const app = acpClient({ name: this.#options.name ?? "cycle-client" })
       .onNotification(methods.client.session.update, ({ params }) => {
-        this.#onUpdate(params.sessionId, params.update, seqOf(params._meta));
+        this.#onUpdate(params.sessionId, params.update, seqOf(params._meta), tsOf(params._meta));
       })
       .onRequest(methods.client.elicitation.create, async ({ params }) => {
         const handler = this.#events.elicitation;
@@ -678,7 +687,12 @@ export class CycleClient {
     void connection.closed.then(() => this.#lost(channel));
   }
 
-  #onUpdate(sessionId: string, update: SessionUpdate, seq: number | undefined): void {
+  #onUpdate(
+    sessionId: string,
+    update: SessionUpdate,
+    seq: number | undefined,
+    at: number | undefined,
+  ): void {
     const entry = this.#watched.get(sessionId);
     // `replay_complete` carries the seq it replayed up to, as a place; it is not a record, and a
     // second one after a reconnect has the same seq as the last record seen.
@@ -688,7 +702,7 @@ export class CycleClient {
       if (seq <= entry.lastSeq) return;
       entry.lastSeq = seq;
     }
-    this.#events.update?.(sessionId, update, seq);
+    this.#events.update?.(sessionId, update, seq, at);
   }
 
   #lost(channel: Channel): void {

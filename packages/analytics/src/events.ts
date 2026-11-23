@@ -19,7 +19,6 @@ const panel = z.enum([
   "remove_environment",
   "settings",
   "session_settings",
-  "rename",
   "delete",
   "trust",
   "connectors",
@@ -35,6 +34,9 @@ const o = z.strictObject;
 
 /** What sent a message: Enter, the ⌘Enter shortcut, a button, or something that did not say. */
 const via = z.enum(["enter", "shortcut", "button", "other"]);
+
+/** Where a session's title was edited: the conversation's header, a row of the sidebar, or something that did not say. */
+const renameWhere = z.enum(["header", "sidebar", "other"]);
 
 /** Every event, and the properties it may carry. */
 export const EVENTS = {
@@ -70,7 +72,8 @@ export const EVENTS = {
   session_list_loaded: o({ pages: z.number().int().positive() }),
   session_created: o({ agent, environment: environment, configured: z.boolean() }),
   session_opened: o({ agent, environment: environment }),
-  session_renamed: o({}),
+  /** Never the title. `where`: in the conversation's header or on a row of the sidebar. */
+  session_renamed: o({ where: renameWhere }),
   queue_return_restored: o({}),
   background_dismissed: o({ count: z.number().int().positive() }),
   session_archived: o({ archived: z.boolean() }),
@@ -98,6 +101,8 @@ export const EVENTS = {
     environment: environment,
     size,
     images: count,
+    /** Files embedded in it (text files, PDFs): how many, never which. */
+    files: count,
     mentions: count,
     /** Sent into the running turn (Enter) instead of queued. */
     steered: z.boolean(),
@@ -148,20 +153,52 @@ export const EVENTS = {
   tool_link_opened: o({}),
   /** A link in an agent's message was opened, after the person said yes to where it goes. Never which. */
   message_link_opened: o({}),
+  /** A message was copied from under it: the agent's reply in a turn, or what the person wrote. Never the words. */
+  message_copied: o({ kind: z.enum(["agent", "user"]) }),
+  /** "Back to bottom" took a reader who had scrolled up back to the end. `fresh`: something had arrived there meanwhile. */
+  back_to_bottom_used: o({ fresh: z.boolean() }),
   /** A long code block in a reply, shown in part, was shown whole. */
   code_block_expanded: o({}),
+  /** A diagram drawn from a ```mermaid fence in a reply was opened large. */
+  diagram_opened: o({}),
+  /** A drawn diagram's source was shown instead of the picture. */
+  diagram_source_shown: o({}),
+  /** A thought in the conversation was opened by the person. `live`: while it was still arriving. Never its text. */
+  thought_expanded: o({ live: z.boolean() }),
+  /** "Expand thinking" in the session menu was turned on or off: thoughts open by themselves, or stay closed. */
+  thinking_expand_changed: o({ on: z.boolean() }),
   code_theme_changed: o({}),
   slash_command_used: o({}),
+  /** Something was picked from the @ menu: what kind of thing, never which. */
+  mention_picked: o({ kind: z.enum(["file", "folder", "session"]) }),
   /**
-   * "Send again" on a turn that failed: its message went back in the box. `failure` is the kind (from Cycle's error code,
+   * A file was attached in the input box. `kind`: what it is sent as (image, text file, PDF), never its name, path or
+   * type; `via`: the attach button, a paste, or a drop.
+   */
+  attachment_added: o({
+    kind: z.enum(["image", "text", "pdf"]),
+    via: z.enum(["button", "paste", "drop"]),
+  }),
+  /** A file could not be attached: a kind the agent does not take, too large, or one too many. Never which. */
+  attachment_refused: o({ reason: z.enum(["type", "too_large", "too_many"]) }),
+  /**
+   * "Edit message" (formerly "Send again") on a turn that failed: its message went back in the box. `failure` is the kind (from Cycle's error code,
    * never the message); `changed`: the turn had run a command or changed a file first, and the person was warned.
    */
   turn_resend_opened: o({
     failure: z.enum(["agent_exited", "daemon_stopped", "history", "resume", "agent_error"]),
     changed: z.boolean(),
   }),
-  /** The message put back by "Send again" was sent; `edited`: not as it was. */
+  /** The message put back by "Edit message" was sent; `edited`: not as it was. */
   turn_resent: o({ edited: z.boolean() }),
+  /**
+   * "Try again" on a turn that failed: its message was sent again as it was, in one click. `failure` as in
+   * `turn_resend_opened`; `changed`: the turn had run a command or changed a file, so the person was asked first and said yes.
+   */
+  turn_retried: o({
+    failure: z.enum(["agent_exited", "daemon_stopped", "history", "resume", "agent_error"]),
+    changed: z.boolean(),
+  }),
   /**
    * A new session's folder was chosen on its blank page (CYCL-55): from the folders it has sessions in, the system's or
    * the daemon's folder browser, or by typing its path. Never which folder.
@@ -186,15 +223,25 @@ export const UI_EVENTS = [
   "overview_item_revealed",
   "code_theme_changed",
   "slash_command_used",
+  "mention_picked",
+  "attachment_added",
+  "attachment_refused",
   "tool_copied",
   "tool_output_expanded",
   "plan_opened",
   "context_details_opened",
   "tool_link_opened",
   "message_link_opened",
+  "message_copied",
+  "back_to_bottom_used",
   "code_block_expanded",
+  "diagram_opened",
+  "diagram_source_shown",
+  "thought_expanded",
+  "thinking_expand_changed",
   "turn_resend_opened",
   "turn_resent",
+  "turn_retried",
   "blank_folder_chosen",
   "blank_connect_pressed",
   "blank_sent",
@@ -217,6 +264,12 @@ export const settingOf = (configId: string): "mode" | "model" | "effort" | "othe
 /** What the page says sent a message, as one of the words; anything else is "other". */
 export const viaOf = (value: unknown): z.infer<typeof via> => {
   const word = via.safeParse(value);
+  return word.success ? word.data : "other";
+};
+
+/** Where the page says a title was edited, as one of the words; anything else is "other". */
+export const renameWhereOf = (value: unknown): z.infer<typeof renameWhere> => {
+  const word = renameWhere.safeParse(value);
   return word.success ? word.data : "other";
 };
 

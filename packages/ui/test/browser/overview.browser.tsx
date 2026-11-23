@@ -16,7 +16,7 @@ afterEach(() => {
 const u = (update: object) => update as SessionUpdate;
 
 const history = (...updates: SessionUpdate[]): SessionSnapshot => ({
-  conversation: updates.reduce(applyUpdate, emptyConversation()),
+  conversation: updates.reduce((c, u) => applyUpdate(c, u), emptyConversation()),
   permissions: [],
   version: updates.length,
 });

@@ -34,6 +34,7 @@ describe("track", () => {
       environment: "local",
       size: "short",
       images: 1,
+      files: 0,
       mentions: 0,
       steered: false,
       via: "enter",
@@ -47,6 +48,7 @@ describe("track", () => {
           environment: "local",
           size: "short",
           images: 1,
+          files: 0,
           mentions: 0,
           steered: false,
           via: "enter",
@@ -182,6 +184,13 @@ describe("the dictionary", () => {
     expect(isUiEvent("sidebar_toggled")).toBe(true);
     expect(isUiEvent("prompt_sent")).toBe(false);
     expect(isUiEvent("session_deleted")).toBe(false);
+    expect(isUiEvent("mention_picked")).toBe(true);
+  });
+
+  test("a mention picked says what kind of thing it was, and nothing of which", () => {
+    expect(EVENTS.mention_picked.safeParse({ kind: "session" }).success).toBe(true);
+    expect(EVENTS.mention_picked.safeParse({ kind: "src/main.ts" }).success).toBe(false);
+    expect(EVENTS.mention_picked.safeParse({ kind: "session", title: "Fix" }).success).toBe(false);
   });
 
   test("no event takes free text: every property is a number, a boolean or one of a list", () => {

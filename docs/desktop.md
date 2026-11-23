@@ -114,6 +114,7 @@ agent 的输出是不可信的:里面可以有原始 HTML、链接、图片。
 - **导航**:不能跳转,不能开新窗口;http/https 链接交给用户的浏览器。无权限(`setPermissionRequestHandler` 一律拒绝)。
 - **CSP**:`default-src 'none'`,`connect-src 'none'`,没有 frame、没有内联脚本,`img-src` 只有自己和 data:。
 - **Markdown**(`packages/ui/src/react/markdown.tsx`):丢弃原始 HTML;只有 http、https、mailto 是链接,其余是文字(相对路径不加 "[blocked]");点链接先确认，确认框显示完整地址，确认后才由 main 交给系统浏览器(`AgentLink`,网页搜索结果的链接相同);图片从不加载,显示成文字。Streamdown 自己的默认是允许所有图片和链接前缀,所以这几条不交给它(DOM 测试逐项断言)。
+- **Mermaid 图**(`packages/ui/src/diagram.ts`,理由见决定笔记 [`2026-11-22-mermaid-diagrams-as-images`](../.agents/notes/2026-11-22-mermaid-diagrams-as-images.md)):` ```mermaid ` 围栏闭合后由 mermaid.js 画，`securityLevel: "strict"`、不用 HTML 标签，图自己的 `%%{init}%%` 改不了这些和主题。画出的 SVG 不进页面 DOM:序列化成 `data:` URL,用 `<img>` 显示，作为图片它不执行脚本、不加载任何东西、链接不可点;排版时 mermaid 临时插进页面的节点仍受上面的 CSP 约束。不用 Streamdown 的 mermaid 插件(它把 SVG 直接插进页面)。mermaid 在第一张图时才加载。
 - **`--no-sandbox`** 只在冒烟测试里用(测试机上没有 setuid 的 chrome-sandbox),窗口本身仍然是 `sandbox: true`。应用不带这个参数。
 
 ## 样式:Streamdown 带来了 Tailwind
@@ -157,21 +158,26 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - 测试用的 `CYCLE_UPDATE_URL` 只接受 `127.0.0.1` 或 `localhost`,不能把应用指到别处。
 - 测试用的 `CYCLE_TEST_HIDDEN_WINDOW=1` 让应用不显示窗口、不发系统通知;macOS 上应用也不进 Dock、不能到前台。窗口里的页面照常运行,测试经 DevTools 读它。
 
+## 窗口的大小和位置
+
+应用再打开时,窗口回到上次的大小、位置,以及是否最大化、是否全屏(`apps/desktop/src/main/window-frame.ts`)。主进程把它写在应用数据目录的 `window-frame.json` 里:移动、改大小停下约半秒后写一次,关窗时再写一次;存的是正常状态下的框,所以从最大化或全屏退出时回到原来的大小。启动时只在当前接着的屏幕上恢复:窗口横竖都至少有 100px 落在某块屏幕的可用区域内才用它,并挪进、缩进那块屏幕(不小于最小尺寸 720×480),标题栏总能拿到;那块屏幕拔掉了、文件读不懂,就用默认的 1200×800,在主屏幕居中。Mac 上的 `hiddenInset` 标题栏不变。测试的隐藏窗口(`CYCLE_TEST_HIDDEN_WINDOW=1`)不读也不写这个文件。没有用户动作,不埋点。
+
 ## 代码配色、图片、搜索
 
 - **代码配色**:Streamdown 2.x 自己不带语法高亮,它是单独的插件 `@streamdown/code`(Shiki,JavaScript 正则引擎,不需要 WebAssembly,CSP 不变)。设置页的 Appearance 里可以在五套配色里选(见 DESIGN.md 附录 B,含各套的对比度),下面有一段示例代码,按对话里代码块的样子画,选了立即看到。打包开了分包:语言和主题按需加载,启动约 0.9 MB,全部约 12 MB。
-- **图片**:agent 和用户消息里的图片(png、jpeg、gif、webp;svg 不是)用 data URL 画,不请求网络;超过大小上限的显示成一行字。Markdown 里的远程图片仍然不加载。
+- **图片**:agent 和用户消息里的图片(png、jpeg、gif、webp;svg 不是)用 data URL 画,不请求网络;超过大小上限的显示成一行字。Markdown 里的远程图片仍然不加载。用户消息里附加的文件(ACP `resource`)只显示带文件名的小片，内容从不渲染。
+- **图表**:agent 回复里的 ` ```mermaid ` 画成图(安全设置见上)。围栏还没写完、正在画、画不出来时都显示原来的代码块，节点不换，不闪;画不出来时下面写一行 "This diagram could not be drawn, so its source is shown."。图下的 "Show source" 切到源码(带 Copy),"Show diagram" 切回;按下图片放大(和图片同一种对话框,Esc 关闭)。颜色取自 `--cycle-*` 令牌，深浅色各画一次，跟随系统切换;图里用系统字体(图片里用不了页面的字体)。埋点:`diagram_opened`、`diagram_source_shown`,都不带内容。没做：缩放和平移，图里文字不能选中。
 - **搜索**:⌘K(Windows、Linux 是 Ctrl+K)。
 
 ## 输入框(composer)
 
 - **Markdown 输入**(决策笔记 `2026-11-18-composer-text-is-markdown`):输入框是 Lexical 编辑器,文本即 Markdown,边写边渲染;发出去的是敲下的字(`composer-markdown.ts` 把 Lexical 会改写的字符换成私用区的占位再换回来,测试覆盖固定样例和随机文本)。Enter 发送,Shift+Enter 在任何时候都是换行(Alt+Enter 同),输入法组合中的 Enter 不发送。agent 运行中:Enter 在 agent 和 daemon 都支持插入时把消息插入当前 turn("Send now",见 protocol.md §8 和决策笔记 `2026-11-19-steer-into-the-running-turn`),不支持时排队;⌘Enter(非 Mac 为 Ctrl+Enter)排队("Queue",按钮的提示里写着),空闲时 ⌘Enter 就是发送;有权限请求等着回答时 ⌘Enter 仍归权限卡的 "Allow once",输入框不拿它排队(决策笔记 `2026-11-20-composer-keys-shift-enter-newline-cmd-enter-queue`,CYCL-75)。`prompt_sent` 带 `via`(`enter`/`shortcut`/`button`),只报按了什么。粘贴图片变成附件,粘贴文字按文字放入。
-- **草稿**:每个 session 一份,文字存在渲染进程的 localStorage(键含主机和 session),图片只在内存里;发送、删除 session 时清掉。发送失败,内容放回输入框。
+- **草稿**:每个 session 一份,文字存在渲染进程的 localStorage(键含主机和 session),图片和附加的文件只在内存里;发送、删除 session 时清掉。发送失败,内容放回输入框。
 - **排队**:agent 工作时同一个框继续写,Queue、Send now、Stop 和输入在同一行,框不因按钮多而变高(CYCL-75);排队的消息列在输入框上方,可以 Edit 取回;停止或出错后 daemon 退回的消息自动放回输入框(不当作错误)。
 - **会话设置**：输入框工具条显示权限模式、模型和可用的 effort。模型和 effort 是相邻的两个芯片，各开一个菜单（芯片只有文字，不带向下箭头：工具条上一眼看得出能点）（CYCL-73 之后拆开：同一弹层里的滑杆在设置生效前显示了还没生效的档位，再选回原档位时不会发出，看起来像跳回去）。effort 菜单只列该模型支持的档位（来自模型选项的 `cycle/efforts`，protocol.md §10）；模型不支持时没有 effort 芯片，`default` 不单独成行：它是 Claude Code 在不指定时用的档位，按实测写作 `medium`，菜单里显示为 “Medium (default)”，芯片同样，选它就是发 `default` 清掉覆盖；会话明确设成 medium 时另列一行 medium，才看得见、清得掉；模型不列 `medium` 时才保留一行 “Model default”（芯片 “Default effort”）。模型菜单同理：`default` 不是单独的 “Default”，而是它实际指向的型号，如 “Opus 5.5 (default)”（agent 用 `resolvedModel` 与同型号的别名行合并；会话明确固定在那个别名上时，别名行仍单独列出；说不出是哪个型号时才保留 “Default model”），各行写版本号。新会话页换到不支持当前档位的模型时，effort 一并改回 default；已有会话由 agent 改回并回报。列表短，不带过滤；打开时焦点在列表上，↑/↓、Home/End、Enter 选择，Tab 离开并关闭，Escape 关闭并把焦点还给芯片（CYCL-73）。芯片和菜单只显示会话已有的值：选择后由 daemon 的会话列表带回新值才变。还在路上的选择是下一次选择的参照：再选它不重发，选回会话现有的值会发出，所以最后一次选择就是最终生效的；请求结束而值没变（被拒绝）时，同一个选择可以再发。会话标题菜单里的 Session settings 显示全部设置。当前值来自 daemon 会话列表的 `cycle/config`。agent 自己切换模式时，daemon 更新索引并通知客户端刷新列表，已打开的控件随之更新。重连或重新打开历史会话也从列表读取当前值，回放的 `config_option_update` 提供会话的选项。旧会话没有记录的值显示 “Not set”。
 - **上下文用量（CYCL-74）**：输入框工具条右端是用量环，显示 agent 报的已用占窗口的比例（不到 1% 写 “<1%”）。它是按钮，点开是和模型、权限同一种弹层，按 Claude Code 的 `/context` 的样子直接列数字，不写说明：第一行是 “Context window” 和 “已用 / 窗口（百分比）”；下面一条按部分分段的条；再下面每个部分一行（色块、名字、token、占窗口的比例），用到的按大小排，然后是给压缩留的、剩下的，没加载进窗口的工具定义（`deferred`）不列；最后是自动压缩点、本会话费用、完成的压缩次数。各部分来自 `usage_update` 的 `_meta["cycle/context"]`（protocol.md §8），按 `id` 用 Cycle 自己的文字，不认得的用 agent 给的名字；agent 没给就只有总数和条。只列 agent 报过的。只有三种没有数字的状态写一行字：还没有用量（环是空的）、正在压缩、压缩完成后还没有新的用量（环的底圈改成虚线、弧线变淡，条变淡，不列各部分，因为它们是压缩前的）。下面是订阅账号的 “Plan usage”：每个限额一行（5-hour limit、Weekly limit，以及按模型的周限额），写用掉的比例和多久后重置（一小时内写分钟，一天内写小时分钟，再远写星期和时间），下面一条细条；快到时（70% 或 agent 说 warning）用注意色，到了（90% 或 rejected）用危险色。数据来自 daemon 记住的该 agent 账号的最新一份（protocol.md §8 “套餐用量”），所以同一环境的会话看到的是同一份；过了重置时间的那一行不再显示；API key 登录没有这一段。点开发 `context_details_opened`，只带是哪种状态、有没有列出各部分、有没有显示套餐用量。
 - **回看**:空输入框里按 ↑ 取回上一条发过的消息(从对话里读),↓ 回来;只有光标在首块、末块时才生效。
-- **命令**:消息最开头的 `/` 列出 agent 的命令(`available_commands_update`),空格之前有效;**提及**:`@` 之后列出 session 目录里的文件和文件夹(`_cycle/files/search`),文字里写 `@路径`,发送时另附 `resource_link` 块(决策笔记 `2026-11-18-mentions-are-resource-links`)。两种菜单都以整个输入框为宽,单行时输入格很窄也不受影响(窄窗口下实测 320px 宽的主区);长文件名末尾省略,目录提示最多占一行的 40%;`@` 之后文件夹里什么都没有时写 "This folder has no files or folders."(CYCL-75)。
+- **命令**:消息最开头的 `/` 列出 agent 的命令(`available_commands_update`),空格之前有效;**提及**:`@` 之后列出 session 目录里的文件和文件夹(`_cycle/files/search`),文字里写 `@路径`,发送时另附 `resource_link` 块(决策笔记 `2026-11-18-mentions-are-resource-links`)。daemon 声明 `sessionMentions` 时,菜单在文件和文件夹之后另有 **Sessions** 一组:同一 environment 里标题含所输入文字的其他 session(不含当前这个和已归档的),最近的在前,最多 6 个;两组都有时各带小标题,只有文件时和以前一样不分组。文件结果到了才一起显示,行不会在指针下移动。选中的 session 在文字里写 `@标题`(去掉 Markdown 会读成格式的符号),附一个 `cycle://session/<id>` 的 `resource_link`;daemon 发给 agent 时把它换成那个 session 的简短记录(docs/protocol.md §8,决策笔记 `2026-11-22-session-mentions-expand-in-the-daemon`)。发出的消息里 `@标题` 画成带对话图标的标签(chip),悬停显示完整标题,不显示 agent 收到的记录;输入框里仍是 `@标题` 文字。旧 daemon 没有这一组。两种菜单都以整个输入框为宽,单行时输入格很窄也不受影响(窄窗口下实测 320px 宽的主区);长文件名末尾省略,目录提示最多占一行的 40%;`@` 之后文件夹里什么都没有时写 "This folder has no files or folders."(CYCL-75)。
 - **测试**:界面测试在真实浏览器里对输入框真的敲字和按键(`test/browser/box.ts`);粘贴在 `web` 套件里走(`web.integration.ts` 敲 `**bold**` 并检查渲染,再粘贴一段带星号的文字,检查它按原样放入)。
 - **系统输入法验证（CYCL-110，2026-11-20）**：macOS 26.5.2、Electron 45.3.4，使用独立应用数据目录、真实 composer、系统输入源和原生键盘事件。简体拼音在 `@` 后输入 `nihao`，↓ 选择候选，第一次 Enter 确认“你好”并保留草稿，第二次 Enter 选中 `你好.md`。日文罗马字输入也观察到 Enter 结束组合并保留草稿。两种输入法的候选窗均出现在输入行下方。在组合中触发 Electron 的粘贴命令，中文确认后留下 `@你好PASTE_MARK`，日文确认后也保留了组合文字和剪贴板标记。
 - **组合期间的 ⌘V（CYCL-116）**：macOS 在 Electron 的 `before-input-event` 之前便把按键交给了输入法。桌面主进程通过 AppKit 在本应用内处理按键：当前编辑器有组合文字且按下 ⌘V 时，先让应用菜单执行快捷键。用上述系统简体拼音复测，普通和组合中的 ⌘V 均只触发一次 paste。在 `@nihao` 的候选未确认时粘贴 `PASTE_MARK`，再用 ↓ 和 Enter 确认，草稿为 `@你好PASTE_MARK`。单独验证提及时，第一次 Enter 确认“你好”，第二次选择 `你好.md`，均保留在草稿中。
@@ -242,7 +248,7 @@ SDK 的几个坑(beta.6,写在这里免得再踩):
   - **协议不兼容(与上面的最低版本不同)**:最低版本说的是"能不能用",而协议主版本不同时 daemon 在握手就以 `-32022` 拒绝,连接根本建立不起来(docs/protocol.md §3)。客户端把它保留成带 `supported`(daemon 说它支持的)和 `requested`(应用要的)的结构化错误,初次连接和重连都一样;重连时仍按退避继续试,换上兼容的 daemon 后自己连上。环境的状态里带 `incompatible`:`with` 说哪一边要改(daemon 的主版本低于应用的是 `daemon`,高于的是 `app`,比不出来是 `unknown`)。界面在那个环境下显示一行原因:`daemon` 时给出远端 Linux 上更新 daemon 的命令(本地 daemon 不给,它随应用更新);`app` 时只说要更新应用,**不**提示降级 daemon。普通的 ssh 或网络故障不带 `incompatible`,仍是连接错误和重连。连接成功后这行消失。目前两边的主版本都是 `0`,这条路径要等协议升主版本才会走到。
 - **异团队签名包的更新**：同一 Developer ID 团队签名包的替换和 ad hoc 更新的拒绝已实测；两个不同团队签名的 Cycle 包之间的拒绝路径仍待验。详见[签名更新验收记录](testing.md#cycl-105-实测记录)。
 - **会话内容的全文搜索**:⌘K 搜的是标题、文件夹、agent 和主机(跨已连接的主机)。对话内容的全文要在历史所在的 daemon 里做。
-- **图片的发送只对声明了能力的 agent 开放**:附加的控件(按钮、粘贴、拖放)只在 `_cycle/agents/list` 里这个 agent 的 `promptCapabilities.image` 存在时出现。带附件支持的 daemon(decision 0010)上的 Claude 声明了;更早的 daemon 不报告,界面上就没有附加入口,不会发出 daemon 不认的内容。主进程这一段有测试(`apps/desktop/test/manager.test.ts`):能力被报告,图片块原样送达 agent,没有声明的 agent 拒绝图片。
+- **图片和文件的发送只对声明了能力的 agent 开放**:附加的控件(按钮、粘贴、拖放)只在 `_cycle/agents/list` 里这个 agent 的 `promptCapabilities.image` 或 `embeddedContext` 存在时出现;只有 `image` 时只收图片(按钮叫 "Attach image"),有 `embeddedContext` 时还收文本文件和 PDF(按钮叫 "Attach files",选择框不限类型),其余文件就地拒绝并说原因(决策笔记 [`2026-11-22-attach-any-file`](../.agents/notes/2026-11-22-attach-any-file.md))。带附件支持的 daemon(decision 0010)上的 Claude 声明了;更早的 daemon 不报告,界面上就没有附加入口,不会发出 daemon 不认的内容。主进程这一段有测试(`apps/desktop/test/manager.test.ts`):能力被报告,图片块原样送达 agent,没有声明的 agent 拒绝图片。
 - **Claude 的 `config.json`**(`configDir`、密钥):没有 UI,因为它会把凭证放上线路。要在 daemon 所在机器上手改。CYCL-80 研究的结论是界面只显示状态(从不显示值)、修改仍在那台机器上做,见决定笔记 [`2026-11-22-claude-config-status-not-values`](../.agents/notes/2026-11-22-claude-config-status-not-values.md);还没有实现。
 - 多窗口、可访问性审查(ui-sdk 的组件有基础的键盘和 ARIA,我们自己的部分没单独审)。
 - 真实账号的浏览器 OAuth 授权暂缓（CYCL-110）。独立目录和凭证边界的验证见 [Claude 适配](adapters/claude.md#隔离登录验证)。

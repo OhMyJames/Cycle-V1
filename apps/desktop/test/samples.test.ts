@@ -148,7 +148,7 @@ test("calls made together with results out of order: one card in call order, cou
   const replayed = await snapshot(late.m, id);
   expect(shown(replayed)).toEqual(shown(liveConversation));
 
-  const blocks = blocksOf(liveConversation, { showThinking: false });
+  const blocks = blocksOf(liveConversation);
   const work = blocks.find((b) => b.kind === "work");
   // One card for the three, in the order they were called, not the order they came back.
   expect(work?.kind === "work" ? work.tools.map((t) => t.id) : []).toEqual(["a", "b", "c"]);
@@ -268,7 +268,16 @@ test("a history written before 0.3.5 is replayed as it was written, and draws in
   const { m } = await app("app");
   const replayed = await snapshot(m, OLD_SESSION_ID);
   // What the daemon sends is the log's updates as they are: the same conversation as reading the file.
-  const direct = OLD_UPDATES_SENT.reduce(applyUpdate, emptyConversation());
+  // Each with its record's time (`cycle/ts` is the log line's `ts`).
+  const times = OLD_JSONL.trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { kind: string; ts: string })
+    .filter((r) => r.kind === "update")
+    .map((r) => Date.parse(r.ts));
+  const direct = OLD_UPDATES_SENT.reduce(
+    (c, u, i) => applyUpdate(c, u, { at: times[i] }),
+    emptyConversation(),
+  );
   expect(shown(replayed)).toEqual(shown(direct));
   expect(replayed.ignored).toBe(0);
   expect(replayed.turns).toBe(2);
@@ -277,7 +286,7 @@ test("a history written before 0.3.5 is replayed as it was written, and draws in
   const tools = replayed.items.filter((i) => i.kind === "tool");
   for (const tool of tools) expect(tool.kind === "tool" && tool.result).toBeFalsy();
   // Laid out without trouble; the TaskCreate of then (kind `other`) is a row, as it was then (see docs/conversation-content.md).
-  const blocks = blocksOf(replayed, { showThinking: false });
+  const blocks = blocksOf(replayed);
   expect(blocks.map((b) => b.kind)).toContain("end");
   const rows = blocks.flatMap((b) =>
     b.kind === "work" ? b.tools : b.kind === "failed" ? [b.tool] : [],

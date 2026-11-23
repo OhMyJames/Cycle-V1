@@ -47,6 +47,13 @@ test("the last turn that failed can be sent again: what was said in it, the mess
   expect(resend?.prompts[0]?.[1]).toEqual(image);
   expect(resend?.changed).toEqual([]);
   expect(resend?.failure).toBe("agent_error");
+  expect(resend?.busy).toBe(false);
+});
+
+test("while the agent is at work again and nothing is in the new turn yet, it is still offered, as busy", () => {
+  const resend = resendOf(reduce([you("u1"), failed(), running]));
+  expect(resend?.turn).toBe(0);
+  expect(resend?.busy).toBe(true);
 });
 
 test("only a failure, only the last turn, only when nothing has happened since, and only what a person said", () => {
@@ -94,19 +101,19 @@ test("the failure is named by Cycle's code, never by its message", () => {
 test("the agent trying its request again is a state of the step line, not a row, and goes when the turn moves on", () => {
   const trying = reduce([you("u1"), running, retry(1), retry(2)]);
   expect(stepOf(trying)).toEqual({ kind: "retrying", attempt: 2, maxRetries: 10 });
-  expect(blocksOf(trying, { showThinking: false }).map((b) => b.kind)).toEqual(["user"]);
+  expect(blocksOf(trying).map((b) => b.kind)).toEqual(["user"]);
   const on = reduce([you("u1"), running, retry(1), say("a1")]);
   expect(stepOf(on)).toBeUndefined();
-  expect(blocksOf(on, { showThinking: false }).map((b) => b.kind)).toEqual(["user", "agent"]);
+  expect(blocksOf(on).map((b) => b.kind)).toEqual(["user", "agent"]);
   // A notice that is not a retry is a row, as before.
   const notice = reduce([
     you("u1"),
     running,
     u({ sessionUpdate: "notice", severity: "warning", title: "Model not restored" }),
   ]);
-  expect(blocksOf(notice, { showThinking: false }).map((b) => b.kind)).toEqual(["user", "notice"]);
+  expect(blocksOf(notice).map((b) => b.kind)).toEqual(["user", "notice"]);
   // Retries that ran out end the turn as any failure: it can be sent again.
   const out = reduce([you("u1"), running, retry(1), failed()]);
   expect(resendOf(out)?.failure).toBe("agent_error");
-  expect(blocksOf(out, { showThinking: false }).map((b) => b.kind)).toEqual(["user", "end"]);
+  expect(blocksOf(out).map((b) => b.kind)).toEqual(["user", "end"]);
 });

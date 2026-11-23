@@ -9,6 +9,7 @@ import {
   PROMPT_LIMITS,
   seqOf,
   ToolResultSchema,
+  tsOf,
 } from "../src/index.ts";
 
 test("Cycle's error codes do not collide with ACP's or each other", () => {
@@ -28,6 +29,15 @@ test("reads a seq off _meta, and only a positive integer", () => {
   expect(seqOf({ [META.seq]: "12" })).toBeUndefined();
   expect(seqOf(null)).toBeUndefined();
   expect(seqOf({})).toBeUndefined();
+});
+
+test("reads a record's time off _meta as milliseconds, and nothing else as one", () => {
+  expect(tsOf({ [META.ts]: "2026-11-18T04:00:00.000Z" })).toBe(Date.UTC(2026, 10, 18, 4));
+  expect(tsOf({ [META.ts]: 1_763_438_400_000 })).toBeUndefined();
+  expect(tsOf({ [META.ts]: "yesterday" })).toBeUndefined();
+  expect(tsOf({ [META.ts]: "" })).toBeUndefined();
+  expect(tsOf(null)).toBeUndefined();
+  expect(tsOf({})).toBeUndefined();
 });
 
 const png = (bytes: number) => ({

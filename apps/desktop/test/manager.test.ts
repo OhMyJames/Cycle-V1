@@ -167,6 +167,7 @@ test("connects, creates a session, and lists it", async () => {
     filesInFolder: true,
     trust: true,
     connectors: true,
+    sessionMentions: true,
   });
   expect((await m.agents("local")).map((a) => a.id)).toEqual(["fake"]);
 });
@@ -231,8 +232,9 @@ test("a session opened after the fact comes whole, and its version counts the ev
   expect(snapshot.version).toBe(updates.at(-1)?.version as number);
   // Versions go up by one, so a renderer can tell if it missed any.
   expect(updates.map((e) => e.version)).toEqual(updates.map((_, n) => first(updates).version + n));
-  // The conversation main holds is what applying the events one by one gives.
-  const rebuilt = updates.reduce((c, e) => applyUpdate(c, e.update), {
+  // The conversation main holds is what applying the events one by one gives, with the times they carry.
+  expect(updates.some((e) => e.at !== undefined)).toBe(true);
+  const rebuilt = updates.reduce((c, e) => applyUpdate(c, e.update, { at: e.at }), {
     ...emptyConversation(),
     replaying: true,
   });
@@ -408,6 +410,7 @@ test("a connection that drops is picked up again, and a request still open is no
     filesInFolder: true,
     trust: true,
     connectors: true,
+    sessionMentions: true,
   });
   await until(
     () => of(events, "environment-status").at(-1)?.state === "connected",
@@ -983,7 +986,7 @@ test("what a person does is reported as counts and words, and never as what they
         await ask();
       },
     },
-    { promptCapabilities: { image: {} } },
+    { promptCapabilities: { image: {}, embeddedContext: {} } },
   );
   const { manager } = await setup(fake);
   const reported: [string, unknown][] = [];
@@ -998,13 +1001,17 @@ test("what a person does is reported as counts and words, and never as what they
   await m.prompt("local", id, [
     { type: "text", text: secret },
     { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
+    {
+      type: "resource",
+      resource: { uri: "attachment:///Nightshade.txt", mimeType: "text/plain", text: secret },
+    },
     { type: "resource_link", name: "secret.ts", uri: "file:///home/me/secret-project/secret.ts" },
   ]);
   await until(() => of(events, "permission").length === 1, "the request");
   await m.answerPermission(first(of(events, "permission")).request.key, "allow");
   await m.setSessionConfig("local", id, "mode", "default");
   await m.setSessionConfig("local", id, "effort", "high");
-  await m.renameSession("local", id, "Project Nightshade");
+  await m.renameSession("local", id, "Project Nightshade", "sidebar");
   await m.archiveSession("local", id, true);
   await m.setAgentDefaults("local", "fake", { mode: "plan" });
   await m.deleteSession("local", id);
@@ -1022,6 +1029,7 @@ test("what a person does is reported as counts and words, and never as what they
       environment: "local",
       size: "short",
       images: 1,
+      files: 1,
       mentions: 1,
       steered: false,
       via: "other",
@@ -1029,7 +1037,7 @@ test("what a person does is reported as counts and words, and never as what they
   ]);
   expect(named("permission_answered")).toEqual([{ outcome: "allowed", remembered: false }]);
   expect(named("session_config_changed")).toEqual([{ setting: "mode" }, { setting: "effort" }]);
-  expect(named("session_renamed")).toEqual([{}]);
+  expect(named("session_renamed")).toEqual([{ where: "sidebar" }]);
   expect(named("session_archived")).toEqual([{ archived: true }]);
   expect(named("agent_defaults_saved")).toEqual([{ agent: "other" }]);
   expect(named("session_deleted")).toEqual([{}]);

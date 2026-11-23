@@ -54,6 +54,7 @@ export const fakeBridge = (
       filesInFolder?: boolean;
       trust?: boolean;
       connectors?: boolean;
+      sessionMentions?: boolean;
     };
     /** The connectors the daemon keeps. Changed in place by what the page asks. */
     connectors?: ConnectorInfo[];
