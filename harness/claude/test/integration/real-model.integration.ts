@@ -822,7 +822,10 @@ test.skipIf(!enabled)(
           // A real model does not always do every step: what it did is checked, what it skipped is said.
           const failed = metaOf("Bash", "failed")[0];
           if (failed === undefined) console.log("REAL tools: the model ran no failing command");
-          else expect(failed).toMatchObject({ run: { exitCode: 2 } });
+          // `ls` of a missing file: 2 on GNU, 1 on macOS. What matters is that the code came through.
+          else expect(failed).toMatchObject({ run: { exitCode: expect.any(Number) } });
+          if (failed !== undefined)
+            expect((failed as { run: { exitCode: number } }).run.exitCode).not.toBe(0);
         },
       );
     } finally {
@@ -906,4 +909,137 @@ test.skipIf(!enabled)(
     }
   },
   180_000,
+);
+
+test.skipIf(!enabled)(
+  "real background tasks: a command and a Monitor are told from start to end, and the process waits for them (CYCL-120)",
+  async () => {
+    const config = await tempConfigDir();
+    try {
+      await withAdapter(
+        {
+          configDir: config.dir,
+          env: claudeEnv(config.dir),
+          onPermission: () => "allow",
+          // Short, so that a process let go while its tasks run would show as their being stopped.
+          adapter: { idleMs: 1_000 },
+        },
+        async ({ agent, updates, idle }) => {
+          const id = ID(8);
+          await agent.request(methods.agent.session.new, {
+            cwd,
+            _meta: { "cycle/sessionId": id },
+          });
+          await agent.request(methods.agent.session.setConfigOption, {
+            sessionId: id,
+            configId: "model",
+            type: "id",
+            value: model,
+          } as never);
+          const done = idle();
+          await agent.request(methods.agent.session.prompt, {
+            sessionId: id,
+            prompt: say(
+              [
+                "Do exactly these two things, then end your turn without waiting for either:",
+                "1. Use the Bash tool with run_in_background set to true to run: for i in 1 2 3; do echo tick $i; sleep 3; done",
+                "2. Use the Monitor tool to watch the command: for i in 1 2; do echo beat $i; sleep 4; done",
+              ].join("\n"),
+            ),
+          });
+          await done;
+          const tasks = () =>
+            (updates as unknown as Record<string, unknown>[]).filter(
+              (u) => u.sessionUpdate === "_cycle/task_update",
+            );
+          const ends = ["completed", "failed", "stopped", "unknown"];
+          const settled = () => {
+            const ids = new Set(tasks().map((u) => String(u.taskId)));
+            return (
+              ids.size > 0 &&
+              [...ids].every((t) =>
+                tasks().some((u) => u.taskId === t && ends.includes(String(u.state))),
+              )
+            );
+          };
+          const start = Date.now();
+          while (!settled() && Date.now() - start < 60_000) await Bun.sleep(250);
+          for (const u of tasks()) console.log("REAL task:", JSON.stringify(u));
+          const byTask = new Map<string, Record<string, unknown>>();
+          for (const u of tasks()) {
+            const id = String(u.taskId);
+            byTask.set(id, { ...byTask.get(id), ...u });
+          }
+          const final = [...byTask.values()];
+          console.log("REAL tasks, merged as a client would:", JSON.stringify(final));
+          // A real model does not always do every step: what it did is checked, what it skipped is said.
+          const shell = final.find((t) => t.kind === "shell");
+          const monitor = final.find((t) => t.kind === "monitor");
+          if (shell === undefined) console.log("REAL task: the model ran no background command");
+          else expect(shell).toMatchObject({ state: "completed", toolCallId: expect.any(String) });
+          if (monitor === undefined) console.log("REAL task: the model started no Monitor");
+          else
+            expect(monitor).toMatchObject({ state: "completed", toolCallId: expect.any(String) });
+          expect(final.length).toBeGreaterThan(0);
+        },
+      );
+    } finally {
+      await config.dispose();
+    }
+  },
+  120_000,
+);
+
+test.skipIf(!enabled)(
+  "real /goal: not delivered to a local process today; checked whole the day it is (CYCL-120, CYCL-121)",
+  async () => {
+    const config = await tempConfigDir();
+    try {
+      await withAdapter(
+        { configDir: config.dir, env: claudeEnv(config.dir), onPermission: () => "allow" },
+        async ({ agent, updates, idle }) => {
+          const id = ID(9);
+          await agent.request(methods.agent.session.new, {
+            cwd,
+            _meta: { "cycle/sessionId": id },
+          });
+          await agent.request(methods.agent.session.setConfigOption, {
+            sessionId: id,
+            configId: "model",
+            type: "id",
+            value: model,
+          } as never);
+          const done = idle();
+          await agent.request(methods.agent.session.prompt, {
+            sessionId: id,
+            prompt: say(
+              "/goal The file goal-count.txt in the current directory contains the number 2. Rule: each turn you may only add 1 to the number in it (start from 1 if missing), then end your turn.",
+            ),
+          });
+          await done;
+          // The goal's own turns follow the first: wait for the count to reach 2, or for a while.
+          const start = Date.now();
+          while (!existsSync(join(cwd, "goal-count.txt")) && Date.now() - start < 30_000)
+            await Bun.sleep(250);
+          await Bun.sleep(8_000);
+          const goals = (updates as unknown as Record<string, unknown>[]).filter(
+            (u) => u.sessionUpdate === "_cycle/goal_update",
+          );
+          for (const g of goals) console.log("REAL goal:", JSON.stringify(g));
+          // SDK 0.3.327 sends active_goal only to a process with CLAUDE_CODE_REMOTE set, which the adapter does not
+          // set (.agents/notes/2026-11-22-claude-goal-not-supported.md). When this starts printing updates, CYCL-121.
+          if (goals.length === 0) {
+            console.log("REAL goal: not delivered to a local process (CYCL-121)");
+            return;
+          }
+          const set = goals.find((g) => g.goal !== null) as { goal: Record<string, unknown> };
+          expect(set.goal).toMatchObject({ condition: expect.any(String), iterations: 0 });
+          expect(goals.at(-1)?.goal).toBeNull();
+        },
+      );
+    } finally {
+      await config.dispose();
+    }
+  },
+  120_000,
 );

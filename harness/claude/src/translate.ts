@@ -273,6 +273,11 @@ export class TurnTranslator {
     return updates;
   }
 
+  /** Which tool a call still waiting for its result is: a background task names only the call that started it. */
+  toolNameOf(id: string): string | undefined {
+    return this.#names.get(id);
+  }
+
   #toolResults(message: { content: unknown }, structured: unknown): SessionUpdate[] {
     if (!Array.isArray(message.content)) return [];
     const blocks = (message.content as Block[]).filter((block) => block.type === "tool_result");

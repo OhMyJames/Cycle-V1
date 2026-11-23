@@ -721,7 +721,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         scheduleIdle(session);
         await notify(client, session.id, update);
       }
-      const task = session.tasks.update(m);
+      const task = session.tasks.update(m, (id) => session.turn?.translator.toolNameOf(id));
       if (task !== undefined) {
         scheduleIdle(session);
         await notify(client, session.id, task);

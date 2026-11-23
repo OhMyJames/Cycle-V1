@@ -94,7 +94,7 @@ mac-mini 上用同一 Developer ID 团队 `AGKXLGRXJ7` 对发布提交 0.3.6、0
 `bun run test:integration` 全程用模拟的 API,不花额度。真实模型的测试要显式开启,凭证显式给:
 
 ```bash
-CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd harness/claude test:real          # 适配器层,4 项
+CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd harness/claude test:real          # 适配器层,18 项
 CYCLE_REAL_MODEL_TOKEN=<oauth token> bun run --cwd apps/daemon test:real:daemon      # 经过 daemon,中间重启它
 ```
 

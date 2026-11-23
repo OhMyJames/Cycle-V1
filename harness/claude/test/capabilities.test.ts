@@ -2035,6 +2035,44 @@ test("a background command is told as a task, from start to end, and never as a 
   });
 });
 
+test("a Monitor's task is a monitor, though the SDK names it local_bash like any command (CYCL-120)", async () => {
+  // As a real Claude sends it (SDK 0.3.327): the call, the list, then the start naming the call.
+  const watch = {
+    task_id: "bm",
+    run_id: "1",
+    task_type: "local_bash",
+    description: "Watch the beats",
+  };
+  const fake = fakeQuery(() => [
+    { type: "system", subtype: "init", session_id: ID } as unknown as SDKMessage,
+    {
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: {
+        id: "m1",
+        content: [{ type: "tool_use", id: "call-m", name: "Monitor", input: { command: "tail" } }],
+      },
+    } as unknown as SDKMessage,
+    task("background_tasks_changed", { tasks: [watch] }),
+    task("task_started", { ...watch, tool_use_id: "call-m", is_backgrounded: true }),
+    {
+      type: "user",
+      parent_tool_use_id: null,
+      message: { content: [{ type: "tool_result", tool_use_id: "call-m", content: "started" }] },
+    } as unknown as SDKMessage,
+    ...textTurn(ID, "m2", "ok"),
+  ]);
+  await connect(fake.run, async ({ agent, idle, updates }) => {
+    await newSession(agent);
+    await prompt(agent, idle, [{ type: "text", text: "watch" }]);
+    // The list comes first and cannot know; the start, which names the call, sets it right.
+    expect(tasksOf(updates).map((u) => [u.kind, u.toolCallId])).toEqual([
+      ["shell", undefined],
+      ["monitor", "call-m"],
+    ]);
+  });
+});
+
 test("a task gone from the background list with no end is unknown, and one left running ends with its process", async () => {
   const watcher = { task_id: "m1", task_type: "monitor_mcp", description: "Watch the logs" };
   const workflow = { task_id: "f1", task_type: "local_workflow", description: "spec" };
