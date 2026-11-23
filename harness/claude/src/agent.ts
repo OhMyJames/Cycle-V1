@@ -721,7 +721,7 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
         scheduleIdle(session);
         await notify(client, session.id, update);
       }
-      const task = session.tasks.update(m, (id) => session.turn?.translator.toolNameOf(id));
+      const task = session.tasks.update(m);
       if (task !== undefined) {
         scheduleIdle(session);
         await notify(client, session.id, task);
@@ -1140,6 +1140,9 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
           }
           if (turn === undefined || turn.done) continue;
           for (const update of turn.translator.feed(message)) {
+            const call = update as { toolCallId?: unknown; name?: unknown };
+            if (typeof call.toolCallId === "string" && typeof call.name === "string")
+              session.tasks.noteCall(call.toolCallId, call.name);
             // The turn can end while this waits (a cancel that ran out of time): nothing more is its.
             if (turn.done) break;
             await notify(client, session.id, update);

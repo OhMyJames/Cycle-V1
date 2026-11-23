@@ -2043,32 +2043,53 @@ test("a Monitor's task is a monitor, though the SDK names it local_bash like any
     task_type: "local_bash",
     description: "Watch the beats",
   };
-  const fake = fakeQuery(() => [
-    { type: "system", subtype: "init", session_id: ID } as unknown as SDKMessage,
-    {
+  const call = (id: string, name: string) =>
+    ({
       type: "assistant",
       parent_tool_use_id: null,
       message: {
-        id: "m1",
-        content: [{ type: "tool_use", id: "call-m", name: "Monitor", input: { command: "tail" } }],
+        id: `m-${id}`,
+        content: [{ type: "tool_use", id, name, input: { command: "tail" } }],
       },
-    } as unknown as SDKMessage,
-    task("background_tasks_changed", { tasks: [watch] }),
-    task("task_started", { ...watch, tool_use_id: "call-m", is_backgrounded: true }),
-    {
+    }) as unknown as SDKMessage;
+  const result = (id: string) =>
+    ({
       type: "user",
       parent_tool_use_id: null,
-      message: { content: [{ type: "tool_result", tool_use_id: "call-m", content: "started" }] },
-    } as unknown as SDKMessage,
-    ...textTurn(ID, "m2", "ok"),
-  ]);
+      message: { content: [{ type: "tool_result", tool_use_id: id, content: "started" }] },
+    }) as unknown as SDKMessage;
+  const fake = fakeQuery(({ prompt }) =>
+    prompt === "watch"
+      ? [
+          { type: "system", subtype: "init", session_id: ID } as unknown as SDKMessage,
+          call("call-m", "Monitor"),
+          task("background_tasks_changed", { tasks: [watch] }),
+          task("task_started", { ...watch, tool_use_id: "call-m", is_backgrounded: true }),
+          result("call-m"),
+          // Its next run, heard of from the list alone: still a monitor.
+          task("background_tasks_changed", { tasks: [{ ...watch, run_id: "2" }] }),
+          // A second Monitor whose start comes after its call's result: the call is still known.
+          call("call-n", "Monitor"),
+          result("call-n"),
+          task("task_started", { task_id: "bn", task_type: "local_bash", tool_use_id: "call-n" }),
+          // And a plain background command stays a shell.
+          call("call-b", "Bash"),
+          task("task_started", { task_id: "bb", task_type: "local_bash", tool_use_id: "call-b" }),
+          result("call-b"),
+          ...textTurn(ID, "m2", "ok"),
+        ]
+      : textTurn(ID, "m3", "ok"),
+  );
   await connect(fake.run, async ({ agent, idle, updates }) => {
     await newSession(agent);
     await prompt(agent, idle, [{ type: "text", text: "watch" }]);
-    // The list comes first and cannot know; the start, which names the call, sets it right.
-    expect(tasksOf(updates).map((u) => [u.kind, u.toolCallId])).toEqual([
-      ["shell", undefined],
-      ["monitor", "call-m"],
+    // The list comes first and cannot know; the start, which names the call, sets it right for good.
+    expect(tasksOf(updates).map((u) => [u.taskId, u.kind, u.toolCallId])).toEqual([
+      ["bm", "shell", undefined],
+      ["bm", "monitor", "call-m"],
+      ["bm", "monitor", undefined],
+      ["bn", "monitor", "call-n"],
+      ["bb", "shell", "call-b"],
     ]);
   });
 });

@@ -821,11 +821,9 @@ test.skipIf(!enabled)(
           expect(metaOf("Read")[0]).toMatchObject({ read: { startLine: 1 } });
           // A real model does not always do every step: what it did is checked, what it skipped is said.
           const failed = metaOf("Bash", "failed")[0];
-          if (failed === undefined) console.log("REAL tools: the model ran no failing command");
           // `ls` of a missing file: 2 on GNU, 1 on macOS. What matters is that the code came through.
-          else expect(failed).toMatchObject({ run: { exitCode: expect.any(Number) } });
-          if (failed !== undefined)
-            expect((failed as { run: { exitCode: number } }).run.exitCode).not.toBe(0);
+          if (failed === undefined) console.log("REAL tools: the model ran no failing command");
+          else expect((failed as { run: { exitCode: number } }).run.exitCode).toBeGreaterThan(0);
         },
       );
     } finally {
@@ -965,6 +963,10 @@ test.skipIf(!enabled)(
           const start = Date.now();
           while (!settled() && Date.now() - start < 60_000) await Bun.sleep(250);
           for (const u of tasks()) console.log("REAL task:", JSON.stringify(u));
+          // Which task is which is told by the call that started it, not by the kind under test.
+          const monitorCall = (updates as unknown as Record<string, unknown>[]).find(
+            (u) => u.sessionUpdate === "tool_call_update" && u.name === "Monitor",
+          )?.toolCallId;
           const byTask = new Map<string, Record<string, unknown>>();
           for (const u of tasks()) {
             const id = String(u.taskId);
@@ -973,13 +975,16 @@ test.skipIf(!enabled)(
           const final = [...byTask.values()];
           console.log("REAL tasks, merged as a client would:", JSON.stringify(final));
           // A real model does not always do every step: what it did is checked, what it skipped is said.
-          const shell = final.find((t) => t.kind === "shell");
-          const monitor = final.find((t) => t.kind === "monitor");
+          const shell = final.find(
+            (t) => t.toolCallId !== undefined && t.toolCallId !== monitorCall,
+          );
+          const monitor = final.find(
+            (t) => monitorCall !== undefined && t.toolCallId === monitorCall,
+          );
           if (shell === undefined) console.log("REAL task: the model ran no background command");
-          else expect(shell).toMatchObject({ state: "completed", toolCallId: expect.any(String) });
-          if (monitor === undefined) console.log("REAL task: the model started no Monitor");
-          else
-            expect(monitor).toMatchObject({ state: "completed", toolCallId: expect.any(String) });
+          else expect(shell).toMatchObject({ kind: "shell", state: "completed" });
+          if (monitorCall === undefined) console.log("REAL task: the model started no Monitor");
+          else expect(monitor).toMatchObject({ kind: "monitor", state: "completed" });
           expect(final.length).toBeGreaterThan(0);
         },
       );
@@ -999,8 +1004,10 @@ test.skipIf(!enabled)(
         { configDir: config.dir, env: claudeEnv(config.dir), onPermission: () => "allow" },
         async ({ agent, updates, idle }) => {
           const id = ID(9);
+          // Its own directory: the file it counts in is the signal, and must not be left by another test.
+          const goalCwd = await mkdtemp(join(tmpdir(), "cycle-v1-real-goal-"));
           await agent.request(methods.agent.session.new, {
-            cwd,
+            cwd: goalCwd,
             _meta: { "cycle/sessionId": id },
           });
           await agent.request(methods.agent.session.setConfigOption, {
@@ -1017,11 +1024,19 @@ test.skipIf(!enabled)(
             ),
           });
           await done;
-          // The goal's own turns follow the first: wait for the count to reach 2, or for a while.
+          // The goal's own turns follow the first: done when the count is 2 and the session is idle again.
+          const count = join(goalCwd, "goal-count.txt");
+          const lastState = () =>
+            (updates as unknown as Record<string, unknown>[])
+              .filter((u) => u.sessionUpdate === "state_update")
+              .at(-1)?.state;
+          const finished = async () =>
+            existsSync(count) &&
+            (await Bun.file(count).text()).trim() === "2" &&
+            lastState() === "idle";
           const start = Date.now();
-          while (!existsSync(join(cwd, "goal-count.txt")) && Date.now() - start < 30_000)
-            await Bun.sleep(250);
-          await Bun.sleep(8_000);
+          while (!(await finished()) && Date.now() - start < 90_000) await Bun.sleep(250);
+          await rm(goalCwd, { recursive: true, force: true });
           const goals = (updates as unknown as Record<string, unknown>[]).filter(
             (u) => u.sessionUpdate === "_cycle/goal_update",
           );
@@ -1032,8 +1047,11 @@ test.skipIf(!enabled)(
             console.log("REAL goal: not delivered to a local process (CYCL-121)");
             return;
           }
-          const set = goals.find((g) => g.goal !== null) as { goal: Record<string, unknown> };
-          expect(set.goal).toMatchObject({ condition: expect.any(String), iterations: 0 });
+          const set = goals.find((g) => g.goal !== null) as
+            | { goal: Record<string, unknown> }
+            | undefined;
+          expect(set).toBeDefined();
+          expect(set?.goal).toMatchObject({ condition: expect.any(String), iterations: 0 });
           expect(goals.at(-1)?.goal).toBeNull();
         },
       );
@@ -1041,5 +1059,5 @@ test.skipIf(!enabled)(
       await config.dispose();
     }
   },
-  120_000,
+  150_000,
 );

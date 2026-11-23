@@ -22,8 +22,12 @@ type Task = {
   skip_transcript?: boolean;
 };
 
-/** The SDK's `task_type` as one of the protocol's words. Only `local_agent` is a sub-agent, told elsewhere. */
-export const kindOf = (taskType: string | undefined): Kind => {
+/**
+ * The SDK's `task_type` as one of the protocol's words. Only `local_agent` is a sub-agent, told elsewhere. A Monitor's
+ * task is `local_bash` like any background command (SDK 0.3.327): only the tool that started it, when known, tells.
+ */
+export const kindOf = (taskType: string | undefined, toolName?: string): Kind => {
+  if (toolName === "Monitor") return "monitor";
   const type = taskType ?? "";
   if (/bash|shell/.test(type)) return "shell";
   if (/monitor/.test(type)) return "monitor";
@@ -51,6 +55,15 @@ export class BackgroundTasks {
   readonly #known = new Map<string, { run: string | undefined; unknown: boolean }>();
   /** Tasks told as ended, with the run that ended: a list that lags behind the end must not bring them back. */
   readonly #ended = new Map<string, string | undefined>();
+  /** The tool calls that start a task of a kind its `task_type` does not say (a Monitor), by call id. */
+  readonly #calls = new Map<string, string>();
+  /** The kind each task was found to be: a later list entry, which names no call, must not undo it. */
+  readonly #kinds = new Map<string, Kind>();
+
+  /** A tool call of the session, as it is seen: a task it starts may need its name to be told right. */
+  noteCall(toolCallId: string, name: string): void {
+    if (kindOf(undefined, name) !== "other") this.#calls.set(toolCallId, name);
+  }
 
   /** A task told as running, not lost: the process must stay up for it (a command, a watcher). */
   get hasRunning(): boolean {
@@ -97,14 +110,7 @@ export class BackgroundTasks {
     return updates;
   }
 
-  /**
-   * One `task_*` message. `toolName` says which tool a call is: a Monitor's task is `local_bash` like any background
-   * command (SDK 0.3.327), and only the call that started it tells the two apart.
-   */
-  update(
-    message: { subtype: string } & Record<string, unknown>,
-    toolName?: (toolUseId: string) => string | undefined,
-  ): SessionUpdate | undefined {
+  update(message: { subtype: string } & Record<string, unknown>): SessionUpdate | undefined {
     const task = message as Task;
     if (typeof task.task_id !== "string") return undefined;
     const id = task.task_id;
@@ -115,8 +121,12 @@ export class BackgroundTasks {
         return undefined;
       this.#known.set(id, { run: task.run_id ?? known?.run, unknown: false });
       this.#ended.delete(id);
-      const monitor = task.tool_use_id !== undefined && toolName?.(task.tool_use_id) === "Monitor";
-      return this.#make(id, "running", task, monitor ? "monitor" : undefined);
+      if (task.tool_use_id !== undefined) {
+        const name = this.#calls.get(task.tool_use_id);
+        this.#calls.delete(task.tool_use_id);
+        if (name !== undefined) this.#kinds.set(id, kindOf(task.task_type, name));
+      }
+      return this.#make(id, "running", task);
     }
     if (known === undefined || (known.run && task.run_id && known.run !== task.run_id))
       return undefined;
@@ -152,15 +162,13 @@ export class BackgroundTasks {
     return updates;
   }
 
-  #make(taskId: string, state: State, task?: Task, kind?: Kind): SessionUpdate {
+  #make(taskId: string, state: State, task?: Task): SessionUpdate {
     return {
       sessionUpdate: TASK_UPDATE,
       taskId,
-      ...(kind !== undefined
-        ? { kind }
-        : task?.task_type !== undefined
-          ? { kind: kindOf(task.task_type) }
-          : {}),
+      ...(task?.task_type !== undefined
+        ? { kind: this.#kinds.get(taskId) ?? kindOf(task.task_type) }
+        : {}),
       ...(task?.description ? { title: task.description } : {}),
       ...(task?.tool_use_id !== undefined ? { toolCallId: task.tool_use_id } : {}),
       ...(task?.parent_task_id !== undefined ? { parentId: task.parent_task_id } : {}),
