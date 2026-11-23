@@ -917,11 +917,16 @@ export class AppStore {
     );
   };
 
-  renameSession = async (sessionId: string, title: string): Promise<string | undefined> => {
-    const environmentId = this.#state.selectedEnvironment;
+  /** Answers with why it failed, or nothing. A row of the sidebar names its own environment; the header is the open one's. */
+  renameSession = async (
+    sessionId: string,
+    title: string,
+    where: "header" | "sidebar" = "header",
+    environmentId = this.#state.selectedEnvironment,
+  ): Promise<string | undefined> => {
     if (environmentId === undefined) return undefined;
     try {
-      await this.#bridge.renameSession(environmentId, sessionId, title);
+      await this.#bridge.renameSession(environmentId, sessionId, title, where);
       return undefined;
     } catch (error) {
       return messageOf(error);

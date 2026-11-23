@@ -466,7 +466,7 @@ summary:focus-visible {
     [data-slot="plan-now"],
     [data-slot="blank-folder-name"],
     [data-slot="blank-recent-name"],
-    [data-slot="session-header"] h1
+    [data-kind="session-title"]
   ) {
     animation: cycle-fade linear both !important;
     animation-timeline: scroll(self inline) !important;
@@ -503,7 +503,7 @@ summary:focus-visible {
   [data-slot="plan-now"],
   [data-slot="blank-folder-name"],
   [data-slot="blank-recent-name"],
-  [data-slot="session-header"] h1
+  [data-kind="session-title"]
 ) {
   overflow: hidden;
   white-space: nowrap;
@@ -1574,6 +1574,28 @@ svg[data-slot="dot"] {
   font-weight: 600;
 }
 
+/* A row being renamed: the field takes the title's place, on the title's line. A failed rename says why under it. */
+[data-slot="sidebar"] [role="option"] [data-kind="rename-field"] {
+  flex: 1;
+  min-width: 0;
+  height: 1.25rem;
+  margin-block: -0.0625rem;
+  padding: 0 0.25rem;
+  font: inherit;
+  font-weight: 500;
+}
+
+[data-slot="sidebar"] [role="option"]:has([data-slot="rename-problem"]) {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+
+[data-slot="sidebar"] [role="option"] [data-slot="rename-problem"] {
+  flex-basis: 100%;
+  padding-left: 1rem;
+  white-space: normal;
+}
+
 /* The switcher: the workspace shown, an icon if it is on another host, and a square number for what is elsewhere. */
 /* It names what the sidebar shows, so it reads as the sidebar's title: left-aligned, the chevron after the name. */
 [data-kind="workspace-switcher"] {
@@ -1963,6 +1985,50 @@ html[data-platform="darwin"]
   font-family: var(--ui-font-mono);
   font-size: var(--cycle-text-meta);
   color: var(--ui-muted-foreground);
+}
+
+/* The title is the button that renames it: it reads as the title, and fades at its end (the fade group above). */
+[data-kind="session-title"] {
+  display: block;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  white-space: nowrap;
+  cursor: text;
+}
+
+[data-kind="session-title"]:focus-visible {
+  outline-offset: -1.5px;
+}
+
+/* Renaming in the header: the field is where the title was, as wide as a long title needs and no wider than the row. */
+[data-slot="session-heading"]:has([data-kind="rename-field"]) {
+  align-items: center;
+}
+
+[data-slot="session-heading"] [data-kind="rename-field"] {
+  flex: 0 1 30rem;
+  min-width: 10rem;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  font-family: var(--cycle-font-display);
+  font-size: var(--cycle-text-ui);
+  font-weight: 600;
+}
+
+[data-slot="rename-problem"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--cycle-text-meta);
+  color: var(--ui-destructive);
 }
 
 [data-slot="session-header"] [data-slot="row"] {

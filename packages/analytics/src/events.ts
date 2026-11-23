@@ -19,7 +19,6 @@ const panel = z.enum([
   "remove_environment",
   "settings",
   "session_settings",
-  "rename",
   "delete",
   "trust",
   "connectors",
@@ -35,6 +34,9 @@ const o = z.strictObject;
 
 /** What sent a message: Enter, the ⌘Enter shortcut, a button, or something that did not say. */
 const via = z.enum(["enter", "shortcut", "button", "other"]);
+
+/** Where a session's title was edited: the conversation's header, a row of the sidebar, or something that did not say. */
+const renameWhere = z.enum(["header", "sidebar", "other"]);
 
 /** Every event, and the properties it may carry. */
 export const EVENTS = {
@@ -70,7 +72,8 @@ export const EVENTS = {
   session_list_loaded: o({ pages: z.number().int().positive() }),
   session_created: o({ agent, environment: environment, configured: z.boolean() }),
   session_opened: o({ agent, environment: environment }),
-  session_renamed: o({}),
+  /** Never the title. `where`: in the conversation's header or on a row of the sidebar. */
+  session_renamed: o({ where: renameWhere }),
   queue_return_restored: o({}),
   background_dismissed: o({ count: z.number().int().positive() }),
   session_archived: o({ archived: z.boolean() }),
@@ -223,6 +226,12 @@ export const settingOf = (configId: string): "mode" | "model" | "effort" | "othe
 /** What the page says sent a message, as one of the words; anything else is "other". */
 export const viaOf = (value: unknown): z.infer<typeof via> => {
   const word = via.safeParse(value);
+  return word.success ? word.data : "other";
+};
+
+/** Where the page says a title was edited, as one of the words; anything else is "other". */
+export const renameWhereOf = (value: unknown): z.infer<typeof renameWhere> => {
+  const word = renameWhere.safeParse(value);
   return word.success ? word.data : "other";
 };
 

@@ -408,7 +408,13 @@ export type AppApi = {
     configId: string,
     value: string,
   ): Promise<void>;
-  renameSession(environmentId: string, sessionId: string, title: string): Promise<void>;
+  /** `where`: what the title was edited in, for the usage statistics. */
+  renameSession(
+    environmentId: string,
+    sessionId: string,
+    title: string,
+    where?: "header" | "sidebar",
+  ): Promise<void>;
   dismissBackground(environmentId: string, sessionId: string, taskIds: string[]): Promise<void>;
   archiveSession(environmentId: string, sessionId: string, archived: boolean): Promise<void>;
   /** Says the session has been seen: its unread mark clears. Does nothing on a daemon that cannot. */

@@ -1004,7 +1004,7 @@ test("what a person does is reported as counts and words, and never as what they
   await m.answerPermission(first(of(events, "permission")).request.key, "allow");
   await m.setSessionConfig("local", id, "mode", "default");
   await m.setSessionConfig("local", id, "effort", "high");
-  await m.renameSession("local", id, "Project Nightshade");
+  await m.renameSession("local", id, "Project Nightshade", "sidebar");
   await m.archiveSession("local", id, true);
   await m.setAgentDefaults("local", "fake", { mode: "plan" });
   await m.deleteSession("local", id);
@@ -1029,7 +1029,7 @@ test("what a person does is reported as counts and words, and never as what they
   ]);
   expect(named("permission_answered")).toEqual([{ outcome: "allowed", remembered: false }]);
   expect(named("session_config_changed")).toEqual([{ setting: "mode" }, { setting: "effort" }]);
-  expect(named("session_renamed")).toEqual([{}]);
+  expect(named("session_renamed")).toEqual([{ where: "sidebar" }]);
   expect(named("session_archived")).toEqual([{ archived: true }]);
   expect(named("agent_defaults_saved")).toEqual([{ agent: "other" }]);
   expect(named("session_deleted")).toEqual([{}]);

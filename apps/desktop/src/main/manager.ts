@@ -3,6 +3,7 @@ import {
   agentOf,
   type EventName,
   type EventProps,
+  renameWhereOf,
   settingOf,
   sizeOf,
   viaOf,
@@ -857,9 +858,15 @@ export class ConnectionManager
     this.#track("session_config_changed", { setting: settingOf(configId) });
   }
 
-  async renameSession(environmentId: string, sessionId: string, title: string): Promise<void> {
+  /** `where`: what the page says it was edited in; checked here, since the page's word is not trusted. */
+  async renameSession(
+    environmentId: string,
+    sessionId: string,
+    title: string,
+    where?: unknown,
+  ): Promise<void> {
     await this.#connection(environmentId).client.rename(sessionId, title);
-    this.#track("session_renamed", {});
+    this.#track("session_renamed", { where: renameWhereOf(where) });
   }
 
   async dismissBackground(
