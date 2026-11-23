@@ -299,7 +299,9 @@ function Folder({
               }}
             />
             {entry.kind === "folder" && view.expanded.has(full) ? (
-              <Folder path={full} folders={folders} where={where} view={view} retry={retry} />
+              <div data-slot="files-nest">
+                <Folder path={full} folders={folders} where={where} view={view} retry={retry} />
+              </div>
             ) : null}
           </li>
         );

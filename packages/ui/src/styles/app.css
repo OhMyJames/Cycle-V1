@@ -973,9 +973,8 @@ html[data-platform="darwin"] [data-slot="page-heading"] {
   list-style: none;
 }
 
-[data-slot="files-list"] [data-slot="files-list"],
-[data-slot="files-list"] [data-slot="files-quiet"],
-[data-slot="files-list"] [data-slot="state"] {
+/* What a folder holds, under it: indented by one step. */
+[data-slot="files-nest"] {
   padding-left: 1rem;
 }
 
