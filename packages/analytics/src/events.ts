@@ -150,6 +150,10 @@ export const EVENTS = {
   message_link_opened: o({}),
   /** A long code block in a reply, shown in part, was shown whole. */
   code_block_expanded: o({}),
+  /** A diagram drawn from a ```mermaid fence in a reply was opened large. */
+  diagram_opened: o({}),
+  /** A drawn diagram's source was shown instead of the picture. */
+  diagram_source_shown: o({}),
   code_theme_changed: o({}),
   slash_command_used: o({}),
   /**
@@ -193,6 +197,8 @@ export const UI_EVENTS = [
   "tool_link_opened",
   "message_link_opened",
   "code_block_expanded",
+  "diagram_opened",
+  "diagram_source_shown",
   "turn_resend_opened",
   "turn_resent",
   "blank_folder_chosen",

@@ -114,6 +114,7 @@ agent 的输出是不可信的:里面可以有原始 HTML、链接、图片。
 - **导航**:不能跳转,不能开新窗口;http/https 链接交给用户的浏览器。无权限(`setPermissionRequestHandler` 一律拒绝)。
 - **CSP**:`default-src 'none'`,`connect-src 'none'`,没有 frame、没有内联脚本,`img-src` 只有自己和 data:。
 - **Markdown**(`packages/ui/src/react/markdown.tsx`):丢弃原始 HTML;只有 http、https、mailto 是链接,其余是文字(相对路径不加 "[blocked]");点链接先确认，确认框显示完整地址，确认后才由 main 交给系统浏览器(`AgentLink`,网页搜索结果的链接相同);图片从不加载,显示成文字。Streamdown 自己的默认是允许所有图片和链接前缀,所以这几条不交给它(DOM 测试逐项断言)。
+- **Mermaid 图**(`packages/ui/src/diagram.ts`,理由见决定笔记 [`2026-11-22-mermaid-diagrams-as-images`](../.agents/notes/2026-11-22-mermaid-diagrams-as-images.md)):` ```mermaid ` 围栏闭合后由 mermaid.js 画，`securityLevel: "strict"`、不用 HTML 标签，图自己的 `%%{init}%%` 改不了这些和主题。画出的 SVG 不进页面 DOM:序列化成 `data:` URL,用 `<img>` 显示，作为图片它不执行脚本、不加载任何东西、链接不可点;排版时 mermaid 临时插进页面的节点仍受上面的 CSP 约束。不用 Streamdown 的 mermaid 插件(它把 SVG 直接插进页面)。mermaid 在第一张图时才加载。
 - **`--no-sandbox`** 只在冒烟测试里用(测试机上没有 setuid 的 chrome-sandbox),窗口本身仍然是 `sandbox: true`。应用不带这个参数。
 
 ## 样式:Streamdown 带来了 Tailwind
@@ -165,6 +166,7 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 
 - **代码配色**:Streamdown 2.x 自己不带语法高亮,它是单独的插件 `@streamdown/code`(Shiki,JavaScript 正则引擎,不需要 WebAssembly,CSP 不变)。设置页的 Appearance 里可以在五套配色里选(见 DESIGN.md 附录 B,含各套的对比度),下面有一段示例代码,按对话里代码块的样子画,选了立即看到。打包开了分包:语言和主题按需加载,启动约 0.9 MB,全部约 12 MB。
 - **图片**:agent 和用户消息里的图片(png、jpeg、gif、webp;svg 不是)用 data URL 画,不请求网络;超过大小上限的显示成一行字。Markdown 里的远程图片仍然不加载。
+- **图表**:agent 回复里的 ` ```mermaid ` 画成图(安全设置见上)。围栏还没写完、正在画、画不出来时都显示原来的代码块，节点不换，不闪;画不出来时下面写一行 "This diagram could not be drawn, so its source is shown."。图下的 "Show source" 切到源码(带 Copy),"Show diagram" 切回;按下图片放大(和图片同一种对话框,Esc 关闭)。颜色取自 `--cycle-*` 令牌，深浅色各画一次，跟随系统切换;图里用系统字体(图片里用不了页面的字体)。埋点:`diagram_opened`、`diagram_source_shown`,都不带内容。没做：缩放和平移，图里文字不能选中。
 - **搜索**:⌘K(Windows、Linux 是 Ctrl+K)。
 
 ## 输入框(composer)

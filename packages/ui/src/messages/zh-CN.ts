@@ -472,6 +472,11 @@ export const zhCN: Readonly<Record<MessageKey, Message>> = {
   "link.open": "打开链接",
   "code.showAll": "显示全部 {count} 行",
   "code.showFewer": "显示更少",
+  "diagram.alt": "图表",
+  "diagram.open": "打开图表",
+  "diagram.showSource": "显示源码",
+  "diagram.showDiagram": "显示图表",
+  "diagram.failed": "这张图表画不出来，下面是它的源码。",
 
   "dialog.close": "关闭",
   "dialog.cancel": "取消",

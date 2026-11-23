@@ -14,6 +14,7 @@ import { defaultRehypePlugins, Streamdown, useIsCodeFenceIncomplete } from "stre
 import { type CodeThemeId, codeTheme, themesOf } from "../code-theme.ts";
 import { mendStreaming } from "../markdown-mend.ts";
 import { AgentLink } from "./agent-link.tsx";
+import { Diagram } from "./diagram.tsx";
 import { useI18n } from "./i18n.tsx";
 import { useOptionalAppStore } from "./store-context.tsx";
 
@@ -65,11 +66,19 @@ export const FOLD_OVER = 30;
 /** The reply this block is in is still being written. */
 const Streaming = createContext(false);
 
-const lineCount = (code: ReactElement): number => {
+const textOf = (code: ReactElement): string => {
   const text = (code.props as { children?: unknown }).children;
-  const source = typeof text === "string" ? text : Array.isArray(text) ? text.join("") : "";
-  return source.replace(/\n$/, "").split("\n").length;
+  return typeof text === "string" ? text : Array.isArray(text) ? text.join("") : "";
 };
+
+const lineCount = (code: ReactElement): number =>
+  textOf(code).replace(/\n$/, "").split("\n").length;
+
+/** A ```mermaid fence: drawn as a diagram (diagram.tsx) once it is closed. */
+const isMermaid = (code: ReactElement): boolean =>
+  /(?:^|\s)language-mermaid(?:\s|$)/i.test(
+    String((code.props as { className?: unknown }).className ?? ""),
+  );
 
 /**
  * A code block, and when it is long, a way to show all of it or part. A block that arrived whole (an answer read again, a
@@ -89,7 +98,9 @@ function CodeFold({ children }: { children?: ReactNode }) {
   // Not while the reply is written, even when the block came whole in one batch or was drawn again (a session reopened).
   const [folded, setFolded] = useState(() => !streaming && !incomplete && lines > FOLD_OVER);
   const block = code === null ? children : cloneElement(code, { "data-block": "true" } as never);
-  const foldable = !incomplete && lines > FOLD_OVER;
+  const diagram = code !== null && isMermaid(code);
+  // A diagram's source is shown whole when asked for: it is what the person wants to read or copy.
+  const foldable = !diagram && !incomplete && lines > FOLD_OVER;
   const toggle = () => {
     if (folded) store?.track("code_block_expanded", {});
     setFolded(!folded);
@@ -99,7 +110,11 @@ function CodeFold({ children }: { children?: ReactNode }) {
   // The same element around the block whether it can fold or not, so a fence that closes while it streams keeps its block.
   return (
     <div data-slot="code-fold" data-folded={(foldable && folded) || undefined} id={id}>
-      {block}
+      {diagram && code !== null ? (
+        <Diagram source={textOf(code).replace(/\n$/, "")} complete={!incomplete} code={block} />
+      ) : (
+        block
+      )}
       {foldable ? (
         <button
           ref={button}
@@ -150,7 +165,8 @@ const pluginFor = (id: CodeThemeId) => {
 
 /**
  * Code keeps one control, Copy, shown when the block is hovered or focused. Tables keep none: the full-screen view and the
- * CSV download were a toolbar over every table, louder than the table. Diagrams are not drawn (no mermaid plugin).
+ * CSV download were a toolbar over every table, louder than the table. Streamdown's mermaid plugin is not used: a
+ * ```mermaid fence is a code block that `CodeFold` hands to our own `Diagram`, which draws it as a picture (diagram.ts).
  */
 const CONTROLS = {
   code: { copy: true, download: false },

@@ -2359,6 +2359,58 @@ html[data-platform="darwin"]
   outline-offset: 0;
 }
 
+/* A ```mermaid fence drawn as a diagram: the code block's card, holding the picture, with "Show source" where a long
+   block's "Show all" is. The picture is a data URL (diagram.ts); it opens large like an image. */
+[data-slot="diagram"] {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem 0.75rem 2.5rem;
+  overflow-x: auto;
+  border: 1px solid var(--cycle-border-default);
+  border-radius: var(--cycle-radius-card);
+  background: var(--cycle-surface-raised);
+  box-shadow: var(--cycle-edge-hardware);
+}
+
+[data-slot="code-fold"]:has(> [data-slot="diagram"]) {
+  margin-bottom: 0.5rem;
+}
+
+[data-slot="diagram-open"] {
+  display: block;
+  margin-inline: auto;
+  padding: 0;
+  border-radius: var(--ui-radius);
+  cursor: zoom-in;
+}
+
+[data-slot="diagram-open"]:focus-visible {
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: 2px;
+}
+
+[data-slot="diagram-open"] img,
+[data-kind="diagram"] img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+[data-slot="diagram-open"] img {
+  max-height: 32rem;
+  object-fit: contain;
+}
+
+[data-kind="diagram"] img {
+  min-width: min(100%, 40rem);
+  background: var(--cycle-surface-raised);
+}
+
+[data-slot="diagram-note"] {
+  margin: 0;
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-meta);
+}
+
 /* An image of a conversation: a thumbnail that opens large. It is a data URL; nothing is fetched. */
 [data-slot="image"] {
   display: inline-block;

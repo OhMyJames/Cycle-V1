@@ -531,6 +531,12 @@ export const enUS = {
     other: "Show all {count} lines",
   },
   "code.showFewer": "Show fewer lines",
+  // A ```mermaid fence in a reply, drawn as a diagram.
+  "diagram.alt": "Diagram",
+  "diagram.open": "Open diagram",
+  "diagram.showSource": "Show source",
+  "diagram.showDiagram": "Show diagram",
+  "diagram.failed": "This diagram could not be drawn, so its source is shown.",
 
   "dialog.close": "Close",
   "dialog.cancel": "Cancel",
