@@ -2,6 +2,7 @@
 // open, and only the tab shown is mounted, so a panel or a tab not looked at loads nothing and asks the daemon nothing.
 import type { MessageKey } from "../messages/en-US.ts";
 import type { PanelTabKind, SidePanelState } from "../side-panel.ts";
+import { Diff } from "./diff.tsx";
 import { Files } from "./files.tsx";
 import { useI18n } from "./i18n.tsx";
 import { Overview } from "./overview.tsx";
@@ -10,6 +11,7 @@ import { PanelTabs } from "./panel-tabs.tsx";
 const LABEL: Record<PanelTabKind, MessageKey> = {
   overview: "panel.tab.overview",
   files: "panel.tab.files",
+  diff: "panel.tab.diff",
 };
 
 const contentOf = (tab: PanelTabKind) => {
@@ -18,6 +20,8 @@ const contentOf = (tab: PanelTabKind) => {
       return <Overview />;
     case "files":
       return <Files />;
+    case "diff":
+      return <Diff />;
   }
 };
 

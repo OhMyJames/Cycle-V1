@@ -32,6 +32,7 @@ import { ConfirmDialog, EnvironmentDialog, type RemoteEnvironment } from "./dial
 import { FormCard } from "./form.tsx";
 import { I18nProvider, useI18n } from "./i18n.tsx";
 import {
+  DiffIcon,
   ErrorCircleIcon,
   FolderIcon,
   MoreIcon,
@@ -297,6 +298,7 @@ function AppWindow() {
   };
   const overviewShown = sidePanel?.open === true && sidePanel.active === "overview";
   const filesShown = sidePanel?.open === true && sidePanel.active === "files";
+  const diffShown = sidePanel?.open === true && sidePanel.active === "diff";
   // Files needs a daemon that reads a session's folder (docs/protocol.md §8): an older one is not offered it.
   const canShowFiles = useAppState((s) =>
     session !== undefined ? s.status[session.environmentId]?.capabilities?.fs === true : false,
@@ -812,6 +814,17 @@ function AppWindow() {
                         </Button>
                       </Tip>
                     ) : null}
+                    {/* Diff needs no daemon: this session's edits are in its conversation. */}
+                    <Tip label={t(diffShown ? "diff.hide" : "diff.show")} side="bottom">
+                      <Button
+                        data-variant="ghost"
+                        data-kind="panel-toggle"
+                        data-active={diffShown || undefined}
+                        onClick={() => toggleTab("diff")}
+                      >
+                        <DiffIcon />
+                      </Button>
+                    </Tip>
                     <Tip
                       label={t(sidePanel?.open === true ? "panel.hide" : "panel.show")}
                       shortcut="mod+\\"
