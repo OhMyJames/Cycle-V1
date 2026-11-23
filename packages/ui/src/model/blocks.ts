@@ -8,7 +8,7 @@
 // - The tool calls of one stretch share one block (the view draws a card for two or more, a bare row for one).
 // - In a turn that did not end normally, the failures of its last stretch are pulled out under it, because they may
 //   be why it stopped. Elsewhere the agent dealt with them, and they stay in the card.
-// - Thinking shows only when the person asks for it, and never cuts a stretch.
+// - A thought is a row of its own, closed, where its stretch's card is: it never cuts a stretch.
 // - A turn that did not end normally says how, last.
 // - A turn begins a new group: the view puts more space before it than between blocks.
 import type {
@@ -84,8 +84,6 @@ export type LaidBlock = { key: string; turn: number; startsTurn: boolean } & (
   | { kind: "end"; stop: StopReason }
 );
 
-export type BlockOptions = { showThinking: boolean };
-
 /** What a block's kind is, apart from the fields every block has. */
 type Body = LaidBlock extends infer B
   ? B extends LaidBlock
@@ -97,7 +95,6 @@ const laidTurn = (
   turn: number,
   items: readonly Item[],
   stop: StopReason | undefined,
-  { showThinking }: BlockOptions,
 ): LaidBlock[] => {
   const out: LaidBlock[] = [];
   const add = (key: string, body: Body): LaidBlock => {
@@ -121,7 +118,7 @@ const laidTurn = (
       }
       case "thought":
         // Never cuts a stretch: a thought between two tool calls leaves them in one card.
-        if (showThinking) add(`thought:${item.id}`, { kind: "thought", item });
+        add(`thought:${item.id}`, { kind: "thought", item });
         break;
       case "notice":
         // The agent trying its request again is a state of the step line while it lasts, not a row; nor does it cut a stretch.
@@ -172,7 +169,6 @@ export type BlockCache = Map<
   {
     items: readonly Item[];
     stop: StopReason | undefined;
-    showThinking: boolean;
     blocks: LaidBlock[];
   }
 >;
@@ -184,11 +180,7 @@ const same = (a: readonly Item[], b: readonly Item[]): boolean =>
  * The blocks of a conversation, in order. With a `cache`, a turn that has not changed gives back the very blocks it gave
  * before, so a view that remembers its blocks by identity redraws only the turn that is going.
  */
-export const blocksOf = (
-  c: Conversation,
-  options: BlockOptions,
-  cache?: BlockCache,
-): LaidBlock[] => {
+export const blocksOf = (c: Conversation, cache?: BlockCache): LaidBlock[] => {
   const byTurn = new Map<number, Item[]>();
   for (const item of c.items) {
     const items = byTurn.get(item.turn);
@@ -203,16 +195,11 @@ export const blocksOf = (
     if (items.length === 0 && stop === undefined) continue;
     const cached = cache?.get(turn);
     let blocks: LaidBlock[];
-    if (
-      cached !== undefined &&
-      cached.stop === stop &&
-      cached.showThinking === options.showThinking &&
-      same(cached.items, items)
-    ) {
+    if (cached !== undefined && cached.stop === stop && same(cached.items, items)) {
       blocks = cached.blocks;
     } else {
-      blocks = laidTurn(turn, items, stop, options);
-      cache?.set(turn, { items, stop, showThinking: options.showThinking, blocks });
+      blocks = laidTurn(turn, items, stop);
+      cache?.set(turn, { items, stop, blocks });
     }
     result.push(...blocks);
   }
@@ -229,8 +216,8 @@ export type Step =
   | { kind: "retrying"; attempt?: number; maxRetries?: number };
 
 /**
- * Nothing when the turn is over, or when the agent's own text is on its way (that is feedback enough). A thought
- * that is not shown is still something the person should be told is going on.
+ * Nothing when the turn is over, or when the agent's own text or thought is on its way: its row says so (a thought's
+ * reads "Thinking…"), which is feedback enough.
  */
 export const stepOf = (c: Conversation): Step | undefined => {
   if (c.status === "idle") return undefined;
@@ -241,7 +228,6 @@ export const stepOf = (c: Conversation): Step | undefined => {
     case "tool":
       return isLive(last) ? { kind: "tool", tool: last } : { kind: "working" };
     case "thought":
-      return { kind: "thinking" };
     case "agent":
       return undefined;
     case "notice":
@@ -250,6 +236,15 @@ export const stepOf = (c: Conversation): Step | undefined => {
       return { kind: "working" };
   }
 };
+
+/**
+ * How long a thought took, in milliseconds: from its first chunk to its last, as the daemon logged them. Undefined when
+ * either time is not known (an older daemon).
+ */
+export const thoughtMs = (item: ThoughtItem): number | undefined =>
+  item.at !== undefined && item.lastAt !== undefined
+    ? Math.max(0, item.lastAt - item.at)
+    : undefined;
 
 /** How many blocks a long conversation shows at first, and how many more each time the person nears its top. */
 export const PAGE = 60;
@@ -272,8 +267,8 @@ export const windowStart = (
 };
 
 /**
- * The key to anchor on once `page` more blocks are shown above `start`. A thought is not chosen (it is gone when thinking
- * is hidden, and the anchor with it): the next block that is not one.
+ * The key to anchor on once `page` more blocks are shown above `start`. A thought is not chosen (it is laid after the
+ * card it sits in, so it is not where its stretch begins): the next block that is not one.
  */
 export const earlierAnchor = (
   blocks: readonly LaidBlock[],

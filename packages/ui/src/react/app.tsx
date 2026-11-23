@@ -166,7 +166,7 @@ export function App() {
 function AppWindow() {
   const store = useAppStore();
   const { t } = useI18n();
-  const showThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
+  const expandThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
   const ready = useAppState((s) => s.ready);
   const environments = useAppState((s) => s.environments);
   const status = useAppState((s) => s.status);
@@ -786,10 +786,13 @@ function AppWindow() {
                         ) : null}
                         <MenuCheckboxItem
                           value="thinking"
-                          checked={showThinking}
-                          onCheckedChange={(checked) => thinking.set(checked)}
+                          checked={expandThinking}
+                          onCheckedChange={(checked) => {
+                            thinking.set(checked);
+                            store.track("thinking_expand_changed", { on: checked });
+                          }}
                         >
-                          {t("thinking.show")}
+                          {t("thinking.expand")}
                         </MenuCheckboxItem>
                         <MenuItem value="archive">
                           {t(session.archived ? "session.restore" : "session.archive")}

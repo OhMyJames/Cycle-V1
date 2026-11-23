@@ -3,14 +3,18 @@ import type { SessionUpdate } from "@agentclientprotocol/sdk/experimental/v2";
 import {
   activityCounts,
   activityOf,
+  applyUpdate,
   type BlockCache,
   blocksOf,
   type Conversation,
   earlierAnchor,
+  emptyConversation,
   PAGE,
   reduce,
   stepOf,
+  type ThoughtItem,
   type ToolItem,
+  thoughtMs,
   windowStart,
 } from "../src/model/index.ts";
 
@@ -21,16 +25,16 @@ const say = (id: string) =>
   u({ sessionUpdate: "agent_message", messageId: id, content: [{ type: "text", text: id }] });
 const think = (id: string) =>
   u({ sessionUpdate: "agent_thought", messageId: id, content: [{ type: "text", text: id }] });
+const chunk = (id: string, text: string) =>
+  u({ sessionUpdate: "agent_thought_chunk", messageId: id, content: { type: "text", text } });
 const tool = (id: string, name: string, status = "completed") =>
   u({ sessionUpdate: "tool_call_update", toolCallId: id, name, status });
 const running = u({ sessionUpdate: "state_update", state: "running" });
 const idle = (stopReason: string, extra: object = {}) =>
   u({ sessionUpdate: "state_update", state: "idle", stopReason, ...extra });
 
-const OFF = { showThinking: false };
-const ON = { showThinking: true };
-const shape = (c: Conversation, options = OFF) =>
-  blocksOf(c, options).map((b) =>
+const shape = (c: Conversation) =>
+  blocksOf(c).map((b) =>
     b.kind === "work" ? `work(${b.tools.map((t) => t.id).join(",")})` : b.kind,
   );
 
@@ -46,10 +50,16 @@ test("the tool calls of one stretch share a block, and a message cuts the stretc
   expect(shape(c)).toEqual(["user", "work(a,b)", "agent", "work(c)"]);
 });
 
-test("a thought never cuts a stretch, and shows only when asked for", () => {
+test("a thought is a row of its own, and never cuts a stretch", () => {
   const c = reduce([you("u"), tool("a", "Bash"), think("t"), tool("b", "Bash"), idle("end_turn")]);
-  expect(shape(c, OFF)).toEqual(["user", "work(a,b)"]);
-  expect(shape(c, ON)).toEqual(["user", "work(a,b)", "thought"]);
+  expect(shape(c)).toEqual(["user", "work(a,b)", "thought"]);
+});
+
+test("a thought took from its first chunk to its last, and is not known without their times", () => {
+  let c = applyUpdate(emptyConversation(), chunk("t", "hmm"), { at: 10_000 });
+  c = applyUpdate(c, chunk("t", "…"), { at: 15_000 });
+  expect(thoughtMs(c.items[0] as ThoughtItem)).toBe(5_000);
+  expect(thoughtMs(reduce([chunk("t", "hmm")]).items[0] as ThoughtItem)).toBeUndefined();
 });
 
 test("a plan and a notice are blocks of their own and cut a stretch", () => {
@@ -74,7 +84,7 @@ test("each turn begins a group, and a turn's blocks are the ones that belong to 
     say("a2"),
     idle("end_turn"),
   ]);
-  const blocks = blocksOf(c, OFF);
+  const blocks = blocksOf(c);
   expect(blocks.map((b) => [b.kind, b.turn, b.startsTurn])).toEqual([
     ["user", 0, true],
     ["agent", 0, false],
@@ -92,7 +102,7 @@ test.each(["cancelled", "error", "max_tokens", "refusal", "max_turn_requests"])(
   "a turn that ends as %s says so, last",
   (reason) => {
     const c = reduce([you("u"), say("a"), idle(reason)]);
-    const last = blocksOf(c, OFF).at(-1);
+    const last = blocksOf(c).at(-1);
     expect(last).toMatchObject({ kind: "end", stop: { stopReason: reason } });
   },
 );
@@ -136,9 +146,9 @@ test("an earlier stretch's failures stay where they are", () => {
   expect(shape(c)).toEqual(["user", "work(a)", "agent", "work(b)", "end"]);
 });
 
-test("a hidden thought after the last stretch does not stop its failures being pulled out", () => {
+test("a thought after the last stretch does not stop its failures being pulled out", () => {
   const c = reduce([you("u"), tool("a", "Bash", "failed"), think("t"), idle("cancelled")]);
-  expect(shape(c)).toEqual(["user", "failed", "end"]);
+  expect(shape(c)).toEqual(["user", "failed", "thought", "end"]);
 });
 
 test("a turn that ended with nothing in it still says how", () => {
@@ -148,7 +158,7 @@ test("a turn that ended with nothing in it still says how", () => {
     say("a"),
   ]);
   expect(shape(c)).toEqual(["end", "user", "agent"]);
-  expect(blocksOf(c, OFF)[0]).toMatchObject({ kind: "end", turn: 0, startsTurn: true });
+  expect(blocksOf(c)[0]).toMatchObject({ kind: "end", turn: 0, startsTurn: true });
 });
 
 test("a message sent while a turn was going belongs to that turn, so the turn's ending comes after it", () => {
@@ -166,23 +176,21 @@ test("every block has a key that is its own, across turns", () => {
     say("m"),
     idle("end_turn"),
   ]);
-  const keys = blocksOf(c, ON).map((b) => b.key);
+  const keys = blocksOf(c).map((b) => b.key);
   expect(new Set(keys).size).toBe(keys.length);
 });
 
 test("a turn that has not changed gives back the very same blocks", () => {
   const cache: BlockCache = new Map();
   const first = reduce([you("u1"), tool("a", "Bash"), say("a1"), idle("end_turn"), you("u2")]);
-  const before = blocksOf(first, OFF, cache);
+  const before = blocksOf(first, cache);
   const second = reduce([say("a2")], first);
-  const after = blocksOf(second, OFF, cache);
+  const after = blocksOf(second, cache);
   // The finished first turn is reused object for object; the turn that is going is laid again.
   expect(after[0]).toBe(before[0]);
   expect(after[1]).toBe(before[1]);
   expect(after[2]).toBe(before[2]);
   expect(after.length).toBe(before.length + 1);
-  // Asking for thinking changes what a turn lays out.
-  expect(blocksOf(second, ON, cache)[0]).not.toBe(before[0]);
 });
 
 test("what a tool does comes from Claude's name, else from the kind ACP gives it", () => {
@@ -209,7 +217,8 @@ test("the step says what is going on, and says nothing when the text itself is a
   const step = (updates: SessionUpdate[]) => stepOf(reduce(updates));
   expect(step([you("u"), idle("end_turn")])).toBeUndefined();
   expect(step([you("u"), running])).toEqual({ kind: "working" });
-  expect(step([you("u"), running, think("t")])).toEqual({ kind: "thinking" });
+  // A thought on its way is its own row's "Thinking…": the step line does not say it twice.
+  expect(step([you("u"), running, think("t")])).toBeUndefined();
   expect(step([you("u"), running, say("m")])).toBeUndefined();
   expect(step([you("u"), running, tool("a", "Bash", "in_progress")])).toMatchObject({
     kind: "tool",
@@ -231,7 +240,6 @@ const many = (turns: number) =>
         idle("end_turn"),
       ]).flat(),
     ),
-    OFF,
   );
 
 test("a long conversation shows its last page, and nothing is hidden in a short one", () => {

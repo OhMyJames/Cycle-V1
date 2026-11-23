@@ -414,7 +414,7 @@ const SIGNS: Record<DiffLine["kind"], string> = { add: "+", del: "−", context:
  * A length of time as people say it, each part a unit `Intl` writes in the person's language: "45 sec", "2 min",
  * "1 min, 30 sec".
  */
-const durationOf = (
+export const durationOf = (
   { number, locale }: Pick<Translator, "number" | "locale">,
   ms: number,
 ): string => {

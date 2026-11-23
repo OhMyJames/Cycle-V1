@@ -202,10 +202,10 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
 
 ### 4.4 对话阅读、流式输出与输入范式
 
-- **头部**：固定 `42px` 一行，无底线，左侧会话标题（`13px / 600`，`Open Runde`）+ 等宽路径（路径优先保留末尾项目名），右侧 `"…"` 菜单（`Rename` / `Show thinking` / `Archive` / `Delete`）。
+- **头部**：固定 `42px` 一行，无底线，左侧会话标题（`13px / 600`，`Open Runde`）+ 等宽路径（路径优先保留末尾项目名），右侧 `"…"` 菜单（`Rename` / `Expand thinking` / `Archive` / `Delete`）。
 - **就地重命名**：会话标题不开弹窗，就地变成输入框（`rename-field.tsx`）：点头部标题或菜单 `Rename`，侧栏的行双击或 `F2`（环境不在线的行不行）。打开时全选原标题；`Enter`（先问 `isComposing`，中文输入法确认词时不算）或离开输入框保存，`Esc` 放弃并恢复；空的或没改不发请求。保存后立即显示新标题，等列表跟上；失败时标题恢复原样，原因就地显示（头部在标题后，侧栏在行内标题下），几秒后消失。按键结束时焦点回到标题或行。
 - **Turn 切块与对话内容规则（CYCL-14，详见 [docs/conversation-content.md](docs/conversation-content.md)）**：
-  - 按 daemon 日志的 `stopReason` 切分 turn（`--cycle-gap-turn` 隔开问题起止）；思考默认折叠隐藏，不打断连续工具流；未正常结束的 turn 拎出末尾失败工具并附原因块（`turn-end`）。
+  - 按 daemon 日志的 `stopReason` 切分 turn（`--cycle-gap-turn` 隔开问题起止）；每段思考是一行折叠的 thought 行（输出中写 `Thinking…`，柔和呼吸、减少动效下静止；结束写 `Thought for 5 sec`，取它首尾两块的 `cycle/ts`，不知道时写 `Thought`），展开为与回复同一条清洗路径的只读 Markdown；会话菜单的 `Expand thinking` 让它们默认展开；思考不打断连续工具流，StepLine 不再重复写“思考中”；未正常结束的 turn 拎出末尾失败工具并附原因块（`turn-end`）。
   - **工具行不用图标，左列只放状态**：完成为 5px 灰点（`--cycle-ink-disabled`，纯装饰，读屏给状态词），在跑为旋转线，失败为红叉；一段调用展开后细竖线串联各点。
   - **有 `description` 优先展示**：Bash / Monitor / Agent 的单行短说明（≤ 160 字）用正文字体居前，后跟淡灰等宽命令/路径，放不下时先让摘要再让说明并在末尾淡出；没有时用“动词 + 摘要”。StepLine 与进行中卡片同步遵循。
   - **`@` 提及不画两遍**：用户消息中带 `cycle/mention` 的 `resource_link` 当正文中仍含 `@path` 时不重复渲染；其余链接渲染为 `[名字]`。提及的是另一个 session（`cycle://session/`）时，正文里的 `@标题` 画成带对话图标的 `mention-chip`，正文已不含它时也单独画出 chip。
@@ -375,7 +375,7 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 
 ### P2：对话流与日常工作流质感打磨
 
-- [ ] **对话内高频操作**：思考内容走 `Markdown` 只读渲染；空白会话转正式会话时平滑衔接。
+- [ ] **对话内高频操作**：空白会话转正式会话时平滑衔接。
 - [ ] **工具调用与侧栏辨识度**：连续工具从 1 个升格为多个时保留手动展开态；会话行补充未发送草稿标（相对时间已做，见 §4.1）；切换 workspace/环境时重置 `showAll`。
 - [ ] **窄视口与缓存治理**：720×480 下 `composer-toolbar` 折行/紧凑适配；为 `store.views` 增加 LRU 上限，为 `selectSession` 加并发加载保护。
 - [x] **存量 i18n 迁移**：JSX、对话框、更新提示、连接状态词和 store 的报错都已迁入 `packages/ui/src/messages/en-US.ts`（CYCL-68）。

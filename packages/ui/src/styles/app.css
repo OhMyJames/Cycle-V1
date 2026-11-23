@@ -3178,12 +3178,27 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   color: var(--ui-muted-foreground);
 }
 
+[data-kind="thought"] > button:hover {
+  background: var(--cycle-surface-hover);
+  color: var(--cycle-ink);
+}
+
+/* While it streams, the words breathe as the step line's do: only opacity, and still under reduced motion. */
+[data-kind="thought"][data-live] [data-slot="thought-label"] {
+  animation: cycle-step-breathe 2.2s ease-in-out infinite;
+}
+
 [data-kind="thought"] [data-slot="thought-text"] {
   margin: 0.25rem 0 0 0.4rem;
   padding: 0.125rem 0 0.125rem 0.875rem;
   border-left: 2px solid var(--ui-border);
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+[data-slot="message"][data-role="thought"] {
+  color: var(--ui-muted-foreground);
+  font-size: var(--cycle-text-ui);
+  line-height: var(--cycle-leading-ui);
 }
 
 /* The plan in the conversation is one quiet line where it was made, styled as a tool's (above), that opens to the list.

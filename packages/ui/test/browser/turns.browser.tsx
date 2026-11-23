@@ -18,6 +18,8 @@ afterEach(() => {
 const u = (update: object) => update as SessionUpdate;
 const you = (id: string) =>
   u({ sessionUpdate: "user_message", messageId: id, content: [{ type: "text", text: id }] });
+const say = (id: string) =>
+  u({ sessionUpdate: "agent_message", messageId: id, content: [{ type: "text", text: id }] });
 const think = (id: string, text: string) =>
   u({ sessionUpdate: "agent_thought", messageId: id, content: [{ type: "text", text }] });
 const tool = (id: string, name: string, status: string, rawInput: object) => [
@@ -221,25 +223,73 @@ test("a turn the person stopped says so, with the word and not only a colour", a
   await screen.findByText("Stopped before it finished.");
 });
 
-test("thinking is hidden until asked for, and the line at the end still says the agent is at it", async () => {
-  const { user, log } = await open(
-    you("u1"),
-    state({ state: "running" }),
-    think("t1", "weighing the options"),
+test("a thought is a closed row: Thinking… while it streams, then how long it took, opening to markdown", async () => {
+  const { user, log, script } = await open(you("u1"), state({ state: "running" }));
+  const T = Date.now() - 60_000;
+  let version = 2;
+  const emit = (update: SessionUpdate, at?: number) =>
+    act(() =>
+      script.emit({
+        type: "update",
+        environmentId: "local",
+        sessionId: "s1",
+        update,
+        ...(at !== undefined ? { at } : {}),
+        version: ++version,
+      }),
+    );
+  const chunk = (text: string) =>
+    u({ sessionUpdate: "agent_thought_chunk", messageId: "t1", content: { type: "text", text } });
+  await emit(chunk("weighing **the options**"), T);
+  const row = await screen.findByRole("button", { name: "Thinking…" });
+  expect(row.getAttribute("aria-expanded")).toBe("false");
+  expect(log.textContent).not.toContain("weighing");
+  // The row says it: the line at the end does not say "Thinking…" a second time.
+  expect(log.textContent?.match(/Thinking…/g)).toHaveLength(1);
+  await emit(chunk(" and more"), T + 5_000);
+  await emit(
+    u({
+      sessionUpdate: "agent_message_chunk",
+      messageId: "a1",
+      content: { type: "text", text: "answer" },
+    }),
+    T + 6_000,
   );
-  await waitFor(() => expect(log.textContent).toContain("Thinking…"));
-  expect(log.textContent).not.toContain("weighing the options");
+  const done = await screen.findByRole("button", { name: "Thought for 5 sec" });
+  await user.click(done);
+  // Markdown, through the same path as a reply: the bold is bold, not asterisks.
+  await waitFor(() =>
+    expect(log.querySelector('[data-role="thought"] [data-streamdown="strong"]')).not.toBeNull(),
+  );
+  expect(log.textContent).toContain("weighing the options and more");
+  expect(log.textContent).not.toContain("**");
+  // Opening it is told, never what it said.
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([
+    ["track", "thought_expanded", { live: false }],
+  ]);
+});
+
+test("a thought without times reads Thought, and Expand thinking opens thoughts by themselves", async () => {
+  const { user, log, script } = await open(
+    you("u1"),
+    think("t1", "weighing the options"),
+    say("a1"),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const row = await screen.findByRole("button", { name: "Thought" });
+  expect(row.getAttribute("aria-expanded")).toBe("false");
   await user.click(screen.getByRole("button", { name: "Session actions" }));
-  const choice = await screen.findByRole("menuitemcheckbox", { name: "Show thinking" });
+  const choice = await screen.findByRole("menuitemcheckbox", { name: "Expand thinking" });
   expect(choice.getAttribute("aria-checked")).toBe("false");
   await user.click(choice);
   // A checkbox item leaves the menu open, so that the change can be seen; close it.
   await user.keyboard("{Escape}");
-  // The thought is a row now: it opens to its text.
-  const row = await screen.findByRole("button", { name: "Thinking" });
-  await user.click(row);
+  await waitFor(() => expect(row.getAttribute("aria-expanded")).toBe("true"));
   await waitFor(() => expect(log.textContent).toContain("weighing the options"));
   expect(thinking.get()).toBe(true);
+  expect(script.calls.filter(([name]) => name === "track")).toEqual([
+    ["track", "thinking_expand_changed", { on: true }],
+  ]);
 });
 
 test("a message says when it was sent and a reply when it finished, with the full time on focus; none when not known", async () => {

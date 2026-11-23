@@ -1,4 +1,3 @@
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
 import {
   memo,
   type ReactNode,
@@ -9,7 +8,6 @@ import {
   useReducer,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import { resourceName } from "../attachments.ts";
 import { MENTION_META } from "../draft.ts";
@@ -27,16 +25,16 @@ import {
   windowStart,
 } from "../model/index.ts";
 import { blockHolds, reveal } from "../reveal.ts";
-import { thinking } from "../thinking.ts";
 import { CopyButton } from "./copy-button.tsx";
 import { useI18n } from "./i18n.tsx";
-import { ArrowDownIcon, AttachIcon, MessageIcon, ThoughtIcon } from "./icons.tsx";
+import { ArrowDownIcon, AttachIcon, MessageIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
 import { Markdown } from "./markdown.tsx";
 import { MessageTime } from "./message-time.tsx";
 import { PlanBlock } from "./plan.tsx";
 import { StateBlock } from "./state-block.tsx";
 import { useAppStore } from "./store-context.tsx";
+import { ThoughtRow } from "./thought.tsx";
 import { Tip } from "./tip.tsx";
 import { ToolCard } from "./tool.tsx";
 import { EndBlock, Notice, StepLine, WorkBlock } from "./turn.tsx";
@@ -222,7 +220,7 @@ const BlockView = memo(function BlockView({
   ended,
 }: {
   block: LaidBlock;
-  /** This is the agent message that is still arriving. */
+  /** This is the agent message, or the thought, that is still arriving. */
   streaming: boolean;
   /** This block is in the turn that is going. */
   live: boolean;
@@ -266,17 +264,7 @@ const BlockView = memo(function BlockView({
         </>
       );
     case "thought":
-      return (
-        <Collapsible data-kind="thought">
-          <CollapsibleTrigger>
-            <ThoughtIcon size={14} />
-            {t("thought.label")}
-          </CollapsibleTrigger>
-          <CollapsiblePanel>
-            <div data-slot="thought-text">{textOf(block.item.blocks)}</div>
-          </CollapsiblePanel>
-        </Collapsible>
-      );
+      return <ThoughtRow item={block.item} live={streaming} />;
     case "work":
       return <WorkBlock tools={block.tools} live={live} />;
     case "failed":
@@ -340,13 +328,9 @@ export function ConversationView({
   follow: number;
 }) {
   const { t } = useI18n();
-  const showThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
   // Turns that have not changed give back the same blocks, so only the turn that is going is drawn again.
   const cache = useRef<BlockCache>(new Map());
-  const blocks = useMemo(
-    () => blocksOf(conversation, { showThinking }, cache.current),
-    [conversation, showThinking],
-  );
+  const blocks = useMemo(() => blocksOf(conversation, cache.current), [conversation]);
   // The last turn, when it failed: its end offers to send its message again.
   const resend = useMemo(() => resendOf(conversation), [conversation]);
 
@@ -357,7 +341,7 @@ export function ConversationView({
   const anchor = useRef<string | undefined>(saved?.anchor);
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const start = windowStart(blocks, anchor.current);
-  // An anchor whose block is gone (thinking was hidden, a turn was laid again): back to the last page.
+  // An anchor whose block is gone (a turn was laid again): back to the last page.
   if (anchor.current !== undefined && blocks[start]?.key !== anchor.current)
     anchor.current = undefined;
   const stuck = useRef(saved === undefined || saved.top === "bottom");
@@ -595,6 +579,9 @@ export function ConversationView({
         .join("\n\n"),
     [],
   );
+
+  // The thought still arriving: the last thing the turn that is going has said.
+  const lastItem = conversation.items.at(-1);
   return (
     <div
       data-slot="conversation"
@@ -624,7 +611,11 @@ export function ConversationView({
         <div key={block.key} data-slot="block" data-turn-start={block.startsTurn || undefined}>
           <BlockView
             block={block}
-            streaming={working && start + at === lastAgent && block.turn === conversation.turns}
+            streaming={
+              working &&
+              block.turn === conversation.turns &&
+              (block.kind === "thought" ? block.item === lastItem : start + at === lastAgent)
+            }
             live={working && block.turn === conversation.turns}
             resend={block.kind === "end" && resend?.turn === block.turn ? resend : undefined}
             replyOf={

@@ -163,6 +163,10 @@ export const EVENTS = {
   diagram_opened: o({}),
   /** A drawn diagram's source was shown instead of the picture. */
   diagram_source_shown: o({}),
+  /** A thought in the conversation was opened by the person. `live`: while it was still arriving. Never its text. */
+  thought_expanded: o({ live: z.boolean() }),
+  /** "Expand thinking" in the session menu was turned on or off: thoughts open by themselves, or stay closed. */
+  thinking_expand_changed: o({ on: z.boolean() }),
   code_theme_changed: o({}),
   slash_command_used: o({}),
   /** Something was picked from the @ menu: what kind of thing, never which. */
@@ -233,6 +237,8 @@ export const UI_EVENTS = [
   "code_block_expanded",
   "diagram_opened",
   "diagram_source_shown",
+  "thought_expanded",
+  "thinking_expand_changed",
   "turn_resend_opened",
   "turn_resent",
   "turn_retried",

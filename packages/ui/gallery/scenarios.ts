@@ -907,8 +907,7 @@ export const scenarios: Record<string, Scenario> = {
     ],
   },
   "thinking-shown": {
-    title:
-      "The same turn with thinking shown (it is hidden by default, and the step line says so while it is going)",
+    title: "Thinking as rows, opened by Expand thinking: one done, one still streaming (Thinking…)",
     sessions: [session("s1", { title: "Think it through", state: "running" })],
     history: [
       you("u1", "Why is it slow?"),
