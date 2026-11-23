@@ -1747,6 +1747,18 @@ export const scenarios: Record<string, Scenario> = {
       await frames(4);
     },
   },
+  "new-session-environments": {
+    title: "New session with two environments: one chip names both, and its menu offers each",
+    environments: [LOCAL, BUILD],
+    sessions: [session("s1", { title: "Fix the remote session", cwd: "/Users/me/work/app" })],
+    blank: { cwd: "/Users/me/work/app" },
+    after: async (root) => {
+      await until(() => root.querySelector('[data-kind="blank-folder"]') !== null, "the folder");
+      root.querySelector<HTMLElement>('[data-kind="blank-folder"]')?.click();
+      await until(() => document.querySelector('[data-kind="blank-folders"]') !== null, "the menu");
+      await frames(4);
+    },
+  },
   "new-session-untrusted": {
     title:
       "New session in a folder nobody has decided on, with a long name: marked before the first message",

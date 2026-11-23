@@ -81,6 +81,7 @@ export const zhCN: Readonly<Record<MessageKey, Message>> = {
 
   // 空白对话：第一条消息之前的新会话
   "blank.title": "新会话",
+  "blank.hero": "今天想让 Cycle 做点什么？",
   "blank.where": "会话在哪里运行",
   "blank.folder": "文件夹",
   "blank.folder.placeholder": "/path/to/project",

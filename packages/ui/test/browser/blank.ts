@@ -15,7 +15,7 @@ export const chosenFolder = async (): Promise<string> => {
   const button = await folderButton();
   const tip = document.getElementById(button.getAttribute("aria-labelledby") ?? "");
   const name = tip?.firstChild?.textContent ?? "";
-  return name.startsWith("Folder: ") ? name.slice("Folder: ".length) : "";
+  return name.startsWith("Folder: ") ? (name.slice("Folder: ".length).split(" · ")[0] ?? "") : "";
 };
 
 /** Opens the folder's menu. */
@@ -42,4 +42,10 @@ export const typeFolder = async (user: User, path: string) => {
 export const browseFolders = async (user: User) => {
   const menu = await openFolders(user);
   await user.click(within(menu).getByRole("menuitem", { name: "Browse…" }));
+};
+
+/** Moves the blank conversation to another environment, from the same menu the folder is chosen in. */
+export const chooseEnvironment = async (user: User, name: string) => {
+  const menu = await openFolders(user);
+  await user.click(within(menu).getByRole("menuitem", { name }));
 };

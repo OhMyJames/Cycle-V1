@@ -36,7 +36,7 @@ import { propertiesOf, withEffortFor } from "./config-form.tsx";
 import { ConversationView } from "./conversation.tsx";
 import { FolderBrowser } from "./folder-browser.tsx";
 import { useI18n } from "./i18n.tsx";
-import { CheckIcon, ChevronDownIcon } from "./icons.tsx";
+import { CheckIcon } from "./icons.tsx";
 import { StateBlock } from "./state-block.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
 import { Tip } from "./tip.tsx";
@@ -178,43 +178,29 @@ export function BlankConversationView({
   const folderName = cwd === "" ? t("blank.folder.choose") : baseName(cwd);
   const folderLabel =
     cwd === "" ? t("blank.folder.choose") : t("blank.folder.named", { path: cwd });
+  const hero = t("blank.hero");
+  // The environment is named in the chip when it can be changed or is not this computer; the tip then names it too.
+  const showEnvironment = choices.length > 1 || !local;
+  const chipLabel = showEnvironment ? `${folderLabel} · ${environmentName}` : folderLabel;
 
   // Before the first message the box sits in the middle with where it runs in one line just above it (old-cycle's new
   // session): what is chosen and what is written are one thing. Once it is sent, the message shows as the conversation and
   // the box goes to the foot, where it is in a session.
   const where = (
     <fieldset data-slot="blank-where" disabled={starting} aria-label={t("blank.where")}>
-      {choices.length > 1 ? (
-        <Select
-          items={choices.map((h) => ({ value: h.id, label: h.name }))}
-          value={blank.environmentId}
-          onValueChange={(next) => {
-            if (typeof next === "string") store.changeBlank({ environmentId: next });
-          }}
-        >
-          <SelectTrigger data-kind="blank-environment" aria-label={t("newSession.environment")}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {choices.map((h) => (
-              <SelectItem key={h.id} value={h.id}>
-                {h.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : null}
       <Menu
         modal={false}
         onAction={(value) => {
           if (value === "browse") void browse();
           else if (value === "type") setTyping(true);
+          else if (typeof value === "string" && value.startsWith("environment:"))
+            store.changeBlank({ environmentId: value.slice("environment:".length) });
           else if (typeof value === "string" && value.startsWith("recent:"))
             choose(value.slice("recent:".length), "recent");
         }}
       >
         {/* The tip names it, with the whole path: the button shows only the folder's last part. */}
-        <Tip label={folderLabel} shortcut="mod+o">
+        <Tip label={chipLabel} shortcut="mod+o">
           <MenuTrigger
             ref={folderTrigger}
             data-variant="ghost"
@@ -223,8 +209,15 @@ export function BlankConversationView({
             disabled={starting}
             aria-describedby={blank.trust === "undecided" ? trustId : undefined}
           >
+            {showEnvironment ? (
+              <>
+                <span data-slot="blank-environment-name">{environmentName}</span>
+                <span data-slot="blank-where-dot" aria-hidden="true">
+                  /
+                </span>
+              </>
+            ) : null}
             <span data-slot="blank-folder-name">{folderName}</span>
-            <ChevronDownIcon size={13} aria-hidden="true" />
           </MenuTrigger>
         </Tip>
         <MenuContent
@@ -234,6 +227,27 @@ export function BlankConversationView({
           finalFocus={afterChoosing}
           data-kind="blank-folders"
         >
+          {choices.length > 1 ? (
+            <>
+              <MenuGroup>
+                <MenuGroupLabel>{t("newSession.environment")}</MenuGroupLabel>
+                {choices.map((h) => (
+                  <MenuItem
+                    key={h.id}
+                    value={`environment:${h.id}`}
+                    label={h.name}
+                    data-current={h.id === blank.environmentId || undefined}
+                  >
+                    <span data-slot="blank-recent-name">{h.name}</span>
+                    {h.id === blank.environmentId ? (
+                      <CheckIcon size={13} aria-hidden="true" />
+                    ) : null}
+                  </MenuItem>
+                ))}
+              </MenuGroup>
+              <MenuSeparator />
+            </>
+          ) : null}
           {recent.length > 0 ? (
             <MenuGroup>
               <MenuGroupLabel>{t("blank.folder.recent")}</MenuGroupLabel>
@@ -402,6 +416,7 @@ export function BlankConversationView({
         ) : state !== null ? (
           <div data-slot="blank-lead">{state}</div>
         ) : null}
+        {shown === undefined ? <h2 data-slot="blank-hero">{hero}</h2> : null}
         {where}
         {box}
       </div>
