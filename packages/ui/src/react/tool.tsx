@@ -1,14 +1,16 @@
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
 import { useEffect, useRef, useState } from "react";
+import { insideFolder } from "../files-view.ts";
 import type { Translator } from "../i18n.ts";
 import type { Block, DiffLine, ToolFacts, ToolItem } from "../model/index.ts";
 import { activityOf, isLive, streamsOf, toolFacts } from "../model/index.ts";
+import { filesRootOf } from "../store/index.ts";
 import { AgentLink } from "./agent-link.tsx";
 import { useI18n } from "./i18n.tsx";
-import { ChevronRightIcon, CloseIcon } from "./icons.tsx";
+import { ChevronRightIcon, CloseIcon, FileIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
 import { isSafeLink, Markdown } from "./markdown.tsx";
-import { useAppStore } from "./store-context.tsx";
+import { useAppState, useAppStore } from "./store-context.tsx";
 
 /**
  * Whether a card or row is open: it starts open when it holds a failure (that is what the person came to read), opens by
@@ -194,6 +196,21 @@ export function Lead({ mark }: { mark: "going" | "failed" | "other" }) {
  */
 export function ToolCard({ tool }: { tool: ToolItem }) {
   const { t } = useI18n();
+  const store = useAppStore();
+  // A file it read or changed, inside the session's folder: it can be shown in the Files tab. Not one it deleted or moved
+  // away, and not from a call that failed: there may be nothing there to show.
+  const activity = activityOf(tool);
+  const where = tool.locations?.[0]?.path;
+  const filesRoot = useAppState(filesRootOf);
+  const inFiles =
+    tool.status === "completed" &&
+    (activity === "read" || activity === "edit") &&
+    tool.toolKind !== "delete" &&
+    tool.toolKind !== "move" &&
+    typeof where === "string" &&
+    filesRoot !== undefined
+      ? insideFolder(where, filesRoot)
+      : undefined;
   const status = tool.status ?? "pending";
   const failed = status === "failed" || status === "cancelled";
   // The model ends a turn's calls when the turn ends (cancelled), so one that is live is going.
@@ -276,6 +293,19 @@ export function ToolCard({ tool }: { tool: ToolItem }) {
         diff === undefined &&
         facts.edit.additions + facts.edit.deletions > 0 ? (
           <p data-slot="tool-note">{t("tool.diff.tooLarge")}</p>
+        ) : null}
+        {inFiles !== undefined ? (
+          <button
+            type="button"
+            data-slot="tool-files-link"
+            onClick={() => {
+              store.showInFiles(inFiles);
+              store.track("file_shown_from_conversation", { target: "file", from: "tool" });
+            }}
+          >
+            <FileIcon size={12} />
+            {t("files.showInFiles")}
+          </button>
         ) : null}
         {output !== "" ? <Copyable kind="output" text={output} /> : null}
         {streams.err !== "" ? <Copyable kind="stderr" text={streams.err} /> : null}

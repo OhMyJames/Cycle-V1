@@ -911,6 +911,214 @@ html[data-platform="darwin"] [data-slot="page-heading"] {
   overflow: auto;
 }
 
+/* The Files tab (CYCL-92): a head with where it is and its actions, then the tree, or the file shown in its place. The
+   tree is the sidebar's density: a row per entry, indented by the folder it is in. */
+[data-slot="files"] {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 0 0.5rem 1.5rem;
+  font-size: var(--cycle-text-ui);
+  line-height: var(--cycle-leading-ui);
+}
+
+[data-slot="files-head"] {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.5rem 0;
+  background: var(--cycle-surface-sidebar);
+}
+
+[data-slot="files-root"] {
+  flex: 1;
+  min-width: 0;
+  padding: 0 0.25rem;
+  overflow: hidden;
+  color: var(--cycle-ink);
+  font-family: var(--cycle-font-display);
+  font-weight: 600;
+  white-space: nowrap;
+  mask-image: var(--cycle-fade-end);
+}
+
+/* A path keeps its end, the file's name: it is cut from the start. */
+[data-slot="files-path"] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  direction: rtl;
+  color: var(--cycle-ink-secondary);
+  font-family: var(--ui-font-mono);
+  font-size: var(--cycle-text-meta);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-kind="files-action"] {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+}
+
+[data-slot="files-list"] {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* What a folder holds, under it: indented by one step. */
+[data-slot="files-nest"] {
+  padding-left: 1rem;
+}
+
+[data-slot="files-row"] {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  width: 100%;
+  min-width: 0;
+  height: 1.75rem;
+  padding: 0 0.25rem;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--cycle-ink);
+  font: inherit;
+  text-align: start;
+}
+
+[data-slot="files-row"] > svg {
+  flex: none;
+  color: var(--cycle-ink-muted);
+}
+
+button[data-slot="files-row"] {
+  cursor: pointer;
+  transition: background-color var(--cycle-motion-state) var(--cycle-ease);
+}
+
+button[data-slot="files-row"]:hover {
+  background: var(--cycle-surface-hover);
+}
+
+button[data-slot="files-row"]:focus-visible {
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: -1.5px;
+}
+
+/* Ignored by git, or nothing to open: there, but quieter. */
+[data-slot="files-row"]:is([data-ignored], [data-kind="other"]) {
+  color: var(--cycle-ink-muted);
+}
+
+[data-slot="files-chevron"] {
+  flex: none;
+  width: 12px;
+  color: var(--cycle-ink-muted);
+  transition: transform var(--cycle-motion-disclosure) var(--cycle-ease);
+}
+
+[aria-expanded="true"] > [data-slot="files-chevron"] {
+  transform: rotate(90deg);
+}
+
+/* The whole rest of the row, so the fade is at the row's end and only a name that reaches it fades. */
+[data-slot="files-name"] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: var(--cycle-fade-end);
+}
+
+[data-slot="files-quiet"] {
+  margin: 0;
+  padding: 0.25rem;
+  color: var(--cycle-ink-muted);
+  font-size: var(--cycle-text-meta);
+  line-height: var(--cycle-leading-meta);
+}
+
+[data-slot="files-plain"] {
+  margin: 0;
+  padding: 0.75rem;
+  overflow: auto;
+  border-radius: var(--ui-radius);
+  background: var(--ui-muted);
+  font-family: var(--ui-font-mono);
+  font-size: var(--cycle-text-meta);
+  white-space: pre;
+}
+
+[data-slot="files-markdown"] {
+  padding: 0 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+[data-slot="files-image"] {
+  display: flex;
+  justify-content: center;
+  padding: 0.5rem 0;
+}
+
+[data-slot="files-image"] > img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--ui-radius);
+}
+
+[data-slot="files-more"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 0.25rem 0;
+  color: var(--cycle-ink-muted);
+  font-size: var(--cycle-text-meta);
+}
+
+/* In a call that read or changed a file: a quiet link to it in the Files tab, at the tool's indent. */
+[data-slot="tool-files-link"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0.25rem 1.5rem;
+  padding: 0 0.25rem;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: transparent;
+  color: var(--cycle-ink-secondary);
+  font: inherit;
+  font-size: var(--cycle-text-meta);
+  cursor: pointer;
+}
+
+[data-slot="tool-files-link"]:hover {
+  color: var(--cycle-ink);
+}
+
+button[data-slot="mention-chip"] {
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button[data-slot="mention-chip"]:hover {
+  background: var(--cycle-surface-hover);
+}
+
+:is([data-slot="tool-files-link"], button[data-slot="mention-chip"]):focus-visible {
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: 1px;
+}
+
 /* The Overview (CYCL-88): blocks one under another, each a quiet head and a few dense lines, at the sidebar's sizes. */
 [data-slot="overview"] {
   display: flex;

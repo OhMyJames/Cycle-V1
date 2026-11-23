@@ -168,6 +168,7 @@ test("connects, creates a session, and lists it", async () => {
     trust: true,
     connectors: true,
     sessionMentions: true,
+    fs: true,
   });
   expect((await m.agents("local")).map((a) => a.id)).toEqual(["fake"]);
 });
@@ -411,6 +412,7 @@ test("a connection that drops is picked up again, and a request still open is no
     trust: true,
     connectors: true,
     sessionMentions: true,
+    fs: true,
   });
   await until(
     () => of(events, "environment-status").at(-1)?.state === "connected",

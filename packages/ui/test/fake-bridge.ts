@@ -55,6 +55,7 @@ export const fakeBridge = (
       trust?: boolean;
       connectors?: boolean;
       sessionMentions?: boolean;
+      fs?: boolean;
     };
     /** The connectors the daemon keeps. Changed in place by what the page asks. */
     connectors?: ConnectorInfo[];
@@ -153,6 +154,21 @@ export const fakeBridge = (
       path,
       trusted,
       from: path,
+    })),
+    listFiles: record("listFiles", async (_e: string, _s: string, path: string) => ({
+      root: "/work",
+      path,
+      entries: [],
+      truncated: false,
+    })),
+    readFile: record("readFile", async (_e: string, _s: string, path: string) => ({
+      path,
+      size: 0,
+      mtimeMs: 0,
+      kind: "text" as const,
+      text: "",
+      offset: 0,
+      next: null,
     })),
     searchFiles: record("searchFiles", async () => ({
       root: "/work",
