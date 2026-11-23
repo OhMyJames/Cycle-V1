@@ -852,7 +852,7 @@ test("a long plan does not lengthen the window: nothing scrolls the header off i
   const root = document.createElement("div");
   root.id = "root";
   document.body.append(root);
-  const updates = [
+  const updates: SessionUpdate[] = [
     you("u1"),
     u({
       sessionUpdate: "plan_update",
@@ -869,8 +869,8 @@ test("a long plan does not lengthen the window: nothing scrolls the header off i
   ];
   const script = fakeBridge({
     connected: true,
-    snapshot: () => ({
-      conversation: updates.reduce(applyUpdate, emptyConversation()),
+    snapshot: (): SessionSnapshot => ({
+      conversation: updates.reduce((c, u) => applyUpdate(c, u), emptyConversation()),
       permissions: [],
       version: updates.length,
     }),
