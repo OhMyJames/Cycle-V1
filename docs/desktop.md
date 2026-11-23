@@ -157,6 +157,10 @@ Streamdown 的标记用 Tailwind 的工具类,而且用的是 shadcn 的颜色�
 - 测试用的 `CYCLE_UPDATE_URL` 只接受 `127.0.0.1` 或 `localhost`,不能把应用指到别处。
 - 测试用的 `CYCLE_TEST_HIDDEN_WINDOW=1` 让应用不显示窗口、不发系统通知;macOS 上应用也不进 Dock、不能到前台。窗口里的页面照常运行,测试经 DevTools 读它。
 
+## 窗口的大小和位置
+
+应用再打开时,窗口回到上次的大小、位置,以及是否最大化、是否全屏(`apps/desktop/src/main/window-frame.ts`)。主进程把它写在应用数据目录的 `window-frame.json` 里:移动、改大小停下约半秒后写一次,关窗时再写一次;存的是正常状态下的框,所以从最大化或全屏退出时回到原来的大小。启动时只在当前接着的屏幕上恢复:窗口横竖都至少有 100px 落在某块屏幕的可用区域内才用它,并挪进、缩进那块屏幕(不小于最小尺寸 720×480),标题栏总能拿到;那块屏幕拔掉了、文件读不懂,就用默认的 1200×800,在主屏幕居中。Mac 上的 `hiddenInset` 标题栏不变。测试的隐藏窗口(`CYCLE_TEST_HIDDEN_WINDOW=1`)不读也不写这个文件。没有用户动作,不埋点。
+
 ## 代码配色、图片、搜索
 
 - **代码配色**:Streamdown 2.x 自己不带语法高亮,它是单独的插件 `@streamdown/code`(Shiki,JavaScript 正则引擎,不需要 WebAssembly,CSP 不变)。设置页的 Appearance 里可以在五套配色里选(见 DESIGN.md 附录 B,含各套的对比度),下面有一段示例代码,按对话里代码块的样子画,选了立即看到。打包开了分包:语言和主题按需加载,启动约 0.9 MB,全部约 12 MB。

@@ -20,6 +20,7 @@ import {
   ipcMain,
   Notification,
   nativeTheme,
+  screen,
   session,
   shell,
 } from "electron";
@@ -31,6 +32,7 @@ import { ConnectionManager } from "./manager.ts";
 import { memoryPreferencesStore, type PreferencesStore, startPreferences } from "./preferences.ts";
 import { fileSettings } from "./settings.ts";
 import { cleanStale, Updater, type UpdaterDeps } from "./updater.ts";
+import { type FrameStore, keepFrame, MIN_SIZE, restoredFrame } from "./window-frame.ts";
 
 export type AppOptions = {
   /** Where the built page is: index.html, renderer.js, app.css. */
@@ -49,6 +51,8 @@ export type AppOptions = {
   analytics?: AnalyticsControl;
   /** Where the look and the language the person chose are kept. Without it, they last for this run. */
   preferences?: PreferencesStore;
+  /** Where the window's size and place are kept between runs. Without it, the window opens at the default frame. */
+  windowFrame?: FrameStore;
   /** How the app updates itself. Without it, updating is off. */
   update?: Omit<UpdaterDeps, "emit" | "quit">;
 };
@@ -280,12 +284,18 @@ export const startApp = async (options: AppOptions) => {
   );
   session.defaultSession.setPermissionCheckHandler(() => false);
 
+  // As the person left it, on a screen that is connected now (window-frame.ts).
+  const frame = restoredFrame(
+    options.windowFrame?.load(),
+    screen.getAllDisplays().map((display) => display.workArea),
+    screen.getPrimaryDisplay().workArea,
+  );
   window = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    ...frame.bounds,
     // Below this the sidebar and the conversation cannot both be used (DESIGN.md section 9).
-    minWidth: 720,
-    minHeight: 480,
+    minWidth: MIN_SIZE.width,
+    minHeight: MIN_SIZE.height,
+    ...(frame.fullScreen ? { fullscreen: true } : {}),
     // On a Mac the title bar is hidden; the traffic lights sit in the sidebar's corner.
     ...(process.platform === "darwin"
       ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 16, y: 14 } }
@@ -302,6 +312,28 @@ export const startApp = async (options: AppOptions) => {
       backgroundThrottling: !hidden,
     },
   });
+  if (frame.maximized && !frame.fullScreen) window.maximize();
+  if (options.windowFrame !== undefined) {
+    const shown = window;
+    const keeper = keepFrame({
+      store: options.windowFrame,
+      current: () =>
+        shown.isDestroyed()
+          ? undefined
+          : {
+              bounds: shown.getNormalBounds(),
+              maximized: shown.isMaximized(),
+              fullScreen: shown.isFullScreen(),
+            },
+    });
+    shown.on("resize", keeper.changed);
+    shown.on("move", keeper.changed);
+    shown.on("maximize", keeper.changed);
+    shown.on("unmaximize", keeper.changed);
+    shown.on("enter-full-screen", keeper.changed);
+    shown.on("leave-full-screen", keeper.changed);
+    shown.on("close", keeper.closing);
+  }
   const contents = window.webContents;
   // A link in the conversation opens in the user's browser (or mail app, for mailto), and never here.
   contents.setWindowOpenHandler(({ url }) => {
