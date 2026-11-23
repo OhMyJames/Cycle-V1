@@ -856,18 +856,23 @@ export class AppStore {
    * while its environment is connected and the agent is not at work. If it cannot go, it comes back in the box, so
    * nothing is lost. Resolves when the daemon has answered.
    */
-  retry = async (resend: Resend): Promise<void> => {
+  retry = async (resend: Resend): Promise<boolean> => {
     const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
-    if (environmentId === undefined || sessionId === undefined || resend.busy) return;
-    if (this.#state.status[environmentId]?.state !== "connected") return;
+    if (environmentId === undefined || sessionId === undefined || resend.busy) return false;
+    if (this.#state.status[environmentId]?.state !== "connected") return false;
     const content = againBlocks(resend.prompts);
-    if (content === undefined) return;
-    this.track("turn_retried", { failure: resend.failure, changed: resend.changed.length > 0 });
+    if (content === undefined) return false;
     const sent = await this.#attempt(async () => {
       await this.#bridge.prompt(environmentId, sessionId, content, { via: "button" });
       return true;
     });
-    if (sent !== true) this.drafts.restore(viewKey(environmentId, sessionId), [content]);
+    if (sent !== true) {
+      this.drafts.restore(viewKey(environmentId, sessionId), [content]);
+      return false;
+    }
+    // Counted once it went, like `turn_resent`: a retry that could not be sent is not one.
+    this.track("turn_retried", { failure: resend.failure, changed: resend.changed.length > 0 });
+    return true;
   };
 
   /** What fits an @ in the selected session's box. Quiet when it cannot say: a menu that is not there is enough. */

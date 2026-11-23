@@ -1054,7 +1054,6 @@ export class Daemon {
     );
   }
 
-  /** Gives a prompt to the agent, starting it if it is not running. */
   /**
    * Hands a prompt to the turn that is running (docs/protocol.md §8). Undefined when the agent
    * cannot take it (it does not steer, it is not there, or it refused, as when the turn has just
@@ -1081,10 +1080,16 @@ export class Daemon {
     const starting = this.#ensureAgent(session);
     // Its failure is met below, once the prompt is ready; not reported as unhandled while the prompt is read.
     starting.catch(() => undefined);
-    const prompt = await this.#expand(session, given);
+    session.preparing++;
+    let prompt: unknown[];
+    try {
+      prompt = await this.#expand(session, given);
+    } finally {
+      session.preparing--;
+    }
     const link = await starting;
     if (session.startingCancels !== stopsBefore) {
-      // Stopped while the agent was starting: there is no turn to stop yet, so the prompt is not given.
+      // Stopped while the agent was starting or the prompt was being made ready: there is no turn to stop yet, so the prompt is not given.
       // The turn ends as a cancelled one, which clients and the queue see like any other.
       this.#onUpdate(session, {
         sessionUpdate: "state_update",
@@ -1975,8 +1980,9 @@ export class Daemon {
         this.#settle(session, pending, pending.cancelled);
       // A stop means the person wants to change direction: what waits goes back to the input box.
       this.#returnQueue(session, "cancelled");
-      // The agent is still starting: it has no turn to stop, so what is about to be given to it is held back.
-      if (session.starting !== undefined) session.startingCancels++;
+      // The agent is still starting, or a prompt is still being made ready: there is no turn to stop, so what is about to
+      // be given to it is held back.
+      if (session.starting !== undefined || session.preparing > 0) session.startingCancels++;
       await session.link?.agent
         .notify(methods.agent.session.cancel, { sessionId: session.entry.agentSessionId } as never)
         .catch(() => undefined);

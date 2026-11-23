@@ -19,6 +19,7 @@ import {
   base64Bytes,
   canAdd,
   IMAGE_TYPES,
+  isPdfBytes,
   kindOf,
   textOfBytes,
   textType,
@@ -194,8 +195,11 @@ export function Composer({
     query: undefined,
     index: 0,
   });
-  const [found, setFound] = useState<{ query: string; result: FileSearch } | undefined>();
-  // Files are asked for a moment after the last key, and only what answers the query as it stands now is shown.
+  const [found, setFound] = useState<
+    { query: string; result: FileSearch | undefined } | undefined
+  >();
+  // Files are asked for a moment after the last key, and only what answers the query as it stands now is shown. A search
+  // that failed still answers (with no files), so the sessions waiting on it are shown.
   useEffect(() => {
     const query = typed.mention;
     if (query === undefined || !canFind) {
@@ -205,7 +209,7 @@ export function Composer({
     let current = true;
     const timer = setTimeout(() => {
       void store.searchFiles(query).then((result) => {
-        if (current && result !== undefined) setFound({ query, result });
+        if (current) setFound({ query, result });
       });
     }, MENTION_DELAY);
     return () => {
@@ -223,7 +227,9 @@ export function Composer({
           description: command.description,
         }));
   const hits =
-    typed.mention !== undefined && found?.query === typed.mention ? found.result.entries : [];
+    typed.mention !== undefined && found?.query === typed.mention
+      ? (found.result?.entries ?? [])
+      : [];
   // Sessions are known here at once, files a moment later: they are shown together, so the rows do not move under the
   // pointer when the files come.
   const filesAnswered = !canFind || found?.query === typed.mention;
@@ -279,6 +285,7 @@ export function Composer({
     kind === undefined &&
     typed.mention !== undefined &&
     found?.query === typed.mention &&
+    found.result !== undefined &&
     (typed.mention !== "" || found.result.truncated !== true) &&
     mentionRows.length === 0 &&
     mentionQueryText !== dismissed;
@@ -299,7 +306,7 @@ export function Composer({
     } else if (kind === "mention") {
       const hit = hits[index];
       const other = others[index - hits.length];
-      const root = found?.result.root;
+      const root = found?.result?.root;
       let mention: Mention;
       if (hit !== undefined && root !== undefined) {
         mention = {
@@ -470,6 +477,11 @@ export function Composer({
           type = textType(file.type);
           bytes = new TextEncoder().encode(text).length;
         } else {
+          if (kind === "pdf" && !isPdfBytes(new Uint8Array(await file.slice(0, 5).arrayBuffer()))) {
+            if (store.drafts.generation(sessionKey) !== generation) return;
+            refuse({ reason: "type", name: file.name });
+            continue;
+          }
           data = await toBase64(file);
           // The message was sent while this was being read: the file is no longer for a message that is still being written.
           if (store.drafts.generation(sessionKey) !== generation) return;

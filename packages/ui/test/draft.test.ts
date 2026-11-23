@@ -11,6 +11,7 @@ import {
   recall,
   returnedId,
   sentTexts,
+  wordAt,
 } from "../src/draft.ts";
 import type { Block } from "../src/model/index.ts";
 
@@ -450,4 +451,11 @@ test("a session named with @ is its title in the text and a session link beside 
     },
   ]);
   expect(draftOf((sent ?? []) as Block[]).mentions).toEqual([mention]);
+});
+
+test("an @name is found only as a whole word", () => {
+  expect(wordAt("see @Fixtures and @Fix.", "@Fix")).toBe(18);
+  expect(wordAt("@Fixtures", "@Fix")).toBe(-1);
+  expect(wordAt("(@Fix) then @Fix", "@Fix", 6)).toBe(12);
+  expect(wordAt("a@Fix", "@Fix")).toBe(-1);
 });

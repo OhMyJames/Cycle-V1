@@ -4,6 +4,7 @@ import {
   attachmentUri,
   base64Bytes,
   canAdd,
+  isPdfBytes,
   kindOf,
   resourceName,
   textOfBytes,
@@ -123,4 +124,10 @@ test("an image may be added until a limit of the prompt is reached", () => {
   expect(canAdd(many, { name: "d.png", type: "image/png", bytes: 1 })).toEqual({
     reason: "too-many",
   });
+});
+
+test("a PDF is told by its first bytes, not its name", () => {
+  expect(isPdfBytes(new TextEncoder().encode("%PDF-1.7"))).toBe(true);
+  expect(isPdfBytes(new TextEncoder().encode("<html>"))).toBe(false);
+  expect(isPdfBytes(new Uint8Array())).toBe(false);
 });

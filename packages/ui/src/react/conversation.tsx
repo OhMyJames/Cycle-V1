@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { resourceName } from "../attachments.ts";
-import { MENTION_META } from "../draft.ts";
+import { MENTION_META, wordAt } from "../draft.ts";
 import { SESSION_URI_PREFIX } from "../mention.ts";
 import {
   type Block,
@@ -79,24 +79,25 @@ const withSessionChips = (
   mentions: readonly { said: string; name: string }[],
 ): ReactNode => {
   if (mentions.length === 0) return text;
-  // The longest first, so that a title that starts another does not take part of it.
+  // The longest first, so that a title that starts another does not take part of it. Only as a whole word, as the box
+  // sent it (`wordAt`): `@Fix` is not in `@Fixtures`.
   const words = [...mentions].sort((a, b) => b.said.length - a.said.length);
   const parts: ReactNode[] = [];
-  let rest = text;
+  let from = 0;
   let at = 0;
-  while (rest !== "") {
+  while (from < text.length) {
     let found: { index: number; mention: { said: string; name: string } } | undefined;
     for (const mention of words) {
-      const index = rest.indexOf(`@${mention.said}`);
+      const index = wordAt(text, `@${mention.said}`, from);
       if (index !== -1 && (found === undefined || index < found.index)) found = { index, mention };
     }
     if (found === undefined) break;
-    if (found.index > 0) parts.push(rest.slice(0, found.index));
+    if (found.index > from) parts.push(text.slice(from, found.index));
     parts.push(<SessionChip key={`chip-${at}`} {...found.mention} />);
-    rest = rest.slice(found.index + found.mention.said.length + 1);
+    from = found.index + found.mention.said.length + 1;
     at += 1;
   }
-  if (rest !== "") parts.push(rest);
+  if (from < text.length) parts.push(text.slice(from));
   return parts;
 };
 
@@ -175,12 +176,10 @@ function AgentBlocks({ blocks, streaming }: { blocks: Block[]; streaming: boolea
 }
 
 /**
- * Copy under a message, seen when the pointer is over it or the focus is in it. It takes its room whether seen or not, so
- * coming and going it moves nothing. Reported as which kind of message, never what it said.
- */
-/**
- * Under a message: Copy, when it has words, and when it was sent or its turn's reply finished, when that is known. The
- * time sits on the side away from the edge the message keeps to, so the two read as one row.
+ * The row under a message: Copy, when it has words, and when it was sent or its turn's reply finished, when that is
+ * known; the time sits on the side away from the edge the message keeps to. Seen when the pointer is over the message or
+ * the focus is in it; it takes its room whether seen or not, so coming and going it moves nothing. A copy is reported as
+ * which kind of message, never what it said.
  */
 function MessageActions({
   kind,

@@ -48,12 +48,11 @@ export const mentionText = (mention: Pick<Mention, "path" | "kind">): string =>
   `@${mention.path}${mention.kind === "folder" ? "/" : ""}`;
 
 /**
- * Whether the text still names a mention: its `@path` as a whole word. `@a.ts` is not in `@a.tsx`, and a mention whose
- * @path was edited into another name is not sent.
+ * Where `word` (an `@name`) first stands as a whole word in `text`, at or after `from`, or -1. `@a.ts` is not in `@a.tsx`:
+ * it starts after a space or an opening mark and ends before a space, a closing mark or a sentence's last full stop.
  */
-export const namesMention = (text: string, mention: Pick<Mention, "path" | "kind">): boolean => {
-  const word = mentionText(mention);
-  for (let at = text.indexOf(word); at !== -1; at = text.indexOf(word, at + 1)) {
+export const wordAt = (text: string, word: string, from = 0): number => {
+  for (let at = text.indexOf(word, from); at !== -1; at = text.indexOf(word, at + 1)) {
     const before = text[at - 1];
     const after = text[at + word.length];
     const startsWord = before === undefined || /[\s([{"']/.test(before);
@@ -62,10 +61,17 @@ export const namesMention = (text: string, mention: Pick<Mention, "path" | "kind
       after === undefined ||
       /[\s,;:!?)\]}"']/.test(after) ||
       (after === "." && (next === undefined || /\s/.test(next)));
-    if (startsWord && endsWord) return true;
+    if (startsWord && endsWord) return at;
   }
-  return false;
+  return -1;
 };
+
+/**
+ * Whether the text still names a mention: its `@path` as a whole word (`wordAt`). A mention whose @path was edited into
+ * another name is not sent.
+ */
+export const namesMention = (text: string, mention: Pick<Mention, "path" | "kind">): boolean =>
+  wordAt(text, mentionText(mention)) !== -1;
 
 /** The `file://` address of a path under a root, as the agent reads it. */
 export const fileUri = (root: string, path: string, kind: "file" | "folder"): string =>
@@ -208,10 +214,10 @@ export const draftOf = (blocks: readonly Block[]): Draft => {
         data: block.data,
         bytes: base64Bytes(block.data) ?? 0,
       });
-    } else if (block.type === "resource" && fileOf(block) !== undefined) {
-      attachments.push(fileOf(block) as Attachment);
-    } else if (block.type !== "text") {
-      kept.push(keep(block));
+    } else {
+      const file = block.type === "resource" ? fileOf(block) : undefined;
+      if (file !== undefined) attachments.push(file);
+      else if (block.type !== "text") kept.push(keep(block));
     }
   }
   return { text: texts.join(""), attachments, mentions, kept };

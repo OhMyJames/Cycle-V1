@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { join } from "node:path";
 import { methods } from "@agentclientprotocol/sdk/experimental/v2";
 import { SESSION_MENTION_LIMITS, sessionIdOfUri, sessionUri } from "@cycle/protocol";
-import { Daemon } from "../src/index.ts";
+import { Daemon, JsonlLogStore, type LogStore, type SessionLog } from "../src/index.ts";
 import type { LogRecord } from "../src/log/types.ts";
 import {
   collapseSessionMentions,
@@ -250,4 +251,63 @@ test("a deleted, unknown or own session is a note to the agent, not a refused pr
   expect(given[3]?.text).toContain("it is this session");
   const echoed = c.seen.filter((s) => s.update.sessionUpdate === "user_message").at(-1);
   expect((echoed?.update as { content?: unknown[] } | undefined)?.content).toEqual(prompt);
+});
+
+test("a stop while a mentioned session is being read means the prompt is not given to the agent", async () => {
+  // Reading a session's whole record (what a mention does) is held until released; every other read goes as it is.
+  const real = new JsonlLogStore({ dir: join(dir, "sessions") });
+  let holding = false;
+  let release: () => void = () => {};
+  let reading = 0;
+  const store: LogStore = {
+    exists: (id) => real.exists(id),
+    remove: (id) => real.remove(id),
+    open: async (id) => {
+      const log = await real.open(id);
+      const wrapped: SessionLog = {
+        sessionId: log.sessionId,
+        lastSeq: () => log.lastSeq(),
+        updatedAt: () => log.updatedAt(),
+        read: async (range, options) => {
+          if (holding && options?.stored === true) {
+            reading++;
+            await new Promise<void>((resolve) => {
+              release = resolve;
+            });
+          }
+          return log.read(range, options);
+        },
+        subscribe: (listener) => log.subscribe(listener),
+        close: () => log.close(),
+        append: (record) => log.append(record),
+      };
+      return wrapped;
+    },
+  };
+  const fake = fakeAgent();
+  const daemon = await Daemon.start({ dataDir: dir, agents: [fake.definition], store });
+  open.push(daemon);
+  const c = await connectClient(daemon);
+  const { sessionId: first } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  const { sessionId: second } = await c.agent.request(methods.agent.session.new, { cwd: "/tmp" });
+  await c.agent.request(methods.agent.session.resume, { sessionId: second, cwd: "/tmp" });
+  // The agent is running and idle: a stop now finds no starting agent to hold the prompt back by.
+  await c.agent.request(methods.agent.session.prompt, { sessionId: second, prompt: say("hello") });
+  await until(() => c.ended() === 1, "the first turn");
+  const promptsBefore = fake.log.prompts.length;
+
+  holding = true;
+  const sent = c.agent.request(methods.agent.session.prompt, {
+    sessionId: second,
+    prompt: [{ type: "text", text: "go on from @Plan" }, link(first, "Plan")] as never,
+  });
+  await until(() => reading === 1, "the mentioned session to be read");
+  await c.agent.notify(methods.agent.session.cancel, { sessionId: second });
+  // A request after the stop is answered after the stop has been taken.
+  await c.agent.request(methods.agent.session.list, {});
+  release();
+
+  await sent;
+  await until(() => c.ended() === 2, "the stopped turn to end");
+  expect(fake.log.prompts.length).toBe(promptsBefore);
 });

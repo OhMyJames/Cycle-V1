@@ -176,11 +176,15 @@ function TurnAgain({ resend }: { resend: Resend }) {
   const why = !connected ? "turn.retry.offline" : resend.busy ? "turn.retry.busy" : undefined;
   const whyId = useId();
   const retry = async () => {
+    if (sending) return;
     setSending(true);
+    // Once it went, the button stays off: the new turn may not have reached the conversation yet, and a second press
+    // then would send the message twice. It goes away when the turn it ends is no longer the last.
+    let sent = false;
     try {
-      await store.retry(resend);
+      sent = await store.retry(resend);
     } finally {
-      setSending(false);
+      if (!sent) setSending(false);
     }
   };
   return (

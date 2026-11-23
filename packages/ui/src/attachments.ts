@@ -83,6 +83,18 @@ export const kindOf = (file: { type: string; name: string }): AttachmentKind =>
       : "text";
 
 /**
+ * Whether a file's first bytes are a PDF's (`%PDF-`). A file named `.pdf` that is not one (an export saved under the wrong
+ * name, an empty file) would be refused by the model and fail the whole turn, so it is refused in the box instead.
+ */
+export const isPdfBytes = (head: Uint8Array): boolean =>
+  head.length >= 5 &&
+  head[0] === 0x25 &&
+  head[1] === 0x50 &&
+  head[2] === 0x44 &&
+  head[3] === 0x46 &&
+  head[4] === 0x2d;
+
+/**
  * A file's bytes as text, or undefined when they are not text: not UTF-8, or holding a NUL (a binary file that happens
  * to decode). A byte order mark is dropped.
  */

@@ -5,13 +5,17 @@ const HOUR = 60 * MINUTE;
 /** Past this many days the date says more than a count of them. */
 const DAYS = 7;
 
+/** `narrow` for a row's few characters ("5m ago"), `long` where there is room ("5 minutes ago"). */
+export type TimeStyle = "narrow" | "long";
+
 const formats = new Map<string, Intl.RelativeTimeFormat>();
-/** One formatter per language, not one per row each minute. */
-const relativeFormat = (locale: string): Intl.RelativeTimeFormat => {
-  let format = formats.get(locale);
+/** One formatter per language and style, not one per row each minute. */
+const relativeFormat = (locale: string, style: TimeStyle): Intl.RelativeTimeFormat => {
+  const key = `${locale} ${style}`;
+  let format = formats.get(key);
   if (format === undefined) {
-    format = new Intl.RelativeTimeFormat(locale, { style: "narrow", numeric: "auto" });
-    formats.set(locale, format);
+    format = new Intl.RelativeTimeFormat(locale, { style, numeric: "auto" });
+    formats.set(key, format);
   }
   return format;
 };
@@ -27,9 +31,14 @@ const daysBetween = (then: Date, now: Date): number => {
  * day), "yesterday", "4d ago", then the date ("Mar 4", with the year when it is not this one). zh-CN: 现在, 5分钟前, 3小时前, 昨天, 4天前, 3月4日.
  * A time ahead of `now` (another machine's clock) is "now".
  */
-export const relativeTime = (at: number, now: number, locale: string): string => {
+export const relativeTime = (
+  at: number,
+  now: number,
+  locale: string,
+  style: TimeStyle = "narrow",
+): string => {
   const ago = Math.max(0, now - at);
-  const relative = relativeFormat(locale);
+  const relative = relativeFormat(locale, style);
   if (ago < MINUTE) return relative.format(0, "second");
   if (ago < HOUR) return relative.format(-Math.floor(ago / MINUTE), "minute");
   const then = new Date(at);
