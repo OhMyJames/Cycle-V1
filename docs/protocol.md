@@ -443,7 +443,7 @@ agent 在后台跑的、不是子 agent 的任务:后台命令、Monitor 之类�
 - agent 进程退出时,还在跑的任务各发一条 `stopped`。
 - 只是通告:没有停止或打开一个任务的方法。不影响 `cycle/background` 的计数(§6),它只数子 agent。
 
-Claude 的取法:SDK 的 `task_started`、`task_progress`、`task_updated`、`task_notification` 和 `background_tasks_changed`,`task_type` 不是 `local_agent` 的那些;`ambient`、`skip_transcript` 的(内部的整理任务、自动的监视)不发。`kind` 按 `task_type` 归类,认不出的是 `other`。cron 和 `ScheduleWakeup` 没有这样的生命周期,不发,客户端只能看到它们的工具调用。
+Claude 的取法:SDK 的 `task_started`、`task_progress`、`task_updated`、`task_notification` 和 `background_tasks_changed`,`task_type` 不是 `local_agent` 的那些;`ambient`、`skip_transcript` 的(内部的整理任务、自动的监视)不发。`kind` 按 `task_type` 归类,认不出的是 `other`;Monitor 的 `task_type` 和后台命令一样是 `local_bash`,按启动它的工具调用认出 `monitor`,所以同一个任务可能先报 `shell` 再纠正为 `monitor`,客户端以最后带的 `kind` 为准。cron 和 `ScheduleWakeup` 没有这样的生命周期,不发,客户端只能看到它们的工具调用。
 
 ### 会话的 goal(`_cycle/goal_update`,CYCL-87)
 
@@ -451,7 +451,7 @@ Claude 的取法:SDK 的 `task_started`、`task_progress`、`task_updated`、`ta
 
 - `condition`:目标的原文;`iterations`:已经检查了几次没达成;`setAt`:设定的时间,毫秒时间戳;`lastReason`:上一次判断没达成的理由。
 - 每次变化发一整条,客户端取最后一条为准;daemon 照常写日志,回放即还原。没有这条更新的会话(旧日志、别的 agent)是"不知道",不是"没有 goal"。
-- Claude 的取法:SDK 的 `active_goal` 消息,`value` 原样换成上面的字段名。
+- Claude 的取法:SDK 的 `active_goal` 消息,`value` 原样换成上面的字段名。**目前收不到**:Claude Code(SDK 0.3.327)只对云端容器里的进程发这条消息,本地进程没有,所以 Claude 的会话不会有 `goal_update`,客户端按"不知道"显示(CYCL-120,跟进 CYCL-121)。
 
 ### 工具调用的结果
 
