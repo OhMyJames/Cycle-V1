@@ -184,6 +184,7 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
 - **侧栏三段结构**（默认 `256px`，可拖动 `200–360px` 并记忆，`⌘B` 或按钮折叠）：
   - **顶段（固定）**：`New`（`⌘N`）与 `Search`（`⌘K`）`ghost` 行（可访问名称仍是 New session / Search sessions）、`Connectors` 入口、紧贴列表的 `WorkspaceSwitcher` + 环境 `"…"` 菜单；如有断线/重连环境，在此展示两行状态块（状态点+名称+`Retry` / 最多三行原因）。
   - **中段（独立滚动，保底 `10rem`）**：当前选中 workspace 的会话列表，分组顺序固定为 **`Needs you` → `Running` → `Today` → `Yesterday` → `Earlier`**（本地日界线，按 `updatedAt` 排序）；每项目默认展示 20 条（有状态标记或当前打开的永远展示），底部附 `Show N more sessions`（切换 workspace/环境时重置）与 `Show archived`。窗口极矮时改为整栏滚动，确保底部不裁切。
+  - **会话行**：左侧状态点（等你、在跑、未读），中间标题（放不下末尾淡出），行尾是会话最后变化的相对时间（`updatedAt`，`session-time.tsx`）：`meta` 字号、淡色、等宽数字，`Intl.RelativeTimeFormat` 按界面语言写（`5m ago` / `5分钟前`，不到一天写小时，一周内写天，再早写日期 `Nov 3` / `11月3日`，跨年带年份）；悬停给完整的本地日期时间（`<time title>`）。全页共用一个每分钟走一次的时钟，只重画时间，不重画列表。旧 daemon 不给 `updatedAt` 时不显示。
   - **底段（固定）**：当前版本号、更新状态、与进入设置页的图标按钮（`Settings`，`⌘,`）。
 - **折叠恢复**：展开时 `SidebarIcon` 开关在侧栏顶行右端（与主区头部同高，Mac 上与红绿灯同行），不放进主区；折叠后它出现在主区头部，确保无需快捷键也能用鼠标打开侧栏。按钮与 `⌘B` 折叠/展开时侧栏宽度以 `--cycle-motion-disclosure` 滑动（拖动、窗口缩放时不动）。
 
@@ -373,7 +374,7 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 ### P2：对话流与日常工作流质感打磨
 
 - [ ] **对话内高频操作**：消息、代理回复的快捷 Copy（工具的命令、输出、错误已可复制，CYCL-14）；回合失败（`turn-end` error）就地 Retry；长会话向上阅读时显示浮动“回到底部”按钮；思考内容走 `Markdown` 只读渲染；空白会话转正式会话时平滑衔接。
-- [ ] **工具调用与侧栏辨识度**：连续工具从 1 个升格为多个时保留手动展开态；会话行补充次要元信息（相对时间与未发送草稿标）；切换 workspace/环境时重置 `showAll`。
+- [ ] **工具调用与侧栏辨识度**：连续工具从 1 个升格为多个时保留手动展开态；会话行补充未发送草稿标（相对时间已做，见 §4.1）；切换 workspace/环境时重置 `showAll`。
 - [ ] **窄视口与缓存治理**：720×480 下 `composer-toolbar` 折行/紧凑适配；为 `store.views` 增加 LRU 上限，为 `selectSession` 加并发加载保护。
 - [x] **存量 i18n 迁移**：JSX、对话框、更新提示、连接状态词和 store 的报错都已迁入 `packages/ui/src/messages/en-US.ts`（CYCL-68）。
 

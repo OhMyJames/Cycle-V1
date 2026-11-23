@@ -4,6 +4,7 @@ import type { SessionSummary } from "../api.ts";
 import { markOf, type SessionGroup, type SessionList, sessionKey } from "../sessions.ts";
 import { useI18n } from "./i18n.tsx";
 import { RenameField, RenameProblem, useRename } from "./rename-field.tsx";
+import { SessionTime } from "./session-time.tsx";
 import { MARK_STYLE, MARK_WORD, StatusDot } from "./status.tsx";
 import { useAppStore } from "./store-context.tsx";
 
@@ -67,7 +68,10 @@ function Row({ session, away }: { session: SessionSummary; away: Away | undefine
           }}
         />
       ) : (
-        <span data-slot="session-title">{shown}</span>
+        <>
+          <span data-slot="session-title">{shown}</span>
+          <SessionTime at={session.updatedAt} />
+        </>
       )}
       {editing ? null : <RenameProblem problem={problem} />}
     </ListboxItem>
