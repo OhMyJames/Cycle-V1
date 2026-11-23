@@ -1,6 +1,8 @@
-// Whether the conversation shows the agent's thinking. A preference of this machine, kept in the page's storage; off
-// by default, because thinking is long and most of the time not what the person came to read. No React and no DOM
-// here, so it can be tested with a fake storage.
+// Whether the agent's thoughts open by themselves ("Expand thinking"). Every thought is a row in the conversation; this
+// says whether it starts open. A preference of this machine, kept in the page's storage; off by default, because
+// thinking is long and most of the time not what the person came to read. It was "Show thinking" (thoughts hidden
+// unless on), under the same key: who wanted to see thinking then sees it open now. No React and no DOM here, so it can
+// be tested with a fake storage.
 import type { Storage } from "./code-theme.ts";
 
 export const THINKING_KEY = "cycle-show-thinking";

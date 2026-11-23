@@ -42,9 +42,9 @@ test("a row says one thing, in words for those who do not see the dot", async ()
     row("b", { background: 2, lastSeq: 2 }),
     row("c", { lastSeq: 3 }),
   ]);
-  const a = screen.getByRole("option", { name: /a$/ });
-  const b = screen.getByRole("option", { name: /b$/ });
-  const c = screen.getByRole("option", { name: /c$/ });
+  const a = screen.getByRole("option", { name: /(^|\s)a(\s|$)/ });
+  const b = screen.getByRole("option", { name: /(^|\s)b(\s|$)/ });
+  const c = screen.getByRole("option", { name: /(^|\s)c(\s|$)/ });
   expect(a.getAttribute("data-mark")).toBe("unread");
   expect(a.textContent).toContain("Unread");
   expect(b.getAttribute("data-mark")).toBe("background");
@@ -90,14 +90,14 @@ test("the switcher shows one workspace, and counts what is going on in the other
 test("the session that is open is told it has been seen, while the app is in front", async () => {
   document.hasFocus = () => true;
   const { user, named } = await mount([row("a", { unread: true })]);
-  await user.click(screen.getByRole("option", { name: /a$/ }));
+  await user.click(screen.getByRole("option", { name: /(^|\s)a(\s|$)/ }));
   await waitFor(() => expect(named("markRead")).toEqual([["markRead", "local", "a"]]));
 });
 
 test("an unread session is not told it has been seen while the app is behind", async () => {
   document.hasFocus = () => false;
   const { user, named } = await mount([row("a", { unread: true })]);
-  await user.click(screen.getByRole("option", { name: /a$/ }));
+  await user.click(screen.getByRole("option", { name: /(^|\s)a(\s|$)/ }));
   await waitFor(() => expect(named("openSession")).toHaveLength(1));
   await act(() => sleep(20));
   expect(named("markRead")).toEqual([]);
@@ -106,7 +106,7 @@ test("an unread session is not told it has been seen while the app is behind", a
 test("a daemon that says nothing of news is never told anything", async () => {
   document.hasFocus = () => true;
   const { user, named } = await mount([row("a")]);
-  await user.click(screen.getByRole("option", { name: /a$/ }));
+  await user.click(screen.getByRole("option", { name: /(^|\s)a(\s|$)/ }));
   await waitFor(() => expect(named("openSession")).toHaveLength(1));
   await act(() => sleep(20));
   expect(named("markRead")).toEqual([]);

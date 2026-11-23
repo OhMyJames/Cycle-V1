@@ -125,20 +125,27 @@ export const enUS = {
   "image.unsupported": "An image that cannot be shown ({type})",
   "image.tooLarge": "An image too large to show ({size})",
 
-  // Writing a message and attaching images
+  // Writing a message and attaching images and files
   "composer.attach": "Attach image",
+  // When the agent takes files too: images, text files and PDFs
+  "composer.attachFiles": "Attach files",
   "composer.remove": "Remove {name}",
-  "composer.attached": "Attached images",
+  "composer.attached": "Attachments",
   "composer.drop": "Drop images to attach them",
+  "composer.dropFiles": "Drop files to attach them",
+  // The agent takes images only
   "composer.problem.type": "{name} is not a PNG, JPEG, GIF or WebP image.",
+  // The agent takes images and files
+  "composer.problem.typeFiles": "{name} is not an image, a text file or a PDF.",
+  // The agent takes files but not images
+  "composer.problem.typeNoImages": "{name} is not a text file or a PDF.",
   "composer.problem.blockTooLarge": "{name} is larger than {limit}.",
-  "composer.problem.promptTooLarge": "Together, the images are larger than {limit}.",
+  "composer.problem.promptTooLarge": "Together, the attachments are larger than {limit}.",
   "composer.problem.tooMany": {
-    one: "You can attach {count} image at most.",
-    other: "You can attach {count} images at most.",
+    one: "You can attach {count} file at most.",
+    other: "You can attach {count} files at most.",
   },
   "composer.problem.unreadable": "{name} could not be read.",
-  "composer.problem.noImage": "Only PNG, JPEG, GIF or WebP images can be attached.",
 
   // The box a message is written in
   "composer.message": "Message",
@@ -198,7 +205,11 @@ export const enUS = {
 
   // The files and folders that fit what is typed after an @
   "composer.mentions.label": "Files and folders",
+  "composer.mentions.labelWithSessions": "Files, folders and sessions",
+  "composer.mentions.files": "Files and folders",
+  "composer.mentions.sessions": "Sessions",
   "composer.mentions.empty": "No file or folder matches that.",
+  "composer.mentions.emptyWithSessions": "No file, folder or session matches that.",
   "composer.mentions.none": "No files or folders found here.",
 
   // Messages sent while the agent works, waiting their turn
@@ -210,13 +221,26 @@ export const enUS = {
     one: "{count} image",
     other: "{count} images",
   },
+  "composer.queued.files": {
+    one: "{count} file",
+    other: "{count} files",
+  },
 
   // The conversation: what the agent did, how a turn ended, what it is doing now
   "conversation.label": "Conversation",
   "conversation.loading": "Loading the conversation…",
   "conversation.empty": "Nothing here yet. Say something below.",
   "conversation.earlier": "Show earlier",
-  "thought.label": "Thinking",
+  "conversation.toEnd": "Back to bottom",
+  "conversation.toEndFresh": "Back to bottom, where there is something new",
+  "time.justNow": "Just now",
+  "time.sent": "Sent {time}",
+  "time.finished": "Finished {time}",
+  "message.copy.agent": "Copy the reply",
+  "message.copy.user": "Copy the message",
+  "thought.thinking": "Thinking…",
+  "thought.took": "Thought for {duration}",
+  "thought.done": "Thought",
   "plan.label": "Plan",
   "plan.progress": "{done} of {count} done",
   "plan.count": "{done}/{count}",
@@ -318,8 +342,14 @@ export const enUS = {
   "turn.end.maxTurnRequests": "Stopped: the agent took too many steps.",
   "turn.end.refusal": "The agent declined to continue.",
   "turn.end.other": "Ended: {reason}",
+  // On the end of a turn that failed: sends its message again as it was, in one click
+  "turn.retry": "Try again",
+  "turn.retry.offline": "Connect to the environment to try again.",
+  "turn.retry.busy": "The agent is working. Try again once it stops.",
+  "turn.retry.changedBody":
+    "Before it failed, it used {tools}. Trying again sends the same message, and the agent may do that again.",
   // On the end of a turn that failed: puts its message back in the input box, for the person to check and send
-  "turn.resend": "Send again",
+  "turn.resend": "Edit message",
   "turn.resend.changedTitle": "This turn had already done some of its work",
   "turn.resend.changedBody":
     "Before it failed, it used {tools}. Sending the message again may do that again. The message goes back in the input box first, for you to check.",
@@ -340,7 +370,7 @@ export const enUS = {
   "step.elapsedSeconds": "{seconds}s",
   "step.elapsedMinutes": "{minutes}m",
   "step.elapsedMinutesSeconds": "{minutes}m {seconds}s",
-  "thinking.show": "Show thinking",
+  "thinking.expand": "Expand thinking",
   "session.settings": "Session settings",
   "session.actions": "Session actions",
   "workspace.actions": "Workspace actions",
@@ -531,6 +561,13 @@ export const enUS = {
     other: "Show all {count} lines",
   },
   "code.showFewer": "Show fewer lines",
+  // A ```mermaid fence in a reply, drawn as a diagram.
+  "diagram.alt": "Diagram",
+  "diagram.open": "Open diagram",
+  "diagram.showSource": "Show source",
+  "diagram.showDiagram": "Show diagram",
+  "diagram.failed": "This diagram could not be drawn, so its source is shown.",
+  "code.copy": "Copy the code",
 
   "dialog.close": "Close",
   "dialog.cancel": "Cancel",
@@ -564,9 +601,8 @@ export const enUS = {
   "trust.changeFailed": "The folder's trust could not be changed: {reason}",
   "defaults.agent": "Agent",
   "defaults.save": "Save",
-  "rename.title": "Rename",
-  "rename.name": "Name",
-  "rename.submit": "Rename",
+  "rename.label": "Session name",
+  "rename.failed": "The session could not be renamed: {reason}",
   "config.nothingToSet": "This agent has nothing to set.",
   "update.checking": "Checking for updates…",
   "update.upToDate": "Up to date",

@@ -23,11 +23,21 @@ export type ToolStatus =
  * out (it has only `running` and `idle`), but the daemon's log keeps how each one ended, so it can be told from the
  * data, in a live stream and in a replay alike, with nothing inferred from the text.
  */
-type InTurn = { turn: number };
+type InTurn = {
+  turn: number;
+  /**
+   * When it began: the daemon's time on its first record (`cycle/ts`, milliseconds since the epoch). Absent when not
+   * known (an older daemon): never the time it arrived, never 0.
+   */
+  at?: number;
+};
 
-export type UserItem = InTurn & { kind: "user"; id: string; blocks: Block[] };
-export type AgentItem = InTurn & { kind: "agent"; id: string; blocks: Block[] };
-export type ThoughtItem = InTurn & { kind: "thought"; id: string; blocks: Block[] };
+/** A message streams in chunks: `lastAt` is the time on the last one, absent when not known (docs/protocol.md §5). */
+type Streamed = InTurn & { blocks: Block[]; lastAt?: number };
+
+export type UserItem = Streamed & { kind: "user"; id: string };
+export type AgentItem = Streamed & { kind: "agent"; id: string };
+export type ThoughtItem = Streamed & { kind: "thought"; id: string };
 export type ToolItem = InTurn & {
   kind: "tool";
   id: string;
@@ -440,11 +450,22 @@ const appendBlock = (blocks: Block[], block: Block): Block[] => {
   return [...blocks, block];
 };
 
+/** A time as the model keeps it: milliseconds since the epoch, or undefined for anything that is not one. */
+const timeOf = (at: number | undefined): number | undefined =>
+  at !== undefined && Number.isFinite(at) && at > 0 ? at : undefined;
+
+/** When an item began: kept from what it was; a new one began now, if the update says when now is. */
+const began = (old: InTurn | undefined, at: number | undefined): { at?: number } => {
+  const when = old === undefined ? at : old.at;
+  return when !== undefined ? { at: when } : {};
+};
+
 const messageUpdate = (
   c: Conversation,
   kind: "user" | "agent" | "thought",
   update: Fields,
   chunk: boolean,
+  at: number | undefined,
 ): Conversation => {
   const id = String(update.messageId);
   const old = find(c.items, kind, id);
@@ -458,16 +479,29 @@ const messageUpdate = (
   } else if (update.content !== undefined) {
     blocks = asBlocks(update.content);
   }
-  return { ...c, items: upsert(c.items, { kind, id, blocks, turn: old?.turn ?? c.turns }) };
+  // An update with no time leaves the last one known rather than say it is unknown again.
+  const lastAt = at ?? old?.lastAt;
+  return {
+    ...c,
+    items: upsert(c.items, {
+      kind,
+      id,
+      blocks,
+      turn: old?.turn ?? c.turns,
+      ...began(old, at),
+      ...(lastAt !== undefined ? { lastAt } : {}),
+    }),
+  };
 };
 
-const toolUpdate = (c: Conversation, update: Fields): Conversation => {
+const toolUpdate = (c: Conversation, update: Fields, at: number | undefined): Conversation => {
   const id = String(update.toolCallId);
   const old = find(c.items, "tool", id);
   const next: ToolItem = {
     kind: "tool",
     id,
     turn: old?.turn ?? c.turns,
+    ...began(old, at),
     content: old?.content ?? [],
   };
   const name = patch(old?.name, update.name);
@@ -575,28 +609,37 @@ const stateUpdate = (c: Conversation, update: Fields): Conversation => {
   return { ...c, items, status: "idle", turns: c.turns + 1, stops: [...c.stops, stop] };
 };
 
-/** Applies one `session/update`. Returns a new conversation; the old one is not changed. */
-export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversation => {
+/**
+ * Applies one `session/update`. `record.at` is when the daemon logged it (`_meta["cycle/ts"]`, milliseconds since the
+ * epoch), undefined when not known. It is an object, not a bare number, so `updates.reduce(applyUpdate)` cannot take
+ * an array index for a time. Returns a new conversation; the old one is not changed.
+ */
+export const applyUpdate = (
+  c: Conversation,
+  update: SessionUpdate,
+  record?: { at?: number | undefined },
+): Conversation => {
   const u = update as unknown as Fields;
+  const when = timeOf(record?.at);
   switch (u.sessionUpdate) {
     case "user_message":
-      return messageUpdate(c, "user", u, false);
+      return messageUpdate(c, "user", u, false, when);
     case "user_message_chunk":
-      return messageUpdate(c, "user", u, true);
+      return messageUpdate(c, "user", u, true, when);
     case "agent_message":
-      return messageUpdate(c, "agent", u, false);
+      return messageUpdate(c, "agent", u, false, when);
     case "agent_message_chunk":
-      return messageUpdate(c, "agent", u, true);
+      return messageUpdate(c, "agent", u, true, when);
     case "agent_thought":
-      return messageUpdate(c, "thought", u, false);
+      return messageUpdate(c, "thought", u, false, when);
     case "agent_thought_chunk":
-      return messageUpdate(c, "thought", u, true);
+      return messageUpdate(c, "thought", u, true, when);
     case "tool_call_update":
-      return toolUpdate(c, u);
+      return toolUpdate(c, u, when);
     case "tool_call_content_chunk": {
       const old = find(c.items, "tool", String(u.toolCallId));
       const content = appendBlock(old?.content ?? [], (u.content ?? {}) as Block);
-      return toolUpdate(c, { toolCallId: u.toolCallId, content });
+      return toolUpdate(c, { toolCallId: u.toolCallId, content }, when);
     }
     case "state_update":
       return stateUpdate(c, u);
@@ -611,6 +654,7 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
           kind: "plan",
           id: plan.planId,
           turn: old?.turn ?? c.turns,
+          ...began(old, when),
           entries: plan.entries ?? [],
         }),
       };
@@ -638,6 +682,7 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
             kind: "notice",
             id,
             turn: c.turns,
+            ...began(undefined, when),
             severity: String(u.severity),
             title: String(u.title),
             ...(retry !== undefined ? { retry } : {}),
@@ -739,6 +784,7 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
           kind: "compaction",
           id,
           turn: old?.turn ?? c.turns,
+          ...began(old, when),
           status: next,
         }),
       };
@@ -764,7 +810,7 @@ export const applyUpdate = (c: Conversation, update: SessionUpdate): Conversatio
 export const reduce = (
   updates: SessionUpdate[],
   from: Conversation = emptyConversation(),
-): Conversation => updates.reduce(applyUpdate, from);
+): Conversation => updates.reduce((c, u) => applyUpdate(c, u), from);
 
 /** What the composer may do: a turn is over and nothing waits for the user. */
 export const canPrompt = (c: Conversation): boolean => c.status === "idle";

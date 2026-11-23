@@ -11,6 +11,7 @@ import {
   recall,
   returnedId,
   sentTexts,
+  wordAt,
 } from "../src/draft.ts";
 import type { Block } from "../src/model/index.ts";
 
@@ -37,7 +38,64 @@ const memory = (fail = false) => {
   };
 };
 
-const image = { id: "i", name: "a.png", type: "image/png" as const, data: "AAAA", bytes: 3 };
+const image = {
+  id: "i",
+  name: "a.png",
+  kind: "image" as const,
+  type: "image/png" as const,
+  data: "AAAA",
+  bytes: 3,
+};
+
+test("an attached text file and PDF go as embedded resources under their names, and come back as attachments", () => {
+  const notes = {
+    id: "n",
+    name: "notes v2.md",
+    kind: "text" as const,
+    type: "text/markdown",
+    data: "<b>hi</b>",
+    bytes: 9,
+  };
+  const pdf = {
+    id: "p",
+    name: "spec.pdf",
+    kind: "pdf" as const,
+    type: "application/pdf",
+    data: "AAAA",
+    bytes: 3,
+  };
+  const sent = promptBlocks({
+    text: "read",
+    attachments: [image, notes, pdf],
+    mentions: [],
+    kept: [],
+  });
+  expect(sent).toEqual([
+    { type: "text", text: "read" },
+    { type: "image", data: "AAAA", mimeType: "image/png" },
+    {
+      type: "resource",
+      resource: {
+        uri: "attachment:///notes%20v2.md",
+        mimeType: "text/markdown",
+        text: "<b>hi</b>",
+      },
+    },
+    {
+      type: "resource",
+      resource: { uri: "attachment:///spec.pdf", mimeType: "application/pdf", blob: "AAAA" },
+    },
+  ]);
+  const back = draftOf((sent ?? []) as Block[]);
+  expect(back.kept).toEqual([]);
+  expect(back.attachments.map(({ id: _, ...a }) => a)).toEqual([
+    // An image block carries no name.
+    { name: "image", kind: "image", type: "image/png", data: "AAAA", bytes: 3 },
+    { name: "notes v2.md", kind: "text", type: "text/markdown", data: "<b>hi</b>", bytes: 9 },
+    { name: "spec.pdf", kind: "pdf", type: "application/pdf", data: "AAAA", bytes: 3 },
+  ]);
+  expect(promptBlocks(back)).toEqual(sent);
+});
 
 test("a draft is kept per session, and the same object until it changes", () => {
   const drafts = new DraftStore(undefined);
@@ -367,4 +425,37 @@ test("blocks the box cannot edit come back whole: a PDF, a text file, a link tha
   expect(promptBlocks({ text: "", attachments: [], mentions: [], kept: back.kept })).toHaveLength(
     3,
   );
+});
+
+test("a session named with @ is its title in the text and a session link beside it, and comes back as a mention", () => {
+  const mention: Mention = {
+    path: "Fix the login bug",
+    kind: "session",
+    uri: "cycle://session/s2",
+    name: "Fix the login bug",
+  };
+  expect(mentionText(mention)).toBe("@Fix the login bug");
+  const sent = promptBlocks({
+    text: "go on from @Fix the login bug.",
+    attachments: [],
+    mentions: [mention],
+    kept: [],
+  });
+  expect(sent).toEqual([
+    { type: "text", text: "go on from @Fix the login bug." },
+    {
+      type: "resource_link",
+      name: "Fix the login bug",
+      uri: "cycle://session/s2",
+      _meta: { "cycle/mention": "Fix the login bug" },
+    },
+  ]);
+  expect(draftOf((sent ?? []) as Block[]).mentions).toEqual([mention]);
+});
+
+test("an @name is found only as a whole word", () => {
+  expect(wordAt("see @Fixtures and @Fix.", "@Fix")).toBe(18);
+  expect(wordAt("@Fixtures", "@Fix")).toBe(-1);
+  expect(wordAt("(@Fix) then @Fix", "@Fix", 6)).toBe(12);
+  expect(wordAt("a@Fix", "@Fix")).toBe(-1);
 });

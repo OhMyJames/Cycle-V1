@@ -4,7 +4,7 @@ import type { ToolItem } from "../src/model/index.ts";
 import { applyUpdate, blocksOf, emptyConversation } from "../src/model/index.ts";
 
 const reduce = (...updates: object[]) =>
-  (updates as SessionUpdate[]).reduce(applyUpdate, emptyConversation());
+  (updates as SessionUpdate[]).reduce((c, u) => applyUpdate(c, u), emptyConversation());
 const call = (id: string, name: string, kind: string, status: string) => ({
   sessionUpdate: "tool_call_update",
   toolCallId: id,
@@ -73,7 +73,7 @@ test("a compaction is one line where it began, and changes in place", () => {
     { sessionUpdate: "compaction_update", compactionId: "k", status: "completed" },
   );
   expect(c.items).toEqual([{ kind: "compaction", id: "k", turn: 0, status: "completed" }]);
-  expect(blocksOf(c, { showThinking: false }).map((b) => b.kind)).toEqual(["compaction"]);
+  expect(blocksOf(c).map((b) => b.kind)).toEqual(["compaction"]);
 });
 
 test("changing the plan is not a row, even while it goes; one that failed is, and neither cuts a stretch of work", () => {
@@ -84,6 +84,6 @@ test("changing the plan is not a row, even while it goes; one that failed is, an
     call("e", "Edit", "edit", "completed"),
     call("u", "TaskUpdate", "think", "failed"),
   );
-  const [work] = blocksOf(c, { showThinking: false });
+  const [work] = blocksOf(c);
   expect(work?.kind === "work" ? work.tools.map((t) => t.id) : []).toEqual(["r", "e", "u"]);
 });

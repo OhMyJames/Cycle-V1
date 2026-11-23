@@ -74,6 +74,11 @@ export class Session {
    */
   startingCancels = 0;
   /**
+   * How many prompts are being made ready (a mention of another session read into it) before they are handed over. A
+   * stop in that time has no turn to stop either, so it counts in `startingCancels` the same way.
+   */
+  preparing = 0;
+  /**
    * The sub-agents the agent has announced and not ended, by id, and whether each runs in the
    * background. In memory only: when the agent process goes, so do they.
    */

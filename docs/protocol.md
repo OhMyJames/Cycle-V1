@@ -50,7 +50,8 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
   "folders": true,
   "filesInFolder": true,
   "trust": true,
-  "connectors": true
+  "connectors": true,
+  "sessionMentions": true
 }
 ```
 
@@ -104,6 +105,7 @@ v1 的 Claude 适配只需产生其中的子集,见 L3 文档(待写)。
 daemon 为每个 session 维护一个单调递增的整数序号,从 1 开始,**每条写入该 session 日志的记录占一个序号**。
 
 - daemon 转发给客户端的每条 `session/update` 通知,在 `_meta["cycle/seq"]` 里带上它的序号。
+- 同一条通知在 `_meta["cycle/ts"]` 里带上这条记录写进日志的时间:就是日志里那条记录的 `ts`(§12),原样照抄,ISO 8601、UTC、毫秒精度(`"2026-11-18T04:00:00.000Z"`),与 `session/list` 的 `updatedAt` 同一种写法、同一个来源。实时推送和补发带的是同一个值,所以重放看到的时间就是当时的时间。没有日志记录的合成更新(附着时的状态快照、`replay_complete`、写入失败时的 `state_update`)不带它。客户端用它显示消息何时发出、思考用了多久;没有 `cycle/ts`(旧 daemon,或合成更新)就是时间未知,客户端不得拿收到的时刻或 0 代替。
 - agent 发来的请求(如权限请求)和它的响应同样占序号,见 §9。
 - 序号只由 daemon 分配,agent 和客户端不得设置。
 - 序号等于该记录在 JSONL 日志里的行号(从 1 开始),所以日志本身就是序号的事实来源。
@@ -240,6 +242,7 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 
 - `session/resume` 之后的 `replay_complete`:带 `cycle/seq`,值是补发到的最后序号(它不占序号,只是标记位置)。
 - 随后的状态快照:没有 `cycle/seq`。
+- 两者都没有 `cycle/ts`(§5)。
 
 ## 8. 提交 prompt 与 turn 状态
 
@@ -257,6 +260,8 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 - `reason`:(空数组在 ACP 的 schema 那一层就被拒绝,没有 `reason`;下面这些是 daemon 自己给的。)`too_many_blocks`、`unsupported_block`、`malformed_block`(缺必需字段,或图片没有内容)、`unsupported_media_type`、`block_too_large`、`prompt_too_large`、`invalid_base64`。
 
 附件和图片进入日志的 `user_message`,历史补发时和文字一起到达。
+
+**客户端附加的文件**(决策笔记 `2026-11-22-attach-any-file`,协议和上限不变):客户端把用户选的本机文件做成上面允许的块之一,不新增类型。图片是 `image`;agent 声明了 `embeddedContext` 时,UTF-8 文本(不含 NUL)是 `resource` 带 `text`,`mimeType` 是文件自己的文本类型、否则 `text/plain`;PDF 是 `resource` 带 base64 的 `blob`、`mimeType: "application/pdf"`。别的文件客户端在发送前拒绝。文件的 `uri` 是 `attachment:///` 加百分号编码的文件名:不是路径(agent 可能在另一台机器上,页面也不知道文件在哪),最后一段就是名字,ACP 的 `resource` 没有 `name` 字段。别的来源的 `resource`(如 `file://`)照样合法,daemon 不看 scheme。
 
 **agent 自己在重试请求**:agent 的模型请求失败、它自己会等一会儿再试时(Claude SDK 的 `api_retry`),agent 发一条 `notice`,`severity: "info"`,`title` 是给人看的一句话,`_meta["cycle/retry"]` 为 `{attempt, maxRetries, delayMs, status?}`(第几次、最多几次、要等多久、HTTP 状态码,连接错误时没有 `status`)。它进日志,但不是 turn 的结束,也不需要人做什么:客户端只在它是进行中 turn 的最后一项时,把它当作"正在重试"的状态显示,turn 有了新内容就不再显示;不在会话里画成一行。重试用完仍失败时,turn 照常以 `stopReason: "error"` 结束。
 
@@ -281,7 +286,7 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 - **客户端**:`_cycle/plan_usage/read`(`{}` → `{agents: {[agentId]: {windows, at}}}`)读 daemon 已知的,连接时读一次,之后跟通知更新。`cycle/capabilities` 有 `planUsage: true` 的 daemon 才有这两样。一个窗口过了 `resetsAt` 就不再显示,因为重置后用了多少不知道。
 - **Claude 的取法**:Claude Code 从每次 API 响应的头里读到限额,以 `rate_limit_event` 告诉 SDK,`rate_limit_info.unifiedWindows` 列出全部窗口(SDK 的类型里还没有这个字段,没有时只取 `rateLimitType` 那一个)。只有用订阅账号登录(`claude setup-token` 的 token 或 `/login`)时才有;API key 登录没有,也就什么都不发。SDK 的实验接口 `usage_EXPERIMENTAL…()` 不用:用 `setup-token` 的 token 时它答不上(缺 profile 权限),而且随时可能改。
 
-**失败后重新发送**是客户端的事,协议不变:客户端把失败那个 turn 的 `user_message` 放回输入框,由人核对后作为新的 `session/prompt` 发出。它和别的 prompt 一样走权限流程,之前的批准不沿用。
+**失败后重新发送**是客户端的事,协议不变:客户端把失败那个 turn 的 `user_message` 原样作为新的 `session/prompt` 再发一次(Try again),或放回输入框,由人核对后再发(Edit message)。它和别的 prompt 一样走权限流程,之前的批准不沿用。
 
 多个客户端同时附着的规则:
 
@@ -351,6 +356,17 @@ agent 是 daemon 的子进程,daemon 停止(`cycle stop`、升级、崩溃、机
 - **有上限**:最多检查 50,000 个条目、最多走 2 秒;到了上限就带 `truncated: true` 返回已找到的。跳过 `.git` 和 `node_modules`;名字以 `.` 开头的文件,只有 `query` 里含 `.` 时才给。
 - 这是 daemon 读本机文件系统的新入口:不返回文件内容,只返回路径;只在 loopback、unix socket 或 SSH 通道上服务,不放宽。session 不存在以 `-32002` 拒绝。
 - **按 `cwd` 搜**:给空白对话用,那时还没有 session。`cwd` 必须是绝对路径,否则以 `-32602` 拒绝;同时给 `sessionId` 和 `cwd`,或都不给,也是 `-32602`。规则和按 session 搜完全一样,`root` 是给的 `cwd`;不存在时同样返回空列表。它不比按 session 搜多暴露什么:谁能连上 daemon,谁就能用任意 `cwd` 新建 session 再搜。能力 `filesInFolder` 为 `true` 才有;旧 daemon 没有时,客户端在空白对话里不提供 @ 搜索,有了 session 之后照常。
+
+### 提及(@)另一个 session
+
+客户端可以在 prompt 里提及同一个 daemon 上的另一个 session,让 agent 读到那段对话。
+
+- **形式**:一个 `resource_link`,`uri` 为 `cycle://session/<sessionId>`,`name` 是 session 的标题(没有标题时是客户端显示它的名字),`_meta["cycle/mention"]` 是正文里 `@` 后面写的那几个字(和文件提及一样,正文同时写 `@名字` 给人看)。客户端在 daemon 的 `cycle/capabilities` 有 `sessionMentions: true` 时才提供;旧 daemon 没有这一项,客户端不列出 session。
+- **展开**:daemon 在把 prompt 交给 agent 的那一刻(直接发送、排队的发出、插入都一样)把这样的块换成一块 session 的简短记录。agent 的 `promptCapabilities` 有 `embeddedContext` 时是一块嵌入资源 `{type: "resource", resource: {uri, mimeType: "text/plain", text}}`,否则是一块 `text`。块数不变,所以不影响 32 块的上限;内容校验在展开之前,对客户端发来的原样进行。
+- **记录的内容**:只有人说的话(`user_message` 的文字,其中的提及写成 `@名字`,图片写成 `[image]`)和 agent 的回答(`agent_message_chunk` 的文字,按 `messageId` 拼成一条)。不含思考、工具调用及其输出、计划、权限。每条消息最多 4,000 个字符(超出的截去尾部并注明),消息部分合计最多 40,000 个字符(另有开头一句说明):从最新的往前取,放不下的旧消息整条丢掉,开头注明丢了几条。常量在 `@cycle/protocol` 的 `SESSION_MENTION_LIMITS`。
+- **只读本 daemon 的**:`sessionId` 必须在 daemon 的索引里(Cycle 在这个 daemon 上建的 session,归档的也算)。找不到(从没有、已删除、正在删除)、日志读不了,或者提及的就是这个 session 自己时,daemon 不拒绝这条 prompt,而是把那一块换成一句给 agent 的说明(`text` 块),说清是哪个 session、为什么没有内容。
+- **历史里是链接,不是记录**:展开出来的块在 `_meta["cycle/expandedFrom"]` 里带着原来的 `resource_link`。agent 回显的 `user_message` 进日志之前,daemon 把带这个标记的块换回原来的链接,所以日志、补发和其他客户端看到的都是提及,不是那份记录;排队的 prompt 在队列里也保持链接,发出时才展开,所以读到的是发出那一刻的内容。agent 回显时要原样保留块的 `_meta`(Claude 适配是这样);不保留的 agent,记录会进它的历史。
+- 记录给 agent 的是那时候的快照:被提及的 session 之后的变化不会跟过来。这条路径只读 daemon 自己的日志,不经过 agent,也不跨 daemon。
 
 ### 选文件夹
 

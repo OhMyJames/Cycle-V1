@@ -47,6 +47,8 @@ export type EnvironmentStatus = {
     trust?: boolean;
     /** It keeps connectors: MCP servers for every agent (docs/protocol.md §14). */
     connectors?: boolean;
+    /** An @ may name another of its sessions, which it gives the agent as a record (docs/protocol.md §8). */
+    sessionMentions?: boolean;
   };
   /**
    * The daemon on the environment speaks another major version of Cycle's protocol, so the app cannot use it
@@ -127,7 +129,10 @@ export type PromptBlock =
   | { type: "image"; data: string; mimeType: string }
   /** A reference to a file or folder on the daemon's machine: `uri` is `file://`, a folder's ending in `/`. */
   | { type: "resource_link"; name: string; uri: string; _meta?: Record<string, unknown> }
-  /** A file's content in the message (a PDF, a text file), which the box does not make but sends again as it was. */
+  /**
+   * A file's content in the message: a text file (`text`) or a PDF (`blob`, base64). The box makes one for a file it
+   * attaches (`uri` is `attachment:///` and its name), and sends one from elsewhere again as it was.
+   */
   | { type: "resource"; resource: Record<string, unknown>; _meta?: Record<string, unknown> };
 
 export type FileHit = { path: string; kind: "file" | "folder" };
@@ -297,6 +302,8 @@ export type AppEvent =
       environmentId: string;
       sessionId: string;
       update: SessionUpdate;
+      /** When the daemon logged it, in milliseconds since the epoch (`cycle/ts`); absent when not known. */
+      at?: number;
       /** The session's version after this update. */
       version: number;
     }
@@ -408,7 +415,13 @@ export type AppApi = {
     configId: string,
     value: string,
   ): Promise<void>;
-  renameSession(environmentId: string, sessionId: string, title: string): Promise<void>;
+  /** `where`: what the title was edited in, for the usage statistics. */
+  renameSession(
+    environmentId: string,
+    sessionId: string,
+    title: string,
+    where?: "header" | "sidebar",
+  ): Promise<void>;
   dismissBackground(environmentId: string, sessionId: string, taskIds: string[]): Promise<void>;
   archiveSession(environmentId: string, sessionId: string, archived: boolean): Promise<void>;
   /** Says the session has been seen: its unread mark clears. Does nothing on a daemon that cannot. */

@@ -36,12 +36,7 @@ import { Composer, composerInput } from "./composer.tsx";
 import { ConfigForm, mergeConfigSchema, propertiesOf } from "./config-form.tsx";
 import { ConnectorsDialog } from "./connectors.tsx";
 import { ConversationView } from "./conversation.tsx";
-import {
-  ConfirmDialog,
-  EnvironmentDialog,
-  type RemoteEnvironment,
-  RenameDialog,
-} from "./dialogs.tsx";
+import { ConfirmDialog, EnvironmentDialog, type RemoteEnvironment } from "./dialogs.tsx";
 import { FormCard } from "./form.tsx";
 import { I18nProvider, useI18n } from "./i18n.tsx";
 import {
@@ -55,6 +50,7 @@ import {
 import { useDay, useInFront } from "./in-front.ts";
 import { PermissionCard } from "./permission.tsx";
 import { currentPlan } from "./plan.tsx";
+import { SessionHeading } from "./rename-field.tsx";
 import { SearchDialog } from "./search.tsx";
 import type { Away } from "./session-list.tsx";
 import { SettingsPage, type SettingsSection } from "./settings.tsx";
@@ -79,7 +75,6 @@ type Panel =
   | "add-environment"
   | "edit-environment"
   | "remove-environment"
-  | "rename"
   | "delete"
   | "settings"
   | "search"
@@ -93,7 +88,6 @@ const PANEL_EVENT = {
   "edit-environment": "edit_environment",
   "remove-environment": "remove_environment",
   settings: "session_settings",
-  rename: "rename",
   delete: "delete",
   trust: "trust",
   connectors: "connectors",
@@ -172,7 +166,7 @@ export function App() {
 function AppWindow() {
   const store = useAppStore();
   const { t } = useI18n();
-  const showThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
+  const expandThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
   const ready = useAppState((s) => s.ready);
   const environments = useAppState((s) => s.environments);
   const status = useAppState((s) => s.status);
@@ -184,6 +178,8 @@ function AppWindow() {
   const blank = useAppState((s) => s.blank);
   const error = useAppState((s) => s.error);
   const [panel, setPanel] = useState<Panel>("none");
+  // The open session whose title is being edited in the header, by its key.
+  const [renaming, setRenaming] = useState<string | undefined>();
   const [showArchived, setShowArchived] = useState(false);
   const [sent, setSent] = useState(0);
   const [showAll, setShowAll] = useState(false);
@@ -748,16 +744,19 @@ function AppWindow() {
               {blank === undefined && session !== undefined ? (
                 <header data-slot="session-header">
                   {sidebarCollapsed ? sidebarToggle : null}
-                  <div data-slot="session-heading">
-                    <h1>{sessionTitle(session)}</h1>
-                    <span data-slot="session-where" title={session.cwd}>
-                      {session.cwd}
-                    </span>
-                  </div>
+                  <SessionHeading
+                    key={sessionKey(session)}
+                    session={session}
+                    title={sessionTitle(session)}
+                    editing={renaming === sessionKey(session)}
+                    onEditingChange={(editing) =>
+                      setRenaming(editing ? sessionKey(session) : undefined)
+                    }
+                  />
                   <div data-slot="row">
                     <Menu
                       onAction={(value) => {
-                        if (value === "rename") open("rename");
+                        if (value === "rename") setRenaming(sessionKey(session));
                         else if (value === "dismiss-background")
                           void store.dismissBackground(session);
                         else if (value === "settings") open("settings");
@@ -787,10 +786,13 @@ function AppWindow() {
                         ) : null}
                         <MenuCheckboxItem
                           value="thinking"
-                          checked={showThinking}
-                          onCheckedChange={(checked) => thinking.set(checked)}
+                          checked={expandThinking}
+                          onCheckedChange={(checked) => {
+                            thinking.set(checked);
+                            store.track("thinking_expand_changed", { on: checked });
+                          }}
                         >
-                          {t("thinking.show")}
+                          {t("thinking.expand")}
                         </MenuCheckboxItem>
                         <MenuItem value="archive">
                           {t(session.archived ? "session.restore" : "session.archive")}
@@ -900,6 +902,7 @@ function AppWindow() {
                   environmentId={view.environmentId}
                   sessionKey={viewKey(view.environmentId, view.sessionId)}
                   canAttach={agent?.promptCapabilities?.image != null}
+                  canAttachFiles={agent?.promptCapabilities?.embeddedContext != null}
                   settings={
                     sessionSchema !== undefined && session !== undefined
                       ? { schema: sessionSchema, value: session.config ?? {} }
@@ -987,12 +990,6 @@ function AppWindow() {
       ) : null}
       {session !== undefined ? (
         <>
-          <RenameDialog
-            open={panel === "rename"}
-            onOpenChange={(open) => !open && close()}
-            current={sessionTitle(session)}
-            onRename={(title) => store.renameSession(session.sessionId, title)}
-          />
           <ConfirmDialog
             open={panel === "delete"}
             onOpenChange={(open) => !open && close()}

@@ -43,3 +43,7 @@ agent 的回复用 Streamdown 2.8 加 Shiki 画。高亮、复制、HTML 与链�
 - 不适用于我们的 old-cycle 规则：它只给"挂载时 ≤200 字"的回复做淡入(`FIRST_BATCH`)、在回放完成前显示占位，以及 `turnAnchor="bottom"`。这些都是因为 agent 每次都从头重放历史。我们的 daemon 自己存 JSONL,快照一次给全，不需要这些。
 - 文件路径链接跳到 Files 面板的事随 CYCL-92 做，这里只保证它们不再显示 "[blocked]"。
 - 验收样例在 `packages/ui/test/markdown-samples.ts`,DOM 测试(`markdown.dom.tsx`)和画廊(`markdown`、`markdown-top`、`markdown-stream`、`markdown-streaming`、`markdown-link`)都用它。`markdown` 和 `markdown-stream` 在真实 Electron 里断言：视图停在底部，块不重画，颜色不掉。
+
+## Related
+
+- 第 7 条里 Mermaid 的部分已由 [Mermaid 以图片显示](2026-11-22-mermaid-diagrams-as-images.md) 取代(2026-11-22);数学公式仍不做。

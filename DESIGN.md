@@ -184,6 +184,7 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
 - **侧栏三段结构**（默认 `256px`，可拖动 `200–360px` 并记忆，`⌘B` 或按钮折叠）：
   - **顶段（固定）**：`New`（`⌘N`）与 `Search`（`⌘K`）`ghost` 行（可访问名称仍是 New session / Search sessions）、`Connectors` 入口、紧贴列表的 `WorkspaceSwitcher` + 环境 `"…"` 菜单；如有断线/重连环境，在此展示两行状态块（状态点+名称+`Retry` / 最多三行原因）。
   - **中段（独立滚动，保底 `10rem`）**：当前选中 workspace 的会话列表，分组顺序固定为 **`Needs you` → `Running` → `Today` → `Yesterday` → `Earlier`**（本地日界线，按 `updatedAt` 排序）；每项目默认展示 20 条（有状态标记或当前打开的永远展示），底部附 `Show N more sessions`（切换 workspace/环境时重置）与 `Show archived`。窗口极矮时改为整栏滚动，确保底部不裁切。
+  - **会话行**：左侧状态点（等你、在跑、未读），中间标题（放不下末尾淡出），行尾是会话最后变化的相对时间（`updatedAt`，`session-time.tsx`）：`meta` 字号、淡色、等宽数字，`Intl.RelativeTimeFormat` 按界面语言写（`5m ago` / `5分钟前`，不到一天写小时，一周内写天，再早写日期 `Nov 3` / `11月3日`，跨年带年份）；悬停给完整的本地日期时间（`<time title>`）。全页共用一个每分钟走一次的时钟，只重画时间，不重画列表。旧 daemon 不给 `updatedAt` 时不显示。
   - **底段（固定）**：当前版本号、更新状态、与进入设置页的图标按钮（`Settings`，`⌘,`）。
 - **折叠恢复**：展开时 `SidebarIcon` 开关在侧栏顶行右端（与主区头部同高，Mac 上与红绿灯同行），不放进主区；折叠后它出现在主区头部，确保无需快捷键也能用鼠标打开侧栏。按钮与 `⌘B` 折叠/展开时侧栏宽度以 `--cycle-motion-disclosure` 滑动（拖动、窗口缩放时不动）。
 
@@ -201,12 +202,13 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
 
 ### 4.4 对话阅读、流式输出与输入范式
 
-- **头部**：固定 `42px` 一行，无底线，左侧会话标题（`13px / 600`，`Open Runde`）+ 等宽路径（路径优先保留末尾项目名），右侧 `"…"` 菜单（`Rename` / `Show thinking` / `Archive` / `Delete`）。
+- **头部**：固定 `42px` 一行，无底线，左侧会话标题（`13px / 600`，`Open Runde`）+ 等宽路径（路径优先保留末尾项目名），右侧 `"…"` 菜单（`Rename` / `Expand thinking` / `Archive` / `Delete`）。
+- **就地重命名**：会话标题不开弹窗，就地变成输入框（`rename-field.tsx`）：点头部标题或菜单 `Rename`，侧栏的行双击或 `F2`（环境不在线的行不行）。打开时全选原标题；`Enter`（先问 `isComposing`，中文输入法确认词时不算）或离开输入框保存，`Esc` 放弃并恢复；空的或没改不发请求。保存后立即显示新标题，等列表跟上；失败时标题恢复原样，原因就地显示（头部在标题后，侧栏在行内标题下），几秒后消失。按键结束时焦点回到标题或行。
 - **Turn 切块与对话内容规则（CYCL-14，详见 [docs/conversation-content.md](docs/conversation-content.md)）**：
-  - 按 daemon 日志的 `stopReason` 切分 turn（`--cycle-gap-turn` 隔开问题起止）；思考默认折叠隐藏，不打断连续工具流；未正常结束的 turn 拎出末尾失败工具并附原因块（`turn-end`）。
+  - 按 daemon 日志的 `stopReason` 切分 turn（`--cycle-gap-turn` 隔开问题起止）；每段思考是一行折叠的 thought 行（输出中写 `Thinking…`，柔和呼吸、减少动效下静止；结束写 `Thought for 5 sec`，取它首尾两块的 `cycle/ts`，不知道时写 `Thought`），展开为与回复同一条清洗路径的只读 Markdown；会话菜单的 `Expand thinking` 让它们默认展开；思考不打断连续工具流，StepLine 不再重复写“思考中”；未正常结束的 turn 拎出末尾失败工具并附原因块（`turn-end`）。
   - **工具行不用图标，左列只放状态**：完成为 5px 灰点（`--cycle-ink-disabled`，纯装饰，读屏给状态词），在跑为旋转线，失败为红叉；一段调用展开后细竖线串联各点。
   - **有 `description` 优先展示**：Bash / Monitor / Agent 的单行短说明（≤ 160 字）用正文字体居前，后跟淡灰等宽命令/路径，放不下时先让摘要再让说明并在末尾淡出；没有时用“动词 + 摘要”。StepLine 与进行中卡片同步遵循。
-  - **`@` 提及不画两遍**：用户消息中带 `cycle/mention` 的 `resource_link` 当正文中仍含 `@path` 时不重复渲染；其余链接渲染为 `[名字]`。
+  - **`@` 提及不画两遍**：用户消息中带 `cycle/mention` 的 `resource_link` 当正文中仍含 `@path` 时不重复渲染；其余链接渲染为 `[名字]`。提及的是另一个 session（`cycle://session/`）时，正文里的 `@标题` 画成带对话图标的 `mention-chip`，正文已不含它时也单独画出 chip。
   - **文件工具（Edit / Write / Read / Glob / Grep）**：按 ACP `diff` 与 `_meta["cycle/toolResult"]`（协议 §9）渲染、不硬编码工具名——Edit 仅显示本次调用的增删计数（`+2 −1`，新建为 `Created +N`），展开显示带行号与浅绿/浅红底的 diff（省去首段 `@@`，段间 `⋯`，上限 400 行，不再重复输入 JSON，过大或空文件给出明确提示）；Read 写出行范围/总行数（含读取图片直接展示）；Glob/Grep 写出文件数与匹配数/行数（截断时带 `+`）；输入中仅含行上已显示的字段时展开不再重复。
   - **命令（Bash / Monitor）**：行上只在没照常跑完时多写一句（`interrupted`、`exited with code 2`、`ran past 2 min, now in the background`、`in the background`）；有退出码含义（`returnCodeInterpretation`）时显示模型看到的原文。展开为三块：命令（不再是输入 JSON）、输出、错误（另一块，标题为红；来自 `_meta["cycle/stream"]: "stderr"`），各带 `Copy`（经 main 的 `copyText`，页面无剪贴板权限，失败不显示 `Copied`）。长输出只显示末 40 行，上方 `Show N earlier lines`；超过 20,000 字时保留末尾。
   - **子 agent 挂在它的 Agent 行上**：只在调用本身未结束时转圈（转到后台的之后不转，只写文字：它的结束可能永远不来），写 `in the background · using Grep`；结束写 `done · 4 steps · 1m 3s`，失败为红字。
@@ -215,21 +217,23 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
   - **计划**：见第 3 层 `Plan & PlanStrip`；agent 自己的事务（ACP `kind` 为 `think`：改计划的 TodoWrite、TaskCreate、TaskUpdate，SDK 查可用工具的 ToolSearch）不成行，进行中也不，失败的照常；只读计划的（TaskGet、TaskList）照常成行。提出的计划（输入有 `plan`，如 ExitPlanMode）动词为 `Proposed a plan`，展开为 Markdown 正文；提问（输入有 `questions`）动词为 `Asked`，摘要为问题。均按输入的形状判断，不看工具名。
   - **Web、MCP 与其余工具**：WebFetch 写状态码与大小（`404 · 1.5 kB`，4xx/5xx 为红字）；WebSearch 展开为模型的话加结果列表（标题是强调色链接，只放行 http/https/mailto，由主进程交给系统浏览器打开；后跟淡色站点名；长标题换行）。MCP 工具用 agent 给的 `title`（`server · tool`），页面不解析工具名；页面不认识的工具，摘要取输入里第一行短文字（≤ 120 字、单行）。
   - **工具折叠状态保持**：连续工具调用从 1 个变为 2 个以上时保留用户已手动展开的状态；展开态下的长输入/输出与代理消息支持快捷复制。
-  - **失败后重新发送（CYCL-48）**：三种失败三种反馈。**turn 失败**（`stopReason: "error"`：API 报错、额度、认证、agent 退出、daemon 停止）在回合尾的红色原因后给 `Send again`（outline 小按钮），只在最后一个 turn、会话空闲、这一 turn 里有人说过话时出现；点了不直接发，而是把这一 turn 的消息（文字、图片、`@` 提及，插话也在内）放回输入框最前面、输入框取得焦点，由人核对、可改，再像普通消息一样发出，权限照常重新询问，不沿用之前的批准。这一 turn 里已经开始过会改东西的工具（ACP `kind` 为 `execute`/`edit`/`delete`/`move`，没离开 `pending` 的不算）时，先弹确认说明用过哪些、再发可能再做一遍，确认按钮是 `Put the message back`，不是 `Send`。**工具本身失败**留在工具行。**agent 自己重试请求**（`notice` 带 `_meta["cycle/retry"]`）不成行，只在它是进行中 turn 的最后一项时让 StepLine 写 `The request failed, trying again (2 of 10)…`，turn 有了新内容就消失；不给任何按钮。
+  - **消息的 Copy**：人发的消息和已结束回合的回复下方各有一个仅图标的 Copy（`Tip` 命名，悬停或焦点在内时显出，`--cycle-motion-state` 淡入；位置始终留着，显隐不挪动内容）。回复的 Copy 只在回合最后一条有文字的 agent 消息下出现一次，复制这一回合 agent 写的全部文字（Markdown 原文，段间空行）；回合进行中不出现。代码块的 Copy 也是我们自己画的、经 main 的 `copyText`（Streamdown 自带的写页面剪贴板，页面没有这个权限）。按下后图标变勾、名字变 `Copied` 约 1.5 秒，读屏同时被告知，不弹 toast。
+  - **失败后重新发送（CYCL-48）**：三种失败三种反馈。**turn 失败**（`stopReason: "error"`：API 报错、额度、认证、agent 退出、daemon 停止）在回合尾的红色原因后给两个小按钮，只在最后一个 turn、这一 turn 里有人说过话、之后没有新内容时出现：`Try again`（outline）把这一 turn 的消息（文字、图片、`@` 提及，插话也在内，合成一条）原样作为新的 `session/prompt` 一键发出；`Edit message`（ghost，次要）不直接发，而是把消息放回输入框最前面、输入框取得焦点，由人核对、可改，再像普通消息一样发出。两条路都照常重新询问权限，不沿用之前的批准。`Try again` 在断线或 agent 正在工作时禁用，并在按钮下方用 meta 字号写明原因（`Connect to the environment to try again.` / `The agent is working. Try again once it stops.`），按钮用 `aria-describedby` 指向它；发不出去时消息退回输入框，不丢。这一 turn 里已经开始过会改东西的工具（ACP `kind` 为 `execute`/`edit`/`delete`/`move`，没离开 `pending` 的不算）时，两个按钮都先弹确认说明用过哪些、再发可能再做一遍，焦点在 `Cancel`，主按钮与触发它的按钮同名（`Try again` / `Put the message back`），用 `solid` 而非 `destructive`（再发不是删除）。**工具本身失败**留在工具行。**agent 自己重试请求**（`notice` 带 `_meta["cycle/retry"]`）不成行，只在它是进行中 turn 的最后一项时让 StepLine 写 `The request failed, trying again (2 of 10)…`，turn 有了新内容就消失；不给任何按钮。
   - **提问是表单**：agent 的提问（`AskUserQuestion`、MCP 的 elicitation）以 `FormCard` 出现在权限区；只发回填了的字段（main 再按 schema 的字段过滤）；什么都没填、`required` 字段未填、数字不合 schema（非整数、超出 `minimum`/`maximum`）时 `Send answers` 不可点；一个字段都画不了或必填字段画不了时写明只能跳过。
   - **StepLine**：turn 进行中且未开始输出文本时，在末尾展示实时步骤行（等待批准 / 思考中 / 运行中的工具摘要），防止“静默卡死感”。
+  - **消息时间**：用户消息写发送时间，turn 结束时最后一条回复写完成时间（各自日志记录的 `cycle/ts`，协议 §5）。`meta` 字号、muted 色的相对时间（`3 minutes ago` / `3分钟前`，一周后写日期），和 Copy 同在消息下方那一行（用户消息的在 Copy 左边，回复的在右边），随这一行在指针移到这一块上或键盘焦点到它时显出（`--cycle-motion-state`）；回复的时间只在 turn 结束后出现，`Tip` 给完整的本地日期时间。时间未知（旧 daemon）时什么都不画，不拿收到的时刻代替。
 - **长会话窗口与滚动锚定**：
-  - 初次仅渲染最后 60 块；向上滚动至距顶 `< 800px` 或点击 `Show earlier` 时向上增量加载 60 块，通过首块位移修正保持视口不跳动；页面内存中记住最近 50 个会话的阅读锚点；用户向上翻阅时提供浮动的回到底部入口。
+  - 初次仅渲染最后 60 块；向上滚动至距顶 `< 800px` 或点击 `Show earlier` 时向上增量加载 60 块，通过首块位移修正保持视口不跳动；页面内存中记住最近 50 个会话的阅读锚点；离末尾超过 240px 时，视口底部（输入框正上方）浮出圆形 `Back to bottom`（向下箭头，`Tip` 命名；sticky、零高度占位，出现与消失都不挪动内容；`--cycle-motion-enter` 淡入）；离开期间末尾来了新内容时右上角加强调色圆点，名字随之说明；点击平滑滚回末尾（减少动效时直接跳），途中又有内容到达则滚动结束后补到真正的末尾，焦点留在对话里。
 - **Composer 三段式与排队/插话**：
   - **上方拓展区（`composer-extensions`）**：无内容时不占高度；有内容时作为略内缩的衔接托盘停靠于输入区顶边，每类拓展严格占一行并由细线分隔（活跃 `PlanStrip`、排队消息 `queued`、离线/阻塞状态、拖拽提示、附件报错）。
   - **中间输入区（`composer-box`）**：克制微边（`--cycle-border-default`）+ 顶部硬件高光；聚焦时只把边框向 `--cycle-input-border` 加深一档、托起一点阴影（`--cycle-focus-composer`），不叠光晕、不画外圈线和内描边（CYCL-75：输入框一天里大部分时间都有焦点，焦点只是提示）；高对比模式下用 `--cycle-input-border`，强制色模式下用系统 `Highlight` 轮廓。圆角统一用 `--cycle-radius-composer`（16px）：一行（46px，含边框）和展开后都是同一个圆角矩形，两种状态之间不跳变。默认单行（左 `+` 添加附件[仅声明 `image` 能力时显示]、中 Lexical Markdown 输入框、右侧动作：空闲时一个圆形发送按钮，空态中性柔灰、有内容亮安全橙；运行时 Queue / Send now / Stop 并排在同一行，不因按钮多而变高）；只有输入超出一行、出现换行或添加附件时才展开为三行布局（附件卡片在上、2 行内容区、底部动作栏），且不闪烁回弹。`/` 与 `@` 的候选菜单以整个输入框为宽（不是输入格），长文件名末尾省略，目录提示最多占 40%；`@` 后文件夹里什么都没有时明说。
   - **下方工具区（`composer-tools`）**：框外无边框紧凑一行；左侧放置权限模式芯片（带盾牌图标；完整会话设置收进头部 `"…"` 菜单），右侧放置 Model 芯片、Effort 芯片与 Fluid UI 风格弹性 `ContextMeter` 用量环（欠阻尼弹簧同步弧线与百分比，满额轻膨；它是按钮，点开一个 `Popover`，与模型、权限的菜单同一种 `Surface/Popover`（`context-details.tsx`），像 `/context` 一样直接列数字：总量与比例、分段条、每部分一行（强调色由深到浅的单一色相，压缩预留用墨色，剩余留空），再列自动压缩点、费用与压缩次数，全部 `meta` 字号、等宽数字，不写说明；只有无数据、压缩中、压缩前三种状态写一行字；订阅账号时底部再列 Plan usage（每个限额一行比例与重置时间加细条，平时墨色，快到用注意色，到了用危险色）；压缩后未更新时底圈改虚线、弧线变淡）。
-  - **发送与草稿**：文本草稿持久化到 `localStorage`（按环境+会话键隔离），图片与 `@` 链接保持在内存；发送失败或被退回时自动放回输入框前端，不丢内容。
-  - **命令与提及**：行首 `/` 触发 agent 命令候选；`@` 触发工作区文件搜索，发送时附带 `resource_link`。
+  - **发送与草稿**：文本草稿持久化到 `localStorage`（按环境+会话键隔离），图片、附加的文件与 `@` 链接保持在内存；附加的文本文件和 PDF（agent 声明 `embeddedContext` 时）在输入框里是带文件名、大小和移除按钮的小片，发出后在对话里只是带文件名的小片，内容从不渲染；发送失败或被退回时自动放回输入框前端，不丢内容。
+  - **命令与提及**：行首 `/` 触发 agent 命令候选；`@` 触发工作区文件搜索，发送时附带 `resource_link`；daemon 支持时同一菜单另有 Sessions 一组（同一 environment 的其他 session，最近在前），两组时各带小标题。
 
 ### 4.5 表单弹窗与破坏性确认范式
 
-- **表单弹窗（添加/编辑环境、重命名、添加连接器、Agent 默认设置）**：
+- **表单弹窗（添加/编辑环境、添加连接器、Agent 默认设置）**：
   - 必须包裹 `<form onSubmit>`，支持在输入框内按 `Enter` 提交；
   - 打开时自动聚焦首个有效输入字段；
   - 底部操作行右对齐，**取消在左，主确认按钮在右**；提交中禁用按钮并就地展示失败原因。
@@ -371,8 +375,8 @@ bun packages/ui/gallery/shoot.ts --sizes 1200x800,720x480 --all   # 指定尺寸
 
 ### P2：对话流与日常工作流质感打磨
 
-- [ ] **对话内高频操作**：消息、代理回复的快捷 Copy（工具的命令、输出、错误已可复制，CYCL-14）；回合失败（`turn-end` error）就地 Retry；长会话向上阅读时显示浮动“回到底部”按钮；思考内容走 `Markdown` 只读渲染；空白会话转正式会话时平滑衔接。
-- [ ] **工具调用与侧栏辨识度**：连续工具从 1 个升格为多个时保留手动展开态；会话行补充次要元信息（相对时间与未发送草稿标）；切换 workspace/环境时重置 `showAll`。
+- [ ] **对话内高频操作**：空白会话转正式会话时平滑衔接。
+- [ ] **工具调用与侧栏辨识度**：连续工具从 1 个升格为多个时保留手动展开态；会话行补充未发送草稿标（相对时间已做，见 §4.1）；切换 workspace/环境时重置 `showAll`。
 - [ ] **窄视口与缓存治理**：720×480 下 `composer-toolbar` 折行/紧凑适配；为 `store.views` 增加 LRU 上限，为 `selectSession` 加并发加载保护。
 - [x] **存量 i18n 迁移**：JSX、对话框、更新提示、连接状态词和 store 的报错都已迁入 `packages/ui/src/messages/en-US.ts`（CYCL-68）。
 

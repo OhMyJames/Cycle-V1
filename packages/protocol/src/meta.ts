@@ -4,6 +4,11 @@ import { z } from "zod";
 export const META = {
   /** The daemon's per-session sequence number of a record, on every forwarded `session/update`. */
   seq: "cycle/seq",
+  /**
+   * When the daemon logged that record: its log line's `ts`, ISO 8601 UTC to the millisecond, on every forwarded
+   * `session/update` that has a record. Absent on synthesized updates and from older daemons (docs/protocol.md §5).
+   */
+  ts: "cycle/ts",
   /** In `initialize`: Cycle's own protocol version, "major.minor". */
   protocolVersion: "cycle/protocolVersion",
   /** In the `initialize` response: what this daemon can do. */
@@ -80,6 +85,12 @@ export const META = {
    * delayMs, status?}` (docs/protocol.md §8). Shown as a state while it is the last thing in the turn, never as a row.
    */
   retry: "cycle/retry",
+  /**
+   * On a block the daemon put in a prompt in place of a mention of another session (daemon to agent): the
+   * `resource_link` it stands for, which the daemon puts back in the agent's echo before it is written
+   * (docs/protocol.md §8 "提及(@)另一个 session").
+   */
+  expandedFrom: "cycle/expandedFrom",
 } as const;
 
 /** The version of Cycle's protocol, "major.minor". A different major is refused. */
@@ -109,6 +120,8 @@ export const CapabilitiesSchema = z.object({
   trust: z.boolean().optional(),
   /** `_cycle/plan_usage/read` and `_cycle/plan_usage_changed` are there (docs/protocol.md §8 "套餐用量"). */
   planUsage: z.boolean().optional(),
+  /** A `cycle://session/` mention in a prompt reaches the agent as that session's record (docs/protocol.md §8). */
+  sessionMentions: z.boolean().optional(),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 
@@ -152,6 +165,18 @@ export const seqOf = (meta: unknown): number | undefined => {
   if (typeof meta !== "object" || meta === null) return undefined;
   const value = (meta as Record<string, unknown>)[META.seq];
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+};
+
+/**
+ * The time on an update's `_meta["cycle/ts"]`, in milliseconds since the epoch, or undefined if it carries none or one
+ * that is not a time. Undefined is "not known": never read it as now or as 0.
+ */
+export const tsOf = (meta: unknown): number | undefined => {
+  if (typeof meta !== "object" || meta === null) return undefined;
+  const value = (meta as Record<string, unknown>)[META.ts];
+  if (typeof value !== "string" || !/^\d{4}-\d\d-\d\dT/.test(value)) return undefined;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) && ms > 0 ? ms : undefined;
 };
 
 /** `_meta["cycle/toolResult"]` of a finished tool call: counts and flags only (docs/protocol.md §9 "工具调用的结果"). */

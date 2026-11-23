@@ -2,20 +2,28 @@
 // DOM, so that the rules can be tested. The text is kept in the renderer's localStorage by environment and session, so a
 // restart finds it again. The images are not: base64 of a picture would fill the little room localStorage has.
 import type { PromptBlock } from "./api.ts";
-import { ATTACHMENT_LIMITS, type Attachment, base64Bytes, isImageType } from "./attachments.ts";
+import {
+  ATTACHMENT_LIMITS,
+  type Attachment,
+  attachmentUri,
+  base64Bytes,
+  isImageType,
+  resourceName,
+} from "./attachments.ts";
+import { SESSION_URI_PREFIX } from "./mention.ts";
 import type { Block, QueuedPrompt } from "./model/index.ts";
 import { textOf } from "./model/index.ts";
 
 /**
- * A file or folder picked after an @. The message holds `@path` as text, which is what a person reads; this is what
- * goes with it for the agent (docs/protocol.md §8). Kept with the draft in memory only: text that comes back from
- * storage is just text.
+ * A file, folder or session picked after an @. The message holds `@path` as text, which is what a person reads; this
+ * is what goes with it for the agent (docs/protocol.md §8). Kept with the draft in memory only: text that comes back
+ * from storage is just text.
  */
 export type Mention = {
-  /** Relative to the session's folder, as in the text after the @. */
+  /** What the text says after the @: a path relative to the session's folder, or a session's title (`sessionLabel`). */
   readonly path: string;
-  readonly kind: "file" | "folder";
-  /** `file://` and the absolute path, a folder's ending in `/`. */
+  readonly kind: "file" | "folder" | "session";
+  /** `file://` and the absolute path, a folder's ending in `/`; `cycle://session/` and the id for a session. */
   readonly uri: string;
   readonly name: string;
 };
@@ -40,12 +48,11 @@ export const mentionText = (mention: Pick<Mention, "path" | "kind">): string =>
   `@${mention.path}${mention.kind === "folder" ? "/" : ""}`;
 
 /**
- * Whether the text still names a mention: its `@path` as a whole word. `@a.ts` is not in `@a.tsx`, and a mention whose
- * @path was edited into another name is not sent.
+ * Where `word` (an `@name`) first stands as a whole word in `text`, at or after `from`, or -1. `@a.ts` is not in `@a.tsx`:
+ * it starts after a space or an opening mark and ends before a space, a closing mark or a sentence's last full stop.
  */
-export const namesMention = (text: string, mention: Pick<Mention, "path" | "kind">): boolean => {
-  const word = mentionText(mention);
-  for (let at = text.indexOf(word); at !== -1; at = text.indexOf(word, at + 1)) {
+export const wordAt = (text: string, word: string, from = 0): number => {
+  for (let at = text.indexOf(word, from); at !== -1; at = text.indexOf(word, at + 1)) {
     const before = text[at - 1];
     const after = text[at + word.length];
     const startsWord = before === undefined || /[\s([{"']/.test(before);
@@ -54,10 +61,17 @@ export const namesMention = (text: string, mention: Pick<Mention, "path" | "kind
       after === undefined ||
       /[\s,;:!?)\]}"']/.test(after) ||
       (after === "." && (next === undefined || /\s/.test(next)));
-    if (startsWord && endsWord) return true;
+    if (startsWord && endsWord) return at;
   }
-  return false;
+  return -1;
 };
+
+/**
+ * Whether the text still names a mention: its `@path` as a whole word (`wordAt`). A mention whose @path was edited into
+ * another name is not sent.
+ */
+export const namesMention = (text: string, mention: Pick<Mention, "path" | "kind">): boolean =>
+  wordAt(text, mentionText(mention)) !== -1;
 
 /** The `file://` address of a path under a root, as the agent reads it. */
 export const fileUri = (root: string, path: string, kind: "file" | "folder"): string =>
@@ -82,16 +96,24 @@ export const browserStorage = (): DraftStorage | undefined => {
 
 type Saved = { text?: string; handled?: string };
 
-/** What a message is sent as: its text, then its images. Undefined when there is nothing to send. */
+/** An attachment as ACP carries it: an image, or an embedded file (decision 0010; .agents/notes/2026-11-22-attach-any-file.md). */
+const blockOf = (a: Attachment): PromptBlock =>
+  a.kind === "image"
+    ? { type: "image", data: a.data, mimeType: a.type }
+    : {
+        type: "resource",
+        resource:
+          a.kind === "text"
+            ? { uri: attachmentUri(a.name), mimeType: a.type, text: a.data }
+            : { uri: attachmentUri(a.name), mimeType: a.type, blob: a.data },
+      };
+
+/** What a message is sent as: its text, then its images and files. Undefined when there is nothing to send. */
 export const promptBlocks = (draft: Draft): PromptBlock[] | undefined => {
   if (draft.text.trim() === "" && draft.attachments.length === 0 && draft.kept.length === 0)
     return undefined;
   const text = draft.text.trim() === "" ? [] : [{ type: "text" as const, text: draft.text }];
-  const images = draft.attachments.map((a) => ({
-    type: "image" as const,
-    data: a.data,
-    mimeType: a.type,
-  }));
+  const images = draft.attachments.map(blockOf);
   // Only what the text still says: a mention whose @path was deleted is not sent. Once for each address. Blocks are
   // few (the same limit images are held to), and the words say it all when a link has no room.
   const seen = new Set<string>();
@@ -112,16 +134,48 @@ export const promptBlocks = (draft: Draft): PromptBlock[] | undefined => {
 
 /** What a person is told a block they cannot edit is called: its file's name, or what kind of block it is. */
 const keep = (block: Block): KeptBlock => {
-  const resource = block.resource as { uri?: unknown } | undefined;
-  const uri = [block.uri, resource?.uri].find((u): u is string => typeof u === "string");
   const name =
     typeof block.name === "string" && block.name !== ""
       ? block.name
-      : (uri?.split("/").filter(Boolean).at(-1) ?? block.type);
+      : (resourceName(block) ??
+        (typeof block.uri === "string" ? block.uri.split("/").filter(Boolean).at(-1) : undefined) ??
+        block.type);
   return { id: crypto.randomUUID(), name, block };
 };
 
-/** A prompt's blocks as a draft: its texts, and its images as attachments. Other blocks are left out. */
+/**
+ * A file this box attached (its uri is an `attachment:` one), as an attachment again: shown with its size, counted in
+ * the limits, removable. A file from elsewhere is a kept block: it goes out as it was.
+ */
+const fileOf = (block: Block): Attachment | undefined => {
+  const resource = block.resource as Record<string, unknown> | undefined;
+  const name = resourceName(block);
+  if (typeof resource?.uri !== "string" || !resource.uri.startsWith("attachment:///"))
+    return undefined;
+  if (name === undefined) return undefined;
+  const type = typeof resource.mimeType === "string" ? resource.mimeType : "text/plain";
+  if (typeof resource.text === "string")
+    return {
+      id: crypto.randomUUID(),
+      name,
+      kind: "text",
+      type,
+      data: resource.text,
+      bytes: new TextEncoder().encode(resource.text).length,
+    };
+  if (typeof resource.blob === "string" && type === "application/pdf")
+    return {
+      id: crypto.randomUUID(),
+      name,
+      kind: "pdf",
+      type,
+      data: resource.blob,
+      bytes: base64Bytes(resource.blob) ?? 0,
+    };
+  return undefined;
+};
+
+/** A prompt's blocks as a draft: its texts, its images and its own files as attachments. Other blocks are kept as they were. */
 export const draftOf = (blocks: readonly Block[]): Draft => {
   const texts: string[] = [];
   const attachments: Attachment[] = [];
@@ -133,7 +187,11 @@ export const draftOf = (blocks: readonly Block[]): Draft => {
       if (typeof block.uri === "string" && typeof path === "string") {
         mentions.push({
           path,
-          kind: block.uri.endsWith("/") ? "folder" : "file",
+          kind: block.uri.startsWith(SESSION_URI_PREFIX)
+            ? "session"
+            : block.uri.endsWith("/")
+              ? "folder"
+              : "file",
           uri: block.uri,
           name: typeof block.name === "string" ? block.name : path,
         });
@@ -151,16 +209,37 @@ export const draftOf = (blocks: readonly Block[]): Draft => {
       attachments.push({
         id: crypto.randomUUID(),
         name: typeof block.name === "string" ? block.name : "image",
+        kind: "image",
         type: block.mimeType,
         data: block.data,
         bytes: base64Bytes(block.data) ?? 0,
       });
-    } else if (block.type !== "text") {
-      kept.push(keep(block));
+    } else {
+      const file = block.type === "resource" ? fileOf(block) : undefined;
+      if (file !== undefined) attachments.push(file);
+      else if (block.type !== "text") kept.push(keep(block));
     }
   }
   return { text: texts.join(""), attachments, mentions, kept };
 };
+
+/** Drafts one after the other, as one: the words in order with a blank line between, and what goes with them. */
+const joinDrafts = (drafts: readonly Draft[]): Draft => ({
+  text: drafts
+    .map((d) => d.text)
+    .filter((t) => t !== "")
+    .join("\n\n"),
+  attachments: drafts.flatMap((d) => d.attachments),
+  mentions: drafts.flatMap((d) => d.mentions),
+  kept: drafts.flatMap((d) => d.kept),
+});
+
+/**
+ * What "Try again" sends for a turn that failed: what was said in it, as one message, just as "Edit message" would put
+ * it in the box and Enter would send it unchanged. Undefined when there is nothing to send.
+ */
+export const againBlocks = (prompts: readonly (readonly Block[])[]): PromptBlock[] | undefined =>
+  promptBlocks(joinDrafts(prompts.map(draftOf)));
 
 /** What identifies a hand-back, so one that was put in the box is not put there twice. */
 export const returnedId = (prompts: readonly QueuedPrompt[]): string =>
@@ -317,15 +396,8 @@ export class DraftStore {
    */
   restore(key: string, blocks: readonly (readonly Block[])[], handled?: string): void {
     const old = this.get(key);
-    const back = blocks.map(draftOf);
     if (handled !== undefined) this.#handled.set(key, handled);
-    const text = [...back.map((d) => d.text), old.text].filter((t) => t !== "").join("\n\n");
-    this.#put(key, {
-      text,
-      attachments: [...back.flatMap((d) => d.attachments), ...old.attachments],
-      mentions: [...back.flatMap((d) => d.mentions), ...old.mentions],
-      kept: [...back.flatMap((d) => d.kept), ...old.kept],
-    });
+    this.#put(key, joinDrafts([...blocks.map(draftOf), old]));
   }
 
   /** Whether a hand-back was already put in the session's box. */

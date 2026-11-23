@@ -1,8 +1,12 @@
 import { Listbox, ListboxGroup, ListboxGroupLabel, ListboxItem } from "@ui-sdk/react/listbox";
+import { useRef, useState } from "react";
 import type { SessionSummary } from "../api.ts";
 import { markOf, type SessionGroup, type SessionList, sessionKey } from "../sessions.ts";
 import { useI18n } from "./i18n.tsx";
+import { RenameField, RenameProblem, useRename } from "./rename-field.tsx";
+import { SessionTime } from "./session-time.tsx";
 import { MARK_STYLE, MARK_WORD, StatusDot } from "./status.tsx";
+import { useAppStore } from "./store-context.tsx";
 
 /** The last part of a path, for a session that has no title yet. */
 const place = (cwd: string): string => cwd.split("/").filter(Boolean).at(-1) ?? cwd;
@@ -17,6 +21,14 @@ export type Away = { name: string; word: string };
 
 function Row({ session, away }: { session: SessionSummary; away: Away | undefined }) {
   const { t } = useI18n();
+  const store = useAppStore();
+  const title = sessionTitle(session);
+  const { shown, problem, finish } = useRename(title, (next) =>
+    store.renameSession(session.sessionId, next, "sidebar", session.environmentId),
+  );
+  // Renamed in place by a double click or F2; not while its environment is away, where it could not be.
+  const [editing, setEditing] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
   const tip =
     away !== undefined
       ? t("session.away", { environment: away.name, state: away.word })
@@ -26,19 +38,42 @@ function Row({ session, away }: { session: SessionSummary; away: Away | undefine
   const style = mark !== undefined ? MARK_STYLE[mark] : undefined;
   return (
     <ListboxItem
+      ref={rowRef}
       value={sessionKey(session)}
       data-session={session.sessionId}
       data-environment={session.environmentId}
       data-archived={session.archived || undefined}
       data-mark={mark}
       data-away={away !== undefined || undefined}
+      data-editing={editing || undefined}
       title={tip}
+      onDoubleClick={() => away === undefined && setEditing(true)}
+      onKeyDown={(event) => {
+        if (event.key !== "F2" || away !== undefined) return;
+        event.preventDefault();
+        setEditing(true);
+      }}
     >
       <span data-slot="session-dot">
         {style !== undefined ? <StatusDot tone={style.tone} shape={style.shape} /> : null}
       </span>
       {mark !== undefined ? <span data-slot="visually-hidden">{t(MARK_WORD[mark])}. </span> : null}
-      <span data-slot="session-title">{sessionTitle(session)}</span>
+      {editing ? (
+        <RenameField
+          initial={title}
+          onDone={(text, byKey) => {
+            setEditing(false);
+            finish(text);
+            if (byKey) requestAnimationFrame(() => rowRef.current?.focus());
+          }}
+        />
+      ) : (
+        <>
+          <span data-slot="session-title">{shown}</span>
+          <SessionTime at={session.updatedAt} />
+        </>
+      )}
+      {editing ? null : <RenameProblem problem={problem} />}
     </ListboxItem>
   );
 }

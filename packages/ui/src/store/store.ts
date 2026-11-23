@@ -27,7 +27,7 @@ import type {
   SessionSummary,
   UpdateState,
 } from "../api.ts";
-import { DraftStore, promptBlocks, returnedId } from "../draft.ts";
+import { againBlocks, DraftStore, promptBlocks, returnedId } from "../draft.ts";
 import type { Params } from "../i18n.ts";
 import type { MessageKey } from "../messages/en-US.ts";
 import {
@@ -827,7 +827,7 @@ export class AppStore {
   };
 
   /**
-   * "Send again" on a turn that failed (DESIGN.md 4.4): what was said in it goes back in front of the box, and the box takes
+   * "Edit message" on a turn that failed (DESIGN.md 4.4): what was said in it goes back in front of the box, and the box takes
    * the focus. Nothing is sent: the person reads it, may change it, and sends it as any message, asked for permissions
    * afresh. Only for the session in view.
    */
@@ -848,6 +848,31 @@ export class AppStore {
       });
     }
     this.#set((s) => ({ composerFocus: s.composerFocus + 1 }));
+  };
+
+  /**
+   * "Try again" on a turn that failed: what was said in it is sent again as it was, in one go (the person was asked
+   * first if the turn had already run a command or changed a file; `changed` says so). Only for the session in view,
+   * while its environment is connected and the agent is not at work. If it cannot go, it comes back in the box, so
+   * nothing is lost. Resolves when the daemon has answered.
+   */
+  retry = async (resend: Resend): Promise<boolean> => {
+    const { selectedEnvironment: environmentId, selectedSession: sessionId } = this.#state;
+    if (environmentId === undefined || sessionId === undefined || resend.busy) return false;
+    if (this.#state.status[environmentId]?.state !== "connected") return false;
+    const content = againBlocks(resend.prompts);
+    if (content === undefined) return false;
+    const sent = await this.#attempt(async () => {
+      await this.#bridge.prompt(environmentId, sessionId, content, { via: "button" });
+      return true;
+    });
+    if (sent !== true) {
+      this.drafts.restore(viewKey(environmentId, sessionId), [content]);
+      return false;
+    }
+    // Counted once it went, like `turn_resent`: a retry that could not be sent is not one.
+    this.track("turn_retried", { failure: resend.failure, changed: resend.changed.length > 0 });
+    return true;
   };
 
   /** What fits an @ in the selected session's box. Quiet when it cannot say: a menu that is not there is enough. */
@@ -917,11 +942,16 @@ export class AppStore {
     );
   };
 
-  renameSession = async (sessionId: string, title: string): Promise<string | undefined> => {
-    const environmentId = this.#state.selectedEnvironment;
+  /** Answers with why it failed, or nothing. A row of the sidebar names its own environment; the header is the open one's. */
+  renameSession = async (
+    sessionId: string,
+    title: string,
+    where: "header" | "sidebar" = "header",
+    environmentId = this.#state.selectedEnvironment,
+  ): Promise<string | undefined> => {
     if (environmentId === undefined) return undefined;
     try {
-      await this.#bridge.renameSession(environmentId, sessionId, title);
+      await this.#bridge.renameSession(environmentId, sessionId, title, where);
       return undefined;
     } catch (error) {
       return messageOf(error);
@@ -1201,7 +1231,7 @@ const applyToView = (view: SessionView, event: AppEvent & { version: number }): 
   if (event.type === "update") {
     return {
       ...view,
-      conversation: applyUpdate(view.conversation, event.update),
+      conversation: applyUpdate(view.conversation, event.update, { at: event.at }),
       version: event.version,
     };
   }
