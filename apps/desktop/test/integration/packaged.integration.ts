@@ -152,6 +152,8 @@ test.skipIf(!ready)(
           "track",
           "updateConnector",
           "updateState",
+          "workspaceFile",
+          "workspaceStatus",
           "upgradeDaemon",
         ].sort(),
       );

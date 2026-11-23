@@ -31,17 +31,53 @@ export const gitEnv = (inherited: Record<string, string | undefined> = process.e
   return env;
 };
 
-export type GitResult = { code: number; stdout: Uint8Array };
+export type GitResult = {
+  code: number;
+  stdout: Uint8Array;
+  /** Git said more than `maxBytes`: what it said is cut there, and it was stopped. */
+  cut: boolean;
+};
+
+export type GitOptions = {
+  /** On its standard input. */
+  input?: string;
+  /** Paths are paths, never pathspec magic. */
+  literal?: boolean;
+  timeoutMs?: number;
+  /** Past this many bytes of output git is stopped and the output cut. */
+  maxBytes?: number;
+};
+
+/** Up to `max` bytes of a stream, and whether there were more. */
+const readUpTo = async (
+  stream: ReadableStream<Uint8Array>,
+  max: number,
+): Promise<{ bytes: Uint8Array; cut: boolean }> => {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = stream.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    size += value.length;
+    if (size > max) {
+      await reader.cancel();
+      return { bytes: Buffer.concat(chunks).subarray(0, max), cut: true };
+    }
+  }
+  return { bytes: Buffer.concat(chunks), cut: false };
+};
 
 /**
- * Runs git in `dir` with `args`, `input` on its standard input, looking for a repository no higher than `top`.
- * Undefined when git is not there or took too long.
+ * Runs git in `dir` with `args`, looking for a repository no higher than `top`. Undefined when git is not there or took
+ * too long.
  */
 export const runGit = async (
   dir: string,
   top: string,
   args: readonly string[],
-  input?: string,
+  options: GitOptions = {},
 ): Promise<GitResult | undefined> => {
   let child: Bun.Subprocess<"pipe", "pipe", "ignore">;
   try {
@@ -49,21 +85,27 @@ export const runGit = async (
       stdin: "pipe",
       stdout: "pipe",
       stderr: "ignore",
-      // The repository found is the one whose trust was asked about, not one further up.
-      env: { ...gitEnv(), GIT_CEILING_DIRECTORIES: dirname(top) },
+      env: {
+        ...gitEnv(),
+        // The repository found is the one whose trust was asked about, not one further up.
+        GIT_CEILING_DIRECTORIES: dirname(top),
+        ...(options.literal === true ? { GIT_LITERAL_PATHSPECS: "1" } : {}),
+      },
     });
   } catch {
     return undefined;
   }
-  const timer = setTimeout(() => child.kill(), TIME_LIMIT_MS);
+  const timer = setTimeout(() => child.kill(), options.timeoutMs ?? TIME_LIMIT_MS);
   try {
     // Read while writing: git answers as it goes, and a full pipe on either side would stop both.
-    const output = Promise.all([new Response(child.stdout).bytes(), child.exited]);
-    if (input !== undefined) child.stdin.write(input);
+    const output = readUpTo(child.stdout, options.maxBytes ?? Number.POSITIVE_INFINITY);
+    if (options.input !== undefined) child.stdin.write(options.input);
     await child.stdin.end();
-    const [stdout, code] = await output;
-    if (child.signalCode !== null) return undefined;
-    return { code, stdout };
+    const { bytes, cut } = await output;
+    if (cut) child.kill();
+    const code = await child.exited;
+    if (!cut && child.signalCode !== null) return undefined;
+    return { code, stdout: bytes, cut };
   } catch {
     return undefined;
   } finally {
@@ -101,7 +143,7 @@ export const ignoredNames = async (
   // NUL-separated both ways: a name may hold a newline. `./` first, so that a name starting with `:` is a name and not
   // pathspec magic (check-ignore takes no literal pathspecs); git answers with the same `./`.
   const input = names.map((name) => `./${name}\0`).join("");
-  const result = await runGit(dir, repository, ["check-ignore", "-z", "--stdin"], input);
+  const result = await runGit(dir, repository, ["check-ignore", "-z", "--stdin"], { input });
   // 0: some are ignored; 1: none are; anything else (128: not a repository) says nothing.
   if (result === undefined || result.code !== 0) return new Set();
   return new Set(

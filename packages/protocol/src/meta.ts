@@ -118,6 +118,8 @@ export const CapabilitiesSchema = z.object({
   filesInFolder: z.boolean().optional(),
   /** `_cycle/fs/list` and `_cycle/fs/read` are there (docs/protocol.md §8 "浏览和预览文件"). */
   fs: z.boolean().optional(),
+  /** `_cycle/diff/status` and `_cycle/diff/file` are there (docs/protocol.md §8 "工作区的改动"). */
+  diff: z.boolean().optional(),
   /** `_cycle/trust/read` and `_cycle/trust/set` are there (docs/protocol.md §8). */
   trust: z.boolean().optional(),
   /** `_cycle/plan_usage/read` and `_cycle/plan_usage_changed` are there (docs/protocol.md §8 "套餐用量"). */

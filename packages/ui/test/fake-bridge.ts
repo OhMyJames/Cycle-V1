@@ -56,6 +56,7 @@ export const fakeBridge = (
       connectors?: boolean;
       sessionMentions?: boolean;
       fs?: boolean;
+      diff?: boolean;
     };
     /** The connectors the daemon keeps. Changed in place by what the page asks. */
     connectors?: ConnectorInfo[];
@@ -169,6 +170,13 @@ export const fakeBridge = (
       text: "",
       offset: 0,
       next: null,
+    })),
+    workspaceStatus: record("workspaceStatus", async () => ({ state: "not_git" as const })),
+    workspaceFile: record("workspaceFile", async (_e: string, _s: string, path: string) => ({
+      path,
+      patch: "",
+      truncated: false,
+      binary: false,
     })),
     searchFiles: record("searchFiles", async () => ({
       root: "/work",

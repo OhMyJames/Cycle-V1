@@ -5,7 +5,7 @@ import { methods } from "@agentclientprotocol/sdk/experimental/v2";
 import { Daemon } from "../src/index.ts";
 import { connectClient } from "./client.ts";
 import { fakeAgent } from "./fake-agent.ts";
-import { tempDir } from "./support.ts";
+import { gitIn, tempDir } from "./support.ts";
 
 let dir: string;
 let work: string;
@@ -31,7 +31,7 @@ test("the daemon says it can show files, lists and reads the session's folder, a
   await writeFile(join(work, "run.log"), "");
   await mkdir(join(work, "src"));
   await writeFile(join(work, "src", "main.ts"), "let x = 1;\n");
-  Bun.spawnSync(["git", "init", "-q"], { cwd: work });
+  gitIn(work, "init", "-q");
   const daemon = await Daemon.start({ dataDir: dir, agents: [fakeAgent().definition] });
   open.push(daemon);
   const c = await connectClient(daemon);

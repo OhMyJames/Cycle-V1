@@ -177,7 +177,7 @@ const stillInside = async (root: string, real: string, opened: Stats, path: stri
     throw refused(path, "outside", "That is outside the session's folder");
 };
 
-const readAt = async (
+export const readAt = async (
   handle: FileHandle,
   position: number,
   length: number,
@@ -192,7 +192,16 @@ const readAt = async (
  * it is not too large), anything else only by its size. One handle, opened without following a last link and checked
  * after it is open, is what every byte comes through.
  */
-export const readFile = async (cwd: string, path: string, offset = 0): Promise<FsRead> => {
+/**
+ * A plain file of the session's folder, opened to be read, and what it is: confined, opened without following a last
+ * link and without waiting on a pipe, then checked again to be the file inside the folder. `use` reads through the
+ * handle, which is closed after. Everything that reads a file of a session's folder comes through here.
+ */
+export const withFileInside = async <T>(
+  cwd: string,
+  path: string,
+  use: (handle: FileHandle, opened: Stats) => Promise<T>,
+): Promise<T> => {
   const { root, real } = await confine(cwd, path);
   let handle: FileHandle;
   try {
@@ -210,6 +219,17 @@ export const readFile = async (cwd: string, path: string, offset = 0): Promise<F
     // A pipe or a device would never end: only plain files are read.
     if (!opened.isFile()) throw refused(path, "not_a_file", "That is not a file");
     await stillInside(root, real, opened, path);
+    return await use(handle, opened);
+  } catch (error) {
+    if (error instanceof RpcError) throw error;
+    throw refused(path, "unreadable", "It cannot be read");
+  } finally {
+    await handle.close();
+  }
+};
+
+export const readFile = (cwd: string, path: string, offset = 0): Promise<FsRead> =>
+  withFileInside(cwd, path, async (handle, opened) => {
     const { size, mtimeMs } = opened;
     const head = { path, size, mtimeMs };
     const name = path.slice(path.lastIndexOf("/") + 1);
@@ -233,10 +253,4 @@ export const readFile = async (cwd: string, path: string, offset = 0): Promise<F
     const text = new TextDecoder().decode(bytes.subarray(0, end));
     const next = offset + end < size ? offset + end : null;
     return { ...head, kind: "text", text, offset, next };
-  } catch (error) {
-    if (error instanceof RpcError) throw error;
-    throw refused(path, "unreadable", "It cannot be read");
-  } finally {
-    await handle.close();
-  }
-};
+  });

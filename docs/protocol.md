@@ -50,6 +50,7 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
   "folders": true,
   "filesInFolder": true,
   "fs": true,
+  "diff": true,
   "trust": true,
   "connectors": true,
   "sessionMentions": true
@@ -85,6 +86,8 @@ ACP 方法和类型已对照 `@agentclientprotocol/sdk` 2.7.0 的 v2 稳定版 J
 | `_cycle/folders/list`        | 客户端 → daemon | daemon 处理:列出一个目录下的文件夹(选 `cwd` 用),见 §8 |
 | `_cycle/fs/list`             | 客户端 → daemon | daemon 处理:列出 session 的 `cwd` 里一个文件夹,见 §8  |
 | `_cycle/fs/read`             | 客户端 → daemon | daemon 处理:读 session 的 `cwd` 里一个文件,见 §8      |
+| `_cycle/diff/status`         | 客户端 → daemon | daemon 处理:工作区相对 HEAD 改了哪些文件,见 §8        |
+| `_cycle/diff/file`           | 客户端 → daemon | daemon 处理:一个文件相对 HEAD 的补丁,见 §8            |
 | `_cycle/trust/read`          | 客户端 → daemon | daemon 处理:一个文件夹是否信任,见 §8                  |
 | `_cycle/trust/set`           | 客户端 → daemon | daemon 处理:记下对一个文件夹的信任决定,见 §8          |
 | `_cycle/plan_usage/read`     | 客户端 → daemon | daemon 处理:各 agent 账号的套餐用量,见 §8 "套餐用量"  |
@@ -397,6 +400,26 @@ agent 是 daemon 的子进程,daemon 停止(`cycle stop`、升级、崩溃、机
 - 常量在 `@cycle/protocol` 的 `FS_LIMITS`。
 
 **不比现在多暴露什么**:能连上 daemon 的人本来就能让 agent 在这台机器上执行命令。监听仍只在 loopback、unix socket 或 SSH 通道上，不放宽。daemon 的日志不记路径和内容。能力 `fs` 为 `true` 才有这两个方法；旧 daemon 没有：客户端不显示 Files 标签。
+
+### 工作区的改动(`_cycle/diff/*`,CYCL-94)
+
+右侧面板的 Diff 标签有两个视图(决定笔记 [2026-11-22-files-and-diff-sources](../.agents/notes/2026-11-22-files-and-diff-sources.md))。"本会话的编辑"由客户端从日志里工具调用的 `diff` 内容汇总，不需要新方法；"工作区"由 daemon 在 session 的 `cwd` 上运行 git 算出：工作区(已暂存的、未暂存的、未跟踪的，不含被忽略的)对比 `HEAD`,还没有提交时对比空树。只看 `cwd` 之内，路径相对 `cwd`,用 `/` 分隔。不做改名识别：改名是一删一增。
+
+**只在信任的仓库里算**:git 读的是仓库自己的配置，所以要求 `cwd` 所在仓库的**根目录**(最近的 `.git` 所在)被信任(§8"信任文件夹")。运行方式和 `_cycle/fs/list` 标忽略时相同：加固参数、白名单环境、`GIT_CEILING_DIRECTORIES`、`GIT_LITERAL_PATHSPECS=1`、每次最多 10 秒。
+
+`_cycle/diff/status`,参数 `{sessionId}`,响应按 `state` 分:
+
+- `{state: "ok", head, files, truncated}`:`head` 是 `HEAD` 的提交号，没有提交时为 `null`。`files` 是 `[{path, status, additions?, deletions?, binary?}]`,按路径排序;`status` 是 `added`(已暂存的新文件)、`modified`、`deleted`、`untracked`;`additions`、`deletions` 是行数，二进制文件带 `binary: true` 不带行数。未跟踪文件的行数由 daemon 数(经过和 `_cycle/fs/read` 一样的路径检查),超过 1 MiB 的、读不了的、数了 2 秒还没数到的，不带行数。仓库里未被跟踪的另一个仓库按文件夹列出(`path` 是它的路径),没有行数，也没有补丁。最多 1,000 个文件，多了带 `truncated: true`。
+- `{state: "not_git"}`:`cwd` 不在 git 仓库里。
+- `{state: "untrusted", repository}`:仓库根目录 `repository` 没有被信任。客户端说明原因，并指向信任的设置。
+- session 不存在、`cwd` 不存在：`-32002`。git 不在、超时或失败:`-32603`,`data.detail` 是 git 的说法。
+
+`_cycle/diff/file`,参数 `{sessionId, path}`,响应 `{path, patch, truncated, binary}`:
+
+- `patch` 是这个文件对比同一基线的统一 diff(git 的格式，从文件头开始;客户端从第一个 `@@` 起画)。未跟踪的文件给出整份新增。最多 1 MiB,在行尾截断并带 `truncated: true`。二进制文件 `binary: true`,`patch` 为空。没有改动时 `patch` 为空。
+- `path` 的规则和 `_cycle/fs/*` 相同(相对、不含 `.`、`..`、空段、NUL,否则 `-32602` 加 `invalid_path`);未跟踪文件还要通过同样的真实路径检查。空路径也是 `invalid_path`。目标是文件夹、管道或设备，以 `-32602` 拒绝,`data.reason` 为 `not_a_file`。仓库不在或没被信任，以 `-32602` 拒绝,`data.reason` 是 `not_git` 或 `untrusted`。
+
+能力 `diff` 为 `true` 才有这两个方法；旧 daemon 没有：客户端只提供"本会话的编辑"。常量在 `@cycle/protocol` 的 `DIFF_LIMITS`。
 
 ### 选文件夹
 
