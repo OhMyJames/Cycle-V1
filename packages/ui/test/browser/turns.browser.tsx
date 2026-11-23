@@ -242,6 +242,52 @@ test("thinking is hidden until asked for, and the line at the end still says the
   expect(thinking.get()).toBe(true);
 });
 
+test("a message says when it was sent and a reply when it finished, with the full time on focus; none when not known", async () => {
+  const { user, log, script } = await open(you("old"));
+  // The history from an older daemon carries no time: nothing is shown for it.
+  await waitFor(() => expect(log.textContent).toContain("old"));
+  expect(log.querySelector('[data-kind="message-time"]')).toBeNull();
+  const now = Date.now();
+  let version = 1;
+  const emit = (update: SessionUpdate, at: number) =>
+    act(() =>
+      script.emit({
+        type: "update",
+        environmentId: "local",
+        sessionId: "s1",
+        update,
+        at,
+        version: ++version,
+      }),
+    );
+  await emit(state({ state: "idle", stopReason: "end_turn" }), now - 4 * 60_000);
+  await emit(you("u2"), now - 3 * 60_000);
+  await emit(
+    u({
+      sessionUpdate: "agent_message_chunk",
+      messageId: "a2",
+      content: { type: "text", text: "done" },
+    }),
+    now - 2 * 60_000,
+  );
+  // While the reply streams it has no finished time yet.
+  await waitFor(() => expect(log.textContent).toContain("done"));
+  expect(log.querySelectorAll('[data-kind="message-time"]')).toHaveLength(1);
+  await emit(state({ state: "idle", stopReason: "end_turn" }), now - 2 * 60_000);
+  await waitFor(() => expect(log.querySelectorAll('[data-kind="message-time"]')).toHaveLength(2));
+  const [sent, finished] = log.querySelectorAll<HTMLElement>('[data-kind="message-time"]');
+  expect(sent?.textContent).toBe("3 minutes ago");
+  expect(finished?.textContent).toBe("2 minutes ago");
+  // Quiet until asked for: its row under the message is hidden, then shown on keyboard focus with the full date and time.
+  const row = (sent as HTMLElement).closest('[data-slot="message-actions"]') as HTMLElement;
+  expect(getComputedStyle(row).opacity).toBe("0");
+  (sent as HTMLElement).focus();
+  await user.keyboard("{Shift>}{Tab}{/Shift}{Tab}");
+  const tip = await screen.findByRole("tooltip");
+  expect(tip.textContent).toContain("Sent");
+  expect(tip.textContent).toContain(String(new Date(now - 3 * 60_000).getFullYear()));
+});
+
 const turnsOf = (n: number, from = 0) =>
   Array.from({ length: n }, (_, k) => [
     you(`question ${from + k}`),

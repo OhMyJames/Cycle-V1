@@ -2180,6 +2180,7 @@ html[data-platform="darwin"]
 }
 
 [data-slot="message"][data-role="agent"] {
+  position: relative;
   max-width: 100%;
   overflow-wrap: anywhere;
 }
@@ -2188,6 +2189,7 @@ html[data-platform="darwin"]
    message or the focus is in it, so it can be reached by keyboard. The button's own padding sits outside the text edge. */
 [data-slot="message-actions"] {
   display: flex;
+  align-items: center;
   margin-top: 0.25rem;
   margin-inline: -0.25rem;
   opacity: 0;
@@ -2223,6 +2225,29 @@ html[data-platform="darwin"]
 :is([data-slot="message-copy"], [data-slot="code-copy"]):hover {
   background: var(--cycle-surface-hover);
   color: var(--cycle-ink);
+}
+
+/* When a message was sent, or its turn's reply finished: muted words in the row under it, seen with the row. Its tip
+   gives the full local date and time; it is a button only so the keyboard reaches that tip. */
+[data-slot="message-actions"] [data-kind="message-time"] {
+  height: 1.5rem;
+  padding-inline: 0.25rem;
+  border: 0;
+  border-radius: var(--ui-radius);
+  background: none;
+  cursor: default;
+  color: var(--cycle-ink-muted);
+  font-family: var(--ui-font-sans);
+  font-size: var(--cycle-text-meta);
+  line-height: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  user-select: none;
+}
+
+[data-slot="message-actions"] [data-kind="message-time"]:focus-visible {
+  outline: 1.5px solid var(--cycle-focus-ring);
+  outline-offset: 0;
 }
 
 /* Markdown from the agent. Streamdown draws a code block as a box holding a box, and a table as a toolbar over a box

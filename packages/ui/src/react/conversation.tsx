@@ -33,6 +33,7 @@ import { useI18n } from "./i18n.tsx";
 import { ArrowDownIcon, AttachIcon, MessageIcon, ThoughtIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
 import { Markdown } from "./markdown.tsx";
+import { MessageTime } from "./message-time.tsx";
 import { PlanBlock } from "./plan.tsx";
 import { StateBlock } from "./state-block.tsx";
 import { useAppStore } from "./store-context.tsx";
@@ -179,17 +180,35 @@ function AgentBlocks({ blocks, streaming }: { blocks: Block[]; streaming: boolea
  * Copy under a message, seen when the pointer is over it or the focus is in it. It takes its room whether seen or not, so
  * coming and going it moves nothing. Reported as which kind of message, never what it said.
  */
-function MessageActions({ kind, text }: { kind: "agent" | "user"; text: () => string }) {
+/**
+ * Under a message: Copy, when it has words, and when it was sent or its turn's reply finished, when that is known. The
+ * time sits on the side away from the edge the message keeps to, so the two read as one row.
+ */
+function MessageActions({
+  kind,
+  text,
+  at,
+}: {
+  kind: "agent" | "user";
+  text: (() => string) | undefined;
+  at: number | undefined;
+}) {
   const { t } = useI18n();
   const store = useAppStore();
+  if (text === undefined && at === undefined) return null;
+  const time = <MessageTime at={at} kind={kind === "user" ? "sent" : "finished"} />;
   return (
     <div data-slot="message-actions" data-role={kind}>
-      <CopyButton
-        slot="message-copy"
-        label={t(`message.copy.${kind}`)}
-        text={text}
-        onCopied={() => store.track("message_copied", { kind })}
-      />
+      {kind === "user" ? time : null}
+      {text !== undefined ? (
+        <CopyButton
+          slot="message-copy"
+          label={t(`message.copy.${kind}`)}
+          text={text}
+          onCopied={() => store.track("message_copied", { kind })}
+        />
+      ) : null}
+      {kind === "agent" ? time : null}
     </div>
   );
 }
@@ -200,6 +219,7 @@ const BlockView = memo(function BlockView({
   live,
   resend,
   replyOf,
+  ended,
 }: {
   block: LaidBlock;
   /** This is the agent message that is still arriving. */
@@ -210,6 +230,8 @@ const BlockView = memo(function BlockView({
   resend?: Resend | undefined;
   /** On the last message of a turn that is over: what the agent wrote in that turn, to copy. */
   replyOf?: ((turn: number) => string) | undefined;
+  /** Its turn is over: a reply's row may say when it finished. */
+  ended?: boolean | undefined;
 }) {
   const { t } = useI18n();
   switch (block.kind) {
@@ -220,9 +242,11 @@ const BlockView = memo(function BlockView({
           <div data-slot="message" data-role="user">
             <Blocks blocks={blocks} from="user" />
           </div>
-          {blocks.some(hasWords) ? (
-            <MessageActions kind="user" text={() => textOf(blocks)} />
-          ) : null}
+          <MessageActions
+            kind="user"
+            text={blocks.some(hasWords) ? () => textOf(blocks) : undefined}
+            at={block.item.at}
+          />
         </>
       );
     }
@@ -233,7 +257,11 @@ const BlockView = memo(function BlockView({
             <AgentBlocks blocks={block.item.blocks} streaming={streaming} />
           </div>
           {replyOf !== undefined ? (
-            <MessageActions kind="agent" text={() => replyOf(block.turn)} />
+            <MessageActions
+              kind="agent"
+              text={() => replyOf(block.turn)}
+              at={ended === true ? (block.item.lastAt ?? block.item.at) : undefined}
+            />
           ) : null}
         </>
       );
@@ -604,6 +632,7 @@ export function ConversationView({
                 ? replyOf
                 : undefined
             }
+            ended={block.turn < conversation.turns}
           />
         </div>
       ))}
