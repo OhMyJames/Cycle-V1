@@ -409,7 +409,7 @@ agent 是 daemon 的子进程,daemon 停止(`cycle stop`、升级、崩溃、机
 
 `_cycle/diff/status`,参数 `{sessionId}`,响应按 `state` 分:
 
-- `{state: "ok", head, files, truncated}`:`head` 是 `HEAD` 的提交号，没有提交时为 `null`。`files` 是 `[{path, status, additions?, deletions?, binary?}]`,按路径排序;`status` 是 `added`(已暂存的新文件)、`modified`、`deleted`、`untracked`;`additions`、`deletions` 是行数，二进制文件带 `binary: true` 不带行数，太大(超过 1 MiB)的未跟踪文件不带行数。最多 1,000 个文件，多了带 `truncated: true`。
+- `{state: "ok", head, files, truncated}`:`head` 是 `HEAD` 的提交号，没有提交时为 `null`。`files` 是 `[{path, status, additions?, deletions?, binary?}]`,按路径排序;`status` 是 `added`(已暂存的新文件)、`modified`、`deleted`、`untracked`;`additions`、`deletions` 是行数，二进制文件带 `binary: true` 不带行数。未跟踪文件的行数由 daemon 数(经过和 `_cycle/fs/read` 一样的路径检查),超过 1 MiB 的、读不了的、数了 2 秒还没数到的，不带行数。仓库里未被跟踪的另一个仓库按文件夹列出(`path` 是它的路径),没有行数，也没有补丁。最多 1,000 个文件，多了带 `truncated: true`。
 - `{state: "not_git"}`:`cwd` 不在 git 仓库里。
 - `{state: "untrusted", repository}`:仓库根目录 `repository` 没有被信任。客户端说明原因，并指向信任的设置。
 - session 不存在、`cwd` 不存在：`-32002`。git 不在、超时或失败:`-32603`,`data.detail` 是 git 的说法。
@@ -417,7 +417,7 @@ agent 是 daemon 的子进程,daemon 停止(`cycle stop`、升级、崩溃、机
 `_cycle/diff/file`,参数 `{sessionId, path}`,响应 `{path, patch, truncated, binary}`:
 
 - `patch` 是这个文件对比同一基线的统一 diff(git 的格式，从文件头开始;客户端从第一个 `@@` 起画)。未跟踪的文件给出整份新增。最多 1 MiB,在行尾截断并带 `truncated: true`。二进制文件 `binary: true`,`patch` 为空。没有改动时 `patch` 为空。
-- `path` 的规则和 `_cycle/fs/*` 相同(相对、不含 `.`、`..`、空段、NUL,否则 `-32602` 加 `invalid_path`);未跟踪文件还要通过同样的真实路径检查。仓库不在或没被信任，以 `-32602` 拒绝,`data.reason` 是 `not_git` 或 `untrusted`。
+- `path` 的规则和 `_cycle/fs/*` 相同(相对、不含 `.`、`..`、空段、NUL,否则 `-32602` 加 `invalid_path`);未跟踪文件还要通过同样的真实路径检查。空路径也是 `invalid_path`。目标是文件夹、管道或设备，以 `-32602` 拒绝,`data.reason` 为 `not_a_file`。仓库不在或没被信任，以 `-32602` 拒绝,`data.reason` 是 `not_git` 或 `untrusted`。
 
 能力 `diff` 为 `true` 才有这两个方法；旧 daemon 没有：客户端只提供"本会话的编辑"。常量在 `@cycle/protocol` 的 `DIFF_LIMITS`。
 

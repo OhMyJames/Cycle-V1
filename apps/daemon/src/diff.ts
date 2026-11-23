@@ -1,10 +1,16 @@
 // The Diff tab's workspace view (docs/protocol.md §8 "工作区的改动"): the session's folder against HEAD, as git says it,
 // only in a repository the person trusts (.agents/notes/2026-11-22-files-and-diff-sources.md). Paths are relative to the
 // session's folder, and only what is inside it is looked at.
-import { open, realpath } from "node:fs/promises";
-import { DIFF_LIMITS, type DiffFile, type DiffPatch, type DiffStatus } from "@cycle/protocol";
+import { realpath, stat } from "node:fs/promises";
+import {
+  DIFF_LIMITS,
+  type DiffFile,
+  type DiffPatch,
+  type DiffStatus,
+  FS_LIMITS,
+} from "@cycle/protocol";
 import { INTERNAL_ERROR, INVALID_PARAMS, RESOURCE_NOT_FOUND, RpcError } from "./errors.ts";
-import { confine, looksLikeText, segmentsOf } from "./fs.ts";
+import { confine, looksLikeText, readAt, segmentsOf, withFileInside } from "./fs.ts";
 import { type GitOptions, type GitResult, repositoryOf, runGit } from "./git.ts";
 
 /** What a diff waits for: a large working tree takes a while to compare. */
@@ -64,23 +70,23 @@ const headOf = async (place: Place): Promise<string | null> => {
   return result.code === 0 ? new TextDecoder().decode(result.stdout).trim() : null;
 };
 
-/** The lines of a file that is not tracked, counted as added: undefined when it is too large to count. */
-const linesOf = async (path: string): Promise<{ lines?: number; binary?: boolean }> => {
-  const handle = await open(path, "r");
-  try {
-    const { size } = await handle.stat();
-    if (size > DIFF_LIMITS.patch) return {};
-    const bytes = new Uint8Array(size);
-    await handle.read(bytes, 0, size, 0);
-    if (!looksLikeText(bytes.subarray(0, 8 * 1024))) return { binary: true };
+/** How long the lines of untracked files are counted, and how many at once: past that they are listed uncounted. */
+const COUNTING = { ms: 2_000, atOnce: 16 } as const;
+
+/**
+ * The lines of a file that is not tracked, counted as added, read through the Files tab's guards: nothing when it is
+ * too large to count, cannot be read, or is no longer a plain file inside the folder.
+ */
+const linesOf = (cwd: string, path: string): Promise<{ lines?: number; binary?: boolean }> =>
+  withFileInside(cwd, path, async (handle, opened) => {
+    if (opened.size > DIFF_LIMITS.patch) return {};
+    const bytes = await readAt(handle, 0, opened.size);
+    if (!looksLikeText(bytes.subarray(0, FS_LIMITS.sniff))) return { binary: true };
     let lines = 0;
     for (const byte of bytes) if (byte === 0x0a) lines += 1;
-    if (size > 0 && bytes[size - 1] !== 0x0a) lines += 1;
+    if (bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a) lines += 1;
     return { lines };
-  } finally {
-    await handle.close();
-  }
-};
+  }).catch(() => ({}));
 
 const STATUS: Record<string, DiffFile["status"]> = {
   A: "added",
@@ -98,50 +104,64 @@ export const workspaceStatus = async (
   if ("state" in place) return place;
   const head = await headOf(place);
   const base = head ?? EMPTY_TREE;
-  const [names, numbers, untracked] = await Promise.all([
-    git(place, [...DIFF, "--name-status", "-z", base, "--", "."]),
-    git(place, [...DIFF, "--numstat", "-z", base, "--", "."]),
+  // One pass over the tree for what changed and by how much (`--raw` then `--numstat`), one for what is not tracked.
+  const [changes, untracked] = await Promise.all([
+    git(place, [...DIFF, "--raw", "--numstat", "-z", base, "--", "."]),
     git(place, ["ls-files", "--others", "--exclude-standard", "-z", "--", "."]),
   ]);
-  for (const result of [names, numbers, untracked])
+  for (const result of [changes, untracked])
     if (result.code !== 0) throw failed(`git exited with ${result.code}`);
   const files = new Map<string, DiffFile>();
-  const named = fields(names.stdout);
-  for (let at = 0; at + 1 < named.length; at += 2) {
-    const path = named[at + 1] as string;
-    files.set(path, { path, status: STATUS[(named[at] as string)[0] ?? ""] ?? "modified" });
-  }
-  // `added\tdeleted\tpath`, with `-` for both when the file is binary.
-  for (const field of fields(numbers.stdout)) {
-    const [added, deleted, ...rest] = field.split("\t");
+  const tokens = fields(changes.stdout);
+  for (let at = 0; at < tokens.length; at += 1) {
+    const token = tokens[at] as string;
+    if (token.startsWith(":")) {
+      // `:mode mode sha sha S`, then the path.
+      const path = tokens[at + 1];
+      at += 1;
+      if (path === undefined) break;
+      const letter = token.slice(token.lastIndexOf(" ") + 1, token.lastIndexOf(" ") + 2);
+      files.set(path, { path, status: STATUS[letter] ?? "modified" });
+      continue;
+    }
+    // `added\tdeleted\tpath`, with `-` for both when the file is binary.
+    const [plus, minus, ...rest] = token.split("\t");
     const file = files.get(rest.join("\t"));
     if (file === undefined) continue;
-    if (added === "-" || deleted === "-") file.binary = true;
+    if (plus === "-" || minus === "-") file.binary = true;
     else {
-      file.additions = Number(added);
-      file.deletions = Number(deleted);
+      file.additions = Number(plus);
+      file.deletions = Number(minus);
     }
   }
-  for (const path of fields(untracked.stdout)) {
-    const file: DiffFile = { path, status: "untracked" };
-    // Through the same checks as the Files tab: an untracked link out of the folder is not followed.
-    const counted = await confine(cwd, path)
-      .then(({ real }) => linesOf(real))
-      .catch(() => ({}) as { lines?: number; binary?: boolean });
-    if (counted.binary === true) file.binary = true;
-    else if (counted.lines !== undefined) {
-      file.additions = counted.lines;
-      file.deletions = 0;
-    }
-    files.set(path, file);
+  // A repository inside, not tracked, is listed as a folder (`lib/`): it is shown by its name, and has no lines.
+  for (const listed of fields(untracked.stdout)) {
+    const path = listed.replace(/\/+$/, "");
+    files.set(path, { path, status: "untracked" });
   }
   const sorted = [...files.values()].sort((a, b) =>
     a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
   );
+  const shown = sorted.slice(0, DIFF_LIMITS.files);
+  // Lines of the untracked files shown, a few at a time, for as long as that takes no more than a moment.
+  const counting = shown.filter((file) => file.status === "untracked");
+  const until = Date.now() + COUNTING.ms;
+  for (let at = 0; at < counting.length && Date.now() < until; at += COUNTING.atOnce) {
+    await Promise.all(
+      counting.slice(at, at + COUNTING.atOnce).map(async (file) => {
+        const counted = await linesOf(cwd, file.path);
+        if (counted.binary === true) file.binary = true;
+        else if (counted.lines !== undefined) {
+          file.additions = counted.lines;
+          file.deletions = 0;
+        }
+      }),
+    );
+  }
   return {
     state: "ok",
     head,
-    files: sorted.slice(0, DIFF_LIMITS.files),
+    files: shown,
     truncated: sorted.length > DIFF_LIMITS.files,
   };
 };
@@ -152,17 +172,19 @@ const wholeLines = (text: string): string => {
   return end === -1 ? "" : text.slice(0, end + 1);
 };
 
-/** A whole new file as a patch: every line added. */
+/** A whole new file as a patch, as git writes one: every line added. */
 const added = (path: string, text: string): string => {
-  const lines = text.endsWith("\n") ? text.slice(0, -1).split("\n") : text.split("\n");
   if (text === "") return "";
+  const ended = text.endsWith("\n");
+  const lines = (ended ? text.slice(0, -1) : text).split("\n");
   return [
     `diff --git a/${path} b/${path}`,
-    "new file",
+    "new file mode 100644",
     "--- /dev/null",
     `+++ b/${path}`,
     `@@ -0,0 +1,${lines.length} @@`,
     ...lines.map((line) => `+${line}`),
+    ...(ended ? [] : ["\\ No newline at end of file"]),
     "",
   ].join("\n");
 };
@@ -173,7 +195,14 @@ export const workspaceFile = async (
   path: string,
   trusts: (repository: string) => boolean,
 ): Promise<DiffPatch> => {
+  if (path === "")
+    throw new RpcError(INVALID_PARAMS, "The path is not valid", { path, reason: "invalid_path" });
   segmentsOf(path);
+  // Only a plain file has a patch: not a folder (a repository inside, listed untracked), not a pipe or a device.
+  const target = await confine(cwd, path).catch(() => undefined);
+  const kind = target !== undefined ? await stat(target.real).catch(() => undefined) : undefined;
+  if (kind !== undefined && !kind.isFile())
+    throw new RpcError(INVALID_PARAMS, "That is not a file", { path, reason: "not_a_file" });
   const place = await placeOf(cwd, trusts);
   if ("state" in place)
     throw new RpcError(INVALID_PARAMS, "There is no workspace diff here", {
@@ -188,29 +217,22 @@ export const workspaceFile = async (
     "--",
     path,
   ]);
-  if (fields(untracked.stdout).includes(path)) {
-    // Read as the Files tab reads: through the same checks that it is inside the folder.
-    const { real } = await confine(cwd, path);
-    const handle = await open(real, "r");
-    try {
-      const { size } = await handle.stat();
-      const length = Math.min(size, DIFF_LIMITS.patch);
-      const bytes = new Uint8Array(length);
-      await handle.read(bytes, 0, length, 0);
-      if (!looksLikeText(bytes.subarray(0, 8 * 1024)))
+  if (untracked.code !== 0) throw failed(`git exited with ${untracked.code}`);
+  if (fields(untracked.stdout).includes(path))
+    // Read as the Files tab reads: confined, not through a link, not a pipe, checked again once open.
+    return withFileInside(cwd, path, async (handle, opened) => {
+      const bytes = await readAt(handle, 0, Math.min(opened.size, DIFF_LIMITS.patch));
+      if (!looksLikeText(bytes.subarray(0, FS_LIMITS.sniff)))
         return { path, patch: "", truncated: false, binary: true };
       const text = new TextDecoder().decode(bytes);
-      const truncated = size > DIFF_LIMITS.patch;
+      const truncated = opened.size > DIFF_LIMITS.patch;
       return {
         path,
         patch: added(path, truncated ? wholeLines(text) : text),
         truncated,
         binary: false,
       };
-    } finally {
-      await handle.close();
-    }
-  }
+    });
   const base = (await headOf(place)) ?? EMPTY_TREE;
   const result = await git(place, [...DIFF, base, "--", path], { maxBytes: DIFF_LIMITS.patch });
   if (!result.cut && result.code !== 0) throw failed(`git exited with ${result.code}`);

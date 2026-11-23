@@ -131,3 +131,33 @@ test("an untracked link out of the folder is not read, and a large patch is cut 
     data: expect.objectContaining({ reason: "outside" }),
   });
 });
+
+test("a repository inside is listed by its name and has no patch; an empty path and a pipe are refused, not waited on", async () => {
+  gitIn(work, "init", "-q");
+  await writeFile(join(work, "a.txt"), "1\n");
+  commitAll();
+  await mkdir(join(work, "vendor", "lib"), { recursive: true });
+  gitIn(join(work, "vendor", "lib"), "init", "-q");
+  await writeFile(join(work, "vendor", "lib", "x.txt"), "x\n");
+  await writeFile(join(work, "tail.txt"), "no end");
+  Bun.spawnSync(["mkfifo", join(work, "pipe")]);
+  const status = await workspaceStatus(work, trusted);
+  // Git lists no pipe: only files and what holds them.
+  expect(status.state === "ok" ? status.files : []).toEqual([
+    { path: "tail.txt", status: "untracked", additions: 1, deletions: 0 },
+    { path: "vendor/lib", status: "untracked" },
+  ]);
+  await expect(workspaceFile(work, "vendor/lib", trusted)).rejects.toMatchObject({
+    data: expect.objectContaining({ reason: "not_a_file" }),
+  });
+  await expect(workspaceFile(work, "", trusted)).rejects.toMatchObject({
+    code: -32602,
+    data: expect.objectContaining({ reason: "invalid_path" }),
+  });
+  await expect(workspaceFile(work, "pipe", trusted)).rejects.toMatchObject({
+    data: expect.objectContaining({ reason: "not_a_file" }),
+  });
+  expect((await workspaceFile(work, "tail.txt", trusted)).patch).toBe(
+    "diff --git a/tail.txt b/tail.txt\nnew file mode 100644\n--- /dev/null\n+++ b/tail.txt\n@@ -0,0 +1,1 @@\n+no end\n\\ No newline at end of file\n",
+  );
+});
