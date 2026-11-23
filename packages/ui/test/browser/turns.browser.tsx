@@ -846,3 +846,73 @@ test("an MCP tool reads by its title and the first short line of its input; a se
   const fetch = screen.getByRole("button", { name: /Fetched/ });
   expect(fetch.textContent).toContain("404 · 1.5 kB");
 });
+
+test("a long plan does not lengthen the window: nothing scrolls the header off its top", async () => {
+  // Mounted as the desktop page mounts it, in a #root as tall as the window, so the page's own height is what is measured.
+  const root = document.createElement("div");
+  root.id = "root";
+  document.body.append(root);
+  const updates = [
+    you("u1"),
+    u({
+      sessionUpdate: "plan_update",
+      plan: {
+        type: "items",
+        planId: "tasks",
+        entries: Array.from({ length: 40 }, (_, n) => ({
+          content: `Step ${n + 1}`,
+          priority: "medium",
+          status: n < 30 ? "completed" : "pending",
+        })),
+      },
+    }),
+  ];
+  const script = fakeBridge({
+    connected: true,
+    snapshot: () => ({
+      conversation: updates.reduce(applyUpdate, emptyConversation()),
+      permissions: [],
+      version: updates.length,
+    }),
+  });
+  const store = new AppStore(script.bridge);
+  const user = userEvent.setup();
+  render(
+    <StoreProvider store={store}>
+      <App />
+    </StoreProvider>,
+    { container: root },
+  );
+  try {
+    await act(() => store.start());
+    await user.click(await screen.findByRole("option", { name: /work/ }));
+    await user.click(await screen.findByRole("button", { name: "Show panel" }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-kind="plan-strip"] > button')).not.toBeNull(),
+    );
+    await user.click(document.querySelector('[data-kind="plan-strip"] > button') as HTMLElement);
+    // The plan is drawn twice: in the Overview and in the strip above the input box.
+    await waitFor(() => expect(document.querySelectorAll('[data-slot="plan"]').length).toBe(2));
+    // Each row's word for a screen reader is placed against its list, not against the page.
+    for (const word of document.querySelectorAll<HTMLElement>(
+      '[data-slot="plan"] [data-slot="visually-hidden"]',
+    ))
+      expect(word.offsetParent?.closest('[data-slot="plan"]')).not.toBeNull();
+    const page = document.scrollingElement as HTMLElement;
+    expect(page.scrollHeight).toBe(page.clientHeight);
+    // What scrolls the window (a wheel run past the conversation's end, an item brought into view) moves nothing.
+    window.scrollTo(0, 500);
+    const columns = document.querySelector<HTMLElement>(
+      '[data-slot="split"] > [data-slot="resizable"]',
+    );
+    columns?.scrollTo(0, 500);
+    document.querySelector('[data-slot="plan"] li:last-child')?.scrollIntoView({ block: "end" });
+    expect(page.scrollTop).toBe(0);
+    expect(columns?.scrollTop).toBe(0);
+    expect(
+      document.querySelector('[data-slot="session-header"]')?.getBoundingClientRect().top,
+    ).toBe(0);
+  } finally {
+    root.remove();
+  }
+});
