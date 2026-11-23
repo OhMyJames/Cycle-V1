@@ -973,6 +973,10 @@ export const createAgent = (config: AdapterConfig, runQuery: QueryFn) => {
       onElicitation: (request, { signal }) => elicit(client, session, request, signal),
       abortController: abort,
       includePartialMessages: true,
+      // Claude Code leaves thinking's text out ("omitted") unless asked: every thought would reach the
+      // conversation empty. The setting asks for the API's summaries and leaves the kind of thinking
+      // (adaptive, a budget, none) to the model, as `thinking: { display }` would not.
+      settings: { showThinkingSummaries: true },
       // A sub-agent's row can say what it is doing, not only that it is busy. The SDK makes a
       // model call for each summary, so it is asked for only when the configuration says to.
       ...(config.progressSummaries === true ? { agentProgressSummaries: true } : {}),

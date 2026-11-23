@@ -664,6 +664,8 @@ export const enUS = {
     "Cycle counts which features are used, to improve them. It never sends what you write, your files, or their names.",
   "settings.codeTheme.description": "Used for code in the conversation, in light and in dark.",
   "settings.codeTheme.preview": "Preview",
+  "settings.thinking.description":
+    "Open the agent's thinking in the conversation by itself. Off, each thought stays closed until you open it.",
   "settings.environments.lead":
     "Where sessions run: this computer, and other machines reached over ssh.",
   "settings.environments.actions": "Actions for {name}",

@@ -3188,9 +3188,15 @@ button:is(:hover, :focus-visible) > [data-slot="tool-chevron"],
   color: var(--ui-muted-foreground);
 }
 
-[data-kind="thought"] > button:hover {
+[data-kind="thought"] > button:hover:not([data-disabled], [aria-disabled="true"]) {
   background: var(--cycle-surface-hover);
   color: var(--cycle-ink);
+}
+
+/* A thought with no words has nothing to open: it is a line, not a control, and is not dimmed for it. */
+[data-kind="thought"] > button:is([data-disabled], [aria-disabled="true"]) {
+  cursor: default;
+  opacity: 1;
 }
 
 /* While it streams, the words breathe as the step line's do: only opacity, and still under reduced motion. */

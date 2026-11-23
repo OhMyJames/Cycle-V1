@@ -190,6 +190,13 @@ export class TurnTranslator {
           messageId: message.id,
           content: [{ type: "text", text: String(block.text) }],
         } as SessionUpdate);
+      } else if (!streamed && block.type === "thinking" && String(block.thinking ?? "") !== "") {
+        // Its words, when they were asked for; an omitted thought (no words) stays out.
+        updates.push({
+          sessionUpdate: "agent_thought",
+          messageId: message.id,
+          content: [{ type: "text", text: String(block.thinking) }],
+        } as SessionUpdate);
       }
     }
     return updates;
