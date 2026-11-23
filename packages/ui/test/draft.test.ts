@@ -37,7 +37,64 @@ const memory = (fail = false) => {
   };
 };
 
-const image = { id: "i", name: "a.png", type: "image/png" as const, data: "AAAA", bytes: 3 };
+const image = {
+  id: "i",
+  name: "a.png",
+  kind: "image" as const,
+  type: "image/png" as const,
+  data: "AAAA",
+  bytes: 3,
+};
+
+test("an attached text file and PDF go as embedded resources under their names, and come back as attachments", () => {
+  const notes = {
+    id: "n",
+    name: "notes v2.md",
+    kind: "text" as const,
+    type: "text/markdown",
+    data: "<b>hi</b>",
+    bytes: 9,
+  };
+  const pdf = {
+    id: "p",
+    name: "spec.pdf",
+    kind: "pdf" as const,
+    type: "application/pdf",
+    data: "AAAA",
+    bytes: 3,
+  };
+  const sent = promptBlocks({
+    text: "read",
+    attachments: [image, notes, pdf],
+    mentions: [],
+    kept: [],
+  });
+  expect(sent).toEqual([
+    { type: "text", text: "read" },
+    { type: "image", data: "AAAA", mimeType: "image/png" },
+    {
+      type: "resource",
+      resource: {
+        uri: "attachment:///notes%20v2.md",
+        mimeType: "text/markdown",
+        text: "<b>hi</b>",
+      },
+    },
+    {
+      type: "resource",
+      resource: { uri: "attachment:///spec.pdf", mimeType: "application/pdf", blob: "AAAA" },
+    },
+  ]);
+  const back = draftOf((sent ?? []) as Block[]);
+  expect(back.kept).toEqual([]);
+  expect(back.attachments.map(({ id: _, ...a }) => a)).toEqual([
+    // An image block carries no name.
+    { name: "image", kind: "image", type: "image/png", data: "AAAA", bytes: 3 },
+    { name: "notes v2.md", kind: "text", type: "text/markdown", data: "<b>hi</b>", bytes: 9 },
+    { name: "spec.pdf", kind: "pdf", type: "application/pdf", data: "AAAA", bytes: 3 },
+  ]);
+  expect(promptBlocks(back)).toEqual(sent);
+});
 
 test("a draft is kept per session, and the same object until it changes", () => {
   const drafts = new DraftStore(undefined);

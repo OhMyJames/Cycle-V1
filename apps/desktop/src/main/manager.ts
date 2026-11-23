@@ -788,12 +788,13 @@ export class ConnectionManager
         ...(options.steer === true ? { steer: true } : {}),
       },
     );
-    // How much, never what: the length in three words and the number of images and mentions.
+    // How much, never what: the length in three words and the number of images, files and mentions.
     this.#track("prompt_sent", {
       agent: this.#agentOf(environmentId, sessionId),
       environment: this.#kindOf(environmentId),
       size: sizeOf(blocks.reduce((n, b) => n + (b.type === "text" ? b.text.length : 0), 0)),
       images: blocks.filter((b) => b.type === "image").length,
+      files: blocks.filter((b) => b.type === "resource").length,
       mentions: blocks.filter((b) => b.type === "resource_link").length,
       steered: options.steer === true,
       // The page says which key or button; only the dictionary's words are counted, anything else is "other".

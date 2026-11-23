@@ -1,6 +1,6 @@
-// Images in a prompt and in a conversation. Pure TypeScript: no React, no DOM, so the rules can be tested.
+// Images and files in a prompt and in a conversation. Pure TypeScript: no React, no DOM, so the rules can be tested.
 // What an agent sends is untrusted: an image is shown only if it is one of a few types, is base64, and is of a size the
-// page can hold; anything else is a line of text saying what it was.
+// page can hold; anything else is a line of text saying what it was. A file is only ever named, never shown.
 
 /** The types every Claude-class model takes (docs/decisions/0010). SVG is not one: it is code, not a picture. */
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
@@ -49,13 +49,76 @@ export const viewOfImage = (block: { [key: string]: unknown }): ImageView => {
   return { ok: true, src: `data:${type};base64,${data}`, type, bytes, name };
 };
 
+/**
+ * What an attached file is sent as (.agents/notes/2026-11-22-attach-any-file.md): an image (ACP `image`), or, when the
+ * agent takes embedded context, a text file (a `resource` with `text`) or a PDF (a `resource` with a base64 `blob`).
+ * Anything else is refused before it is sent. These are also the words analytics counts with, never a name.
+ */
+export type AttachmentKind = "image" | "text" | "pdf";
+
+/** What the agent of the session takes: images (`promptCapabilities.image`), files (`embeddedContext`). */
+export type Accepts = { readonly images: boolean; readonly files: boolean };
+
 export type Attachment = {
   id: string;
   name: string;
-  type: ImageType;
-  /** Base64, as ACP carries it. */
+  kind: AttachmentKind;
+  /** The MIME type it is sent with. */
+  type: string;
+  /** Base64 for an image or a PDF, as ACP carries it; the text itself for a text file. */
   data: string;
+  /** Decoded bytes (a text file's are its UTF-8 bytes), as the daemon counts them. */
   bytes: number;
+};
+
+/**
+ * What a file would be, by its type and name, before it is read: an image of a type every model takes, a PDF, or else
+ * a file whose bytes decide (text if they are UTF-8; otherwise it is refused).
+ */
+export const kindOf = (file: { type: string; name: string }): AttachmentKind =>
+  isImageType(file.type)
+    ? "image"
+    : file.type === "application/pdf" || /\.pdf$/i.test(file.name)
+      ? "pdf"
+      : "text";
+
+/**
+ * A file's bytes as text, or undefined when they are not text: not UTF-8, or holding a NUL (a binary file that happens
+ * to decode). A byte order mark is dropped.
+ */
+export const textOfBytes = (bytes: Uint8Array): string | undefined => {
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return text.includes("\u0000") ? undefined : text;
+  } catch {
+    return undefined;
+  }
+};
+
+const TEXT_APPLICATION =
+  /^application\/(json|xml|javascript|ecmascript|x-sh|x-shellscript|x-yaml|yaml|toml|sql|.+\+json|.+\+xml)$/;
+
+/** The MIME type a text file is sent with: its own when it says text, else `text/plain` (a `.ts` is often `video/mp2t`). */
+export const textType = (type: string): string =>
+  type.startsWith("text/") || TEXT_APPLICATION.test(type) ? type : "text/plain";
+
+/**
+ * The address an attached file is sent under. Not a path: the agent may be on another machine, and the page does not
+ * know where the file was. The scheme says it is in the message, not on a disk; its last segment is the file's name.
+ */
+export const attachmentUri = (name: string): string => `attachment:///${encodeURIComponent(name)}`;
+
+/** The name of an embedded file (ACP `resource`): the last segment of its uri, decoded. Undefined when it has none. */
+export const resourceName = (block: { [key: string]: unknown }): string | undefined => {
+  const resource = block.resource as { uri?: unknown } | undefined;
+  if (typeof resource?.uri !== "string") return undefined;
+  const last = resource.uri.split("/").filter(Boolean).at(-1);
+  if (last === undefined) return undefined;
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    return last;
+  }
 };
 
 export type AttachmentProblem =
@@ -64,12 +127,18 @@ export type AttachmentProblem =
   | { reason: "prompt-too-large" }
   | { reason: "too-many" };
 
-/** Whether one more image may join those already chosen, by the same limits the daemon holds the prompt to. */
+/**
+ * Whether one more file may join those already chosen, by what the agent takes and the same limits the daemon holds
+ * the prompt to. A file that may be text is let through here and refused once read if it is not.
+ */
 export const canAdd = (
   have: readonly Pick<Attachment, "bytes">[],
   next: { name: string; type: string; bytes: number },
+  accepts: Accepts = { images: true, files: false },
 ): AttachmentProblem | undefined => {
-  if (!isImageType(next.type)) return { reason: "type", name: next.name };
+  const kind = kindOf(next);
+  if (kind === "image" ? !accepts.images : !accepts.files)
+    return { reason: "type", name: next.name };
   if (next.bytes > ATTACHMENT_LIMITS.blockBytes)
     return { reason: "block-too-large", name: next.name };
   if (have.length + 1 > ATTACHMENT_LIMITS.blocks - 1) return { reason: "too-many" };

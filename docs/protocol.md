@@ -259,6 +259,8 @@ daemon 在索引里记 `prompted`;在这个规则之前写的索引条目没有�
 
 附件和图片进入日志的 `user_message`,历史补发时和文字一起到达。
 
+**客户端附加的文件**(决策笔记 `2026-11-22-attach-any-file`,协议和上限不变):客户端把用户选的本机文件做成上面允许的块之一,不新增类型。图片是 `image`;agent 声明了 `embeddedContext` 时,UTF-8 文本(不含 NUL)是 `resource` 带 `text`,`mimeType` 是文件自己的文本类型、否则 `text/plain`;PDF 是 `resource` 带 base64 的 `blob`、`mimeType: "application/pdf"`。别的文件客户端在发送前拒绝。文件的 `uri` 是 `attachment:///` 加百分号编码的文件名:不是路径(agent 可能在另一台机器上,页面也不知道文件在哪),最后一段就是名字,ACP 的 `resource` 没有 `name` 字段。别的来源的 `resource`(如 `file://`)照样合法,daemon 不看 scheme。
+
 **agent 自己在重试请求**:agent 的模型请求失败、它自己会等一会儿再试时(Claude SDK 的 `api_retry`),agent 发一条 `notice`,`severity: "info"`,`title` 是给人看的一句话,`_meta["cycle/retry"]` 为 `{attempt, maxRetries, delayMs, status?}`(第几次、最多几次、要等多久、HTTP 状态码,连接错误时没有 `status`)。它进日志,但不是 turn 的结束,也不需要人做什么:客户端只在它是进行中 turn 的最后一项时,把它当作"正在重试"的状态显示,turn 有了新内容就不再显示;不在会话里画成一行。重试用完仍失败时,turn 照常以 `stopReason: "error"` 结束。
 
 **上下文用量(`usage_update`,CYCL-72)**:字段沿用 ACP:`used`、`size`、可选的 `cost: {amount, currency}`。Claude 的取法:

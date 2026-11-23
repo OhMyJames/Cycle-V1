@@ -125,20 +125,27 @@ export const enUS = {
   "image.unsupported": "An image that cannot be shown ({type})",
   "image.tooLarge": "An image too large to show ({size})",
 
-  // Writing a message and attaching images
+  // Writing a message and attaching images and files
   "composer.attach": "Attach image",
+  // When the agent takes files too: images, text files and PDFs
+  "composer.attachFiles": "Attach files",
   "composer.remove": "Remove {name}",
-  "composer.attached": "Attached images",
+  "composer.attached": "Attachments",
   "composer.drop": "Drop images to attach them",
+  "composer.dropFiles": "Drop files to attach them",
+  // The agent takes images only
   "composer.problem.type": "{name} is not a PNG, JPEG, GIF or WebP image.",
+  // The agent takes images and files
+  "composer.problem.typeFiles": "{name} is not an image, a text file or a PDF.",
+  // The agent takes files but not images
+  "composer.problem.typeNoImages": "{name} is not a text file or a PDF.",
   "composer.problem.blockTooLarge": "{name} is larger than {limit}.",
-  "composer.problem.promptTooLarge": "Together, the images are larger than {limit}.",
+  "composer.problem.promptTooLarge": "Together, the attachments are larger than {limit}.",
   "composer.problem.tooMany": {
-    one: "You can attach {count} image at most.",
-    other: "You can attach {count} images at most.",
+    one: "You can attach {count} file at most.",
+    other: "You can attach {count} files at most.",
   },
   "composer.problem.unreadable": "{name} could not be read.",
-  "composer.problem.noImage": "Only PNG, JPEG, GIF or WebP images can be attached.",
 
   // The box a message is written in
   "composer.message": "Message",
@@ -213,6 +220,10 @@ export const enUS = {
   "composer.queued.images": {
     one: "{count} image",
     other: "{count} images",
+  },
+  "composer.queued.files": {
+    one: "{count} file",
+    other: "{count} files",
   },
 
   // The conversation: what the agent did, how a turn ended, what it is doing now

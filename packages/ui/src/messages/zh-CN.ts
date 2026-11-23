@@ -113,17 +113,20 @@ export const zhCN: Readonly<Record<MessageKey, Message>> = {
   "image.unsupported": "无法显示的图片（{type}）",
   "image.tooLarge": "图片太大，无法显示（{size}）",
 
-  // 写消息、附加图片
+  // 写消息、附加图片和文件
   "composer.attach": "附加图片",
+  "composer.attachFiles": "附加文件",
   "composer.remove": "移除 {name}",
-  "composer.attached": "已附加的图片",
+  "composer.attached": "附件",
   "composer.drop": "把图片拖到这里以附加",
+  "composer.dropFiles": "把文件拖到这里以附加",
   "composer.problem.type": "{name} 不是 PNG、JPEG、GIF 或 WebP 图片。",
+  "composer.problem.typeFiles": "{name} 不是图片、文本文件或 PDF。",
+  "composer.problem.typeNoImages": "{name} 不是文本文件或 PDF。",
   "composer.problem.blockTooLarge": "{name} 超过了 {limit}。",
-  "composer.problem.promptTooLarge": "这些图片加起来超过了 {limit}。",
-  "composer.problem.tooMany": "最多附加 {count} 张图片。",
+  "composer.problem.promptTooLarge": "这些附件加起来超过了 {limit}。",
+  "composer.problem.tooMany": "最多附加 {count} 个文件。",
   "composer.problem.unreadable": "无法读取 {name}。",
-  "composer.problem.noImage": "只能附加 PNG、JPEG、GIF 或 WebP 图片。",
 
   // 输入框
   "composer.message": "消息",
@@ -193,6 +196,7 @@ export const zhCN: Readonly<Record<MessageKey, Message>> = {
   "composer.queued.edit": "编辑排队的消息：{preview}",
   "composer.queued.editShort": "编辑",
   "composer.queued.images": "{count} 张图片",
+  "composer.queued.files": "{count} 个文件",
 
   // 对话
   "conversation.label": "对话",

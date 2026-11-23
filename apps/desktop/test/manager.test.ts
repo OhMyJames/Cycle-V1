@@ -985,7 +985,7 @@ test("what a person does is reported as counts and words, and never as what they
         await ask();
       },
     },
-    { promptCapabilities: { image: {} } },
+    { promptCapabilities: { image: {}, embeddedContext: {} } },
   );
   const { manager } = await setup(fake);
   const reported: [string, unknown][] = [];
@@ -1000,6 +1000,10 @@ test("what a person does is reported as counts and words, and never as what they
   await m.prompt("local", id, [
     { type: "text", text: secret },
     { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
+    {
+      type: "resource",
+      resource: { uri: "attachment:///Nightshade.txt", mimeType: "text/plain", text: secret },
+    },
     { type: "resource_link", name: "secret.ts", uri: "file:///home/me/secret-project/secret.ts" },
   ]);
   await until(() => of(events, "permission").length === 1, "the request");
@@ -1024,6 +1028,7 @@ test("what a person does is reported as counts and words, and never as what they
       environment: "local",
       size: "short",
       images: 1,
+      files: 1,
       mentions: 1,
       steered: false,
       via: "other",

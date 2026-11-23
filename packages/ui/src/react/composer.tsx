@@ -12,12 +12,16 @@ import {
 } from "react";
 import type { FileSearch, PlanUsage, SendVia } from "../api.ts";
 import {
+  type Accepts,
   ATTACHMENT_LIMITS,
+  type AttachmentKind,
   type AttachmentProblem,
   base64Bytes,
   canAdd,
   IMAGE_TYPES,
-  isImageType,
+  kindOf,
+  textOfBytes,
+  textType,
 } from "../attachments.ts";
 import {
   fileUri,
@@ -41,7 +45,7 @@ import { commandText, filterCommands, slashQuery } from "../slash.ts";
 import { optionsOf, propertiesOf } from "./config-form.tsx";
 import { ContextDetails, planRowsOf } from "./context-details.tsx";
 import { useI18n } from "./i18n.tsx";
-import { CloseIcon, PlusIcon, SendIcon, StopIcon } from "./icons.tsx";
+import { AttachIcon, CloseIcon, PlusIcon, SendIcon, StopIcon } from "./icons.tsx";
 import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
 import { optionId, PickerMenu, type PickerRow } from "./picker-menu.tsx";
 import { PlanStrip } from "./plan.tsx";
@@ -61,8 +65,13 @@ export type ComposerProps = {
   /** The editor can keep taking a draft while remote actions are disabled. */
   connected: boolean;
   activity: Status;
-  /** The agent takes images in a prompt: the person may attach them. Without it the controls are not there. */
+  /** The agent takes images in a prompt: the person may attach them. Without it or files, the controls are not there. */
   canAttach?: boolean;
+  /**
+   * The agent takes embedded files (`promptCapabilities.embeddedContext`): text files and PDFs may be attached too
+   * (.agents/notes/2026-11-22-attach-any-file.md).
+   */
+  canAttachFiles?: boolean;
   /** The agent can take a message into the turn that is running (docs/protocol.md §8). */
   canSteer?: boolean;
   /** A message was sent from the box (not yet known to have arrived): the conversation follows it. */
@@ -103,14 +112,19 @@ const toBase64 = async (file: File): Promise<string> => {
   return btoa(binary);
 };
 
-const imagesOf = (files: FileList | File[] | null | undefined): File[] =>
-  Array.from(files ?? []).filter((f) => f.type.startsWith("image/"));
-
 /** What a queued message is called in the list: its words on one line, or what else it holds. */
-const previewOf = (prompt: QueuedPrompt): { text: string; images: number } => ({
+const previewOf = (prompt: QueuedPrompt): { text: string; images: number; files: number } => ({
   text: textOf(prompt.prompt).replace(/\s+/g, " ").trim(),
   images: prompt.prompt.filter((b) => b.type === "image").length,
+  files: prompt.prompt.filter((b) => b.type === "resource").length,
 });
+
+/** How a file came to the box, as analytics counts it. */
+type AttachVia = "button" | "paste" | "drop";
+
+/** Why a file was not attached, in the words analytics counts (never its name). */
+const refusalOf = (p: AttachmentProblem): "type" | "too_large" | "too_many" =>
+  p.reason === "type" ? "type" : p.reason === "too-many" ? "too_many" : "too_large";
 
 /** The message box on the page, for a shortcut or a page that hands it the focus. One composer is on a page at a time. */
 export const composerInput = (): HTMLElement | null =>
@@ -123,6 +137,7 @@ export function Composer({
   connected,
   activity,
   canAttach = false,
+  canAttachFiles = false,
   canSteer = false,
   onSent,
   settings,
@@ -382,10 +397,25 @@ export function Composer({
 
   const megabytes = (bytes: number) =>
     number(bytes / 1048576, { style: "unit", unit: "megabyte", maximumFractionDigits: 0 });
+  /** A file's size on its chip: kilobytes below a megabyte (at least 1), else megabytes to one decimal. */
+  const sizeOf = (bytes: number) =>
+    bytes < 1048576
+      ? number(Math.max(1, Math.round(bytes / 1024)), { style: "unit", unit: "kilobyte" })
+      : number(bytes / 1048576, { style: "unit", unit: "megabyte", maximumFractionDigits: 1 });
+  const accepts: Accepts = { images: canAttach, files: canAttachFiles };
+  const attachable = canAttach || canAttachFiles;
   const say = (p: AttachmentProblem): string => {
     switch (p.reason) {
       case "type":
-        return t("composer.problem.type", { name: p.name });
+        // Said by what this agent takes: the person learns what would work.
+        return t(
+          !canAttachFiles
+            ? "composer.problem.type"
+            : canAttach
+              ? "composer.problem.typeFiles"
+              : "composer.problem.typeNoImages",
+          { name: p.name },
+        );
       case "block-too-large":
         return t("composer.problem.blockTooLarge", {
           name: p.name,
@@ -400,38 +430,63 @@ export function Composer({
     }
   };
 
-  /** Adds what can be added, one by one, by the limits of a prompt; says why for the first that cannot. */
-  const attach = async (files: File[]) => {
-    if (!canAttach || files.length === 0) return;
-    // An image still being read when the message goes out, or the session goes, is not for what is written next.
+  /**
+   * Adds what can be added, one by one, by what the agent takes and the limits of a prompt; says why for the first that
+   * cannot. An image or a PDF goes as base64; any other file is read, and goes as text if it is text, else is refused.
+   */
+  const attach = async (files: File[], via: AttachVia) => {
+    if (!attachable || files.length === 0) return;
+    // A file still being read when the message goes out, or the session goes, is not for what is written next.
     const generation = store.drafts.generation(sessionKey);
     // The list as it is now, for the code that waits (reading a file) between looking and adding: two images pasted in
     // a row must both stay, and a list captured when the first began would lose the first.
     const now = () => store.drafts.get(sessionKey).attachments;
     let first: string | undefined;
+    const refuse = (p: AttachmentProblem) => {
+      first ??= say(p);
+      store.track("attachment_refused", { reason: refusalOf(p) });
+    };
     for (const file of files) {
       const next = { name: file.name, type: file.type, bytes: file.size };
-      const refused = canAdd(now(), next);
+      const refused = canAdd(now(), next, accepts);
       if (refused !== undefined) {
-        first ??= say(refused);
+        refuse(refused);
         continue;
       }
+      const kind: AttachmentKind = kindOf(next);
       try {
-        const data = await toBase64(file);
-        // The message was sent while this was being read: the image is no longer for a message that is still being written.
-        if (store.drafts.generation(sessionKey) !== generation) return;
-        const bytes = base64Bytes(data) ?? file.size;
-        if (!isImageType(file.type)) continue;
+        let data: string;
+        let type: string;
+        let bytes: number;
+        if (kind === "text") {
+          const text = textOfBytes(new Uint8Array(await file.arrayBuffer()));
+          if (store.drafts.generation(sessionKey) !== generation) return;
+          // Not text after all (a binary file of no type the box knows): it cannot go.
+          if (text === undefined) {
+            refuse({ reason: "type", name: file.name });
+            continue;
+          }
+          data = text;
+          type = textType(file.type);
+          bytes = new TextEncoder().encode(text).length;
+        } else {
+          data = await toBase64(file);
+          // The message was sent while this was being read: the file is no longer for a message that is still being written.
+          if (store.drafts.generation(sessionKey) !== generation) return;
+          type = kind === "pdf" ? "application/pdf" : file.type;
+          bytes = base64Bytes(data) ?? file.size;
+        }
         // Another add may have finished while this one was reading: the limits are held to the list as it is now.
-        const refusedNow = canAdd(now(), next);
+        const refusedNow = canAdd(now(), next, accepts);
         if (refusedNow !== undefined) {
-          first ??= say(refusedNow);
+          refuse(refusedNow);
           continue;
         }
         store.drafts.setAttachments(sessionKey, [
           ...now(),
-          { id: crypto.randomUUID(), name: file.name, type: file.type, data, bytes },
+          { id: crypto.randomUUID(), name: file.name, kind, type, data, bytes },
         ]);
+        store.track("attachment_added", { kind, via });
       } catch {
         first ??= t("composer.problem.unreadable", { name: file.name });
       }
@@ -513,10 +568,9 @@ export function Composer({
   // Dropping files: listeners on the element itself (a drag is not something a keyboard does, so it is not a handler of the markup).
   const attachRef = useRef(attach);
   attachRef.current = attach;
-  const noImageMessage = t("composer.problem.noImage");
   useEffect(() => {
     const el = root.current;
-    if (el === null || !canAttach) return;
+    if (el === null || !attachable) return;
     const hasFiles = (event: globalThis.DragEvent) =>
       Array.from(event.dataTransfer?.types ?? []).includes("Files");
     const over = (event: globalThis.DragEvent) => {
@@ -532,10 +586,8 @@ export function Composer({
       setDropping(false);
       if (!hasFiles(event)) return;
       event.preventDefault();
-      const dropped = Array.from(event.dataTransfer?.files ?? []);
-      const imgs = imagesOf(dropped);
-      if (dropped.length > 0 && imgs.length === 0) setProblem(noImageMessage);
-      else void attachRef.current(imgs);
+      // Every file is looked at: one the agent cannot take is refused with the reason, not passed over in silence.
+      void attachRef.current(Array.from(event.dataTransfer?.files ?? []), "drop");
     };
     el.addEventListener("dragover", over);
     el.addEventListener("dragleave", leave);
@@ -545,7 +597,7 @@ export function Composer({
       el.removeEventListener("dragleave", leave);
       el.removeEventListener("drop", drop);
     };
-  }, [canAttach, noImageMessage]);
+  }, [attachable]);
 
   const showOffline = !connected && enabled;
   const showBlocked = blocked !== undefined && blocked !== "" && connected;
@@ -592,7 +644,9 @@ export function Composer({
                 const label =
                   preview.text !== ""
                     ? preview.text
-                    : t("composer.queued.images", { count: preview.images });
+                    : preview.images > 0
+                      ? t("composer.queued.images", { count: preview.images })
+                      : t("composer.queued.files", { count: preview.files });
                 return (
                   <li key={entry.queueId} data-slot="queued-message">
                     <span data-slot="queued-tag">{t("composer.queued.tag")}</span>
@@ -624,7 +678,7 @@ export function Composer({
           ) : null}
           {dropping ? (
             <div data-slot="extension-row" data-kind="drop">
-              {t("composer.drop")}
+              {t(canAttachFiles ? "composer.dropFiles" : "composer.drop")}
             </div>
           ) : null}
           {problem !== undefined ? (
@@ -640,7 +694,7 @@ export function Composer({
         data-slot="composer-box"
         data-multiline={expanded || undefined}
         data-has-attachments={hasAttachments || undefined}
-        data-no-lead={!canAttach || undefined}
+        data-no-lead={!attachable || undefined}
       >
         {/* Over the whole box, not the field: beside the buttons of one line the field can be narrow. */}
         {menuOpen ? (
@@ -680,8 +734,17 @@ export function Composer({
               </li>
             ))}
             {attachments.map((a) => (
-              <li key={a.id} data-slot="attachment" data-kind="image" title={a.name}>
-                <img src={`data:${a.type};base64,${a.data}`} alt="" />
+              <li key={a.id} data-slot="attachment" data-kind={a.kind} title={a.name}>
+                {a.kind === "image" ? (
+                  <img src={`data:${a.type};base64,${a.data}`} alt="" />
+                ) : (
+                  // A file is named and sized, never shown: its content is not drawn here.
+                  <>
+                    <AttachIcon size={12} />
+                    <span data-slot="attachment-name">{a.name}</span>
+                    <span data-slot="attachment-size">{sizeOf(a.bytes)}</span>
+                  </>
+                )}
                 <button
                   type="button"
                   data-slot="attachment-remove"
@@ -701,9 +764,9 @@ export function Composer({
         ) : null}
 
         <div data-slot="composer-lead">
-          {canAttach ? (
+          {attachable ? (
             <>
-              <Tip label={t("composer.attach")}>
+              <Tip label={t(canAttachFiles ? "composer.attachFiles" : "composer.attach")}>
                 <Button
                   data-variant="ghost"
                   data-kind="composer-plus"
@@ -718,9 +781,10 @@ export function Composer({
                 type="file"
                 hidden
                 multiple
-                accept={IMAGE_TYPES.join(",")}
+                // Any file when the agent takes files: what it cannot take is refused with the reason once chosen.
+                {...(canAttachFiles ? {} : { accept: IMAGE_TYPES.join(",") })}
                 onChange={(event) => {
-                  void attach(imagesOf(event.currentTarget.files));
+                  void attach(Array.from(event.currentTarget.files ?? []), "button");
                   event.currentTarget.value = "";
                 }}
               />
@@ -739,7 +803,8 @@ export function Composer({
             label={t("composer.message")}
             placeholder={placeholder}
             onKey={onKey}
-            onPasteFiles={(files) => void attach(files)}
+            pasteFiles={canAttachFiles ? "any" : "images"}
+            onPasteFiles={(files) => void attach(files, "paste")}
             handle={input}
             onCaret={lookAtCaret}
             menu={{

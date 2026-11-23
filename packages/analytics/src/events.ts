@@ -101,6 +101,8 @@ export const EVENTS = {
     environment: environment,
     size,
     images: count,
+    /** Files embedded in it (text files, PDFs): how many, never which. */
+    files: count,
     mentions: count,
     /** Sent into the running turn (Enter) instead of queued. */
     steered: z.boolean(),
@@ -166,6 +168,16 @@ export const EVENTS = {
   /** Something was picked from the @ menu: what kind of thing, never which. */
   mention_picked: o({ kind: z.enum(["file", "folder", "session"]) }),
   /**
+   * A file was attached in the input box. `kind`: what it is sent as (image, text file, PDF), never its name, path or
+   * type; `via`: the attach button, a paste, or a drop.
+   */
+  attachment_added: o({
+    kind: z.enum(["image", "text", "pdf"]),
+    via: z.enum(["button", "paste", "drop"]),
+  }),
+  /** A file could not be attached: a kind the agent does not take, too large, or one too many. Never which. */
+  attachment_refused: o({ reason: z.enum(["type", "too_large", "too_many"]) }),
+  /**
    * "Edit message" (formerly "Send again") on a turn that failed: its message went back in the box. `failure` is the kind (from Cycle's error code,
    * never the message); `changed`: the turn had run a command or changed a file first, and the person was warned.
    */
@@ -208,6 +220,8 @@ export const UI_EVENTS = [
   "code_theme_changed",
   "slash_command_used",
   "mention_picked",
+  "attachment_added",
+  "attachment_refused",
   "tool_copied",
   "tool_output_expanded",
   "plan_opened",

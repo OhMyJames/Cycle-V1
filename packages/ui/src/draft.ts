@@ -2,7 +2,14 @@
 // DOM, so that the rules can be tested. The text is kept in the renderer's localStorage by environment and session, so a
 // restart finds it again. The images are not: base64 of a picture would fill the little room localStorage has.
 import type { PromptBlock } from "./api.ts";
-import { ATTACHMENT_LIMITS, type Attachment, base64Bytes, isImageType } from "./attachments.ts";
+import {
+  ATTACHMENT_LIMITS,
+  type Attachment,
+  attachmentUri,
+  base64Bytes,
+  isImageType,
+  resourceName,
+} from "./attachments.ts";
 import { SESSION_URI_PREFIX } from "./mention.ts";
 import type { Block, QueuedPrompt } from "./model/index.ts";
 import { textOf } from "./model/index.ts";
@@ -83,16 +90,24 @@ export const browserStorage = (): DraftStorage | undefined => {
 
 type Saved = { text?: string; handled?: string };
 
-/** What a message is sent as: its text, then its images. Undefined when there is nothing to send. */
+/** An attachment as ACP carries it: an image, or an embedded file (decision 0010; .agents/notes/2026-11-22-attach-any-file.md). */
+const blockOf = (a: Attachment): PromptBlock =>
+  a.kind === "image"
+    ? { type: "image", data: a.data, mimeType: a.type }
+    : {
+        type: "resource",
+        resource:
+          a.kind === "text"
+            ? { uri: attachmentUri(a.name), mimeType: a.type, text: a.data }
+            : { uri: attachmentUri(a.name), mimeType: a.type, blob: a.data },
+      };
+
+/** What a message is sent as: its text, then its images and files. Undefined when there is nothing to send. */
 export const promptBlocks = (draft: Draft): PromptBlock[] | undefined => {
   if (draft.text.trim() === "" && draft.attachments.length === 0 && draft.kept.length === 0)
     return undefined;
   const text = draft.text.trim() === "" ? [] : [{ type: "text" as const, text: draft.text }];
-  const images = draft.attachments.map((a) => ({
-    type: "image" as const,
-    data: a.data,
-    mimeType: a.type,
-  }));
+  const images = draft.attachments.map(blockOf);
   // Only what the text still says: a mention whose @path was deleted is not sent. Once for each address. Blocks are
   // few (the same limit images are held to), and the words say it all when a link has no room.
   const seen = new Set<string>();
@@ -113,16 +128,48 @@ export const promptBlocks = (draft: Draft): PromptBlock[] | undefined => {
 
 /** What a person is told a block they cannot edit is called: its file's name, or what kind of block it is. */
 const keep = (block: Block): KeptBlock => {
-  const resource = block.resource as { uri?: unknown } | undefined;
-  const uri = [block.uri, resource?.uri].find((u): u is string => typeof u === "string");
   const name =
     typeof block.name === "string" && block.name !== ""
       ? block.name
-      : (uri?.split("/").filter(Boolean).at(-1) ?? block.type);
+      : (resourceName(block) ??
+        (typeof block.uri === "string" ? block.uri.split("/").filter(Boolean).at(-1) : undefined) ??
+        block.type);
   return { id: crypto.randomUUID(), name, block };
 };
 
-/** A prompt's blocks as a draft: its texts, and its images as attachments. Other blocks are left out. */
+/**
+ * A file this box attached (its uri is an `attachment:` one), as an attachment again: shown with its size, counted in
+ * the limits, removable. A file from elsewhere is a kept block: it goes out as it was.
+ */
+const fileOf = (block: Block): Attachment | undefined => {
+  const resource = block.resource as Record<string, unknown> | undefined;
+  const name = resourceName(block);
+  if (typeof resource?.uri !== "string" || !resource.uri.startsWith("attachment:///"))
+    return undefined;
+  if (name === undefined) return undefined;
+  const type = typeof resource.mimeType === "string" ? resource.mimeType : "text/plain";
+  if (typeof resource.text === "string")
+    return {
+      id: crypto.randomUUID(),
+      name,
+      kind: "text",
+      type,
+      data: resource.text,
+      bytes: new TextEncoder().encode(resource.text).length,
+    };
+  if (typeof resource.blob === "string" && type === "application/pdf")
+    return {
+      id: crypto.randomUUID(),
+      name,
+      kind: "pdf",
+      type,
+      data: resource.blob,
+      bytes: base64Bytes(resource.blob) ?? 0,
+    };
+  return undefined;
+};
+
+/** A prompt's blocks as a draft: its texts, its images and its own files as attachments. Other blocks are kept as they were. */
 export const draftOf = (blocks: readonly Block[]): Draft => {
   const texts: string[] = [];
   const attachments: Attachment[] = [];
@@ -156,10 +203,13 @@ export const draftOf = (blocks: readonly Block[]): Draft => {
       attachments.push({
         id: crypto.randomUUID(),
         name: typeof block.name === "string" ? block.name : "image",
+        kind: "image",
         type: block.mimeType,
         data: block.data,
         bytes: base64Bytes(block.data) ?? 0,
       });
+    } else if (block.type === "resource" && fileOf(block) !== undefined) {
+      attachments.push(fileOf(block) as Attachment);
     } else if (block.type !== "text") {
       kept.push(keep(block));
     }

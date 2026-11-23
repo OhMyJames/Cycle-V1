@@ -899,6 +899,7 @@ function AppWindow() {
                   environmentId={view.environmentId}
                   sessionKey={viewKey(view.environmentId, view.sessionId)}
                   canAttach={agent?.promptCapabilities?.image != null}
+                  canAttachFiles={agent?.promptCapabilities?.embeddedContext != null}
                   settings={
                     sessionSchema !== undefined && session !== undefined
                       ? { schema: sessionSchema, value: session.config ?? {} }

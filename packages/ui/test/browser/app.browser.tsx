@@ -973,7 +973,7 @@ test("a file that is not an image the agent takes is refused with the reason, an
   expect((await screen.findByRole("alert")).textContent).toContain(
     "pic.bmp is not a PNG, JPEG, GIF or WebP image.",
   );
-  expect(screen.queryByRole("list", { name: "Attached images" })).toBeNull();
+  expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
 });
 
 test("without the agent's word that it takes images, there is nothing to attach them with", async () => {

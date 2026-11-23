@@ -11,6 +11,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { resourceName } from "../attachments.ts";
 import { MENTION_META } from "../draft.ts";
 import { SESSION_URI_PREFIX } from "../mention.ts";
 import {
@@ -29,7 +30,7 @@ import { blockHolds, reveal } from "../reveal.ts";
 import { thinking } from "../thinking.ts";
 import { CopyButton } from "./copy-button.tsx";
 import { useI18n } from "./i18n.tsx";
-import { ArrowDownIcon, MessageIcon, ThoughtIcon } from "./icons.tsx";
+import { ArrowDownIcon, AttachIcon, MessageIcon, ThoughtIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
 import { Markdown } from "./markdown.tsx";
 import { PlanBlock } from "./plan.tsx";
@@ -119,6 +120,12 @@ function Blocks({ blocks, from }: { blocks: Block[]; from: "agent" | "user" }) {
             <span key={key}>{withSessionChips(String(block.text), sessions)}</span>
           ) : block.type === "image" ? (
             <ImageBlockView key={key} block={block} from={from} />
+          ) : block.type === "resource" ? (
+            // A file in the message: its name on a chip. What is in it is never drawn (it is the person's, and may be HTML).
+            <span data-slot="file-chip" key={key} title={resourceName(block)}>
+              <AttachIcon size={12} />
+              <span data-slot="attachment-name">{resourceName(block) ?? block.type}</span>
+            </span>
           ) : isMention(block, words) ? null : sessionMentionsOf([block])[0] !== undefined ? (
             // A session the words no longer name: still its chip, so what the agent was given is never invisible.
             <SessionChip
