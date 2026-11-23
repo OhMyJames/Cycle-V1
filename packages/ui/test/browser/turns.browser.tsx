@@ -269,7 +269,7 @@ test("a thought is a closed row: Thinking… while it streams, then how long it 
   ]);
 });
 
-test("a thought without times reads Thought, and Expand thinking opens thoughts by themselves", async () => {
+test("a thought without times reads Thought, and Expand thinking in Settings opens thoughts by themselves", async () => {
   const { user, log, script } = await open(
     you("u1"),
     think("t1", "weighing the options"),
@@ -278,18 +278,46 @@ test("a thought without times reads Thought, and Expand thinking opens thoughts 
   );
   const row = await screen.findByRole("button", { name: "Thought" });
   expect(row.getAttribute("aria-expanded")).toBe("false");
+  // Not in the session's menu: it is how every conversation reads, so it is with the other appearance settings.
   await user.click(screen.getByRole("button", { name: "Session actions" }));
-  const choice = await screen.findByRole("menuitemcheckbox", { name: "Expand thinking" });
+  expect(screen.queryByRole("menuitemcheckbox", { name: "Expand thinking" })).toBeNull();
+  await user.keyboard("{Escape}");
+  await user.click(screen.getByRole("button", { name: /^Settings/ }));
+  await user.click(await screen.findByRole("tab", { name: "Appearance" }));
+  const choice = await screen.findByRole("switch", { name: "Expand thinking" });
   expect(choice.getAttribute("aria-checked")).toBe("false");
   await user.click(choice);
-  // A checkbox item leaves the menu open, so that the change can be seen; close it.
-  await user.keyboard("{Escape}");
-  await waitFor(() => expect(row.getAttribute("aria-expanded")).toBe("true"));
-  await waitFor(() => expect(log.textContent).toContain("weighing the options"));
+  await waitFor(() => expect(choice.getAttribute("aria-checked")).toBe("true"));
   expect(thinking.get()).toBe(true);
-  expect(script.calls.filter(([name]) => name === "track")).toEqual([
-    ["track", "thinking_expand_changed", { on: true }],
-  ]);
+  await user.keyboard("{Escape}");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Thought" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    ),
+  );
+  await waitFor(() => expect(log.textContent).toContain("weighing the options"));
+  expect(
+    script.calls.filter(([name, event]) => name === "track" && event === "thinking_expand_changed"),
+  ).toEqual([["track", "thinking_expand_changed", { on: true }]]);
+});
+
+test("a thought with no words is a line with nothing to open", async () => {
+  thinking.set(true);
+  const { log } = await open(
+    you("u1"),
+    think("t1", ""),
+    say("a1"),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  await waitFor(() => expect(log.querySelector('[data-kind="thought"]')).not.toBeNull());
+  const thought = log.querySelector('[data-kind="thought"]') as HTMLElement;
+  expect(thought.textContent).toBe("Thought");
+  // Nothing to open: no chevron, closed although thoughts are set to open, and the row is not a control that opens.
+  const row = within(thought).getByRole("button", { name: "Thought" });
+  expect(thought.querySelector('[data-slot="tool-chevron"]')).toBeNull();
+  expect(row.getAttribute("aria-expanded")).toBe("false");
+  expect(row.matches('[data-disabled], [aria-disabled="true"], :disabled')).toBe(true);
+  expect(thought.querySelector('[data-slot="thought-text"]')).toBeNull();
 });
 
 test("a message says when it was sent and a reply when it finished, with the full time on focus; none when not known", async () => {

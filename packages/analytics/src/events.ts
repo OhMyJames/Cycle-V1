@@ -165,7 +165,7 @@ export const EVENTS = {
   diagram_source_shown: o({}),
   /** A thought in the conversation was opened by the person. `live`: while it was still arriving. Never its text. */
   thought_expanded: o({ live: z.boolean() }),
-  /** "Expand thinking" in the session menu was turned on or off: thoughts open by themselves, or stay closed. */
+  /** "Expand thinking" in Settings → Appearance was turned on or off: thoughts open by themselves, or stay closed. */
   thinking_expand_changed: o({ on: z.boolean() }),
   code_theme_changed: o({}),
   slash_command_used: o({}),

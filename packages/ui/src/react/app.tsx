@@ -7,14 +7,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@ui-sdk/react/dialog";
-import {
-  Menu,
-  MenuCheckboxItem,
-  MenuContent,
-  MenuItem,
-  MenuSeparator,
-  MenuTrigger,
-} from "@ui-sdk/react/menu";
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/react/menu";
 import { createResizableController } from "@ui-sdk/react/resizable";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { SOURCE_LOCALE } from "../i18n.ts";
@@ -29,7 +22,6 @@ import {
 } from "../sessions.ts";
 import type { PanelTabKind } from "../side-panel.ts";
 import { BLANK_KEY, viewKey } from "../store/index.ts";
-import { thinking } from "../thinking.ts";
 import { AnalyticsNotice } from "./analytics.tsx";
 import { BlankConversationView } from "./blank.tsx";
 import { Composer, composerInput } from "./composer.tsx";
@@ -166,7 +158,6 @@ export function App() {
 function AppWindow() {
   const store = useAppStore();
   const { t } = useI18n();
-  const expandThinking = useSyncExternalStore(thinking.subscribe, thinking.get, thinking.get);
   const ready = useAppState((s) => s.ready);
   const environments = useAppState((s) => s.environments);
   const status = useAppState((s) => s.status);
@@ -784,16 +775,6 @@ function AppWindow() {
                             {t("session.settings")}
                           </MenuItem>
                         ) : null}
-                        <MenuCheckboxItem
-                          value="thinking"
-                          checked={expandThinking}
-                          onCheckedChange={(checked) => {
-                            thinking.set(checked);
-                            store.track("thinking_expand_changed", { on: checked });
-                          }}
-                        >
-                          {t("thinking.expand")}
-                        </MenuCheckboxItem>
                         <MenuItem value="archive">
                           {t(session.archived ? "session.restore" : "session.archive")}
                         </MenuItem>

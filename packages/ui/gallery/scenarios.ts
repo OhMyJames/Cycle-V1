@@ -907,7 +907,8 @@ export const scenarios: Record<string, Scenario> = {
     ],
   },
   "thinking-shown": {
-    title: "Thinking as rows, opened by Expand thinking: one done, one still streaming (Thinking…)",
+    title:
+      "Thinking as rows, opened by Expand thinking (Settings): one done, one still streaming (Thinking…)",
     sessions: [session("s1", { title: "Think it through", state: "running" })],
     history: [
       you("u1", "Why is it slow?"),

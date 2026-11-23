@@ -35,6 +35,34 @@ test("sends a whole message that was never streamed", () => {
   ]);
 });
 
+test("sends the thinking of a whole message that was never streamed, but not an omitted one", () => {
+  const updates = feedAll([
+    {
+      type: "assistant",
+      message: {
+        id: "msg_3",
+        content: [
+          { type: "thinking", thinking: "Weighing it", signature: "x" },
+          { type: "thinking", thinking: "", signature: "y" },
+          { type: "text", text: "Done" },
+        ],
+      },
+    } as unknown as SDKMessage,
+  ]);
+  expect(updates).toEqual([
+    {
+      sessionUpdate: "agent_thought",
+      messageId: "msg_3",
+      content: [{ type: "text", text: "Weighing it" }],
+    },
+    {
+      sessionUpdate: "agent_message",
+      messageId: "msg_3",
+      content: [{ type: "text", text: "Done" }],
+    },
+  ]);
+});
+
 test("streams thinking as thought chunks", () => {
   const updates = feedAll([
     { type: "stream_event", event: { type: "message_start", message: { id: "m" } } },

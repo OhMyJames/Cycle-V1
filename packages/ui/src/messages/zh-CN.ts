@@ -593,6 +593,8 @@ export const zhCN: Readonly<Record<MessageKey, Message>> = {
     "Cycle 统计哪些功能被使用，用来改进它们。它从不发送你写的内容、你的文件或文件名。",
   "settings.codeTheme.description": "对话里的代码用这套配色，浅色和深色各一套。",
   "settings.codeTheme.preview": "预览",
+  "settings.thinking.description":
+    "对话里 agent 的思考默认展开。关掉时，每段思考保持收起，点开才看。",
   "settings.environments.lead": "会话运行的地方：这台电脑，以及通过 ssh 连接的其他机器。",
   "settings.environments.actions": "{name} 的操作",
   "settings.environments.edit": "编辑",
