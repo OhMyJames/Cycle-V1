@@ -400,6 +400,7 @@ export class ConnectionManager
                     filesInFolder: connection.client.capabilities.filesInFolder === true,
                     trust: connection.client.capabilities.trust === true,
                     connectors: connection.client.capabilities.connectors === true,
+                    sessionMentions: connection.client.capabilities.sessionMentions === true,
                   },
                 }
               : state === "reconnecting" && connection.status.capabilities !== undefined

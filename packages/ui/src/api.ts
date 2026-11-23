@@ -47,6 +47,8 @@ export type EnvironmentStatus = {
     trust?: boolean;
     /** It keeps connectors: MCP servers for every agent (docs/protocol.md §14). */
     connectors?: boolean;
+    /** An @ may name another of its sessions, which it gives the agent as a record (docs/protocol.md §8). */
+    sessionMentions?: boolean;
   };
   /**
    * The daemon on the environment speaks another major version of Cycle's protocol, so the app cannot use it

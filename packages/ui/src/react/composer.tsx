@@ -28,7 +28,13 @@ import {
   recall,
   sentTexts,
 } from "../draft.ts";
-import { mentionQuery, mentionRow } from "../mention.ts";
+import {
+  mentionableSessions,
+  mentionQuery,
+  mentionRow,
+  sessionLabel,
+  sessionUri,
+} from "../mention.ts";
 import type { ContextState, Status } from "../model/conversation.ts";
 import { type PlanItem, type QueuedPrompt, textOf } from "../model/index.ts";
 import { commandText, filterCommands, slashQuery } from "../slash.ts";
@@ -39,6 +45,7 @@ import { CloseIcon, PlusIcon, SendIcon, StopIcon } from "./icons.tsx";
 import { type InputHandle, type InputKey, MarkdownInput } from "./markdown-input.tsx";
 import { optionId, PickerMenu, type PickerRow } from "./picker-menu.tsx";
 import { PlanStrip } from "./plan.tsx";
+import { sessionTitle } from "./session-list.tsx";
 import { SettingChips, type SettingsOf } from "./setting-chips.tsx";
 import { MOD } from "./sidebar.tsx";
 import { useAppState, useAppStore } from "./store-context.tsx";
@@ -144,6 +151,10 @@ export function Composer({
   const steers = working && canQueue && canSteer && capabilities?.steer === true;
   const canFind =
     connected && (blank ? capabilities?.filesInFolder === true : capabilities?.files === true);
+  // Other sessions of the same daemon, which it gives the agent as a record of what was said (docs/protocol.md §8). An
+  // older daemon does not say it can: then there is no such group.
+  const canMentionSessions = connected && capabilities?.sessionMentions === true;
+  const sessions = useAppState((s) => s.sessions[environmentId] ?? NONE);
   const recalled = useRef<Recall>(NOT_RECALLING);
   const [problem, setProblem] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
@@ -198,10 +209,41 @@ export function Composer({
         }));
   const hits =
     typed.mention !== undefined && found?.query === typed.mention ? found.result.entries : [];
-  const mentionRows: PickerRow[] = hits.map((hit) => {
-    const row = mentionRow(hit.path, hit.kind);
-    return { key: hit.path, name: row.name, description: row.folder };
-  });
+  // Sessions are known here at once, files a moment later: they are shown together, so the rows do not move under the
+  // pointer when the files come.
+  const filesAnswered = !canFind || found?.query === typed.mention;
+  const others =
+    typed.mention !== undefined && canMentionSessions && filesAnswered
+      ? mentionableSessions(
+          sessions,
+          typed.mention,
+          {
+            environmentId,
+            sessionId: blank ? undefined : sessionKey.slice(environmentId.length + 1),
+          },
+          sessionTitle,
+        )
+      : [];
+  // Headed only when sessions are among them: a box that can name only files looks as it did.
+  const grouped = others.length > 0;
+  const mentionRows: PickerRow[] = [
+    ...hits.map((hit) => {
+      const row = mentionRow(hit.path, hit.kind);
+      return {
+        key: hit.path,
+        name: row.name,
+        description: row.folder,
+        ...(grouped ? { group: t("composer.mentions.files") } : {}),
+      };
+    }),
+    ...others.map((other) => ({
+      key: `session:${other.sessionId}`,
+      name: sessionTitle(other),
+      description: other.cwd.split("/").filter(Boolean).at(-1) ?? other.cwd,
+      group: t("composer.mentions.sessions"),
+      kind: "session",
+    })),
+  ];
   const commandQuery = typed.slash === undefined ? undefined : `/${typed.slash}`;
   const mentionQueryText = typed.mention === undefined ? undefined : `@${typed.mention}`;
   const kind: "command" | "mention" | undefined =
@@ -223,7 +265,7 @@ export function Composer({
     typed.mention !== undefined &&
     found?.query === typed.mention &&
     (typed.mention !== "" || found.result.truncated !== true) &&
-    hits.length === 0 &&
+    mentionRows.length === 0 &&
     mentionQueryText !== dismissed;
   const lookAtCaret = () => {
     const caret = input.current?.caret();
@@ -241,20 +283,32 @@ export function Composer({
       store.track("slash_command_used", {});
     } else if (kind === "mention") {
       const hit = hits[index];
+      const other = others[index - hits.length];
       const root = found?.result.root;
-      if (hit === undefined || root === undefined) return;
-      const mention: Mention = {
-        path: hit.path,
-        kind: hit.kind,
-        uri: fileUri(root, hit.path, hit.kind),
-        name: mentionRow(hit.path, hit.kind).name.replace(/\/$/, ""),
-      };
+      let mention: Mention;
+      if (hit !== undefined && root !== undefined) {
+        mention = {
+          path: hit.path,
+          kind: hit.kind,
+          uri: fileUri(root, hit.path, hit.kind),
+          name: mentionRow(hit.path, hit.kind).name.replace(/\/$/, ""),
+        };
+      } else if (other !== undefined) {
+        const title = sessionTitle(other);
+        mention = {
+          path: sessionLabel(title),
+          kind: "session",
+          uri: sessionUri(other.sessionId),
+          name: title,
+        };
+      } else return;
       // The @ and what was typed after it become the path and a space; the link for the agent is kept beside the text.
       input.current?.replaceBeforeCaret(
         (typed.mention?.length ?? 0) + 1,
         `${mentionText(mention)} `,
       );
       store.drafts.addMention(sessionKey, mention);
+      store.track("mention_picked", { kind: mention.kind });
     }
     input.current?.focus();
   };
@@ -513,7 +567,13 @@ export function Composer({
   const hasTools = hasChoiceSettings || context !== undefined;
 
   const sendName = t(steers ? "composer.steer" : "composer.send");
-  const menuLabel = t(kind === "command" ? "composer.commands.label" : "composer.mentions.label");
+  const menuLabel = t(
+    kind === "command"
+      ? "composer.commands.label"
+      : canMentionSessions
+        ? "composer.mentions.labelWithSessions"
+        : "composer.mentions.label",
+  );
 
   return (
     <div data-slot="composer" data-dropping={dropping || undefined} ref={root}>
@@ -595,7 +655,13 @@ export function Composer({
         ) : nothingFound ? (
           <div data-slot="picker" role="status">
             {/* A bare @ in a folder with nothing in it says so, rather than opening nothing. */}
-            {t(typed.mention === "" ? "composer.mentions.none" : "composer.mentions.empty")}
+            {t(
+              typed.mention === ""
+                ? "composer.mentions.none"
+                : canMentionSessions
+                  ? "composer.mentions.emptyWithSessions"
+                  : "composer.mentions.empty",
+            )}
           </div>
         ) : null}
         {hasAttachments ? (

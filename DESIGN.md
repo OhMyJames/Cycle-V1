@@ -208,7 +208,7 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
   - 按 daemon 日志的 `stopReason` 切分 turn（`--cycle-gap-turn` 隔开问题起止）；思考默认折叠隐藏，不打断连续工具流；未正常结束的 turn 拎出末尾失败工具并附原因块（`turn-end`）。
   - **工具行不用图标，左列只放状态**：完成为 5px 灰点（`--cycle-ink-disabled`，纯装饰，读屏给状态词），在跑为旋转线，失败为红叉；一段调用展开后细竖线串联各点。
   - **有 `description` 优先展示**：Bash / Monitor / Agent 的单行短说明（≤ 160 字）用正文字体居前，后跟淡灰等宽命令/路径，放不下时先让摘要再让说明并在末尾淡出；没有时用“动词 + 摘要”。StepLine 与进行中卡片同步遵循。
-  - **`@` 提及不画两遍**：用户消息中带 `cycle/mention` 的 `resource_link` 当正文中仍含 `@path` 时不重复渲染；其余链接渲染为 `[名字]`。
+  - **`@` 提及不画两遍**：用户消息中带 `cycle/mention` 的 `resource_link` 当正文中仍含 `@path` 时不重复渲染；其余链接渲染为 `[名字]`。提及的是另一个 session（`cycle://session/`）时，正文里的 `@标题` 画成带对话图标的 `mention-chip`，正文已不含它时也单独画出 chip。
   - **文件工具（Edit / Write / Read / Glob / Grep）**：按 ACP `diff` 与 `_meta["cycle/toolResult"]`（协议 §9）渲染、不硬编码工具名——Edit 仅显示本次调用的增删计数（`+2 −1`，新建为 `Created +N`），展开显示带行号与浅绿/浅红底的 diff（省去首段 `@@`，段间 `⋯`，上限 400 行，不再重复输入 JSON，过大或空文件给出明确提示）；Read 写出行范围/总行数（含读取图片直接展示）；Glob/Grep 写出文件数与匹配数/行数（截断时带 `+`）；输入中仅含行上已显示的字段时展开不再重复。
   - **命令（Bash / Monitor）**：行上只在没照常跑完时多写一句（`interrupted`、`exited with code 2`、`ran past 2 min, now in the background`、`in the background`）；有退出码含义（`returnCodeInterpretation`）时显示模型看到的原文。展开为三块：命令（不再是输入 JSON）、输出、错误（另一块，标题为红；来自 `_meta["cycle/stream"]: "stderr"`），各带 `Copy`（经 main 的 `copyText`，页面无剪贴板权限，失败不显示 `Copied`）。长输出只显示末 40 行，上方 `Show N earlier lines`；超过 20,000 字时保留末尾。
   - **子 agent 挂在它的 Agent 行上**：只在调用本身未结束时转圈（转到后台的之后不转，只写文字：它的结束可能永远不来），写 `in the background · using Grep`；结束写 `done · 4 steps · 1m 3s`，失败为红字。
@@ -228,7 +228,7 @@ Cycle 界面的设计系统：**这个应用长什么样、为什么**，作为�
   - **中间输入区（`composer-box`）**：克制微边（`--cycle-border-default`）+ 顶部硬件高光；聚焦时只把边框向 `--cycle-input-border` 加深一档、托起一点阴影（`--cycle-focus-composer`），不叠光晕、不画外圈线和内描边（CYCL-75：输入框一天里大部分时间都有焦点，焦点只是提示）；高对比模式下用 `--cycle-input-border`，强制色模式下用系统 `Highlight` 轮廓。圆角统一用 `--cycle-radius-composer`（16px）：一行（46px，含边框）和展开后都是同一个圆角矩形，两种状态之间不跳变。默认单行（左 `+` 添加附件[仅声明 `image` 能力时显示]、中 Lexical Markdown 输入框、右侧动作：空闲时一个圆形发送按钮，空态中性柔灰、有内容亮安全橙；运行时 Queue / Send now / Stop 并排在同一行，不因按钮多而变高）；只有输入超出一行、出现换行或添加附件时才展开为三行布局（附件卡片在上、2 行内容区、底部动作栏），且不闪烁回弹。`/` 与 `@` 的候选菜单以整个输入框为宽（不是输入格），长文件名末尾省略，目录提示最多占 40%；`@` 后文件夹里什么都没有时明说。
   - **下方工具区（`composer-tools`）**：框外无边框紧凑一行；左侧放置权限模式芯片（带盾牌图标；完整会话设置收进头部 `"…"` 菜单），右侧放置 Model 芯片、Effort 芯片与 Fluid UI 风格弹性 `ContextMeter` 用量环（欠阻尼弹簧同步弧线与百分比，满额轻膨；它是按钮，点开一个 `Popover`，与模型、权限的菜单同一种 `Surface/Popover`（`context-details.tsx`），像 `/context` 一样直接列数字：总量与比例、分段条、每部分一行（强调色由深到浅的单一色相，压缩预留用墨色，剩余留空），再列自动压缩点、费用与压缩次数，全部 `meta` 字号、等宽数字，不写说明；只有无数据、压缩中、压缩前三种状态写一行字；订阅账号时底部再列 Plan usage（每个限额一行比例与重置时间加细条，平时墨色，快到用注意色，到了用危险色）；压缩后未更新时底圈改虚线、弧线变淡）。
   - **发送与草稿**：文本草稿持久化到 `localStorage`（按环境+会话键隔离），图片与 `@` 链接保持在内存；发送失败或被退回时自动放回输入框前端，不丢内容。
-  - **命令与提及**：行首 `/` 触发 agent 命令候选；`@` 触发工作区文件搜索，发送时附带 `resource_link`。
+  - **命令与提及**：行首 `/` 触发 agent 命令候选；`@` 触发工作区文件搜索，发送时附带 `resource_link`；daemon 支持时同一菜单另有 Sessions 一组（同一 environment 的其他 session，最近在前），两组时各带小标题。
 
 ### 4.5 表单弹窗与破坏性确认范式
 

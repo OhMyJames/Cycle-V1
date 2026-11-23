@@ -161,6 +161,15 @@ export const CloseIcon = ({ size = 16, ...rest }: IconProps) => (
   </Svg>
 );
 
+/** iconmcp: message */
+export const MessageIcon = ({ size = 16, ...rest }: IconProps) => (
+  <Svg size={size} {...rest}>
+    <g>
+      <path d="M4.25 3 L11.75 3 C12.855 3 13.75 3.895 13.75 5 L13.75 9.25 C13.75 10.355 12.855 11.25 11.75 11.25 L7.25 11.25 L4.25 13.75 L4.25 11.25 L3.25 11.25 C2.698 11.25 2.25 10.802 2.25 10.25 L2.25 5 C2.25 3.895 3.145 3 4.25 3 Z" />
+    </g>
+  </Svg>
+);
+
 /** iconmcp: search */
 export const SearchIcon = ({ size = 16, ...rest }: IconProps) => (
   <Svg size={size} {...rest}>

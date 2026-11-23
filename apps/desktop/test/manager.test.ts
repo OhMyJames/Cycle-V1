@@ -167,6 +167,7 @@ test("connects, creates a session, and lists it", async () => {
     filesInFolder: true,
     trust: true,
     connectors: true,
+    sessionMentions: true,
   });
   expect((await m.agents("local")).map((a) => a.id)).toEqual(["fake"]);
 });
@@ -408,6 +409,7 @@ test("a connection that drops is picked up again, and a request still open is no
     filesInFolder: true,
     trust: true,
     connectors: true,
+    sessionMentions: true,
   });
   await until(
     () => of(events, "environment-status").at(-1)?.state === "connected",

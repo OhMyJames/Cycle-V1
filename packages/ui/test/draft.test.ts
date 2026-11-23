@@ -368,3 +368,29 @@ test("blocks the box cannot edit come back whole: a PDF, a text file, a link tha
     3,
   );
 });
+
+test("a session named with @ is its title in the text and a session link beside it, and comes back as a mention", () => {
+  const mention: Mention = {
+    path: "Fix the login bug",
+    kind: "session",
+    uri: "cycle://session/s2",
+    name: "Fix the login bug",
+  };
+  expect(mentionText(mention)).toBe("@Fix the login bug");
+  const sent = promptBlocks({
+    text: "go on from @Fix the login bug.",
+    attachments: [],
+    mentions: [mention],
+    kept: [],
+  });
+  expect(sent).toEqual([
+    { type: "text", text: "go on from @Fix the login bug." },
+    {
+      type: "resource_link",
+      name: "Fix the login bug",
+      uri: "cycle://session/s2",
+      _meta: { "cycle/mention": "Fix the login bug" },
+    },
+  ]);
+  expect(draftOf((sent ?? []) as Block[]).mentions).toEqual([mention]);
+});

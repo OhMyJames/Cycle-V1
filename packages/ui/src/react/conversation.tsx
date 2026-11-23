@@ -1,6 +1,7 @@
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
 import {
   memo,
+  type ReactNode,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -11,6 +12,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { MENTION_META } from "../draft.ts";
+import { SESSION_URI_PREFIX } from "../mention.ts";
 import {
   type Block,
   type BlockCache,
@@ -27,7 +29,7 @@ import { blockHolds, reveal } from "../reveal.ts";
 import { thinking } from "../thinking.ts";
 import { CopyButton } from "./copy-button.tsx";
 import { useI18n } from "./i18n.tsx";
-import { ArrowDownIcon, ThoughtIcon } from "./icons.tsx";
+import { ArrowDownIcon, MessageIcon, ThoughtIcon } from "./icons.tsx";
 import { ImageBlockView } from "./image.tsx";
 import { Markdown } from "./markdown.tsx";
 import { PlanBlock } from "./plan.tsx";
@@ -50,6 +52,54 @@ const isMention = (block: Block, text: string): boolean => {
 const hasWords = (block: Block): boolean =>
   block.type === "text" && String(block.text).trim() !== "";
 
+/** The sessions a message names with @: what its text says of each, and the session's title. */
+const sessionMentionsOf = (blocks: readonly Block[]): { said: string; name: string }[] =>
+  blocks.flatMap((block) => {
+    const said = (block._meta as Record<string, unknown> | undefined)?.[MENTION_META];
+    return block.type === "resource_link" &&
+      typeof block.uri === "string" &&
+      block.uri.startsWith(SESSION_URI_PREFIX) &&
+      typeof said === "string" &&
+      said !== ""
+      ? [{ said, name: typeof block.name === "string" && block.name !== "" ? block.name : said }]
+      : [];
+  });
+
+/** A session named with @, as a sent message shows it: a chip with its name, not what the agent was given of it. */
+const SessionChip = ({ said, name }: { said: string; name: string }) => (
+  <span data-slot="mention-chip" data-kind="session" title={name}>
+    <MessageIcon size={12} />
+    {said}
+  </span>
+);
+
+/** The words of a message, each `@title` of a session it names drawn as that session's chip. */
+const withSessionChips = (
+  text: string,
+  mentions: readonly { said: string; name: string }[],
+): ReactNode => {
+  if (mentions.length === 0) return text;
+  // The longest first, so that a title that starts another does not take part of it.
+  const words = [...mentions].sort((a, b) => b.said.length - a.said.length);
+  const parts: ReactNode[] = [];
+  let rest = text;
+  let at = 0;
+  while (rest !== "") {
+    let found: { index: number; mention: { said: string; name: string } } | undefined;
+    for (const mention of words) {
+      const index = rest.indexOf(`@${mention.said}`);
+      if (index !== -1 && (found === undefined || index < found.index)) found = { index, mention };
+    }
+    if (found === undefined) break;
+    if (found.index > 0) parts.push(rest.slice(0, found.index));
+    parts.push(<SessionChip key={`chip-${at}`} {...found.mention} />);
+    rest = rest.slice(found.index + found.mention.said.length + 1);
+    at += 1;
+  }
+  if (rest !== "") parts.push(rest);
+  return parts;
+};
+
 const linkName = (block: Block): string =>
   typeof block.name === "string" && block.name !== ""
     ? block.name
@@ -59,16 +109,23 @@ const linkName = (block: Block): string =>
 
 function Blocks({ blocks, from }: { blocks: Block[]; from: "agent" | "user" }) {
   const words = blocks.map((b) => (b.type === "text" ? String(b.text) : "")).join("");
+  const sessions = sessionMentionsOf(blocks);
   return (
     <>
       {blocks
         .map((block, index) => ({ block, key: `${block.type}-${index}` }))
         .map(({ block, key }) =>
           block.type === "text" ? (
-            <span key={key}>{String(block.text)}</span>
+            <span key={key}>{withSessionChips(String(block.text), sessions)}</span>
           ) : block.type === "image" ? (
             <ImageBlockView key={key} block={block} from={from} />
-          ) : isMention(block, words) ? null : block.type === "resource_link" ? (
+          ) : isMention(block, words) ? null : sessionMentionsOf([block])[0] !== undefined ? (
+            // A session the words no longer name: still its chip, so what the agent was given is never invisible.
+            <SessionChip
+              key={key}
+              {...(sessionMentionsOf([block])[0] as { said: string; name: string })}
+            />
+          ) : block.type === "resource_link" ? (
             // A link that is not a mention in the text: its name, marked off, so it reads as what was attached.
             <span data-slot="block-note" key={key}>
               [{linkName(block)}]

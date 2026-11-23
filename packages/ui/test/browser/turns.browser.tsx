@@ -122,6 +122,43 @@ test("a call with a description reads as it; what it ran follows, and a mention 
   expect(log.textContent).toContain("@src/a.ts");
 });
 
+test("a session named with @ is a chip in the sent message, and the record the agent was given is not shown", async () => {
+  const { log } = await open(
+    u({
+      sessionUpdate: "user_message",
+      messageId: "u1",
+      content: [
+        { type: "text", text: "Go on from @Fix the login bug, then @Gone" },
+        {
+          type: "resource_link",
+          name: "Fix the login bug",
+          uri: "cycle://session/s2",
+          _meta: { "cycle/mention": "Fix the login bug" },
+        },
+        {
+          type: "resource_link",
+          name: "Unsaid",
+          uri: "cycle://session/s3",
+          _meta: { "cycle/mention": "Unsaid" },
+        },
+      ],
+    }),
+    state({ state: "idle", stopReason: "end_turn" }),
+  );
+  const chips = await waitFor(() => {
+    const found = [...log.querySelectorAll('[data-slot="mention-chip"]')];
+    expect(found).toHaveLength(2);
+    return found;
+  });
+  expect(chips.map((c) => [c.textContent, c.getAttribute("title")])).toEqual([
+    ["Fix the login bug", "Fix the login bug"],
+    // One the words no longer say is still shown.
+    ["Unsaid", "Unsaid"],
+  ]);
+  const message = chips[0]?.closest('[data-slot="message"]');
+  expect(message?.textContent).toBe("Go on from Fix the login bug, then @GoneUnsaid");
+});
+
 test("only a purpose sentence is a description: an MCP tool's description field is content, not the line", async () => {
   await open(
     you("u1"),

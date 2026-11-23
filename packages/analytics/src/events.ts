@@ -163,6 +163,8 @@ export const EVENTS = {
   diagram_source_shown: o({}),
   code_theme_changed: o({}),
   slash_command_used: o({}),
+  /** Something was picked from the @ menu: what kind of thing, never which. */
+  mention_picked: o({ kind: z.enum(["file", "folder", "session"]) }),
   /**
    * "Send again" on a turn that failed: its message went back in the box. `failure` is the kind (from Cycle's error code,
    * never the message); `changed`: the turn had run a command or changed a file first, and the person was warned.
@@ -197,6 +199,7 @@ export const UI_EVENTS = [
   "overview_item_revealed",
   "code_theme_changed",
   "slash_command_used",
+  "mention_picked",
   "tool_copied",
   "tool_output_expanded",
   "plan_opened",

@@ -180,7 +180,11 @@ export const zhCN: Readonly<Record<MessageKey, Message>> = {
   "composer.commands.label": "命令",
 
   "composer.mentions.label": "文件和文件夹",
+  "composer.mentions.labelWithSessions": "文件、文件夹和会话",
+  "composer.mentions.files": "文件和文件夹",
+  "composer.mentions.sessions": "会话",
   "composer.mentions.empty": "没有匹配的文件或文件夹。",
+  "composer.mentions.emptyWithSessions": "没有匹配的文件、文件夹或会话。",
   "composer.mentions.none": "这里没有文件或文件夹。",
 
   // 排队的消息

@@ -24,7 +24,13 @@ const mount = async (
   options: {
     snapshot?: () => SessionSnapshot;
     configure?: (script: ReturnType<typeof fakeBridge>) => void;
-    capabilities?: { queue: boolean; steer?: boolean; files: boolean; folders: boolean };
+    capabilities?: {
+      queue: boolean;
+      steer?: boolean;
+      files: boolean;
+      folders: boolean;
+      sessionMentions?: boolean;
+    };
     steer?: boolean;
   } = {},
 ) => {
@@ -1555,6 +1561,92 @@ test("a daemon that does not find files is not asked for them", async () => {
   });
   expect(screen.queryByRole("listbox", { name: "Files and folders" })).toBeNull();
   expect(named("searchFiles")).toHaveLength(0);
+});
+
+/** The sessions of the environment, for the @ menu: the one open, two others, and one archived. */
+const otherSessions = (script: ReturnType<typeof fakeBridge>) => {
+  script.bridge.sessions = async (environmentId: string) => [
+    summary("s1", environmentId),
+    {
+      ...summary("s2", environmentId),
+      cwd: "/repo/app",
+      title: "Fix the login bug",
+      updatedAt: "2020-01-01T00:00:00.000Z",
+    },
+    {
+      ...summary("s3", environmentId),
+      title: "Login *styles*",
+      updatedAt: "2020-01-01T12:00:00.000Z",
+    },
+    { ...summary("s4", environmentId), title: "Old login notes", archived: true },
+  ];
+};
+
+test("an @ lists the environment's other sessions under their own heading; one picked is sent as a session link", async () => {
+  const { user, bridge, named, calls } = await mount({
+    capabilities: { queue: true, files: true, folders: true, sessionMentions: true },
+    configure: otherSessions,
+  });
+  bridge.searchFiles = files([{ path: "src/login.ts", kind: "file" }]);
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "see @log");
+  const menu = await screen.findByRole("listbox", { name: "Files, folders and sessions" });
+  const rows = (name: string) =>
+    within(within(menu).getByRole("group", { name }))
+      .getAllByRole("option")
+      .map((o) => o.querySelector('[data-slot="picker-name"]')?.textContent);
+  expect(rows("Files and folders")).toEqual(["login.ts"]);
+  // Not the one being written in, not an archived one; the most recent first.
+  expect(rows("Sessions")).toEqual(["Login *styles*", "Fix the login bug"]);
+  await press(box, "ArrowDown");
+  await press(box, "ArrowDown");
+  await press(box, "Enter");
+  await waitFor(() => expect(boxText(box)).toBe("see @Fix the login bug "));
+  await write(box, "please");
+  await press(box, "Enter");
+  await waitFor(() => expect(named("prompt")).toHaveLength(1));
+  expect(named("prompt")[0]?.[3]).toEqual([
+    { type: "text", text: "see @Fix the login bug please" },
+    {
+      type: "resource_link",
+      name: "Fix the login bug",
+      uri: "cycle://session/s2",
+      _meta: { "cycle/mention": "Fix the login bug" },
+    },
+  ]);
+  // What kind of thing was picked, never which.
+  expect(calls.filter(([name, event]) => name === "track" && event === "mention_picked")).toEqual([
+    ["track", "mention_picked", { kind: "session" }],
+  ]);
+});
+
+test("a session's title is said without the marks Markdown would read", async () => {
+  const { user, bridge } = await mount({
+    capabilities: { queue: true, files: true, folders: true, sessionMentions: true },
+    configure: otherSessions,
+  });
+  bridge.searchFiles = files([]);
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "@sty");
+  await screen.findByRole("listbox", { name: "Files, folders and sessions" });
+  await press(box, "Enter");
+  await waitFor(() => expect(boxText(box)).toBe("@Login styles "));
+});
+
+test("a daemon that cannot give sessions to the agent has no sessions in the @ menu", async () => {
+  const { user, bridge } = await mount({ configure: otherSessions });
+  bridge.searchFiles = files([{ path: "src/login.ts", kind: "file" }]);
+  await openFirstSession(user);
+  const box = await screen.findByRole("textbox", { name: "Message" });
+  await ready(box);
+  await write(box, "@log");
+  const menu = await screen.findByRole("listbox", { name: "Files and folders" });
+  expect(within(menu).queryByRole("group")).toBeNull();
+  expect(within(menu).getAllByRole("option")).toHaveLength(1);
 });
 
 test("while the first message makes the session it is shown, nothing can be changed, and a failure gives it back with the reason", async () => {

@@ -3,19 +3,20 @@
 // restart finds it again. The images are not: base64 of a picture would fill the little room localStorage has.
 import type { PromptBlock } from "./api.ts";
 import { ATTACHMENT_LIMITS, type Attachment, base64Bytes, isImageType } from "./attachments.ts";
+import { SESSION_URI_PREFIX } from "./mention.ts";
 import type { Block, QueuedPrompt } from "./model/index.ts";
 import { textOf } from "./model/index.ts";
 
 /**
- * A file or folder picked after an @. The message holds `@path` as text, which is what a person reads; this is what
- * goes with it for the agent (docs/protocol.md §8). Kept with the draft in memory only: text that comes back from
- * storage is just text.
+ * A file, folder or session picked after an @. The message holds `@path` as text, which is what a person reads; this
+ * is what goes with it for the agent (docs/protocol.md §8). Kept with the draft in memory only: text that comes back
+ * from storage is just text.
  */
 export type Mention = {
-  /** Relative to the session's folder, as in the text after the @. */
+  /** What the text says after the @: a path relative to the session's folder, or a session's title (`sessionLabel`). */
   readonly path: string;
-  readonly kind: "file" | "folder";
-  /** `file://` and the absolute path, a folder's ending in `/`. */
+  readonly kind: "file" | "folder" | "session";
+  /** `file://` and the absolute path, a folder's ending in `/`; `cycle://session/` and the id for a session. */
   readonly uri: string;
   readonly name: string;
 };
@@ -133,7 +134,11 @@ export const draftOf = (blocks: readonly Block[]): Draft => {
       if (typeof block.uri === "string" && typeof path === "string") {
         mentions.push({
           path,
-          kind: block.uri.endsWith("/") ? "folder" : "file",
+          kind: block.uri.startsWith(SESSION_URI_PREFIX)
+            ? "session"
+            : block.uri.endsWith("/")
+              ? "folder"
+              : "file",
           uri: block.uri,
           name: typeof block.name === "string" ? block.name : path,
         });
